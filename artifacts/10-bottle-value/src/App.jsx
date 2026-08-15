@@ -3,6 +3,7 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import confetti from "canvas-confetti";
 import { supabase, userFromSupabase } from "./supabase.js";
+import { useSEO } from "./useSEO.js";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import {
@@ -2867,6 +2868,9 @@ export default function App() {
       `${p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${p.dose.toLowerCase().replace(/\s+/g, "")}` === productSlug
     ) ?? null;
   });
+  // ── SEO: dynamic meta/title/JSON-LD per page (invisible to users) ────────
+  useSEO({ page, product: selectedProduct });
+
   const [authMode, setAuthMode] = useState("signin");
   const [forgotEmail, setForgotEmail] = useState("");
   const [resetForm, setResetForm] = useState({ code: "", password: "", confirmPassword: "" });

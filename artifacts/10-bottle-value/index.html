@@ -3,16 +3,77 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+
+    <!-- Primary meta (overridden dynamically by useSEO hook for product pages) -->
     <title>10BottleValueCo — Research Peptides At Wholesale Prices</title>
-    <meta name="description" content="Buy research peptides in 10-vial kits. Up to 4× cheaper than most brands. No single vials — only bulk kits. BPC-157, TB-500, Semaglutide, Tirzepatide and more. Worldwide shipping." />
+    <meta name="description" content="Buy research peptides in 10-vial kits. Up to 4× cheaper than most brands. BPC-157, TB-500, Semaglutide, Tirzepatide, Retatrutide and more. Ships worldwide. Research use only." />
     <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="language" content="en" />
+
+    <!-- Canonical (overridden per-page by useSEO hook) -->
+    <link rel="canonical" href="https://10bottlevalue.co/" />
+
+    <!-- Open Graph -->
+    <meta property="og:site_name" content="10BottleValue.co" />
     <meta property="og:title" content="10BottleValueCo — Research Peptides At Wholesale Prices" />
-    <meta property="og:description" content="Buy research peptides in 10-vial kits. Up to 4× cheaper than most brands. No single vials — only bulk kits. Worldwide shipping." />
+    <meta property="og:description" content="Buy research peptides in 10-vial kits. Up to 4× cheaper than most brands. BPC-157, TB-500, Semaglutide, Tirzepatide, Retatrutide and more. Ships worldwide. Research use only." />
     <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://10bottlevalue.co/" />
+    <meta property="og:image" content="https://10bottlevalue.co/logo.png" />
+
+    <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="10BottleValueCo — Research Peptides At Wholesale Prices" />
-    <meta name="twitter:description" content="Buy research peptides in 10-vial kits. Up to 4× cheaper than most brands. No single vials — only bulk kits. Worldwide shipping." />
+    <meta name="twitter:description" content="Buy research peptides in 10-vial kits. Up to 4× cheaper than most brands. Ships worldwide. Research use only." />
+    <meta name="twitter:image" content="https://10bottlevalue.co/logo.png" />
+
+    <!-- Favicon -->
     <link rel="icon" type="image/png" href="/favicon-logo.png" />
+
+    <!-- Performance: preconnect to critical origins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="dns-prefetch" href="https://js.stripe.com" />
+
+    <!-- Organization + WebSite JSON-LD (static baseline for crawlers) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://10bottlevalue.co/#organization",
+          "name": "10BottleValue.co",
+          "url": "https://10bottlevalue.co/",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://10bottlevalue.co/logo.png"
+          },
+          "contactPoint": {
+            "@type": "ContactPoint",
+            "email": "support@10bottlevalue.co",
+            "contactType": "customer support"
+          }
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://10bottlevalue.co/#website",
+          "url": "https://10bottlevalue.co/",
+          "name": "10BottleValue.co",
+          "description": "Research peptides at wholesale prices — 10-vial kits, worldwide shipping.",
+          "publisher": { "@id": "https://10bottlevalue.co/#organization" },
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "https://10bottlevalue.co/?search={search_term_string}"
+            },
+            "query-input": "required name=search_term_string"
+          }
+        }
+      ]
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>
