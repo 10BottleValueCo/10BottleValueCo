@@ -11971,7 +11971,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
 
                   {/* Desktop: single row */}
-                  <div className="hidden md:flex md:items-center md:gap-x-3" style={{textShadow:"1px 1px 0 rgba(0,0,0,0.35), 2px 2px 0 rgba(0,0,0,0.35), 3px 3px 0 rgba(0,0,0,0.35), 4px 4px 6px rgba(0,0,0,0.35)"}}>
+                  <div className="hidden md:flex md:items-center md:gap-x-3" style={{textShadow:"1px 1px 0 rgba(0,0,0,0.40), 2px 2px 0 rgba(0,0,0,0.40), 3px 3px 0 rgba(0,0,0,0.40), 4px 4px 6px rgba(0,0,0,0.40)"}}>
                     {/* 10-vial kits only */}
                     <div className="flex items-center gap-2">
                       <span className="text-base leading-none">📦</span>
