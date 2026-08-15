@@ -10,6 +10,19 @@ const SITE_NAME  = "10BottleValue.co";
 const SITE_URL   = "https://10bottlevalue.co";
 const SITE_IMAGE = `${SITE_URL}/logo.png`;
 
+// Mirrors getProductVisual() in App.jsx — returns the bottle image actually
+// shown for this product. Must stay in sync if App.jsx image logic changes.
+function productImage(name) {
+  const n = name.toLowerCase();
+  if (n.includes("ghk-cu") || n.includes("ghk"))
+    return `${SITE_URL}/bottle-blue.png`;
+  if (n.includes("glow") || n.includes("klow"))
+    return `${SITE_URL}/bottle-light-blue.png`;
+  if (n.includes("bac water"))
+    return `${SITE_URL}/bottle-water.png`;
+  return `${SITE_URL}/bottle-white.png`;
+}
+
 // Slug formula — must mirror makeProductSlug() in App.jsx
 function makeSlug(p) {
   return `${p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${p.dose.toLowerCase().replace(/\s+/g, "")}`;
@@ -91,6 +104,7 @@ export function useSEO({ page, product }) {
       const total     = product.total;
       const inStock   = !product.outOfStock;
       const cls       = productClass(name);
+      const prodImg   = productImage(name); // actual bottle shown for this product
 
       // Title: name + dose + kit indicator
       const title = `${name} ${dose} Research Peptide — 10-Vial Kit | ${SITE_NAME}`;
@@ -108,12 +122,12 @@ export function useSEO({ page, product }) {
       setMeta("property", "og:description",      desc);
       setMeta("property", "og:type",             "website");
       setMeta("property", "og:url",              canonical);
-      setMeta("property", "og:image",            SITE_IMAGE);
+      setMeta("property", "og:image",            prodImg); // product bottle, not logo
       setMeta("property", "og:site_name",        SITE_NAME);
       setMeta("name",     "twitter:card",        "summary_large_image");
       setMeta("name",     "twitter:title",       title);
       setMeta("name",     "twitter:description", desc);
-      setMeta("name",     "twitter:image",       SITE_IMAGE);
+      setMeta("name",     "twitter:image",       prodImg); // product bottle, not logo
 
       // Product JSON-LD — only factual fields from real product data
       setJsonLd("product", {
@@ -125,7 +139,7 @@ export function useSEO({ page, product }) {
         "brand": { "@type": "Brand", "name": "10BottleValue" },
         "category": "Research Peptides",
         "url": canonical,
-        "image": SITE_IMAGE,
+        "image": prodImg, // actual product bottle image, not site logo
         "offers": {
           "@type": "Offer",
           "price": price,
