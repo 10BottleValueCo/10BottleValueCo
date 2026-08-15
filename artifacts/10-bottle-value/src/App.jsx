@@ -4754,7 +4754,7 @@ export default function App() {
     if (String(orderId).startsWith("TEST-")) return;
     try {
       // Fields stored inside metadata JSONB (no direct columns for them)
-      const METADATA_FIELDS = { tracking_number: "trackingNumber", tracking_number_2: "trackingNumber2", order_notes: "orderNotes", tracking_number_sent_at: "trackingNumberSentAt", firstName: "firstName", lastName: "lastName", address: "address", city: "city", postalCode: "postalCode", state: "state", country: "country", phone: "phone", taxId: "taxId", admin_note: "adminNote", store_credit_used: "storeCreditUsed", subtotal: "subtotal", shipping: "shipping", invoice_id: "invoiceId", shipping_type: "shippingType" };
+      const METADATA_FIELDS = { tracking_number: "trackingNumber", tracking_number_2: "trackingNumber2", order_notes: "orderNotes", tracking_number_sent_at: "trackingNumberSentAt", firstName: "firstName", lastName: "lastName", address: "address", address2: "address2", city: "city", postalCode: "postalCode", state: "state", country: "country", phone: "phone", taxId: "taxId", admin_note: "adminNote", store_credit_used: "storeCreditUsed", subtotal: "subtotal", shipping: "shipping", invoice_id: "invoiceId", shipping_type: "shippingType" };
       const metaUpdates = {};
       const directUpdates = {};
       for (const [k, v] of Object.entries(payload)) {
@@ -14893,10 +14893,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                   const name = [order.firstName, order.lastName].filter(Boolean).join(" ");
                                   if (name) lines.push(`Name: ${name}`);
                                   if (order.address) lines.push(`Address: ${order.address}`);
-                                  if (order.address2) lines.push(`Apt/Suite: ${order.address2}`);
+                                  lines.push(`Apt/Suite: ${order.address2 || "—"}`);
                                   if (order.city) lines.push(`City: ${order.city}`);
                                   if (order.postalCode) lines.push(`Postal Code: ${order.postalCode}`);
-                                  if (order.state) lines.push(`State/Province: ${order.state}`);
+                                  lines.push(`State/Province: ${order.state || "—"}`);
                                   if (order.country) lines.push(`Country: ${order.country}`);
                                   if (order.phone) lines.push(`Phone: ${order.phone}`);
                                   if (Array.isArray(order.items) && order.items.length > 0) {
@@ -15028,9 +15028,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                     { field: "lastName",  label: "Last name",  val: order.lastName  },
                                     { field: "phone",     label: "Phone",      val: order.phone     },
                                     { field: "address",   label: "Address",    val: order.address   },
+                                    { field: "address2",  label: "Apt/Suite",  val: order.address2  },
                                     { field: "city",      label: "City",       val: order.city      },
                                     { field: "postalCode",label: "Postal code",val: order.postalCode},
-                                    { field: "state",     label: "State",      val: order.state     },
+                                    { field: "state",     label: "State/Province", val: order.state },
                                     { field: "country",   label: "Country",    val: order.country   },
                                     { field: "taxId",     label: "Tax ID",     val: order.taxId     },
                                   ].map(({ field, label, val }) => (
