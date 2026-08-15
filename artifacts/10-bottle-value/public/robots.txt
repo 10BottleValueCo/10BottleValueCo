@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://10bottlevalue.co/sitemap.xml
