@@ -4,17 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
 
-    <!-- Primary meta (overridden dynamically by useSEO hook for product pages) -->
+    <!-- Primary meta — overridden dynamically by useSEO hook for every page -->
     <title>10BottleValueCo — Research Peptides At Wholesale Prices</title>
     <meta name="description" content="Buy research peptides in 10-vial kits. Up to 4× cheaper than most brands. BPC-157, TB-500, Semaglutide, Tirzepatide, Retatrutide and more. Ships worldwide. Research use only." />
     <meta name="robots" content="index, follow" />
     <meta name="theme-color" content="#000000" />
-    <meta name="language" content="en" />
 
-    <!-- Canonical (overridden per-page by useSEO hook) -->
-    <link rel="canonical" href="https://10bottlevalue.co/" />
+    <!--
+      NO static canonical here.
+      useSEO.js creates and updates <link rel="canonical"> at runtime
+      so it always matches the actual product URL.
+      A static canonical pointing to "/" would conflict with product page canonicals.
+    -->
 
-    <!-- Open Graph -->
+    <!-- Open Graph (defaults — useSEO overrides per page) -->
     <meta property="og:site_name" content="10BottleValue.co" />
     <meta property="og:title" content="10BottleValueCo — Research Peptides At Wholesale Prices" />
     <meta property="og:description" content="Buy research peptides in 10-vial kits. Up to 4× cheaper than most brands. BPC-157, TB-500, Semaglutide, Tirzepatide, Retatrutide and more. Ships worldwide. Research use only." />
@@ -22,7 +25,7 @@
     <meta property="og:url" content="https://10bottlevalue.co/" />
     <meta property="og:image" content="https://10bottlevalue.co/logo.png" />
 
-    <!-- Twitter Card -->
+    <!-- Twitter Card (defaults — useSEO overrides per page) -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="10BottleValueCo — Research Peptides At Wholesale Prices" />
     <meta name="twitter:description" content="Buy research peptides in 10-vial kits. Up to 4× cheaper than most brands. Ships worldwide. Research use only." />
@@ -31,11 +34,10 @@
     <!-- Favicon -->
     <link rel="icon" type="image/png" href="/favicon-logo.png" />
 
-    <!-- Performance: preconnect to critical origins -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <!-- Performance hints -->
     <link rel="dns-prefetch" href="https://js.stripe.com" />
 
-    <!-- Organization + WebSite JSON-LD (static baseline for crawlers) -->
+    <!-- Organization + WebSite JSON-LD (static — visible to crawlers before JS) -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
@@ -61,19 +63,16 @@
           "url": "https://10bottlevalue.co/",
           "name": "10BottleValue.co",
           "description": "Research peptides at wholesale prices — 10-vial kits, worldwide shipping.",
-          "publisher": { "@id": "https://10bottlevalue.co/#organization" },
-          "potentialAction": {
-            "@type": "SearchAction",
-            "target": {
-              "@type": "EntryPoint",
-              "urlTemplate": "https://10bottlevalue.co/?search={search_term_string}"
-            },
-            "query-input": "required name=search_term_string"
-          }
+          "publisher": { "@id": "https://10bottlevalue.co/#organization" }
         }
       ]
     }
     </script>
+    <!--
+      SearchAction removed: the site's search is client-side state only.
+      There is no URL template (/?search=...) that produces a real search results page.
+      A fake SearchAction would misrepresent the site to Google.
+    -->
   </head>
   <body>
     <div id="root"></div>
