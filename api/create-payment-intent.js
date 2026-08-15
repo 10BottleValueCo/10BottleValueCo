@@ -6,13 +6,15 @@ import {
 } from "./_catalog.js";
 import { verifyPromoCode } from "./_promo.js";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  const stripeKey = process.env.STRIPE_SECRET_KEY;
+  if (!stripeKey) return res.status(500).json({ error: "STRIPE_SECRET_KEY not configured on server." });
+  const stripe = new Stripe(stripeKey);
 
   try {
     const {
