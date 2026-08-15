@@ -15904,7 +15904,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   return { lines, cogs, supplierShipping, customerShipping, isExpress, affiliateCode, affiliatePayout, totalCogs, revenue, profit, hasUnknown };
                 };
 
-                const paid = allOrders.filter(o => { const s = String(o.status||"").toLowerCase(); return s==="paid"||s==="done"; });
+                const paid = allOrders.filter(o => {
+                  const s = String(o.status||"").toLowerCase();
+                  if (s!=="paid" && s!=="done") return false;
+                  // Exclude test/admin orders placed by the store owner
+                  if (ADMIN_EMAILS.includes(normalizeEmail(o.email))) return false;
+                  return true;
+                });
                 if (!paid.length) return (
                   <div className="rounded-[2rem] border border-white/20 bg-black/10 p-8 text-center text-white/40 text-sm">No paid orders yet.</div>
                 );
