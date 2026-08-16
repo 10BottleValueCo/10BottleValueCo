@@ -11928,7 +11928,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               <section className="lg:ml-[296px] xl:ml-[316px] mt-3 lg:mt-0">
                 <div className="mb-3 md:mb-4 rounded-2xl border border-white/20 bg-black/25 px-3 py-2.5 md:px-4 md:py-3">
                   {/* Mobile: 3 stacked blocks */}
-                  <div className="flex flex-col gap-2 md:hidden" style={{textShadow:"1px 1px 0 rgba(0,0,0,0.35), 2px 2px 0 rgba(0,0,0,0.35), 3px 3px 0 rgba(0,0,0,0.35), 4px 4px 6px rgba(0,0,0,0.35)"}}>
+                  <div className="flex flex-col gap-2 md:hidden">
                     {/* Block 1: Ships Worldwide */}
                     <div className="flex items-center gap-2.5 rounded-xl border border-white/20 bg-white/5 px-3 py-2">
                       <span className="text-base leading-none shrink-0">🌍</span>
@@ -11971,7 +11971,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
 
                   {/* Desktop: single row */}
-                  <div className="hidden md:flex md:items-center md:gap-x-3" style={{textShadow:"1px 1px 0 rgba(0,0,0,0.40), 2px 2px 0 rgba(0,0,0,0.40), 3px 3px 0 rgba(0,0,0,0.40), 4px 4px 6px rgba(0,0,0,0.40)"}}>
+                  <div className="hidden md:flex md:items-center md:gap-x-3">
                     {/* 10-vial kits only */}
                     <div className="flex items-center gap-2">
                       <span className="text-base leading-none">📦</span>
