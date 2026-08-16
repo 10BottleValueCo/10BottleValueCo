@@ -11932,7 +11932,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     {/* Block 1: Ships Worldwide */}
                     <div className="flex items-center gap-2.5 rounded-xl border border-white/20 bg-white/5 px-3 py-2">
                       <span className="text-base leading-none shrink-0">🌍</span>
-                      <div className="flex flex-col leading-tight">
+                      <div className="flex flex-col gap-[4px] leading-tight">
                         <span className="text-[11px] font-black uppercase tracking-[0.14em] text-white">
                           {language === "RU" ? "Доставка по всему миру" : language === "UA" ? "Доставка по всьому світу" : language === "DE" ? "Weltweiter Versand" : language === "ES" ? "Envío mundial" : "Ships Worldwide"}
                         </span>
