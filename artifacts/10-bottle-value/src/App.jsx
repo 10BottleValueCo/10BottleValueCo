@@ -1203,6 +1203,7 @@ const PRODUCTS_BASE = [
       total: "200 mg total",
       note: "10 vial kit (10 vials included)",
       warehouse: "us",
+      outOfStock: true,
     },
     {
       name: "Ipamorelin",
