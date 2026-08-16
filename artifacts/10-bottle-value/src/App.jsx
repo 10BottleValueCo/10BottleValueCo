@@ -12000,7 +12000,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       onClick={() => setPage("us-warehouse")}
                       className="flex items-center gap-2 rounded-xl border border-white/25 bg-white/5 px-2.5 py-1.5 transition hover:bg-white/10"
                     >
-                      <div className="flex flex-col leading-tight text-left">
+                      <div className="flex flex-col leading-tight text-left" style={{textShadow:"none"}}>
                         <span className="text-[11px] font-black uppercase tracking-[0.14em] text-white">
                           {language === "RU" ? "В США быстрее?" : language === "UA" ? "В США швидше?" : language === "DE" ? "In USA schneller?" : language === "ES" ? "¿Más rápido en USA?" : "In the USA? Faster here →"}
                         </span>
