@@ -11617,7 +11617,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       >
                         {row.icon}
                       </span>
-                      <span className="transition-transform duration-300 group-hover:translate-x-1.5" style={{textShadow: "1px 1px 0 rgba(0,0,0,0.35), 2px 2px 0 rgba(0,0,0,0.35), 3px 3px 0 rgba(0,0,0,0.35), 4px 4px 0 rgba(0,0,0,0.35), 6px 6px 10px rgba(0,0,0,0.35)"}}>{t(row.key)}</span>
+                      <span className="transition-transform duration-300 group-hover:translate-x-1.5" style={{textShadow: "1px 1px 0 rgba(0,0,0,0.1), 2px 2px 0 rgba(0,0,0,0.1), 3px 3px 0 rgba(0,0,0,0.1), 4px 4px 0 rgba(0,0,0,0.1), 6px 6px 10px rgba(0,0,0,0.1)"}}>{t(row.key)}</span>
                     </p>
                   ))}
                 </div>
