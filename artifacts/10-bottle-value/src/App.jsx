@@ -5336,6 +5336,7 @@ export default function App() {
       // fires and Supabase confirms "paid" does the screen flip to success.
       if (payment === "success" && isCatalystPay && order) {
         setPage("payment-return");
+        setCatalystPayPending(true);
         const upgradeCatalystPayIfPaid = async (attempt) => {
           try {
             const { data } = await supabase.from("orders").select("status").eq("id", order).single();
@@ -5351,14 +5352,17 @@ export default function App() {
               const creditEmail = paidOrder?.email || currentUser?.email;
               if (creditEmail) loadStoreCredit(creditEmail);
               setPaymentReturn({ status: "success", order, paymentId: npId });
+              setCatalystPayPending(false);
               setCart([]);
               return; // stop retrying
             }
           } catch {}
-          // Retry 12× at 5s intervals = 60s total window for delayed webhooks.
+          // Retry 24× at 5s intervals = 120s total window for delayed webhooks.
           // After that the order is genuinely cancelled/expired — stop silently.
-          if (attempt < 12) {
+          if (attempt < 24) {
             setTimeout(() => upgradeCatalystPayIfPaid(attempt + 1), 5000);
+          } else {
+            setCatalystPayPending(false);
           }
         };
         upgradeCatalystPayIfPaid(0);
@@ -6595,6 +6599,7 @@ export default function App() {
   const [paylioPaymentError, setPaylioPaymentError] = useState("");
   const [catalystPayLoading, setCatalystPayLoading] = useState(false);
   const [catalystPayError, setCatalystPayError] = useState("");
+  const [catalystPayPending, setCatalystPayPending] = useState(false);
   const [stripeLoading, setStripeLoading] = useState(false);
   const [stripeError, setStripeError] = useState("");
   const [stripeClientSecret, setStripeClientSecret] = useState("");
@@ -18486,6 +18491,38 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     <button type="button" onClick={() => { setAccountPromoCodeInput(""); setPage("contact"); }}
                       className="flex-1 rounded-full border border-white/40 bg-black/40 py-3.5 text-[11px] font-black uppercase tracking-[0.22em] text-white shadow-[0_4px_16px_rgba(0,0,0,0.25)] transition hover:bg-black/55 hover:border-white/60">
                       {tx("Support", "Поддержка", "Підтримка", "Support", "Soporte")}
+                    </button>
+                  </div>
+                </div>
+              </section>
+            ) : catalystPayPending ? (
+              <section className="overflow-hidden rounded-[2.4rem] border border-white/15 bg-black/25 shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
+                <div className="h-1 w-full bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-400" />
+                <div className="px-8 pt-12 pb-12 text-center md:px-12">
+                  {/* Spinner */}
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-amber-400/15 border border-amber-400/30">
+                    <svg className="h-8 w-8 text-amber-300 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+                    </svg>
+                  </div>
+                  <div className="mt-5 text-[10px] font-black uppercase tracking-[0.35em] text-amber-400/80">
+                    {tx("Please wait", "Пожалуйста, подождите", "Будь ласка, зачекайте", "Bitte warten", "Por favor, espere")}
+                  </div>
+                  <h1 className="mt-3 text-3xl font-black uppercase tracking-[0.08em] text-white md:text-4xl">
+                    {tx("Verifying Payment", "Проверка оплаты", "Перевірка оплати", "Zahlung wird geprüft", "Verificando pago")}
+                  </h1>
+                  <p className="mx-auto mt-5 max-w-sm text-sm leading-7 text-white/55">
+                    {tx("Your payment is being verified. This may take up to 2 minutes — please do not close this page.",
+                      "Ваша оплата проверяется. Это может занять до 2 минут — не закрывайте страницу.",
+                      "Ваша оплата перевіряється. Це може зайняти до 2 хвилин — не закривайте сторінку.",
+                      "Ihre Zahlung wird geprüft. Dies kann bis zu 2 Minuten dauern — bitte schließen Sie die Seite nicht.",
+                      "Su pago está siendo verificado. Puede tardar hasta 2 minutos — no cierre esta página.")}
+                  </p>
+                  <div className="mt-8 flex justify-center">
+                    <button type="button" onClick={() => { setAccountPromoCodeInput(""); setPage("contact"); }}
+                      className="rounded-full border border-white/30 bg-black/40 px-6 py-3 text-[11px] font-black uppercase tracking-[0.22em] text-white hover:bg-black/55 transition">
+                      {tx("Contact Support", "Написать в поддержку", "Написати в підтримку", "Support kontaktieren", "Contactar soporte")}
                     </button>
                   </div>
                 </div>
