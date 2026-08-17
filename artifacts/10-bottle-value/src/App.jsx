@@ -11448,7 +11448,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       refreshUserOrdersFromSupabase(currentUser.email);
                     }
                   }}
-                  style={{ textShadow: "1px 1px 0 rgba(0,0,0,0.35), 2px 2px 0 rgba(0,0,0,0.35), 3px 3px 0 rgba(0,0,0,0.35), 4px 4px 0 rgba(0,0,0,0.35), 6px 6px 10px rgba(0,0,0,0.35)" }}
+                  style={{ textShadow: "1px 1px 0 rgba(0,0,0,0.2), 2px 2px 0 rgba(0,0,0,0.2), 3px 3px 0 rgba(0,0,0,0.2), 4px 4px 0 rgba(0,0,0,0.2), 6px 6px 10px rgba(0,0,0,0.2)" }}
                   className={`px-3 py-2 rounded-full text-[14px] font-bold uppercase tracking-[0.2em]
                     ${item.key === "cart" && cartHighlight ? "cart-pop" : ""}
                     ${
