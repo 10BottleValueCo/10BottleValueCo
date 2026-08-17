@@ -6600,7 +6600,15 @@ export default function App() {
   const [paylioPaymentError, setPaylioPaymentError] = useState("");
   const [catalystPayLoading, setCatalystPayLoading] = useState(false);
   const [catalystPayError, setCatalystPayError] = useState("");
-  const [catalystPayPending, setCatalystPayPending] = useState(false);
+  const [catalystPayPending, setCatalystPayPending] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const _p = new URLSearchParams(window.location.search || "");
+    return (
+      (_p.get("payment") || "").toLowerCase().trim() === "success" &&
+      (_p.get("provider") || "").toLowerCase().trim() === "catalystpay" &&
+      !!(_p.get("order") || "").trim()
+    );
+  });
   const [catalystPayTimedOut, setCatalystPayTimedOut] = useState(false);
   const [stripeLoading, setStripeLoading] = useState(false);
   const [stripeError, setStripeError] = useState("");
