@@ -18497,11 +18497,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
                 </div>
               </section>
-            ) : catalystPayPending ? (
+            ) : (catalystPayPending || catalystPayTimedOut) ? (
               <section className="overflow-hidden rounded-[2.4rem] border border-white/15 bg-black/25 shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
-                <div className="h-1 w-full bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-400" />
-                <div className="px-8 pt-12 pb-12 text-center md:px-12">
-                  {/* Spinner */}
+                <div className="h-1 w-full bg-gradient-to-r from-amber-400 via-orange-300 to-amber-400" />
+                <div className="px-8 pt-12 pb-10 text-center md:px-12">
+                  {/* Spinner icon */}
                   <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-amber-400/15 border border-amber-400/30">
                     <svg className="h-8 w-8 text-amber-300 animate-spin" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"/>
@@ -18509,61 +18509,27 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     </svg>
                   </div>
                   <div className="mt-5 text-[10px] font-black uppercase tracking-[0.35em] text-amber-400/80">
-                    {tx("Please wait", "Пожалуйста, подождите", "Будь ласка, зачекайте", "Bitte warten", "Por favor, espere")}
+                    {tx("Bitcoin payment", "Bitcoin оплата", "Bitcoin оплата", "Bitcoin-Zahlung", "Pago Bitcoin")}
                   </div>
                   <h1 className="mt-3 text-3xl font-black uppercase tracking-[0.08em] text-white md:text-4xl">
-                    {tx("Verifying Payment", "Проверка оплаты", "Перевірка оплати", "Zahlung wird geprüft", "Verificando pago")}
+                    {tx("Awaiting Confirmation", "Ожидание подтверждения", "Очікування підтвердження", "Warten auf Bestätigung", "Esperando confirmación")}
                   </h1>
-                  <p className="mx-auto mt-5 max-w-sm text-sm leading-7 text-white/55">
-                    {tx("Your payment is being verified. This may take up to 2 minutes — please do not close this page.",
-                      "Ваша оплата проверяется. Это может занять до 2 минут — не закрывайте страницу.",
-                      "Ваша оплата перевіряється. Це може зайняти до 2 хвилин — не закривайте сторінку.",
-                      "Ihre Zahlung wird geprüft. Dies kann bis zu 2 Minuten dauern — bitte schließen Sie die Seite nicht.",
-                      "Su pago está siendo verificado. Puede tardar hasta 2 minutos — no cierre esta página.")}
-                  </p>
-                  <div className="mt-8 flex justify-center">
-                    <button type="button" onClick={() => { setAccountPromoCodeInput(""); setPage("contact"); }}
-                      className="rounded-full border border-white/30 bg-black/40 px-6 py-3 text-[11px] font-black uppercase tracking-[0.22em] text-white hover:bg-black/55 transition">
-                      {tx("Contact Support", "Написать в поддержку", "Написати в підтримку", "Support kontaktieren", "Contactar soporte")}
-                    </button>
-                  </div>
-                </div>
-              </section>
-            ) : catalystPayTimedOut ? (
-              <section className="overflow-hidden rounded-[2.4rem] border border-white/15 bg-black/25 shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
-                <div className="h-1 w-full bg-gradient-to-r from-blue-400 via-indigo-300 to-blue-400" />
-                <div className="px-8 pt-12 pb-8 text-center md:px-12">
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-blue-400/15 border border-blue-400/30">
-                    <svg className="h-8 w-8 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <div className="mt-5 text-[10px] font-black uppercase tracking-[0.35em] text-blue-300/80">
-                    {tx("Awaiting confirmation", "Ожидание подтверждения", "Очікування підтвердження", "Warten auf Bestätigung", "Esperando confirmación")}
-                  </div>
-                  <h1 className="mt-3 text-3xl font-black uppercase tracking-[0.08em] text-white md:text-4xl">
-                    {tx("Payment Pending", "Оплата ожидается", "Оплата очікується", "Zahlung ausstehend", "Pago pendiente")}
-                  </h1>
-                  <p className="mx-auto mt-5 max-w-sm text-sm leading-7 text-white/55">
-                    {tx("If you paid with on-chain Bitcoin, confirmation takes 10–60 minutes. Your order will be confirmed automatically once the network confirms your transaction — we'll send you a confirmation email.",
-                      "Если вы оплатили on-chain Bitcoin, подтверждение занимает 10–60 минут. Заказ будет подтверждён автоматически после подтверждения транзакции сетью — мы пришлём письмо.",
-                      "Якщо ви сплатили on-chain Bitcoin, підтвердження займає 10–60 хвилин. Замовлення буде підтверджено автоматично після підтвердження транзакції — ми надішлемо листа.",
-                      "Wenn Sie mit On-Chain-Bitcoin bezahlt haben, dauert die Bestätigung 10–60 Minuten. Ihre Bestellung wird automatisch bestätigt — wir senden Ihnen eine E-Mail.",
-                      "Si pagó con Bitcoin on-chain, la confirmación tarda 10–60 minutos. Su pedido se confirmará automáticamente — le enviaremos un email.")}
+                  <p className="mx-auto mt-5 max-w-sm text-sm leading-7 text-white/60">
+                    {tx("Bitcoin payments can take up to 1 hour to confirm. Contact our support team to check whether your payment went through.",
+                      "Подтверждение Bitcoin-платежа может занять до 1 часа. Свяжитесь с нашей поддержкой, чтобы узнать, прошёл ли ваш платёж.",
+                      "Підтвердження Bitcoin-платежу може зайняти до 1 години. Зв'яжіться з підтримкою, щоб дізнатися, чи пройшов ваш платіж.",
+                      "Bitcoin-Zahlungen können bis zu 1 Stunde dauern. Kontaktieren Sie unseren Support, um zu prüfen, ob Ihre Zahlung eingegangen ist.",
+                      "Los pagos con Bitcoin pueden tardar hasta 1 hora. Contacte a nuestro soporte para verificar si su pago fue procesado.")}
                   </p>
                   {paymentReturn.order && (
                     <div className="mx-auto mt-5 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-5 py-2">
-                      <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/60">{tx("Order", "Заказ", "Замовлення", "Bestellung", "Pedido")}</span>
+                      <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/50">{tx("Order", "Заказ", "Замовлення", "Bestellung", "Pedido")}</span>
                       <span className="font-mono text-sm font-bold text-white">{paymentReturn.order}</span>
                     </div>
                   )}
-                  <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
-                    <button type="button" onClick={() => { setAccountPromoCodeInput(""); setPage("account"); if (currentUser?.email && !isAdminUser()) refreshUserOrdersFromSupabase(currentUser.email); }}
-                      className="rounded-full border border-white/30 bg-black/40 px-7 py-3 text-[11px] font-black uppercase tracking-[0.22em] text-white hover:bg-black/55 transition">
-                      {tx("Check Order Status", "Проверить статус", "Перевірити статус", "Bestellstatus prüfen", "Ver estado del pedido")}
-                    </button>
+                  <div className="mt-8 flex justify-center">
                     <button type="button" onClick={() => { setAccountPromoCodeInput(""); setPage("contact"); }}
-                      className="rounded-full border border-white/30 bg-black/40 px-7 py-3 text-[11px] font-black uppercase tracking-[0.22em] text-white hover:bg-black/55 transition">
+                      className="rounded-full bg-white px-8 py-3.5 text-[11px] font-black uppercase tracking-[0.22em] text-black shadow-[0_8px_24px_rgba(0,0,0,0.2)] transition hover:bg-white/90">
                       {tx("Contact Support", "Написать в поддержку", "Написати в підтримку", "Support kontaktieren", "Contactar soporte")}
                     </button>
                   </div>
