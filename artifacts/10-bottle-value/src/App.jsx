@@ -5363,6 +5363,7 @@ export default function App() {
             setTimeout(() => upgradeCatalystPayIfPaid(attempt + 1), 5000);
           } else {
             setCatalystPayPending(false);
+            setCatalystPayTimedOut(true);
           }
         };
         upgradeCatalystPayIfPaid(0);
@@ -6600,6 +6601,7 @@ export default function App() {
   const [catalystPayLoading, setCatalystPayLoading] = useState(false);
   const [catalystPayError, setCatalystPayError] = useState("");
   const [catalystPayPending, setCatalystPayPending] = useState(false);
+  const [catalystPayTimedOut, setCatalystPayTimedOut] = useState(false);
   const [stripeLoading, setStripeLoading] = useState(false);
   const [stripeError, setStripeError] = useState("");
   const [stripeClientSecret, setStripeClientSecret] = useState("");
@@ -18522,6 +18524,46 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   <div className="mt-8 flex justify-center">
                     <button type="button" onClick={() => { setAccountPromoCodeInput(""); setPage("contact"); }}
                       className="rounded-full border border-white/30 bg-black/40 px-6 py-3 text-[11px] font-black uppercase tracking-[0.22em] text-white hover:bg-black/55 transition">
+                      {tx("Contact Support", "Написать в поддержку", "Написати в підтримку", "Support kontaktieren", "Contactar soporte")}
+                    </button>
+                  </div>
+                </div>
+              </section>
+            ) : catalystPayTimedOut ? (
+              <section className="overflow-hidden rounded-[2.4rem] border border-white/15 bg-black/25 shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
+                <div className="h-1 w-full bg-gradient-to-r from-blue-400 via-indigo-300 to-blue-400" />
+                <div className="px-8 pt-12 pb-8 text-center md:px-12">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-blue-400/15 border border-blue-400/30">
+                    <svg className="h-8 w-8 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div className="mt-5 text-[10px] font-black uppercase tracking-[0.35em] text-blue-300/80">
+                    {tx("Awaiting confirmation", "Ожидание подтверждения", "Очікування підтвердження", "Warten auf Bestätigung", "Esperando confirmación")}
+                  </div>
+                  <h1 className="mt-3 text-3xl font-black uppercase tracking-[0.08em] text-white md:text-4xl">
+                    {tx("Payment Pending", "Оплата ожидается", "Оплата очікується", "Zahlung ausstehend", "Pago pendiente")}
+                  </h1>
+                  <p className="mx-auto mt-5 max-w-sm text-sm leading-7 text-white/55">
+                    {tx("If you paid with on-chain Bitcoin, confirmation takes 10–60 minutes. Your order will be confirmed automatically once the network confirms your transaction — we'll send you a confirmation email.",
+                      "Если вы оплатили on-chain Bitcoin, подтверждение занимает 10–60 минут. Заказ будет подтверждён автоматически после подтверждения транзакции сетью — мы пришлём письмо.",
+                      "Якщо ви сплатили on-chain Bitcoin, підтвердження займає 10–60 хвилин. Замовлення буде підтверджено автоматично після підтвердження транзакції — ми надішлемо листа.",
+                      "Wenn Sie mit On-Chain-Bitcoin bezahlt haben, dauert die Bestätigung 10–60 Minuten. Ihre Bestellung wird automatisch bestätigt — wir senden Ihnen eine E-Mail.",
+                      "Si pagó con Bitcoin on-chain, la confirmación tarda 10–60 minutos. Su pedido se confirmará automáticamente — le enviaremos un email.")}
+                  </p>
+                  {paymentReturn.order && (
+                    <div className="mx-auto mt-5 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-5 py-2">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/60">{tx("Order", "Заказ", "Замовлення", "Bestellung", "Pedido")}</span>
+                      <span className="font-mono text-sm font-bold text-white">{paymentReturn.order}</span>
+                    </div>
+                  )}
+                  <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
+                    <button type="button" onClick={() => { setAccountPromoCodeInput(""); setPage("account"); if (currentUser?.email && !isAdminUser()) refreshUserOrdersFromSupabase(currentUser.email); }}
+                      className="rounded-full border border-white/30 bg-black/40 px-7 py-3 text-[11px] font-black uppercase tracking-[0.22em] text-white hover:bg-black/55 transition">
+                      {tx("Check Order Status", "Проверить статус", "Перевірити статус", "Bestellstatus prüfen", "Ver estado del pedido")}
+                    </button>
+                    <button type="button" onClick={() => { setAccountPromoCodeInput(""); setPage("contact"); }}
+                      className="rounded-full border border-white/30 bg-black/40 px-7 py-3 text-[11px] font-black uppercase tracking-[0.22em] text-white hover:bg-black/55 transition">
                       {tx("Contact Support", "Написать в поддержку", "Написати в підтримку", "Support kontaktieren", "Contactar soporte")}
                     </button>
                   </div>
