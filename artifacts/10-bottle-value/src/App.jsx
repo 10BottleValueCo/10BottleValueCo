@@ -11422,7 +11422,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               />
 
               {/* Текст */}
-              <span className="text-lg font-semibold tracking-[0.08em] text-white md:text-2xl">
+              <span className="text-lg font-semibold tracking-[0.08em] text-white md:text-2xl" style={{ textShadow: "1px 1px 0 rgba(0,0,0,0.2), 2px 2px 0 rgba(0,0,0,0.2), 3px 3px 0 rgba(0,0,0,0.2), 4px 4px 0 rgba(0,0,0,0.2), 6px 6px 10px rgba(0,0,0,0.2)" }}>
                 BottleValueCo
               </span>
             </button>
