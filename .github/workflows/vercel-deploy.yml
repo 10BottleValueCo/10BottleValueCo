@@ -1,0 +1,37 @@
+name: Deploy to Vercel
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build
+        run: pnpm --filter @workspace/10-bottle-value run build
+
+      - name: Deploy to Vercel
+        working-directory: artifacts/10-bottle-value
+        env:
+          VERCEL_PROJECT_ID: prj_GIYi5bA2bsdmBYeDHRs199wvDpeW
+          VERCEL_ORG_ID: team_HGhlypMXcFvpkd5o4LWSC5WP
+        run: |
+          npx vercel deploy --prebuilt --prod \
+            --token ${{ secrets.VERCEL_TOKEN }} \
+            --scope team_HGhlypMXcFvpkd5o4LWSC5WP \
+            --yes
