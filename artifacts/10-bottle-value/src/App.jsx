@@ -15853,7 +15853,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   "Lemon Bottle|10ml":100,
                   "VIP|5mg":75,"VIP|10mg":145,
                   "SLU-PP-322|5mg":100,"SLU-PP-332|5mg":100,
-                  "Bacteriostatic Water|3ml":5,"Bacteriostatic Water|10ml":10,"BAC Water|3ml":5,"BAC Water|10ml":10,
+                  "Bacteriostatic Water|3ml":8,"Bacteriostatic Water|10ml":10,"BAC Water|3ml":8,"BAC Water|10ml":10,
                   "Acetic Acid|3ml":5,"Acetic Acid|10ml":10,
                   "PBS|3ml":5,"PBS|10ml":10,
                 };
