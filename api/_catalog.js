@@ -92,7 +92,7 @@ const PRODUCTS = [
   { "name": "Cagrilintide", "dose": "10 mg", "price": 369 },
   { "name": "Cagrilintide + Semaglutide", "dose": "10 mg each", "price": 379 },
   { "name": "CJC-1295 + Ipamorelin", "dose": "10 mg each", "price": 189, "noteLabel": "no/d" },
-  { "name": "CJC-1295 + Ipamorelin", "dose": "10 mg each", "price": 249, "usPriceBase": 244, "noteLabel": "no/d", "warehouse": "us" },
+  { "name": "CJC-1295 + Ipamorelin", "dose": "10 mg each", "price": 239, "usPriceBase": 234, "noteLabel": "no/d", "warehouse": "us" },
   { "name": "CJC-1295", "dose": "5 mg", "price": 319, "noteLabel": "with/d" },
   { "name": "CJC-1295", "dose": "5 mg", "price": 169, "noteLabel": "no/d" },
   { "name": "CJC-1295", "dose": "10 mg", "price": 299, "noteLabel": "no/d" },
