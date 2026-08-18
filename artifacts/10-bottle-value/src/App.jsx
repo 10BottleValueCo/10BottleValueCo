@@ -1906,7 +1906,7 @@ const PRODUCTS_BASE = [
     {
       name: "CJC-1295 + Ipamorelin",
       price: 239,
-      usPriceBase: 244,
+      usPriceBase: 234,
       dose: "10 mg each",
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
@@ -3354,6 +3354,10 @@ export default function App() {
   const [adminAffiliates, setAdminAffiliates] = useState([]);
   const [adminAffiliatesLoading, setAdminAffiliatesLoading] = useState(false);
   const [copiedAffCode, setCopiedAffCode] = useState("");
+  const [affPaidMap, setAffPaidMap] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("tbv-aff-paid") || "{}"); } catch { return {}; }
+  });
+  const [affPayInput, setAffPayInput] = useState({});
   const [adminSearch, setAdminSearch] = useState("");
   const [adminInboxSearch, setAdminInboxSearch] = useState("");
   const [oosOverrides, setOosOverrides] = useState(() => {
@@ -16441,6 +16445,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             ${adminAffiliates.reduce((s, a) => s + a.pending, 0).toFixed(2)}
                           </div>
                         </div>
+                        <div className="rounded-2xl border border-sky-400/25 bg-sky-400/8 px-5 py-3">
+                          <div className="text-[10px] uppercase tracking-[0.2em] text-sky-300/60">Total paid out</div>
+                          <div className="mt-0.5 text-2xl font-bold text-sky-300">
+                            ${adminAffiliates.reduce((s, a) => s + (Number(affPaidMap[a.code]) || 0), 0).toFixed(2)}
+                          </div>
+                        </div>
                       </div>
 
                       {/* Affiliate table */}
@@ -16455,40 +16465,88 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               <th className="px-4 py-3 text-right">Orders</th>
                               <th className="px-4 py-3 text-right">Available</th>
                               <th className="px-4 py-3 text-right">Pending</th>
+                              <th className="px-4 py-3 text-right">Paid out</th>
+                              <th className="px-4 py-3 text-right">Remaining</th>
+                              <th className="px-4 py-3"></th>
                             </tr>
                           </thead>
                           <tbody>
-                            {adminAffiliates.map((aff, i) => (
-                              <tr key={aff.code} className={`border-b border-white/5 transition-colors hover:bg-white/5 ${i % 2 === 0 ? "bg-black/10" : ""}`}>
-                                <td className="px-4 py-3 text-white/30 text-xs">{i + 1}</td>
-                                <td className="px-4 py-3">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-mono font-semibold text-white">{aff.code}</span>
-                                    {!aff.active && <span className="rounded-full border border-red-400/40 bg-red-400/10 px-2 py-0.5 text-[9px] uppercase tracking-[0.15em] text-red-300">inactive</span>}
-                                  </div>
-                                </td>
-                                <td className="px-4 py-3 text-white/50 text-xs">{aff.email || "—"}</td>
-                                <td className="px-4 py-3">
-                                  <button
-                                    onClick={() => {
-                                      navigator.clipboard.writeText(`https://10bottlevalue.co/?c=${aff.code.toLowerCase()}`);
-                                      setCopiedAffCode(aff.code);
-                                      setTimeout(() => setCopiedAffCode(""), 1500);
-                                    }}
-                                    className="flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-white/50 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white"
-                                  >
-                                    {copiedAffCode === aff.code ? (
-                                      <><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3 text-emerald-400"><polyline points="20 6 9 17 4 12"/></svg><span className="text-emerald-400">Copied!</span></>
+                            {adminAffiliates.map((aff, i) => {
+                              const paid = Number(affPaidMap[aff.code]) || 0;
+                              const remaining = Math.max(0, aff.available - paid);
+                              return (
+                                <tr key={aff.code} className={`border-b border-white/5 transition-colors hover:bg-white/5 ${i % 2 === 0 ? "bg-black/10" : ""}`}>
+                                  <td className="px-4 py-3 text-white/30 text-xs">{i + 1}</td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-mono font-semibold text-white">{aff.code}</span>
+                                      {!aff.active && <span className="rounded-full border border-red-400/40 bg-red-400/10 px-2 py-0.5 text-[9px] uppercase tracking-[0.15em] text-red-300">inactive</span>}
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 text-white/50 text-xs">{aff.email || "—"}</td>
+                                  <td className="px-4 py-3">
+                                    <button
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(`https://10bottlevalue.co/?c=${aff.code.toLowerCase()}`);
+                                        setCopiedAffCode(aff.code);
+                                        setTimeout(() => setCopiedAffCode(""), 1500);
+                                      }}
+                                      className="flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-white/50 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white"
+                                    >
+                                      {copiedAffCode === aff.code ? (
+                                        <><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3 text-emerald-400"><polyline points="20 6 9 17 4 12"/></svg><span className="text-emerald-400">Copied!</span></>
+                                      ) : (
+                                        <><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy link</>
+                                      )}
+                                    </button>
+                                  </td>
+                                  <td className="px-4 py-3 text-right text-white/70">{aff.orders}</td>
+                                  <td className="px-4 py-3 text-right font-bold text-emerald-300">{aff.available > 0 ? `$${aff.available.toFixed(2)}` : <span className="text-white/20">—</span>}</td>
+                                  <td className="px-4 py-3 text-right font-semibold text-amber-300">{aff.pending > 0 ? `$${aff.pending.toFixed(2)}` : <span className="text-white/20">—</span>}</td>
+                                  <td className="px-4 py-3 text-right font-bold text-sky-300">{paid > 0 ? `$${paid.toFixed(2)}` : <span className="text-white/20">—</span>}</td>
+                                  <td className="px-4 py-3 text-right font-bold">
+                                    {remaining > 0
+                                      ? <span className="text-orange-300">${remaining.toFixed(2)}</span>
+                                      : paid > 0
+                                        ? <span className="text-emerald-400 text-xs">✓ Settled</span>
+                                        : <span className="text-white/20">—</span>}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    {affPayInput[aff.code] !== undefined ? (
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-white/40 text-xs">$</span>
+                                        <input
+                                          type="number" min="0" step="0.01"
+                                          value={affPayInput[aff.code]}
+                                          onChange={e => setAffPayInput(p => ({ ...p, [aff.code]: e.target.value }))}
+                                          className="w-20 rounded-lg border border-sky-400/40 bg-sky-400/10 px-2 py-1 text-xs text-white outline-none [appearance:textfield]"
+                                          placeholder="0.00" autoFocus
+                                        />
+                                        <button
+                                          onClick={() => {
+                                            const amount = Number(affPayInput[aff.code]) || 0;
+                                            const next = { ...affPaidMap, [aff.code]: (Number(affPaidMap[aff.code]) || 0) + amount };
+                                            setAffPaidMap(next);
+                                            try { localStorage.setItem("tbv-aff-paid", JSON.stringify(next)); } catch {}
+                                            setAffPayInput(p => { const n = { ...p }; delete n[aff.code]; return n; });
+                                          }}
+                                          className="rounded-lg bg-sky-500 px-2 py-1 text-[10px] font-bold text-white hover:bg-sky-400 transition"
+                                        >✓</button>
+                                        <button
+                                          onClick={() => setAffPayInput(p => { const n = { ...p }; delete n[aff.code]; return n; })}
+                                          className="rounded-lg border border-white/15 bg-white/5 px-2 py-1 text-[10px] text-white/40 hover:text-white transition"
+                                        >✕</button>
+                                      </div>
                                     ) : (
-                                      <><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy link</>
+                                      <button
+                                        onClick={() => setAffPayInput(p => ({ ...p, [aff.code]: "" }))}
+                                        className="rounded-lg border border-sky-400/30 bg-sky-400/8 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-sky-300 hover:bg-sky-400/15 transition"
+                                      >+ Pay</button>
                                     )}
-                                  </button>
-                                </td>
-                                <td className="px-4 py-3 text-right text-white/70">{aff.orders}</td>
-                                <td className="px-4 py-3 text-right font-bold text-emerald-300">{aff.available > 0 ? `$${aff.available.toFixed(2)}` : <span className="text-white/20">—</span>}</td>
-                                <td className="px-4 py-3 text-right font-semibold text-amber-300">{aff.pending > 0 ? `$${aff.pending.toFixed(2)}` : <span className="text-white/20">—</span>}</td>
-                              </tr>
-                            ))}
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                           <tfoot>
                             <tr className="border-t border-white/15 bg-black/20">
@@ -16496,6 +16554,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               <td className="px-4 py-3 text-right font-bold text-white">{adminAffiliates.reduce((s, a) => s + a.orders, 0)}</td>
                               <td className="px-4 py-3 text-right font-bold text-emerald-300">${adminAffiliates.reduce((s, a) => s + a.available, 0).toFixed(2)}</td>
                               <td className="px-4 py-3 text-right font-bold text-amber-300">${adminAffiliates.reduce((s, a) => s + a.pending, 0).toFixed(2)}</td>
+                              <td className="px-4 py-3 text-right font-bold text-sky-300">${adminAffiliates.reduce((s, a) => s + (Number(affPaidMap[a.code]) || 0), 0).toFixed(2)}</td>
+                              <td className="px-4 py-3 text-right font-bold text-orange-300">${adminAffiliates.reduce((s, a) => s + Math.max(0, a.available - (Number(affPaidMap[a.code]) || 0)), 0).toFixed(2)}</td>
+                              <td></td>
                             </tr>
                           </tfoot>
                         </table>
