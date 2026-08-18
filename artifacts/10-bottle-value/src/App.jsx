@@ -1906,7 +1906,7 @@ const PRODUCTS_BASE = [
     {
       name: "CJC-1295 + Ipamorelin",
       price: 239,
-      usPriceBase: 244,
+      usPriceBase: 234,
       dose: "10 mg each",
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
