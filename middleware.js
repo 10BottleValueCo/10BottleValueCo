@@ -72,6 +72,10 @@ const MAINTENANCE_HTML = `<!DOCTYPE html>
 
 export default function middleware(request) {
   const url  = new URL(request.url);
+
+  // Always pass through API routes so payments & webhooks work during maintenance
+  if (url.pathname.startsWith("/api/")) return;
+
   const cookies = request.headers.get("cookie") || "";
 
   // Check bypass cookie
