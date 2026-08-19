@@ -12994,6 +12994,36 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
                 </div>
 
+                {/* Trustpilot rating */}
+                <a
+                  href="https://www.trustpilot.com/review/10bottlevalue.co"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-3 rounded-2xl border border-white/10 bg-black/10 px-5 py-3 mb-5 hover:bg-black/20 transition-all"
+                >
+                  <div className="flex items-center gap-[3px]">
+                    {[1,2,3,4].map(i => (
+                      <svg key={i} width="22" height="22" viewBox="0 0 24 24" fill="#00b67a">
+                        <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z"/>
+                      </svg>
+                    ))}
+                    {/* half star */}
+                    <svg width="22" height="22" viewBox="0 0 24 24">
+                      <defs>
+                        <linearGradient id="half">
+                          <stop offset="50%" stopColor="#00b67a"/>
+                          <stop offset="50%" stopColor="#dcdce6"/>
+                        </linearGradient>
+                      </defs>
+                      <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z" fill="url(#half)"/>
+                    </svg>
+                  </div>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-[22px] font-black text-white leading-none">4.5</span>
+                    <span className="text-[11px] text-white/50 uppercase tracking-wide">/ 17 {tx("reviews","отзывов","відгуків","Bewertungen","reseñas")}</span>
+                  </div>
+                </a>
+
                 {/* Steps */}
                 <div className="space-y-2 mb-6">
                   {[
