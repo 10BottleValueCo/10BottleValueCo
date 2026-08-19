@@ -3635,8 +3635,12 @@ export default function App() {
   }, [contactModalOpen]);
 
   useEffect(() => {
-    if (inboxScrollRef.current) {
-      inboxScrollRef.current.scrollTop = inboxScrollRef.current.scrollHeight;
+    const el = inboxScrollRef.current;
+    if (!el) return;
+    // Only auto-scroll if user is already near the bottom (within 120px) or modal just opened
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (isNearBottom || !contactModalOpen) {
+      el.scrollTop = el.scrollHeight;
     }
   }, [userInboxMessages, contactModalOpen]);
 
