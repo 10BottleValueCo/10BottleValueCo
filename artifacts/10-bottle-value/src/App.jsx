@@ -995,26 +995,13 @@ function ContactPage({ copySupportEmail, copiedEmail, t, language, onNewMessage 
       name: "Trustpilot",
       icon: SOCIAL_ICONS.Trustpilot,
       url: "https://www.trustpilot.com/review/10bottlevalue.co",
+      rating: { score: 4.5, count: 17 },
     },
     {
       name: "X",
       icon: SOCIAL_ICONS.X,
       url: "https://x.com/10BottleValueCo",
-      sub: "1000+ followers",
-    },
-    {
-      name: "TikTok",
-      icon: SOCIAL_ICONS.TikTok,
-      url: "https://www.tiktok.com/@10bottlevalueco?lang=en",
-      sub: "Soon",
-      disabled: true,
-    },
-    {
-      name: "Instagram",
-      icon: SOCIAL_ICONS.Instagram,
-      url: "https://www.instagram.com/10bottlevalue.co/",
-      sub: "Soon",
-      disabled: true,
+      sub: "1150+ followers",
     },
   ];
 
@@ -1100,11 +1087,34 @@ function ContactPage({ copySupportEmail, copiedEmail, t, language, onNewMessage 
                 <div className={`flex h-16 w-16 items-center justify-center rounded-full bg-white/10 shadow-[0_14px_30px_rgba(0,0,0,0.12)] transition-all duration-300 md:h-24 md:w-24 ${item.disabled ? "opacity-40" : "group-hover:bg-white/20 group-hover:scale-110"}`}>
                   {SOCIAL_ICONS[item.name] || item.icon}
                 </div>
-                <div className={`mt-3 text-[13px] transition md:mt-5 md:text-[16px] ${item.disabled ? "text-white/40" : "text-white/80 group-hover:text-white"}`}>
+                <div className={`mt-3 text-[13px] uppercase tracking-widest transition md:mt-5 md:text-[16px] ${item.disabled ? "text-white/40" : "text-white/80 group-hover:text-white"}`}>
                   {item.name}
                 </div>
+                {item.rating && (
+                  <div className="mt-3 flex flex-col items-center gap-[6px]">
+                    <div className="flex items-center gap-[3px]">
+                      {[1,2,3,4].map(i => (
+                        <div key={i} className="flex h-[26px] w-[26px] items-center justify-center rounded-[3px]" style={{background:"#00b67a"}}>
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="white">
+                            <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z"/>
+                          </svg>
+                        </div>
+                      ))}
+                      <div className="relative flex h-[26px] w-[26px] items-center justify-center overflow-hidden rounded-[3px]">
+                        <div className="absolute inset-0 flex">
+                          <div className="h-full w-1/2" style={{background:"#00b67a"}}/>
+                          <div className="h-full w-1/2" style={{background:"#dcdce6"}}/>
+                        </div>
+                        <svg className="relative z-10" width="15" height="15" viewBox="0 0 24 24" fill="white">
+                          <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z"/>
+                        </svg>
+                      </div>
+                    </div>
+                    <div className="text-[11px] font-semibold text-white tracking-wide">{item.rating.score} <span className="text-white font-normal">· {item.rating.count} {tx("reviews","отзывов","відгуків","Bewertungen","reseñas")}</span></div>
+                  </div>
+                )}
                 {item.sub && (
-                  <div className="mt-1 text-[10px] text-white/40 tracking-wide md:text-[11px]">
+                  <div className="mt-1 text-[10px] text-white tracking-wide md:text-[11px]">
                     {item.sub}
                   </div>
                 )}
@@ -11684,12 +11694,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       name: "Trustpilot",
                       icon: SOCIAL_ICONS.Trustpilot,
                       url: "https://www.trustpilot.com/review/10bottlevalue.co",
+                      rating: { score: 4.5, count: 17 },
                     },
                     {
                       name: "X",
                       icon: SOCIAL_ICONS.X,
                       url: "https://x.com/10BottleValueCo",
-                      sub: "1000+ followers",
+                      sub: "1150+ followers",
                     },
                   ].map((item) => {
                     const inner = (
@@ -11697,11 +11708,36 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         <div className={`flex h-16 w-16 items-center justify-center rounded-full bg-white/10 shadow-[0_14px_30px_rgba(0,0,0,0.12)] transition-all duration-300 md:h-24 md:w-24 ${item.disabled ? "opacity-40" : "group-hover:bg-white/20 group-hover:scale-110"}`}>
                           {SOCIAL_ICONS[item.name] || item.icon}
                         </div>
-                        <div className={`mt-3 text-[13px] transition md:mt-5 md:text-[16px] ${item.disabled ? "text-white/40" : "text-white/80 group-hover:text-white"}`}>
+                        <div className={`mt-3 text-[13px] uppercase tracking-widest transition md:mt-5 md:text-[16px] ${item.disabled ? "text-white/40" : "text-white/80 group-hover:text-white"}`}>
                           {item.name}
                         </div>
+                        {item.rating && (
+                          <div className="mt-3 flex flex-col items-center gap-[6px]">
+                            {/* Trustpilot-style: green tiles with white stars */}
+                            <div className="flex items-center gap-[3px]">
+                              {[1,2,3,4].map(i => (
+                                <div key={i} className="flex h-[26px] w-[26px] items-center justify-center rounded-[3px]" style={{background:"#00b67a"}}>
+                                  <svg width="15" height="15" viewBox="0 0 24 24" fill="white">
+                                    <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z"/>
+                                  </svg>
+                                </div>
+                              ))}
+                              {/* half tile: left green, right grey */}
+                              <div className="relative flex h-[26px] w-[26px] items-center justify-center overflow-hidden rounded-[3px]">
+                                <div className="absolute inset-0 flex">
+                                  <div className="h-full w-1/2" style={{background:"#00b67a"}}/>
+                                  <div className="h-full w-1/2" style={{background:"#dcdce6"}}/>
+                                </div>
+                                <svg className="relative z-10" width="15" height="15" viewBox="0 0 24 24" fill="white">
+                                  <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z"/>
+                                </svg>
+                              </div>
+                            </div>
+                            <div className="text-[11px] font-semibold text-white tracking-wide">{item.rating.score} <span className="text-white font-normal">· {item.rating.count} {tx("reviews","отзывов","відгуків","Bewertungen","reseñas")}</span></div>
+                          </div>
+                        )}
                         {(item.sub || item.disabled) && (
-                          <div className="mt-1 text-[10px] text-white/40 tracking-wide md:text-[11px]">{item.sub || "Soon"}</div>
+                          <div className="mt-1 text-[10px] text-white tracking-wide md:text-[11px]">{item.sub || "Soon"}</div>
                         )}
                       </>
                     );
@@ -12993,36 +13029,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     </div>
                   </div>
                 </div>
-
-                {/* Trustpilot rating */}
-                <a
-                  href="https://www.trustpilot.com/review/10bottlevalue.co"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-3 rounded-2xl border border-white/10 bg-black/10 px-5 py-3 mb-5 hover:bg-black/20 transition-all"
-                >
-                  <div className="flex items-center gap-[3px]">
-                    {[1,2,3,4].map(i => (
-                      <svg key={i} width="22" height="22" viewBox="0 0 24 24" fill="#00b67a">
-                        <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z"/>
-                      </svg>
-                    ))}
-                    {/* half star */}
-                    <svg width="22" height="22" viewBox="0 0 24 24">
-                      <defs>
-                        <linearGradient id="half">
-                          <stop offset="50%" stopColor="#00b67a"/>
-                          <stop offset="50%" stopColor="#dcdce6"/>
-                        </linearGradient>
-                      </defs>
-                      <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z" fill="url(#half)"/>
-                    </svg>
-                  </div>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-[22px] font-black text-white leading-none">4.5</span>
-                    <span className="text-[11px] text-white/50 uppercase tracking-wide">/ 17 {tx("reviews","отзывов","відгуків","Bewertungen","reseñas")}</span>
-                  </div>
-                </a>
 
                 {/* Steps */}
                 <div className="space-y-2 mb-6">
