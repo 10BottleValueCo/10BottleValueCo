@@ -1110,7 +1110,7 @@ function ContactPage({ copySupportEmail, copiedEmail, t, language, onNewMessage 
                         </svg>
                       </div>
                     </div>
-                    <div className="text-[11px] font-semibold text-white tracking-wide">{item.rating.score} <span className="text-white font-normal">· {item.rating.count} {tx("reviews","отзывов","відгуків","Bewertungen","reseñas")}</span></div>
+                    <div className="text-[11px] font-semibold text-white tracking-wide">{item.rating.score} <span className="text-white font-normal">· {item.rating.count} {language === "RU" ? "отзывов" : language === "UA" ? "відгуків" : language === "DE" ? "Bewertungen" : language === "ES" ? "reseñas" : "reviews"}</span></div>
                   </div>
                 )}
                 {item.sub && (
