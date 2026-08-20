@@ -10,12 +10,9 @@
     <meta name="robots" content="index, follow" />
     <meta name="theme-color" content="#000000" />
 
-    <!--
-      NO static canonical here.
-      useSEO.js creates and updates <link rel="canonical"> at runtime
-      so it always matches the actual product URL.
-      A static canonical pointing to "/" would conflict with product page canonicals.
-    -->
+    <!-- The product edge middleware replaces this with the product URL before
+         the HTML is served. React keeps it in sync after the app loads. -->
+    <link rel="canonical" href="https://10bottlevalue.co/" />
 
     <!-- Open Graph (defaults — useSEO overrides per page) -->
     <meta property="og:site_name" content="10BottleValue.co" />
