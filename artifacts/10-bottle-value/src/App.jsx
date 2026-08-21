@@ -11669,43 +11669,37 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     >
                       <span className="font-bold">{t("enterShop")}</span><span className="uppercase font-semibold opacity-55"> (Worldwide)</span>
                     </button>
-                    <svg className="hidden md:block" width="36" height="36" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style={{filter:"drop-shadow(0 2px 6px rgba(0,0,0,0.5))"}}>
+                    <svg className="hidden md:block" width="40" height="40" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style={{filter:"drop-shadow(0 3px 8px rgba(0,0,0,0.5))"}}>
                       <defs>
-                        <radialGradient id="og2" cx="38%" cy="32%" r="65%">
-                          <stop offset="0%" stopColor="#42A5F5"/>
-                          <stop offset="100%" stopColor="#0D47A1"/>
+                        <radialGradient id="oc3" cx="35%" cy="30%" r="70%">
+                          <stop offset="0%" stopColor="#5BC8F5"/>
+                          <stop offset="100%" stopColor="#1E88E5"/>
                         </radialGradient>
-                        <radialGradient id="lg2" cx="40%" cy="30%" r="70%">
-                          <stop offset="0%" stopColor="#A5D6A7"/>
-                          <stop offset="100%" stopColor="#2E7D32"/>
-                        </radialGradient>
-                        <clipPath id="gc2"><circle cx="32" cy="32" r="30"/></clipPath>
+                        <clipPath id="gc3"><circle cx="50" cy="50" r="44"/></clipPath>
                       </defs>
                       {/* ocean */}
-                      <circle cx="32" cy="32" r="30" fill="url(#og2)"/>
-                      <g clipPath="url(#gc2)" fill="url(#lg2)">
+                      <circle cx="50" cy="50" r="44" fill="url(#oc3)"/>
+                      {/* continents — cartoon style, thick shapes */}
+                      <g clipPath="url(#gc3)">
                         {/* North America */}
-                        <path d="M5 14 Q10 10 15 13 Q19 10 22 14 Q24 20 21 27 Q18 32 13 30 Q7 27 5 20Z"/>
+                        <path d="M8 22 Q14 14 22 16 Q28 12 34 18 Q38 24 35 34 Q30 42 22 40 Q12 38 8 30Z" fill="#7DCE6B" stroke="#2E7D32" strokeWidth="1.5" strokeLinejoin="round"/>
                         {/* South America */}
-                        <path d="M12 34 Q17 31 20 36 Q22 43 19 50 Q15 55 11 51 Q7 45 12 34Z"/>
+                        <path d="M18 46 Q26 42 30 48 Q34 56 30 66 Q25 74 18 72 Q10 66 12 56Z" fill="#7DCE6B" stroke="#2E7D32" strokeWidth="1.5" strokeLinejoin="round"/>
                         {/* Europe */}
-                        <path d="M29 9 Q33 7 36 10 Q38 14 35 18 Q31 20 28 17 Q26 13 29 9Z"/>
+                        <path d="M44 12 Q50 8 56 12 Q60 17 56 24 Q50 27 44 23 Q40 18 44 12Z" fill="#7DCE6B" stroke="#2E7D32" strokeWidth="1.5" strokeLinejoin="round"/>
                         {/* Africa */}
-                        <path d="M28 21 Q33 19 36 23 Q39 30 37 39 Q33 45 28 43 Q23 39 24 30Z"/>
-                        {/* Asia */}
-                        <path d="M37 8 Q45 5 52 9 Q58 14 57 22 Q53 28 45 27 Q37 25 35 18Z"/>
-                        {/* SE Asia / India */}
-                        <path d="M42 28 Q48 26 52 30 Q54 36 50 40 Q45 42 41 38 Q38 33 42 28Z"/>
+                        <path d="M44 28 Q52 24 58 28 Q64 36 62 50 Q58 60 50 62 Q42 60 40 50 Q38 38 44 28Z" fill="#7DCE6B" stroke="#2E7D32" strokeWidth="1.5" strokeLinejoin="round"/>
+                        {/* Asia (big blob) */}
+                        <path d="M58 10 Q70 6 80 12 Q90 18 88 30 Q84 40 74 42 Q64 44 58 36 Q54 28 58 18Z" fill="#7DCE6B" stroke="#2E7D32" strokeWidth="1.5" strokeLinejoin="round"/>
+                        {/* SE Asia */}
+                        <path d="M68 44 Q76 42 80 48 Q82 56 76 60 Q68 62 64 56 Q62 48 68 44Z" fill="#7DCE6B" stroke="#2E7D32" strokeWidth="1.5" strokeLinejoin="round"/>
                         {/* Australia */}
-                        <path d="M46 44 Q52 42 55 46 Q56 52 51 54 Q45 54 44 49Z"/>
+                        <path d="M72 66 Q80 62 86 68 Q88 76 82 80 Q74 82 70 76Z" fill="#7DCE6B" stroke="#2E7D32" strokeWidth="1.5" strokeLinejoin="round"/>
                       </g>
-                      {/* grid lines */}
-                      <circle cx="32" cy="32" r="30" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="0.8"/>
-                      <ellipse cx="32" cy="32" rx="30" ry="12" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="0.6"/>
-                      <line x1="2" y1="32" x2="62" y2="32" stroke="rgba(255,255,255,0.1)" strokeWidth="0.6"/>
-                      {/* shine */}
-                      <ellipse cx="24" cy="22" rx="8" ry="5" fill="white" opacity="0.15" transform="rotate(-25 24 22)"/>
-                      <circle cx="32" cy="32" r="30" fill="none" stroke="#0D47A1" strokeWidth="1.5"/>
+                      {/* shine highlight */}
+                      <ellipse cx="36" cy="28" rx="10" ry="6" fill="white" opacity="0.2" transform="rotate(-30 36 28)"/>
+                      {/* outer border */}
+                      <circle cx="50" cy="50" r="44" fill="none" stroke="#1a1a1a" strokeWidth="3"/>
                     </svg>
                   </div>
                   <div className="flex flex-col items-center gap-2">
