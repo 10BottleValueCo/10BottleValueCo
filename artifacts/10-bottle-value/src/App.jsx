@@ -11669,23 +11669,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     >
                       <span className="font-bold">{t("enterShop")}</span><span className="uppercase font-semibold opacity-55"> (Worldwide)</span>
                     </button>
-                    <div className="flex items-center">
-                      <img src="/globe.png" alt="Worldwide" width="34" height="34" className="md:w-[44px] md:h-[44px]" style={{filter:"drop-shadow(0 3px 8px rgba(0,0,0,0.55))",objectFit:"contain",marginRight:"8px"}}/>
-                      <span style={{color:"#111",fontSize:"22px",fontWeight:700,lineHeight:1,textShadow:"0 1px 2px rgba(255,255,255,0.15)",marginRight:"8px"}}>+</span>
-                      <svg width="44" height="29" className="md:w-[60px] md:h-[40px]" viewBox="0 0 52 36" xmlns="http://www.w3.org/2000/svg" style={{borderRadius:"4px",boxShadow:"0 2px 8px rgba(0,0,0,0.55)"}}>
-                        {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(i => (
-                          <rect key={i} x="0" y={i*(36/13)} width="52" height={36/13} fill={i%2===0?"#C8102E":"#FFFFFF"}/>
-                        ))}
-                        <rect width="22" height={36*7/13} fill="#002868"/>
-                        {Array.from({length:9}, (_,row) => {
-                          const even = row%2===0;
-                          const count = even ? 6 : 5;
-                          const xStart = even ? 1.8 : 4.0;
-                          return Array.from({length:count}, (_,col) => (
-                            <text key={`${row}-${col}`} x={xStart+col*3.4} y={2.2+row*2.15} fontSize="2.2" fill="white" textAnchor="middle" dominantBaseline="middle">★</text>
-                          ));
-                        })}
-                      </svg>
+                    <div className="flex items-center gap-2">
+                      <img src="/globe.png" alt="Worldwide" width="34" height="34" className="md:w-[44px] md:h-[44px]" style={{filter:"drop-shadow(0 3px 8px rgba(0,0,0,0.55))",objectFit:"contain"}}/>
+                      <span style={{color:"#111",fontSize:"13px",fontWeight:700,letterSpacing:"0.05em",lineHeight:1}}>(USA INCLUDED)</span>
                     </div>
                   </div>
                   <div className="flex flex-col items-center gap-2">
