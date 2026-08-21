@@ -11669,36 +11669,43 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     >
                       <span className="font-bold">{t("enterShop")}</span><span className="uppercase font-semibold opacity-55"> (Worldwide)</span>
                     </button>
-                    <svg className="hidden md:block" width="36" height="36" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style={{filter:"drop-shadow(0 2px 6px rgba(0,0,0,0.5))"}}>
+                    <svg className="hidden md:block" width="36" height="36" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style={{filter:"drop-shadow(0 2px 6px rgba(0,0,0,0.5))"}}>
                       <defs>
-                        <radialGradient id="oceanGrad" cx="40%" cy="35%" r="60%">
-                          <stop offset="0%" stopColor="#64B5F6"/>
-                          <stop offset="100%" stopColor="#1565C0"/>
+                        <radialGradient id="og2" cx="38%" cy="32%" r="65%">
+                          <stop offset="0%" stopColor="#42A5F5"/>
+                          <stop offset="100%" stopColor="#0D47A1"/>
                         </radialGradient>
-                        <radialGradient id="landGrad" cx="40%" cy="30%" r="70%">
-                          <stop offset="0%" stopColor="#81C784"/>
+                        <radialGradient id="lg2" cx="40%" cy="30%" r="70%">
+                          <stop offset="0%" stopColor="#A5D6A7"/>
                           <stop offset="100%" stopColor="#2E7D32"/>
                         </radialGradient>
-                        <clipPath id="globe"><circle cx="50" cy="50" r="46"/></clipPath>
+                        <clipPath id="gc2"><circle cx="32" cy="32" r="30"/></clipPath>
                       </defs>
-                      <circle cx="50" cy="50" r="46" fill="url(#oceanGrad)"/>
-                      {/* continents */}
-                      <g clipPath="url(#globe)" fill="url(#landGrad)">
-                        {/* Europe/Africa */}
-                        <path d="M44 14 Q50 12 54 16 Q58 14 60 18 Q62 24 58 30 Q54 34 50 32 Q46 36 42 32 Q38 28 40 22 Z"/>
-                        <path d="M42 34 Q48 32 52 36 Q56 42 54 50 Q50 56 44 54 Q38 50 38 42 Z"/>
-                        {/* Americas */}
-                        <path d="M18 20 Q24 16 28 22 Q32 28 28 36 Q24 40 20 36 Q14 30 18 20Z"/>
-                        <path d="M20 42 Q26 38 28 44 Q30 52 26 58 Q22 62 18 56 Q14 48 20 42Z"/>
+                      {/* ocean */}
+                      <circle cx="32" cy="32" r="30" fill="url(#og2)"/>
+                      <g clipPath="url(#gc2)" fill="url(#lg2)">
+                        {/* North America */}
+                        <path d="M5 14 Q10 10 15 13 Q19 10 22 14 Q24 20 21 27 Q18 32 13 30 Q7 27 5 20Z"/>
+                        {/* South America */}
+                        <path d="M12 34 Q17 31 20 36 Q22 43 19 50 Q15 55 11 51 Q7 45 12 34Z"/>
+                        {/* Europe */}
+                        <path d="M29 9 Q33 7 36 10 Q38 14 35 18 Q31 20 28 17 Q26 13 29 9Z"/>
+                        {/* Africa */}
+                        <path d="M28 21 Q33 19 36 23 Q39 30 37 39 Q33 45 28 43 Q23 39 24 30Z"/>
                         {/* Asia */}
-                        <path d="M56 16 Q66 12 74 18 Q80 24 78 32 Q72 38 64 36 Q56 32 54 24 Z"/>
-                        <path d="M64 38 Q72 36 78 42 Q80 50 74 54 Q66 56 62 50 Q58 44 64 38Z"/>
+                        <path d="M37 8 Q45 5 52 9 Q58 14 57 22 Q53 28 45 27 Q37 25 35 18Z"/>
+                        {/* SE Asia / India */}
+                        <path d="M42 28 Q48 26 52 30 Q54 36 50 40 Q45 42 41 38 Q38 33 42 28Z"/>
                         {/* Australia */}
-                        <path d="M68 60 Q76 58 78 64 Q78 70 72 72 Q66 72 64 66 Z"/>
+                        <path d="M46 44 Q52 42 55 46 Q56 52 51 54 Q45 54 44 49Z"/>
                       </g>
-                      {/* highlight */}
-                      <ellipse cx="38" cy="34" rx="10" ry="7" fill="white" opacity="0.12" transform="rotate(-30 38 34)"/>
-                      <circle cx="50" cy="50" r="46" fill="none" stroke="#0D47A1" strokeWidth="2"/>
+                      {/* grid lines */}
+                      <circle cx="32" cy="32" r="30" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="0.8"/>
+                      <ellipse cx="32" cy="32" rx="30" ry="12" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="0.6"/>
+                      <line x1="2" y1="32" x2="62" y2="32" stroke="rgba(255,255,255,0.1)" strokeWidth="0.6"/>
+                      {/* shine */}
+                      <ellipse cx="24" cy="22" rx="8" ry="5" fill="white" opacity="0.15" transform="rotate(-25 24 22)"/>
+                      <circle cx="32" cy="32" r="30" fill="none" stroke="#0D47A1" strokeWidth="1.5"/>
                     </svg>
                   </div>
                   <div className="flex flex-col items-center gap-2">
@@ -11711,7 +11718,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     >
                       <span className="font-bold">{t("enterShop")}</span><span className="font-semibold opacity-55" style={{textTransform:"uppercase"}}> (US Warehouse)</span>
                     </button>
-                    <svg className="hidden md:block" width="52" height="36" viewBox="0 0 52 36" xmlns="http://www.w3.org/2000/svg" style={{borderRadius:"4px",boxShadow:"0 2px 8px rgba(0,0,0,0.55)"}}>
+                    <svg className="hidden md:block" width="42" height="28" viewBox="0 0 52 36" xmlns="http://www.w3.org/2000/svg" style={{borderRadius:"4px",boxShadow:"0 2px 8px rgba(0,0,0,0.55)"}}>
                       {/* 13 stripes */}
                       {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(i => (
                         <rect key={i} x="0" y={i*(36/13)} width="52" height={36/13} fill={i%2===0?"#B22234":"#FFFFFF"}/>
