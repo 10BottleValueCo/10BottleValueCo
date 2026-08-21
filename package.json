@@ -8,9 +8,13 @@
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },
+  "type": "module",
   "private": true,
   "dependencies": {
-    "@replit/connectors-sdk": "^0.4.1"
+    "@replit/connectors-sdk": "^0.4.1",
+    "@supabase/supabase-js": "2.105.4",
+    "resend": "^6.20.0",
+    "stripe": "^22.5.0"
   },
   "devDependencies": {
     "prettier": "^3.9.6",

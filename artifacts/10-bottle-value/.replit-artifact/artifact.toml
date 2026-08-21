@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "10 Bottle Value Co."
+description = "E-commerce product site for 10 Bottle Value Co. selling Semaglutide/Retatrutide. Uses Supabase for orders/auth and Resend for transactional emails."
+version = "1.0.0"
+id = "artifacts/10-bottle-value"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20371
+
+[services.development]
+run = "pnpm --filter @workspace/10-bottle-value run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/10-bottle-value", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/10-bottle-value/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20371"
+BASE_PATH = "/"

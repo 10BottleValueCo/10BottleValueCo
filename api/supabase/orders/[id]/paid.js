@@ -1,0 +1,44 @@
+const SUPABASE_URL = "https://danpkqqzcptamojrnrmk.supabase.co";
+
+function getServiceKey() {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
+  return key;
+}
+
+async function supabaseAdmin(path, options = {}) {
+  const key = getServiceKey();
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      apikey: key, Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json", Prefer: "return=minimal",
+      ...(options.headers || {}),
+    },
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    let msg = text;
+    try { msg = JSON.parse(text)?.message || text; } catch {}
+    throw new Error(`Supabase error ${res.status}: ${msg}`);
+  }
+  return text ? JSON.parse(text) : null;
+}
+
+export default async function handler(req, res) {
+  if (req.method !== "PATCH") {
+    res.setHeader("Allow", "PATCH");
+    return res.status(405).json({ ok: false, error: "Method not allowed" });
+  }
+  try {
+    const { id } = req.query;
+    if (!id) return res.status(400).json({ ok: false, error: "Missing order id" });
+    await supabaseAdmin(`orders?id=eq.${encodeURIComponent(id)}`, {
+      method: "PATCH", body: JSON.stringify({ status: "paid" }),
+    });
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    console.error("orders/[id]/paid failed:", err.message);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+}

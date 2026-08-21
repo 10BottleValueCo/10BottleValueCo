@@ -1,0 +1,15 @@
+User-agent: *
+Allow: /
+
+# Block technical / non-indexable paths
+Disallow: /api/
+Disallow: /*?*page=admin
+Disallow: /*?*payment*
+Disallow: /*?*recovery*
+Disallow: /*?*checkout*
+Disallow: /google*.html
+
+# Block duplicate affiliate parameter from indexing
+Disallow: /*?c=*
+
+Sitemap: https://10bottlevalue.co/sitemap.xml

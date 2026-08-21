@@ -1,6 +1,6 @@
-# [Project name]
+# 10 Bottle Value Co.
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+E-commerce product site selling research peptides (Semaglutide, Retatrutide, BPC-157, etc.) in 10-vial bulk kits. Uses Supabase for auth/orders and Resend for transactional email.
 
 ## Run & Operate
 
@@ -22,23 +22,38 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/10-bottle-value/src/App.jsx` — main app (all pages in one large component)
+- `artifacts/10-bottle-value/src/supabase.js` — Supabase client (falls back to a no-op client if env vars missing)
+- `artifacts/10-bottle-value/src/styles.css` — Tailwind 3 directives + base styles
+- `artifacts/10-bottle-value/src/index.css` — CSS custom properties (design tokens)
+- `api/` — original Vercel serverless API routes (send-registration-email, stripe-webhook, etc.) — NOT yet wired to Express
+- `artifacts/api-server/src/routes/` — Express API routes (currently only health check)
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- **Tailwind 3** — uses PostCSS plugin (autoprefixer + tailwindcss) with `tailwind.config.js`. The scaffold default is Tailwind 4 via `@tailwindcss/vite`; this project overrides that.
+- **Supabase env mapping** — vite.config.ts maps `SUPABASE_URL`/`SUPABASE_ANON_KEY` secrets into `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` at build time via `define`. The service-role key stays server-side only.
+- **No-op Supabase fallback** — `src/supabase.js` exports a mock client when env vars are absent, so the UI renders without throwing.
+- **Original Vercel API routes** (`api/`) not yet ported to Express. Email sending and payment webhooks need to be moved to `artifacts/api-server/src/routes/`.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Product page with multi-language support (EN/RU/UA/DE/ES)
+- Supabase auth (sign-up, sign-in, account management)
+- Order tracking via Supabase
+- Multiple payment methods: Stripe, Paylio, CatalystPay, NowPayments, crypto
+- Resend for registration and payment-confirmed emails
+- Affiliate program with promo codes
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Use Tailwind 3 (not Tailwind 4)
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Do NOT add `@tailwindcss/vite` — this project uses PostCSS-based Tailwind 3. If you add it the styles break.
+- `tailwindcss` version must stay pinned to `3.4.x` in package.json (not `catalog:`, which resolves to v4).
+- The `api/` directory contains the original Vercel serverless functions — they are NOT auto-imported; port them to Express before using.
 
 ## Pointers
 
