@@ -7144,23 +7144,31 @@ Podemos actualizar la dirección antes de que el pedido sea enviado. Una vez que
 
 COA reports for our most popular peptides are available directly on the product pages. For other products, COAs are available upon request at support@10bottlevalue.co. Not every peptide undergoes third-party COA testing — this is what allows us to keep our prices so low.
 
-We guarantee 97%+ purity. If an independent lab test shows otherwise, you get a full refund. Refunds are issued in cryptocurrency only.`,
+We guarantee 97%+ purity. If an independent lab test shows otherwise, you get a full refund. Refunds are issued in cryptocurrency only.
+
+Please note: when submitting vials for COA testing, a photo of our vials is required. Without it, we cannot confirm the vials were ours and will be unable to process a refund.`,
         `Мы работаем с проверенными производителями и поддерживаем строгий контроль качества по всем партиям.
 
 COA-отчёты для самых популярных пептидов доступны прямо на страницах товаров. Для остальных продуктов COA можно запросить по email support@10bottlevalue.co. Не все пептиды проходят стороннее COA-тестирование — именно это позволяет нам держать такие низкие цены.
 
-Мы гарантируем чистоту 97%+. Если это не подтвердится в независимой лаборатории — вернём деньги за заказ. Возврат средств осуществляется только в криптовалюте.`,
+Мы гарантируем чистоту 97%+. Если это не подтвердится в независимой лаборатории — вернём деньги за заказ. Возврат средств осуществляется только в криптовалюте.
+
+Обратите внимание: при отправке флаконов на COA-тестирование обязательно приложите фотографию наших флаконов. Без неё мы не сможем убедиться, что флаконы были именно нашими, и не сможем оформить возврат.`,
         `Ми працюємо з перевіреними виробниками та підтримуємо суворий контроль якості по всіх партіях.
 
 COA-звіти для найпопулярніших пептидів доступні безпосередньо на сторінках товарів. Для інших продуктів COA можна запросити на email support@10bottlevalue.co. Не всі пептиди проходять стороннє COA-тестування — саме це дозволяє нам тримати такі низькі ціни.
 
-Ми гарантуємо чистоту 97%+. Якщо це не підтвердиться в незалежній лабораторії — повернемо кошти за замовлення. Повернення коштів здійснюється лише в криптовалюті.`,
+Ми гарантуємо чистоту 97%+. Якщо це не підтвердиться в незалежній лабораторії — повернемо кошти за замовлення. Повернення коштів здійснюється лише в криптовалюті.
+
+Зверніть увагу: при відправці флаконів на COA-тестування обов'язково додайте фотографію наших флаконів. Без неї ми не зможемо підтвердити, що флакони були саме нашими, і не зможемо оформити повернення.`,
         undefined,
         `Trabajamos con fabricantes verificados y mantenemos un estricto control de calidad en todos los lotes.
 
 Los informes COA de los péptidos más populares están disponibles directamente en las páginas de producto. Para otros productos, los COA están disponibles bajo solicitud en support@10bottlevalue.co. No todos los péptidos pasan por pruebas COA de terceros — esto es lo que nos permite mantener precios tan bajos.
 
-Garantizamos una pureza del 97%+. Si esto no es confirmado por un laboratorio independiente, realizaremos el reembolso completo de su pedido. Los reembolsos se realizan únicamente en criptomoneda.`
+Garantizamos una pureza del 97%+. Si esto no es confirmado por un laboratorio independiente, realizaremos el reembolso completo de su pedido. Los reembolsos se realizan únicamente en criptomoneda.
+
+Tenga en cuenta: al enviar los viales para pruebas COA, se requiere una fotografía de nuestros viales. Sin ella, no podremos confirmar que los viales eran nuestros y no podremos procesar el reembolso.`
       ),
     },
     {
