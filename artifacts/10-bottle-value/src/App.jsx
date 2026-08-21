@@ -1781,6 +1781,7 @@ const PRODUCTS_BASE = [
       total: "800 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 115,
+      outOfStock: true,
     },
     {
       name: "KLOW80",
@@ -1791,6 +1792,7 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 115,
       warehouse: "us",
+      outOfStock: true,
     },
     {
       name: "BAC Water",
