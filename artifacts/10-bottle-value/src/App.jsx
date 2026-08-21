@@ -11669,7 +11669,24 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     >
                       <span className="font-bold">{t("enterShop")}</span><span className="uppercase font-semibold opacity-55"> (Worldwide)</span>
                     </button>
-                    <img className="hidden md:block" src="/globe.png" alt="Worldwide" width="48" height="48" style={{filter:"drop-shadow(0 3px 8px rgba(0,0,0,0.55))",objectFit:"contain"}}/>
+                    <div className="hidden md:flex items-center gap-2">
+                      <img src="/globe.png" alt="Worldwide" width="44" height="44" style={{filter:"drop-shadow(0 3px 8px rgba(0,0,0,0.55))",objectFit:"contain"}}/>
+                      <span style={{color:"rgba(255,255,255,0.7)",fontSize:"20px",fontWeight:300,lineHeight:1}}>+</span>
+                      <svg width="54" height="36" viewBox="0 0 52 36" xmlns="http://www.w3.org/2000/svg" style={{borderRadius:"4px",boxShadow:"0 2px 8px rgba(0,0,0,0.55)"}}>
+                        {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(i => (
+                          <rect key={i} x="0" y={i*(36/13)} width="52" height={36/13} fill={i%2===0?"#B22234":"#FFFFFF"}/>
+                        ))}
+                        <rect width="22" height={36*7/13} fill="#3C3B6E"/>
+                        {Array.from({length:9}, (_,row) => {
+                          const even = row%2===0;
+                          const count = even ? 6 : 5;
+                          const xStart = even ? 1.8 : 4.0;
+                          return Array.from({length:count}, (_,col) => (
+                            <text key={`${row}-${col}`} x={xStart+col*3.4} y={2.2+row*2.15} fontSize="2.2" fill="white" textAnchor="middle" dominantBaseline="middle">★</text>
+                          ));
+                        })}
+                      </svg>
+                    </div>
                   </div>
                   <div className="flex flex-col items-center gap-2">
                     <button
