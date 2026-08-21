@@ -11698,24 +11698,23 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     >
                       <span className="font-bold">{t("enterShop")}</span><span className="font-semibold opacity-55" style={{textTransform:"uppercase"}}> (US Warehouse)</span>
                     </button>
-                    <svg className="hidden md:block" width="54" height="36" viewBox="0 0 52 36" xmlns="http://www.w3.org/2000/svg" style={{borderRadius:"4px",boxShadow:"0 2px 8px rgba(0,0,0,0.55)"}}>
-                      {/* 13 stripes */}
-                      {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(i => (
-                        <rect key={i} x="0" y={i*(36/13)} width="52" height={36/13} fill={i%2===0?"#B22234":"#FFFFFF"}/>
-                      ))}
-                      {/* canton */}
-                      <rect width="22" height={36*7/13} fill="#3C3B6E"/>
-                      {/* 50 stars — 5 rows of 6 + 4 rows of 5 */}
-                      {Array.from({length:9}, (_,row) => {
-                        const even = row%2===0;
-                        const count = even ? 6 : 5;
-                        const xStart = even ? 1.8 : 4.0;
-                        const xStep = even ? 3.4 : 3.4;
-                        return Array.from({length:count}, (_,col) => (
-                          <text key={`${row}-${col}`} x={xStart+col*xStep} y={2.2+row*2.15} fontSize="2.2" fill="white" textAnchor="middle" dominantBaseline="middle">★</text>
-                        ));
-                      })}
-                    </svg>
+                    <div className="hidden md:flex items-center gap-2">
+                      <svg width="54" height="36" viewBox="0 0 52 36" xmlns="http://www.w3.org/2000/svg" style={{borderRadius:"4px",boxShadow:"0 2px 8px rgba(0,0,0,0.55)"}}>
+                        {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(i => (
+                          <rect key={i} x="0" y={i*(36/13)} width="52" height={36/13} fill={i%2===0?"#B22234":"#FFFFFF"}/>
+                        ))}
+                        <rect width="22" height={36*7/13} fill="#3C3B6E"/>
+                        {Array.from({length:9}, (_,row) => {
+                          const even = row%2===0;
+                          const count = even ? 6 : 5;
+                          const xStart = even ? 1.8 : 4.0;
+                          return Array.from({length:count}, (_,col) => (
+                            <text key={`${row}-${col}`} x={xStart+col*3.4} y={2.2+row*2.15} fontSize="2.2" fill="white" textAnchor="middle" dominantBaseline="middle">★</text>
+                          ));
+                        })}
+                      </svg>
+                      <span style={{color:"#111",fontSize:"15px",fontWeight:800,letterSpacing:"0.15em",lineHeight:1}}>FASTER</span>
+                    </div>
                   </div>
                 </div>
               </div>
