@@ -11669,14 +11669,36 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     >
                       <span className="font-bold">{t("enterShop")}</span><span className="uppercase font-semibold opacity-55"> (Worldwide)</span>
                     </button>
-                    <svg className="hidden md:block" width="26" height="26" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-                      <circle cx="32" cy="32" r="30" fill="#4FC3F7"/>
-                      <ellipse cx="32" cy="32" rx="14" ry="30" fill="none" stroke="#29B6F6" strokeWidth="1.5"/>
-                      <line x1="2" y1="32" x2="62" y2="32" stroke="#29B6F6" strokeWidth="1.5"/>
-                      <path d="M14 18 Q20 14 28 16 Q34 10 40 14 Q46 10 52 16 Q54 22 50 28 Q44 34 38 30 Q32 36 26 30 Q20 34 14 28 Q10 22 14 18Z" fill="#66BB6A" opacity="0.9"/>
-                      <path d="M10 38 Q16 34 22 38 Q26 42 20 46 Q14 50 10 44 Z" fill="#66BB6A" opacity="0.9"/>
-                      <path d="M38 42 Q44 38 50 42 Q54 46 50 50 Q44 52 38 48 Z" fill="#66BB6A" opacity="0.9"/>
-                      <circle cx="32" cy="32" r="30" fill="none" stroke="#0288D1" strokeWidth="1.5"/>
+                    <svg className="hidden md:block" width="36" height="36" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style={{filter:"drop-shadow(0 2px 6px rgba(0,0,0,0.5))"}}>
+                      <defs>
+                        <radialGradient id="oceanGrad" cx="40%" cy="35%" r="60%">
+                          <stop offset="0%" stopColor="#64B5F6"/>
+                          <stop offset="100%" stopColor="#1565C0"/>
+                        </radialGradient>
+                        <radialGradient id="landGrad" cx="40%" cy="30%" r="70%">
+                          <stop offset="0%" stopColor="#81C784"/>
+                          <stop offset="100%" stopColor="#2E7D32"/>
+                        </radialGradient>
+                        <clipPath id="globe"><circle cx="50" cy="50" r="46"/></clipPath>
+                      </defs>
+                      <circle cx="50" cy="50" r="46" fill="url(#oceanGrad)"/>
+                      {/* continents */}
+                      <g clipPath="url(#globe)" fill="url(#landGrad)">
+                        {/* Europe/Africa */}
+                        <path d="M44 14 Q50 12 54 16 Q58 14 60 18 Q62 24 58 30 Q54 34 50 32 Q46 36 42 32 Q38 28 40 22 Z"/>
+                        <path d="M42 34 Q48 32 52 36 Q56 42 54 50 Q50 56 44 54 Q38 50 38 42 Z"/>
+                        {/* Americas */}
+                        <path d="M18 20 Q24 16 28 22 Q32 28 28 36 Q24 40 20 36 Q14 30 18 20Z"/>
+                        <path d="M20 42 Q26 38 28 44 Q30 52 26 58 Q22 62 18 56 Q14 48 20 42Z"/>
+                        {/* Asia */}
+                        <path d="M56 16 Q66 12 74 18 Q80 24 78 32 Q72 38 64 36 Q56 32 54 24 Z"/>
+                        <path d="M64 38 Q72 36 78 42 Q80 50 74 54 Q66 56 62 50 Q58 44 64 38Z"/>
+                        {/* Australia */}
+                        <path d="M68 60 Q76 58 78 64 Q78 70 72 72 Q66 72 64 66 Z"/>
+                      </g>
+                      {/* highlight */}
+                      <ellipse cx="38" cy="34" rx="10" ry="7" fill="white" opacity="0.12" transform="rotate(-30 38 34)"/>
+                      <circle cx="50" cy="50" r="46" fill="none" stroke="#0D47A1" strokeWidth="2"/>
                     </svg>
                   </div>
                   <div className="flex flex-col items-center gap-2">
@@ -11689,18 +11711,23 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     >
                       <span className="font-bold">{t("enterShop")}</span><span className="font-semibold opacity-55" style={{textTransform:"uppercase"}}> (US Warehouse)</span>
                     </button>
-                    <svg className="hidden md:block" width="36" height="26" viewBox="0 0 36 26" xmlns="http://www.w3.org/2000/svg" style={{borderRadius:"3px",boxShadow:"0 1px 4px rgba(0,0,0,0.4)"}}>
-                      <rect width="36" height="26" fill="#B22234"/>
-                      <rect y="2" width="36" height="2" fill="#FFFFFF"/>
-                      <rect y="6" width="36" height="2" fill="#FFFFFF"/>
-                      <rect y="10" width="36" height="2" fill="#FFFFFF"/>
-                      <rect y="14" width="36" height="2" fill="#FFFFFF"/>
-                      <rect y="18" width="36" height="2" fill="#FFFFFF"/>
-                      <rect y="22" width="36" height="2" fill="#FFFFFF"/>
-                      <rect width="14" height="14" fill="#3C3B6E"/>
-                      {[0,1,2,3,4].map(row => [0,1,2,3,4,5].filter((_,i)=> row%2===0 ? i<6 : i<5).map((col,i) => (
-                        <circle key={`${row}-${i}`} cx={(row%2===0 ? col*2.3+1.15 : col*2.3+2.3)} cy={row*2.5+1.5} r="0.7" fill="white"/>
-                      )))}
+                    <svg className="hidden md:block" width="52" height="36" viewBox="0 0 52 36" xmlns="http://www.w3.org/2000/svg" style={{borderRadius:"4px",boxShadow:"0 2px 8px rgba(0,0,0,0.55)"}}>
+                      {/* 13 stripes */}
+                      {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(i => (
+                        <rect key={i} x="0" y={i*(36/13)} width="52" height={36/13} fill={i%2===0?"#B22234":"#FFFFFF"}/>
+                      ))}
+                      {/* canton */}
+                      <rect width="22" height={36*7/13} fill="#3C3B6E"/>
+                      {/* 50 stars — 5 rows of 6 + 4 rows of 5 */}
+                      {Array.from({length:9}, (_,row) => {
+                        const even = row%2===0;
+                        const count = even ? 6 : 5;
+                        const xStart = even ? 1.8 : 4.0;
+                        const xStep = even ? 3.4 : 3.4;
+                        return Array.from({length:count}, (_,col) => (
+                          <text key={`${row}-${col}`} x={xStart+col*xStep} y={2.2+row*2.15} fontSize="2.2" fill="white" textAnchor="middle" dominantBaseline="middle">★</text>
+                        ));
+                      })}
                     </svg>
                   </div>
                 </div>
