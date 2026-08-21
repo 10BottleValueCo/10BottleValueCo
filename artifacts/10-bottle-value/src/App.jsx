@@ -11669,37 +11669,36 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     >
                       <span className="font-bold">{t("enterShop")}</span><span className="uppercase font-semibold opacity-55"> (Worldwide)</span>
                     </button>
-                    <svg className="hidden md:block" width="40" height="40" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style={{filter:"drop-shadow(0 3px 8px rgba(0,0,0,0.5))"}}>
+                    <svg className="hidden md:block" width="42" height="42" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" style={{filter:"drop-shadow(0 3px 8px rgba(0,0,0,0.55))"}}>
                       <defs>
-                        <radialGradient id="oc3" cx="35%" cy="30%" r="70%">
-                          <stop offset="0%" stopColor="#5BC8F5"/>
-                          <stop offset="100%" stopColor="#1E88E5"/>
+                        <radialGradient id="oc4" cx="38%" cy="32%" r="65%">
+                          <stop offset="0%" stopColor="#62D0F5"/>
+                          <stop offset="100%" stopColor="#1976D2"/>
                         </radialGradient>
-                        <clipPath id="gc3"><circle cx="50" cy="50" r="44"/></clipPath>
+                        <clipPath id="gc4"><circle cx="60" cy="60" r="54"/></clipPath>
                       </defs>
-                      {/* ocean */}
-                      <circle cx="50" cy="50" r="44" fill="url(#oc3)"/>
-                      {/* continents — cartoon style, thick shapes */}
-                      <g clipPath="url(#gc3)">
-                        {/* North America */}
-                        <path d="M8 22 Q14 14 22 16 Q28 12 34 18 Q38 24 35 34 Q30 42 22 40 Q12 38 8 30Z" fill="#7DCE6B" stroke="#2E7D32" strokeWidth="1.5" strokeLinejoin="round"/>
-                        {/* South America */}
-                        <path d="M18 46 Q26 42 30 48 Q34 56 30 66 Q25 74 18 72 Q10 66 12 56Z" fill="#7DCE6B" stroke="#2E7D32" strokeWidth="1.5" strokeLinejoin="round"/>
-                        {/* Europe */}
-                        <path d="M44 12 Q50 8 56 12 Q60 17 56 24 Q50 27 44 23 Q40 18 44 12Z" fill="#7DCE6B" stroke="#2E7D32" strokeWidth="1.5" strokeLinejoin="round"/>
-                        {/* Africa */}
-                        <path d="M44 28 Q52 24 58 28 Q64 36 62 50 Q58 60 50 62 Q42 60 40 50 Q38 38 44 28Z" fill="#7DCE6B" stroke="#2E7D32" strokeWidth="1.5" strokeLinejoin="round"/>
-                        {/* Asia (big blob) */}
-                        <path d="M58 10 Q70 6 80 12 Q90 18 88 30 Q84 40 74 42 Q64 44 58 36 Q54 28 58 18Z" fill="#7DCE6B" stroke="#2E7D32" strokeWidth="1.5" strokeLinejoin="round"/>
-                        {/* SE Asia */}
-                        <path d="M68 44 Q76 42 80 48 Q82 56 76 60 Q68 62 64 56 Q62 48 68 44Z" fill="#7DCE6B" stroke="#2E7D32" strokeWidth="1.5" strokeLinejoin="round"/>
+                      <circle cx="60" cy="60" r="54" fill="url(#oc4)"/>
+                      <g clipPath="url(#gc4)" stroke="#333" strokeLinejoin="round" strokeLinecap="round">
+                        {/* North America — big chunky shape top-left */}
+                        <path d="M10 20 Q18 10 30 12 Q40 8 48 16 Q54 22 52 34 Q48 44 38 46 Q26 48 16 40 Q8 34 10 20Z" fill="#8ED468" strokeWidth="2.5"/>
+                        {/* Greenland nub */}
+                        <path d="M30 6 Q38 4 42 10 Q40 16 34 16 Q28 14 30 6Z" fill="#8ED468" strokeWidth="2"/>
+                        {/* South America — pointed bottom */}
+                        <path d="M24 54 Q34 50 40 56 Q46 64 44 76 Q40 86 32 90 Q22 88 18 78 Q14 66 24 54Z" fill="#8ED468" strokeWidth="2.5"/>
+                        {/* Europe — top right center */}
+                        <path d="M62 10 Q70 6 78 10 Q84 16 80 24 Q74 30 66 28 Q60 24 60 16Z" fill="#8ED468" strokeWidth="2"/>
+                        {/* Africa — big center-right */}
+                        <path d="M62 32 Q72 28 80 34 Q88 42 86 58 Q82 70 72 76 Q62 78 56 68 Q50 56 54 42Z" fill="#8ED468" strokeWidth="2.5"/>
+                        {/* Asia — large mass top-right */}
+                        <path d="M82 8 Q96 6 108 14 Q116 22 114 36 Q108 48 96 50 Q84 52 76 42 Q70 32 74 20Z" fill="#8ED468" strokeWidth="2.5"/>
+                        {/* SE Asia blob */}
+                        <path d="M96 54 Q106 52 110 60 Q112 68 104 72 Q96 74 92 66 Q90 58 96 54Z" fill="#8ED468" strokeWidth="2"/>
                         {/* Australia */}
-                        <path d="M72 66 Q80 62 86 68 Q88 76 82 80 Q74 82 70 76Z" fill="#7DCE6B" stroke="#2E7D32" strokeWidth="1.5" strokeLinejoin="round"/>
+                        <path d="M96 80 Q106 76 112 82 Q114 90 106 94 Q96 96 92 88Z" fill="#8ED468" strokeWidth="2"/>
                       </g>
-                      {/* shine highlight */}
-                      <ellipse cx="36" cy="28" rx="10" ry="6" fill="white" opacity="0.2" transform="rotate(-30 36 28)"/>
-                      {/* outer border */}
-                      <circle cx="50" cy="50" r="44" fill="none" stroke="#1a1a1a" strokeWidth="3"/>
+                      {/* shine */}
+                      <ellipse cx="44" cy="36" rx="12" ry="7" fill="white" opacity="0.18" transform="rotate(-30 44 36)"/>
+                      <circle cx="60" cy="60" r="54" fill="none" stroke="#111" strokeWidth="3.5"/>
                     </svg>
                   </div>
                   <div className="flex flex-col items-center gap-2">
