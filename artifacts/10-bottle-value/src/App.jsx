@@ -11669,7 +11669,15 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     >
                       <span className="font-bold">{t("enterShop")}</span><span className="uppercase font-semibold opacity-55"> (Worldwide)</span>
                     </button>
-                    <svg className="hidden md:block" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                    <svg className="hidden md:block" width="26" height="26" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+                      <circle cx="32" cy="32" r="30" fill="#4FC3F7"/>
+                      <ellipse cx="32" cy="32" rx="14" ry="30" fill="none" stroke="#29B6F6" strokeWidth="1.5"/>
+                      <line x1="2" y1="32" x2="62" y2="32" stroke="#29B6F6" strokeWidth="1.5"/>
+                      <path d="M14 18 Q20 14 28 16 Q34 10 40 14 Q46 10 52 16 Q54 22 50 28 Q44 34 38 30 Q32 36 26 30 Q20 34 14 28 Q10 22 14 18Z" fill="#66BB6A" opacity="0.9"/>
+                      <path d="M10 38 Q16 34 22 38 Q26 42 20 46 Q14 50 10 44 Z" fill="#66BB6A" opacity="0.9"/>
+                      <path d="M38 42 Q44 38 50 42 Q54 46 50 50 Q44 52 38 48 Z" fill="#66BB6A" opacity="0.9"/>
+                      <circle cx="32" cy="32" r="30" fill="none" stroke="#0288D1" strokeWidth="1.5"/>
+                    </svg>
                   </div>
                   <div className="flex flex-col items-center gap-2">
                     <button
@@ -11681,7 +11689,19 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     >
                       <span className="font-bold">{t("enterShop")}</span><span className="font-semibold opacity-55" style={{textTransform:"uppercase"}}> (US Warehouse)</span>
                     </button>
-                    <span className="hidden md:block text-[18px] leading-none" style={{filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.4))"}}>🇺🇸</span>
+                    <svg className="hidden md:block" width="36" height="26" viewBox="0 0 36 26" xmlns="http://www.w3.org/2000/svg" style={{borderRadius:"3px",boxShadow:"0 1px 4px rgba(0,0,0,0.4)"}}>
+                      <rect width="36" height="26" fill="#B22234"/>
+                      <rect y="2" width="36" height="2" fill="#FFFFFF"/>
+                      <rect y="6" width="36" height="2" fill="#FFFFFF"/>
+                      <rect y="10" width="36" height="2" fill="#FFFFFF"/>
+                      <rect y="14" width="36" height="2" fill="#FFFFFF"/>
+                      <rect y="18" width="36" height="2" fill="#FFFFFF"/>
+                      <rect y="22" width="36" height="2" fill="#FFFFFF"/>
+                      <rect width="14" height="14" fill="#3C3B6E"/>
+                      {[0,1,2,3,4].map(row => [0,1,2,3,4,5].filter((_,i)=> row%2===0 ? i<6 : i<5).map((col,i) => (
+                        <circle key={`${row}-${i}`} cx={(row%2===0 ? col*2.3+1.15 : col*2.3+2.3)} cy={row*2.5+1.5} r="0.7" fill="white"/>
+                      )))}
+                    </svg>
                   </div>
                 </div>
               </div>
