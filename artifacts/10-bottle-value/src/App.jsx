@@ -11671,7 +11671,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     </button>
                     <div className="flex items-center gap-2">
                       <img src="/globe.png" alt="Worldwide" width="34" height="34" className="md:w-[44px] md:h-[44px]" style={{filter:"drop-shadow(0 3px 8px rgba(0,0,0,0.55))",objectFit:"contain"}}/>
-                      <span style={{color:"#111",fontSize:"13px",fontWeight:700,letterSpacing:"0.05em",lineHeight:1}}>(USA INCLUDED)</span>
+                      <span style={{color:"#111",fontSize:"13px",fontWeight:900,letterSpacing:"0.05em",lineHeight:1}}>(USA INCLUDED)</span>
                     </div>
                   </div>
                   <div className="flex flex-col items-center gap-2">
