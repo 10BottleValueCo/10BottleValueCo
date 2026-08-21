@@ -11669,9 +11669,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     >
                       <span className="font-bold">{t("enterShop")}</span><span className="uppercase font-semibold opacity-55"> (Worldwide)</span>
                     </button>
-                    <div className="hidden md:flex items-center gap-3">
-                      <img src="/globe.png" alt="Worldwide" width="44" height="44" style={{filter:"drop-shadow(0 3px 8px rgba(0,0,0,0.55))",objectFit:"contain"}}/>
-                      <span style={{color:"#111",fontSize:"26px",fontWeight:700,lineHeight:1,textShadow:"0 1px 2px rgba(255,255,255,0.15)"}}>+</span>
+                    <div className="hidden md:flex items-center">
+                      <img src="/globe.png" alt="Worldwide" width="44" height="44" style={{filter:"drop-shadow(0 3px 8px rgba(0,0,0,0.55))",objectFit:"contain",marginRight:"10px"}}/>
+                      <span style={{color:"#111",fontSize:"26px",fontWeight:700,lineHeight:1,textShadow:"0 1px 2px rgba(255,255,255,0.15)",marginRight:"10px"}}>+</span>
                       <svg width="54" height="36" viewBox="0 0 52 36" xmlns="http://www.w3.org/2000/svg" style={{borderRadius:"4px",boxShadow:"0 2px 8px rgba(0,0,0,0.55)"}}>
                         {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(i => (
                           <rect key={i} x="0" y={i*(36/13)} width="52" height={36/13} fill={i%2===0?"#B22234":"#FFFFFF"}/>
