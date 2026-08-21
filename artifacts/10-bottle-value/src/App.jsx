@@ -11713,7 +11713,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           ));
                         })}
                       </svg>
-                      <span style={{color:"#111",fontSize:"15px",fontWeight:800,letterSpacing:"0.15em",lineHeight:1}}>FASTER</span>
+                      <span style={{color:"#111",fontSize:"16.5px",fontWeight:800,letterSpacing:"0.15em",lineHeight:1}}>FASTER</span>
                     </div>
                   </div>
                 </div>
