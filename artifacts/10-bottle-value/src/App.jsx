@@ -11659,24 +11659,30 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 </div>
 
                 <div className="mt-8 flex flex-col gap-3 md:mt-10 md:flex-row md:flex-wrap md:gap-4">
-                  <button
-                    onClick={() => { setAccountPromoCodeInput(""); setPage("shop"); }}
-                    className="hero-cta-btn w-full rounded-full px-8 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition active:scale-[0.98] md:w-auto"
-                    style={{background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.28)", backdropFilter: "blur(4px)", boxShadow: "0 0 0 0 transparent", transition: "box-shadow 0.25s"}}
-                    onMouseEnter={e => e.currentTarget.style.boxShadow = "0 0 18px 2px rgba(255,255,255,0.12)"}
-                    onMouseLeave={e => e.currentTarget.style.boxShadow = "0 0 0 0 transparent"}
-                  >
-                    <span className="font-bold">{t("enterShop")}</span><span className="uppercase font-semibold opacity-55"> (Worldwide)</span>
-                  </button>
-                  <button
-                    onClick={() => { setAccountPromoCodeInput(""); setPage("us-warehouse"); }}
-                    className="hero-cta-btn w-full rounded-full px-8 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition active:scale-[0.98] md:w-auto"
-                    style={{background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.28)", backdropFilter: "blur(4px)", boxShadow: "0 0 0 0 transparent", transition: "box-shadow 0.25s"}}
-                    onMouseEnter={e => e.currentTarget.style.boxShadow = "0 0 18px 2px rgba(255,255,255,0.12)"}
-                    onMouseLeave={e => e.currentTarget.style.boxShadow = "0 0 0 0 transparent"}
-                  >
-                    <span className="font-bold">{t("enterShop")}</span><span className="font-semibold opacity-55" style={{textTransform:"uppercase"}}> (US Warehouse)</span>
-                  </button>
+                  <div className="flex flex-col items-center gap-2">
+                    <button
+                      onClick={() => { setAccountPromoCodeInput(""); setPage("shop"); }}
+                      className="hero-cta-btn w-full rounded-full px-8 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition active:scale-[0.98] md:w-auto"
+                      style={{background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.28)", backdropFilter: "blur(4px)", boxShadow: "0 0 0 0 transparent", transition: "box-shadow 0.25s"}}
+                      onMouseEnter={e => e.currentTarget.style.boxShadow = "0 0 18px 2px rgba(255,255,255,0.12)"}
+                      onMouseLeave={e => e.currentTarget.style.boxShadow = "0 0 0 0 transparent"}
+                    >
+                      <span className="font-bold">{t("enterShop")}</span><span className="uppercase font-semibold opacity-55"> (Worldwide)</span>
+                    </button>
+                    <svg className="hidden md:block" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                  </div>
+                  <div className="flex flex-col items-center gap-2">
+                    <button
+                      onClick={() => { setAccountPromoCodeInput(""); setPage("us-warehouse"); }}
+                      className="hero-cta-btn w-full rounded-full px-8 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition active:scale-[0.98] md:w-auto"
+                      style={{background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.28)", backdropFilter: "blur(4px)", boxShadow: "0 0 0 0 transparent", transition: "box-shadow 0.25s"}}
+                      onMouseEnter={e => e.currentTarget.style.boxShadow = "0 0 18px 2px rgba(255,255,255,0.12)"}
+                      onMouseLeave={e => e.currentTarget.style.boxShadow = "0 0 0 0 transparent"}
+                    >
+                      <span className="font-bold">{t("enterShop")}</span><span className="font-semibold opacity-55" style={{textTransform:"uppercase"}}> (US Warehouse)</span>
+                    </button>
+                    <span className="hidden md:block text-[18px] leading-none" style={{filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.4))"}}>🇺🇸</span>
+                  </div>
                 </div>
               </div>
             </main>
