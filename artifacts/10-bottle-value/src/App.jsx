@@ -11669,65 +11669,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     >
                       <span className="font-bold">{t("enterShop")}</span><span className="uppercase font-semibold opacity-55"> (Worldwide)</span>
                     </button>
-                    <svg className="hidden md:block" width="48" height="48" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" style={{filter:"drop-shadow(0 4px 12px rgba(0,0,0,0.5))"}}>
-                      <defs>
-                        <radialGradient id="globe3d" cx="38%" cy="32%" r="68%">
-                          <stop offset="0%"   stopColor="#4FC3F7"/>
-                          <stop offset="40%"  stopColor="#1E88E5"/>
-                          <stop offset="100%" stopColor="#0A2A6E"/>
-                        </radialGradient>
-                        <radialGradient id="shine3d" cx="35%" cy="28%" r="45%">
-                          <stop offset="0%"   stopColor="white" stopOpacity="0.35"/>
-                          <stop offset="100%" stopColor="white" stopOpacity="0"/>
-                        </radialGradient>
-                        <radialGradient id="rim3d" cx="50%" cy="50%" r="50%">
-                          <stop offset="82%" stopColor="transparent"/>
-                          <stop offset="100%" stopColor="#00000055"/>
-                        </radialGradient>
-                        <clipPath id="globeclip"><circle cx="100" cy="100" r="96"/></clipPath>
-                      </defs>
-
-                      {/* ocean */}
-                      <circle cx="100" cy="100" r="96" fill="url(#globe3d)"/>
-
-                      {/* continents — Atlantic/Europe-Africa view, no outlines */}
-                      <g clipPath="url(#globeclip)" fill="#4ECB71">
-                        {/* Greenland */}
-                        <path d="M68 8 C76 4 90 5 96 12 C100 17 97 25 90 28 C82 31 72 27 68 20 C65 15 65 11 68 8Z"/>
-                        {/* North America */}
-                        <path d="M8 38 C14 28 26 22 38 24 C50 26 58 34 60 46 C62 56 56 68 44 72 C30 76 14 68 8 56 C4 48 4 44 8 38Z"/>
-                        {/* Central America nub */}
-                        <path d="M44 72 C48 76 46 84 42 88 C38 90 34 87 36 83 C38 79 42 76 44 72Z"/>
-                        {/* South America */}
-                        <path d="M36 96 C44 90 56 91 62 98 C70 107 68 122 62 134 C56 146 44 152 34 148 C22 143 16 130 18 116 C20 104 28 98 36 96Z"/>
-                        {/* Iceland */}
-                        <path d="M80 30 C84 27 90 28 92 32 C93 36 90 40 85 40 C80 40 78 36 80 30Z"/>
-                        {/* Europe */}
-                        <path d="M94 26 C100 20 112 18 120 22 C128 26 130 36 126 44 C120 52 108 54 98 50 C88 46 86 36 94 26Z"/>
-                        {/* Iberian peninsula */}
-                        <path d="M88 50 C94 48 100 52 100 58 C100 64 94 68 88 66 C82 64 80 56 88 50Z"/>
-                        {/* UK/Ireland blobs */}
-                        <path d="M84 34 C88 31 93 33 93 38 C93 43 88 45 84 43 C80 41 80 37 84 34Z"/>
-                        {/* Scandinavia */}
-                        <path d="M104 14 C110 8 122 8 128 14 C134 20 132 32 124 36 C116 40 106 36 102 28 C100 22 102 17 104 14Z"/>
-                        {/* Africa */}
-                        <path d="M96 68 C106 62 120 62 128 70 C138 80 138 100 134 116 C128 132 116 142 102 142 C88 142 76 132 72 118 C68 104 70 86 80 76 C86 70 90 70 96 68Z"/>
-                        {/* Madagascar */}
-                        <path d="M140 122 C144 116 150 118 152 124 C154 130 150 138 144 138 C138 138 136 130 140 122Z"/>
-                        {/* Arabia */}
-                        <path d="M130 68 C136 62 146 62 150 68 C156 76 152 88 144 92 C136 94 128 88 128 80 C128 74 128 70 130 68Z"/>
-                        {/* Asia (partially visible right side) */}
-                        <path d="M148 30 C158 22 174 22 182 30 C190 38 188 54 178 62 C168 68 154 66 148 56 C142 48 142 38 148 30Z"/>
-                        <path d="M160 66 C168 62 178 64 182 72 C186 80 182 92 172 94 C162 96 154 88 156 78 C157 72 158 68 160 66Z"/>
-                        {/* India */}
-                        <path d="M146 88 C152 84 160 86 162 94 C164 104 158 114 150 116 C142 116 136 108 138 98 C140 92 142 90 146 88Z"/>
-                      </g>
-
-                      {/* rim shadow for 3D depth */}
-                      <circle cx="100" cy="100" r="96" fill="url(#rim3d)"/>
-                      {/* shine highlight */}
-                      <circle cx="100" cy="100" r="96" fill="url(#shine3d)"/>
-                    </svg>
+                    <img className="hidden md:block" src="/globe.png" alt="Worldwide" width="48" height="48" style={{filter:"drop-shadow(0 3px 8px rgba(0,0,0,0.55))",objectFit:"contain"}}/>
                   </div>
                   <div className="flex flex-col items-center gap-2">
                     <button
