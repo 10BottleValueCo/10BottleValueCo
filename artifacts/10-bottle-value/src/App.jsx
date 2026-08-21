@@ -11669,10 +11669,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     >
                       <span className="font-bold">{t("enterShop")}</span><span className="uppercase font-semibold opacity-55"> (Worldwide)</span>
                     </button>
-                    <div className="flex items-center">
-                      <img src="/globe.png" alt="Worldwide" width="34" height="34" className="md:w-[44px] md:h-[44px]" style={{filter:"drop-shadow(0 3px 8px rgba(0,0,0,0.55))",objectFit:"contain",marginRight:"8px"}}/>
-                      <span style={{color:"#111",fontSize:"22px",fontWeight:700,lineHeight:1,textShadow:"0 1px 2px rgba(255,255,255,0.15)",marginRight:"8px"}}>+</span>
-                      <svg width="54" height="36" viewBox="0 0 52 36" xmlns="http://www.w3.org/2000/svg" style={{borderRadius:"4px",boxShadow:"0 2px 8px rgba(0,0,0,0.55)"}}>
+                    <div className="flex items-center gap-[6px] rounded-full px-3 py-[5px] md:gap-0 md:rounded-none md:px-0 md:py-0" style={{background:"rgba(0,0,0,0.25)"}}>
+                      <img src="/globe.png" alt="Worldwide" width="26" height="26" className="md:w-[44px] md:h-[44px]" style={{filter:"drop-shadow(0 2px 5px rgba(0,0,0,0.5))",objectFit:"contain"}}/>
+                      <span className="text-white/50 text-sm font-light md:hidden px-[2px]">+</span>
+                      <span className="hidden md:inline-block" style={{color:"#111",fontSize:"22px",fontWeight:700,lineHeight:1,marginLeft:"8px",marginRight:"8px"}}>+</span>
+                      <svg width="36" height="24" className="md:w-[54px] md:h-[36px]" viewBox="0 0 52 36" xmlns="http://www.w3.org/2000/svg" style={{borderRadius:"3px",boxShadow:"0 2px 6px rgba(0,0,0,0.5)"}}>
                         {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(i => (
                           <rect key={i} x="0" y={i*(36/13)} width="52" height={36/13} fill={i%2===0?"#C8102E":"#FFFFFF"}/>
                         ))}
@@ -11698,8 +11699,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     >
                       <span className="font-bold">{t("enterShop")}</span><span className="font-semibold opacity-55" style={{textTransform:"uppercase"}}> (US Warehouse)</span>
                     </button>
-                    <div className="flex items-center gap-2">
-                      <svg width="44" height="29" className="md:w-[54px] md:h-[36px]" viewBox="0 0 52 36" xmlns="http://www.w3.org/2000/svg" style={{borderRadius:"4px",boxShadow:"0 2px 8px rgba(0,0,0,0.55)"}}>
+                    <div className="flex items-center gap-[6px] rounded-full px-3 py-[5px] md:gap-2 md:rounded-none md:px-0 md:py-0" style={{background:"rgba(0,0,0,0.25)"}}>
+                      <svg width="36" height="24" className="md:w-[54px] md:h-[36px]" viewBox="0 0 52 36" xmlns="http://www.w3.org/2000/svg" style={{borderRadius:"3px",boxShadow:"0 2px 6px rgba(0,0,0,0.5)"}}>
                         {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(i => (
                           <rect key={i} x="0" y={i*(36/13)} width="52" height={36/13} fill={i%2===0?"#C8102E":"#FFFFFF"}/>
                         ))}
@@ -11713,7 +11714,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           ));
                         })}
                       </svg>
-                      <span style={{color:"#111",fontSize:"16.5px",fontWeight:800,letterSpacing:"0.15em",lineHeight:1}}>FASTER</span>
+                      <span style={{color:"#111",fontSize:"13px",fontWeight:800,letterSpacing:"0.15em",lineHeight:1}} className="md:text-[16.5px]">FASTER</span>
                     </div>
                   </div>
                 </div>
