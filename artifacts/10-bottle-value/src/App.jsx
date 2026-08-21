@@ -1654,8 +1654,8 @@ const PRODUCTS_BASE = [
     },
     {
       name: "GHK-CU",
-      price: 165,
-      usPriceBase: 160,
+      price: 155,
+      usPriceBase: 150,
       dose: "100 mg",
       total: "1000 mg total",
       note: "10 vial kit (10 vials included)",

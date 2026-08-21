@@ -63,7 +63,7 @@ const PRODUCTS = [
   { "name": "DSIP", "dose": "5 mg", "price": 89 },
   { "name": "GHK-CU", "dose": "100 mg", "price": 99 },
   { "name": "GHK-CU", "dose": "50 mg", "price": 89, "usPriceBase": 114, "warehouse": "us" },
-  { "name": "GHK-CU", "dose": "100 mg", "price": 165, "usPriceBase": 160, "warehouse": "us" },
+  { "name": "GHK-CU", "dose": "100 mg", "price": 155, "usPriceBase": 150, "warehouse": "us" },
   { "name": "Glutathione", "dose": "600 mg", "price": 139 },
   { "name": "Glutathione", "dose": "1500 mg", "price": 179 },
   { "name": "NAD+", "dose": "1000 mg", "price": 259 },
