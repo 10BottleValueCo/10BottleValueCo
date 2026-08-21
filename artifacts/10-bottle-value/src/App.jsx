@@ -11760,26 +11760,32 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         {item.rating && (
                           <div className="mt-3 flex flex-col items-center gap-[6px]">
                             {/* Trustpilot-style: green tiles with white stars */}
-                            <div className="flex items-center gap-[3px]">
+                            <div className="flex items-center gap-[2px] md:gap-[3px]">
                               {[1,2,3,4].map(i => (
-                                <div key={i} className="flex h-[26px] w-[26px] items-center justify-center rounded-[3px]" style={{background:"#00b67a"}}>
-                                  <svg width="15" height="15" viewBox="0 0 24 24" fill="white">
+                                <div key={i} className="flex h-[18px] w-[18px] md:h-[26px] md:w-[26px] items-center justify-center rounded-[2px] md:rounded-[3px]" style={{background:"#00b67a"}}>
+                                  <svg width="10" height="10" className="md:hidden" viewBox="0 0 24 24" fill="white">
+                                    <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z"/>
+                                  </svg>
+                                  <svg width="15" height="15" className="hidden md:block" viewBox="0 0 24 24" fill="white">
                                     <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z"/>
                                   </svg>
                                 </div>
                               ))}
-                              {/* half tile: left green, right grey */}
-                              <div className="relative flex h-[26px] w-[26px] items-center justify-center overflow-hidden rounded-[3px]">
+                              {/* half tile */}
+                              <div className="relative flex h-[18px] w-[18px] md:h-[26px] md:w-[26px] items-center justify-center overflow-hidden rounded-[2px] md:rounded-[3px]">
                                 <div className="absolute inset-0 flex">
                                   <div className="h-full w-1/2" style={{background:"#00b67a"}}/>
                                   <div className="h-full w-1/2" style={{background:"#dcdce6"}}/>
                                 </div>
-                                <svg className="relative z-10" width="15" height="15" viewBox="0 0 24 24" fill="white">
+                                <svg className="relative z-10 md:hidden" width="10" height="10" viewBox="0 0 24 24" fill="white">
+                                  <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z"/>
+                                </svg>
+                                <svg className="relative z-10 hidden md:block" width="15" height="15" viewBox="0 0 24 24" fill="white">
                                   <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z"/>
                                 </svg>
                               </div>
                             </div>
-                            <div className="text-[11px] font-semibold text-white tracking-wide">{item.rating.score} <span className="text-white font-normal">· {item.rating.count} {tx("reviews","отзывов","відгуків","Bewertungen","reseñas")}</span></div>
+                            <div className="text-[9px] md:text-[11px] font-semibold text-white tracking-wide">{item.rating.score} <span className="text-white font-normal">· {item.rating.count} {tx("reviews","отзывов","відгуків","Bewertungen","reseñas")}</span></div>
                           </div>
                         )}
                         {(item.sub || item.disabled) && (
