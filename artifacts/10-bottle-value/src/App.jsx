@@ -8366,7 +8366,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   const getShippingPrice = (subtotal, type) => {
     if (type === "express") {
       if (subtotal >= 550) return 0;
-      if (subtotal >= 300) return 39.99;
+      if (subtotal >= 300) return 19.99;
       return 99.99;
     }
     // standard
@@ -13042,7 +13042,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
                   <div className="flex justify-between">
                     <span>$300 – $549</span>
-                    <span>$39.99</span>
+                    <span>$19.99</span>
                   </div>
                   <div className="flex justify-between font-semibold text-white">
                     <span>$550+</span>
