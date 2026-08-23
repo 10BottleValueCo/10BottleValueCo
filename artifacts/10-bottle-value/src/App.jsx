@@ -4196,7 +4196,12 @@ export default function App() {
   }
 
   function getAffiliateReleaseDays(order) {
-    const isUS = order?.fromWarehouse === "us" || String(order?.shippingType || "").toLowerCase().includes("us-warehouse");
+    // US warehouse: order.fromWarehouse, or shippingType contains "us-warehouse",
+    // or ALL items have fromWarehouse === "us"
+    const itemsAllUS = Array.isArray(order?.items) && order.items.length > 0 && order.items.every(i => i.fromWarehouse === "us");
+    const isUS = order?.fromWarehouse === "us"
+      || String(order?.shippingType || "").toLowerCase().includes("us-warehouse")
+      || itemsAllUS;
     if (isUS) return 6;
     const isExpress = String(order?.shippingType || "").toLowerCase().includes("express");
     if (isExpress) return 10;
@@ -8118,7 +8123,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         fromWarehouse = String(meta.fromWarehouse || "");
       }
 
-      const isUS = fromWarehouse === "us" || shippingType.toLowerCase().includes("us-warehouse");
+      const rowItems = Array.isArray(isReconstructed ? row.items : (((row.metadata && typeof row.metadata === "object") ? row.metadata : {}).items)) ? (isReconstructed ? row.items : ((row.metadata && typeof row.metadata === "object") ? row.metadata : {}).items) : [];
+      const itemsAllUS = rowItems.length > 0 && rowItems.every(i => i.fromWarehouse === "us");
+      const isUS = fromWarehouse === "us" || shippingType.toLowerCase().includes("us-warehouse") || itemsAllUS;
       const holdDays = isUS ? 6 : shippingType.toLowerCase().includes("express") ? 10 : 15;
       const holdMs = holdDays * DAY_MS;
 
