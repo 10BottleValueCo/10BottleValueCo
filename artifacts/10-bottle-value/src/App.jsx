@@ -2994,6 +2994,7 @@ export default function App() {
   const [affiliateProfilesLoaded, setAffiliateProfilesLoaded] = useState(false);
   const [affiliateCommissionOrders, setAffiliateCommissionOrders] = useState([]);
   const [affiliateCommissionLoading, setAffiliateCommissionLoading] = useState(false);
+  const [affiliatePaidOut, setAffiliatePaidOut] = useState(0);
   const [activeAffiliateCode, setActiveAffiliateCode] = useState(() => {
     if (typeof window === "undefined") return "";
 
@@ -3392,6 +3393,7 @@ export default function App() {
   const [affPaidMap, setAffPaidMap] = useState(() => {
     try { return JSON.parse(localStorage.getItem("tbv-aff-paid") || "{}"); } catch { return {}; }
   });
+  const [affPaySaving, setAffPaySaving] = useState({});
   const [affPayInput, setAffPayInput] = useState({});
   const [adminSearch, setAdminSearch] = useState("");
   const [adminInboxSearch, setAdminInboxSearch] = useState("");
@@ -6929,10 +6931,19 @@ export default function App() {
     if (!affiliateCode) return;
     setAffiliateCommissionLoading(true);
     try {
-      const rows = await supabaseFetch(
-        `affiliate_orders?select=order_id,affiliate_code,commission_amount,shipping_type,created_at&affiliate_code=eq.${encodeURIComponent(affiliateCode)}&order=order_id.desc`
-      );
+      const [rows, payoutRows] = await Promise.all([
+        supabaseFetch(
+          `affiliate_orders?select=order_id,affiliate_code,commission_amount,shipping_type,created_at&affiliate_code=eq.${encodeURIComponent(affiliateCode)}&order=order_id.desc`
+        ),
+        supabaseFetch(
+          `affiliate_payouts?select=amount&affiliate_code=eq.${encodeURIComponent(affiliateCode)}`
+        ),
+      ]);
       setAffiliateCommissionOrders(Array.isArray(rows) ? rows : []);
+      const totalPaid = Array.isArray(payoutRows)
+        ? payoutRows.reduce((s, r) => s + Number(r.amount || 0), 0)
+        : 0;
+      setAffiliatePaidOut(totalPaid);
     } catch (error) {
       console.error("Failed to load affiliate commission orders", error);
       setAffiliateCommissionOrders([]);
@@ -8087,11 +8098,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     // Fetch affiliates table + orders in parallel
     // Fetch orders directly (service role not available on client, use anon key with admin RLS)
     // If allOrders already has data use it; otherwise fetch from Supabase
-    const [affRows, ordersResult] = await Promise.all([
+    const [affRows, ordersResult, payoutsResult] = await Promise.all([
       supabase.from("affiliates").select("code,email,active,created_at").order("created_at", { ascending: false }),
       allOrders.length > 0
         ? Promise.resolve({ data: allOrders })
         : supabase.from("orders").select("id,status,created_at,metadata,affiliate_code,affiliate_owner_email").order("created_at", { ascending: false }),
+      supabase.from("affiliate_payouts").select("affiliate_code,amount"),
     ]);
 
     setAdminAffiliatesLoading(false);
@@ -8154,6 +8166,18 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     });
     const list = Object.values(map).sort((a, b) => (b.available + b.pending) - (a.available + a.pending));
     setAdminAffiliates(list);
+
+    // Sync payout totals from Supabase into affPaidMap
+    const payoutRows = payoutsResult?.data || [];
+    if (payoutRows.length > 0) {
+      const supabasePaidMap = {};
+      for (const row of payoutRows) {
+        const code = String(row.affiliate_code || "").toUpperCase();
+        supabasePaidMap[code] = parseFloat(((supabasePaidMap[code] || 0) + Number(row.amount || 0)).toFixed(2));
+      }
+      setAffPaidMap(supabasePaidMap);
+      try { localStorage.setItem("tbv-aff-paid", JSON.stringify(supabasePaidMap)); } catch {}
+    }
   }
 
   useEffect(() => {
@@ -16689,15 +16713,26 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                           placeholder="0.00" autoFocus
                                         />
                                         <button
-                                          onClick={() => {
+                                          onClick={async () => {
                                             const amount = Number(affPayInput[aff.code]) || 0;
+                                            if (amount <= 0) return;
+                                            setAffPaySaving(p => ({ ...p, [aff.code]: true }));
+                                            try {
+                                              await supabase.from("affiliate_payouts").insert({
+                                                affiliate_code: aff.code,
+                                                amount,
+                                                note: `Admin payout ${new Date().toISOString().slice(0, 10)}`,
+                                              });
+                                            } catch (e) { console.error("Payout save failed", e); }
                                             const next = { ...affPaidMap, [aff.code]: (Number(affPaidMap[aff.code]) || 0) + amount };
                                             setAffPaidMap(next);
                                             try { localStorage.setItem("tbv-aff-paid", JSON.stringify(next)); } catch {}
+                                            setAffPaySaving(p => { const n = { ...p }; delete n[aff.code]; return n; });
                                             setAffPayInput(p => { const n = { ...p }; delete n[aff.code]; return n; });
                                           }}
-                                          className="rounded-lg bg-sky-500 px-2 py-1 text-[10px] font-bold text-white hover:bg-sky-400 transition"
-                                        >✓</button>
+                                          disabled={!!affPaySaving[aff.code]}
+                                          className="rounded-lg bg-sky-500 px-2 py-1 text-[10px] font-bold text-white hover:bg-sky-400 transition disabled:opacity-50"
+                                        >{affPaySaving[aff.code] ? "…" : "✓"}</button>
                                         <button
                                           onClick={() => setAffPayInput(p => { const n = { ...p }; delete n[aff.code]; return n; })}
                                           className="rounded-lg border border-white/15 bg-white/5 px-2 py-1 text-[10px] text-white/40 hover:text-white transition"
@@ -17510,6 +17545,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             (sum, row) => sum + (row.available ? row.amount : 0),
                             0
                           );
+                          const remainingTotal = Math.max(0, availableTotal - affiliatePaidOut);
 
                           const dateLocale =
                             language === "RU"
@@ -17570,6 +17606,21 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                     {tx("Return window has closed — counted as real earnings.", "Окно возврата закрыто — засчитано как реальный заработок.", "Вікно повернення закрито — зараховано як реальний заробіток.", "Rückgabefrist ist abgelaufen — als echter Verdienst gezählt.", "La ventana de devolución se cerró — se cuenta como ganancias reales.")}
                                   </div>
                                 </div>
+                                {affiliatePaidOut > 0 && (
+                                  <div className="rounded-xl border border-sky-400/20 bg-sky-400/8 px-4 py-3">
+                                    <div className="text-[10px] uppercase tracking-[0.2em] text-sky-300/70">Paid out</div>
+                                    <div className="mt-1 text-lg font-semibold text-sky-300">{formatPricePrecise(affiliatePaidOut)}</div>
+                                    <div className="mt-1 text-[11px] leading-5 text-white/60">Paid to you by 10BottleValue.</div>
+                                  </div>
+                                )}
+                                {affiliatePaidOut > 0 && (
+                                  <div className={`rounded-xl border px-4 py-3 ${remainingTotal > 0 ? "border-orange-400/25 bg-orange-400/8" : "border-emerald-400/25 bg-emerald-400/8"}`}>
+                                    <div className={`text-[10px] uppercase tracking-[0.2em] ${remainingTotal > 0 ? "text-orange-300/70" : "text-emerald-300/70"}`}>Remaining to pay</div>
+                                    <div className={`mt-1 text-lg font-semibold ${remainingTotal > 0 ? "text-orange-300" : "text-emerald-400"}`}>
+                                      {remainingTotal > 0 ? formatPricePrecise(remainingTotal) : "✓ Fully settled"}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                               {!affiliateCommissionLoading && commissionRows.length > 0 && (
                                 <div className="mt-3 space-y-2">
