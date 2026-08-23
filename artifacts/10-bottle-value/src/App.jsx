@@ -14847,8 +14847,26 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
                               {/* Items */}
                               {(() => {
-                                const productOptions = products.map((p) => `${p.name}|||${p.dose}`);
-                                const uniqueOptions = [...new Set(productOptions)].sort((a, b) => a.replace("|||", " ").localeCompare(b.replace("|||", " ")));
+                                // Build options: worldwide unique + US warehouse unique (suffixed with " (US)")
+                                const seenWorld = new Set();
+                                const seenUS = new Set();
+                                const worldOptions = [];
+                                const usOptions = [];
+                                for (const p of products) {
+                                  const key = `${p.name}|||${p.dose}`;
+                                  if (p.warehouse === "us") {
+                                    if (!seenUS.has(key)) { seenUS.add(key); usOptions.push(key); }
+                                  } else {
+                                    if (!seenWorld.has(key)) { seenWorld.add(key); worldOptions.push(key); }
+                                  }
+                                }
+                                worldOptions.sort((a, b) => a.replace("|||", " ").localeCompare(b.replace("|||", " ")));
+                                usOptions.sort((a, b) => a.replace("|||", " ").localeCompare(b.replace("|||", " ")));
+                                const allOptions = [
+                                  ...worldOptions.map(k => ({ key: k, label: k.split("|||").join(" "), isUS: false })),
+                                  ...usOptions.map(k => ({ key: k + "|||US", label: k.split("|||").join(" ") + " (US)", isUS: true })),
+                                ];
+
                                 const currentItems = Array.isArray(order.items) ? order.items.map((i) => ({ ...i, quantity: i.quantity ?? i.qty ?? 1 })) : [];
                                 const setItem = (idx, patch) => {
                                   const next = currentItems.map((it, i) => i === idx ? { ...it, ...patch } : it);
@@ -14878,28 +14896,42 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                       </div>
                                     )}
                                     {currentItems.map((item, idx) => {
-                                      const selVal = `${item.name}|||${item.dose}`;
+                                      const isUSItem = item.fromWarehouse === "us";
+                                      const baseKey = `${item.name}|||${item.dose}`;
+                                      const selVal = isUSItem ? baseKey + "|||US" : baseKey;
+                                      const optionExists = allOptions.some(o => o.key === selVal);
                                       return (
                                         <div key={idx} className="flex flex-wrap items-center gap-2 rounded-lg bg-black/15 px-3 py-2">
                                           <div className="relative flex-1 min-w-[140px]">
                                             <select
-                                              value={uniqueOptions.includes(selVal) ? selVal : ""}
+                                              value={optionExists ? selVal : ""}
                                               onChange={(e) => {
-                                                const [n, d] = e.target.value.split("|||");
-                                                const matched = products.find((p) => p.name === n && p.dose === d);
-                                                setItem(idx, { name: n, dose: d, price: resolveAdminPrice(matched) ?? item.price });
+                                                const val = e.target.value;
+                                                const opt = allOptions.find(o => o.key === val);
+                                                if (!opt) return;
+                                                const [n, d] = opt.key.replace("|||US", "").split("|||");
+                                                const matched = products.find((p) => p.name === n && p.dose === d && (opt.isUS ? p.warehouse === "us" : p.warehouse !== "us"));
+                                                setItem(idx, { name: n, dose: d, price: resolveAdminPrice(matched) ?? item.price, fromWarehouse: opt.isUS ? "us" : undefined });
                                               }}
                                               className="w-full rounded-lg border border-white/20 bg-[#555] px-2 py-1.5 text-xs text-white outline-none focus:border-white/40"
                                             >
-                                              {!uniqueOptions.includes(selVal) && (
-                                                <option value="">{item.name} {String(item.dose || "").replace(/ each$/i, "")}</option>
+                                              {!optionExists && (
+                                                <option value="">{item.name} {String(item.dose || "").replace(/ each$/i, "")}{isUSItem ? " (US)" : ""}</option>
                                               )}
-                                              {uniqueOptions.map((opt) => {
-                                                const [n, d] = opt.split("|||");
-                                                return <option key={opt} value={opt}>{n} {String(d || "").replace(/ each$/i, "")}</option>;
-                                              })}
+                                              <optgroup label="Worldwide">
+                                                {worldOptions.map((opt) => {
+                                                  const [n, d] = opt.split("|||");
+                                                  return <option key={opt} value={opt}>{n} {String(d || "").replace(/ each$/i, "")}</option>;
+                                                })}
+                                              </optgroup>
+                                              <optgroup label="US Warehouse">
+                                                {usOptions.map((opt) => {
+                                                  const [n, d] = opt.split("|||");
+                                                  return <option key={opt + "|||US"} value={opt + "|||US"}>{n} {String(d || "").replace(/ each$/i, "")} (US)</option>;
+                                                })}
+                                              </optgroup>
                                             </select>
-                                            {item.fromWarehouse === "us" && (
+                                            {isUSItem && (
                                               <span className="pointer-events-none absolute right-6 top-1/2 -translate-y-1/2 inline-flex items-center rounded-full border border-blue-400/40 bg-blue-500/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-blue-300">US</span>
                                             )}
                                           </div>
