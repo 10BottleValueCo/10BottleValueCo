@@ -4196,7 +4196,11 @@ export default function App() {
   }
 
   function getAffiliateReleaseDays(order) {
-    return 20;
+    const isUS = order?.fromWarehouse === "us" || String(order?.shippingType || "").toLowerCase().includes("us-warehouse");
+    if (isUS) return 6;
+    const isExpress = String(order?.shippingType || "").toLowerCase().includes("express");
+    if (isExpress) return 10;
+    return 15;
   }
 
   function getAffiliateAvailableAt(order) {
@@ -8072,7 +8076,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
   async function loadAdminAffiliates() {
     setAdminAffiliatesLoading(true);
-    const HOLD_MS = 20 * 24 * 60 * 60 * 1000;
+    const DAY_MS = 24 * 60 * 60 * 1000;
     const now = Date.now();
 
     // Fetch affiliates table + orders in parallel
@@ -8096,26 +8100,34 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       const status = String(row.status || "").toLowerCase();
       if (status !== "paid" && status !== "done") continue;
 
-      let code, commission, createdAt;
+      let code, commission, createdAt, shippingType, fromWarehouse;
       if (isReconstructed) {
         code = String(row.affiliateCode || "").trim().toUpperCase();
         // Mirror getAffiliateCommissionBaseAmount: if affiliateCommission is 0/missing,
         // fall back to 10% of subtotal (NOT affiliateDiscount which is the customer discount)
         commission = Number(row.affiliateCommission) || Number(row.subtotal || row.total || 0) * 0.1;
         createdAt = row.createdAt ? new Date(row.createdAt).getTime() : 0;
+        shippingType = String(row.shippingType || "");
+        fromWarehouse = String(row.fromWarehouse || "");
       } else {
         const meta = (row.metadata && typeof row.metadata === "object") ? row.metadata : {};
         code = String(meta.affiliateCode || row.affiliate_code || "").trim().toUpperCase();
         commission = Number(meta.affiliateCommission) || Number(meta.subtotal || meta.total || row.subtotal || row.total || 0) * 0.1;
         createdAt = row.created_at ? new Date(row.created_at).getTime() : 0;
+        shippingType = String(meta.shippingType || "");
+        fromWarehouse = String(meta.fromWarehouse || "");
       }
+
+      const isUS = fromWarehouse === "us" || shippingType.toLowerCase().includes("us-warehouse");
+      const holdDays = isUS ? 6 : shippingType.toLowerCase().includes("express") ? 10 : 15;
+      const holdMs = holdDays * DAY_MS;
 
       // Always count the order if the affiliate code is present (even if commission = 0)
       if (!code) continue;
       if (!commissionMap[code]) commissionMap[code] = { orders: 0, available: 0, pending: 0 };
       commissionMap[code].orders += 1;
       if (commission > 0) {
-        if (now - createdAt >= HOLD_MS) {
+        if (now - createdAt >= holdMs) {
           commissionMap[code].available = parseFloat((commissionMap[code].available + commission).toFixed(2));
         } else {
           commissionMap[code].pending = parseFloat((commissionMap[code].pending + commission).toFixed(2));
@@ -17505,7 +17517,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                     {affiliateCommissionLoading ? "…" : formatPricePrecise(pendingTotal)}
                                   </div>
                                   <div className="mt-1 text-[11px] leading-5 text-white/60">
-                                    {tx("Held during the return window (20 days).", "Удерживается на время возврата (20 дней).", "Утримується на час повернення (20 днів).", "Wird während der Rückgabefrist gehalten (20 Tage).", "Retenidas durante la ventana de devolución (20 días).")}
+                                    {"Held during the return window (6 days US warehouse · 10 days express · 15 days standard)."}
                                   </div>
                                 </div>
                                 <div className="rounded-xl border border-white/10 bg-black/[0.18] px-4 py-3">
