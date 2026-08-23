@@ -221,7 +221,7 @@ function getUnitPrice(catalogProduct, fromWarehouse) {
 function getShippingPrice(subtotal, type) {
   if (type === "express") {
     if (subtotal >= 550) return 0;
-    if (subtotal >= 300) return 39.99;
+    if (subtotal >= 300) return 19.99;
     return 99.99;
   }
   if (subtotal >= 300) return 0;
