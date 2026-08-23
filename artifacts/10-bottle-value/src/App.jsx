@@ -6100,8 +6100,8 @@ export default function App() {
     "ORDER VALUE": "VALOR DEL PEDIDO",
     "STANDARD SHIPPING": "ENVÍO ESTÁNDAR",
     "EXPRESS SHIPPING": "ENVÍO EXPRESS",
-    "STANDARD WORLDWIDE SHIPPING TAKES APPROXIMATELY 7–12 BUSINESS DAYS DEPENDING ON LOCATION.":
-      "EL ENVÍO ESTÁNDAR MUNDIAL TARDA APROXIMADAMENTE 7–12 DÍAS HÁBILES SEGÚN LA UBICACIÓN.",
+    "STANDARD WORLDWIDE SHIPPING TAKES APPROXIMATELY 8–12 BUSINESS DAYS DEPENDING ON LOCATION.":
+      "EL ENVÍO ESTÁNDAR MUNDIAL TARDA APROXIMADAMENTE 8–12 DÍAS HÁBILES SEGÚN LA UBICACIÓN.",
     "EXPRESS SHIPPING IS AVAILABLE WORLDWIDE. DELIVERY TAKES APPROXIMATELY 5–7 BUSINESS DAYS.":
       "EL ENVÍO EXPRESS ESTÁ DISPONIBLE EN TODO EL MUNDO. LA ENTREGA TARDA APROXIMADAMENTE 5–7 DÍAS HÁBILES.",
 
@@ -6316,8 +6316,8 @@ export default function App() {
     "ORDER VALUE": "BESTELLWERT",
     "STANDARD SHIPPING": "STANDARDVERSAND",
     "EXPRESS SHIPPING": "EXPRESSVERSAND",
-    "STANDARD WORLDWIDE SHIPPING TAKES APPROXIMATELY 7–12 BUSINESS DAYS DEPENDING ON LOCATION.":
-      "STANDARD-WELTVERSAND DAUERT JE NACH STANDORT CA. 7–12 WERKTAGE.",
+    "STANDARD WORLDWIDE SHIPPING TAKES APPROXIMATELY 8–12 BUSINESS DAYS DEPENDING ON LOCATION.":
+      "STANDARD-WELTVERSAND DAUERT JE NACH STANDORT CA. 8–12 WERKTAGE.",
     "EXPRESS SHIPPING IS AVAILABLE WORLDWIDE. DELIVERY TAKES APPROXIMATELY 5–7 BUSINESS DAYS.":
       "EXPRESSVERSAND IST WELTWEIT VERFÜGBAR. DIE LIEFERUNG DAUERT CA. 5–7 WERKTAGE.",
     "COMMUNITY BONUS": "COMMUNITY-BONUS",
@@ -7030,23 +7030,23 @@ Si se aplican varios descuentos, como descuentos por valor del pedido o códigos
       ),
       id: "shipping-time",
       a: tx(
-        `Standard worldwide shipping takes approximately 7–12 business days. Express shipping takes approximately 5–7 business days (worldwide).
+        `Standard worldwide shipping takes approximately 8–12 business days. Express shipping takes approximately 5–7 business days (worldwide).
 
 US Warehouse shipping (within the USA) takes approximately 2–5 business days.
 
 Delivery times may vary depending on customs and local postal services.`,
-        `Стандартная доставка по всему миру занимает примерно 7–12 рабочих дней. Экспресс-доставка занимает примерно 5–7 рабочих дней (по всему миру).
+        `Стандартная доставка по всему миру занимает примерно 8–12 рабочих дней. Экспресс-доставка занимает примерно 5–7 рабочих дней (по всему миру).
 
 Доставка со склада в США (по территории США) занимает примерно 2–5 рабочих дней.
 
 Сроки доставки могут отличаться в зависимости от таможни и местных почтовых служб.`,
-        `Стандартна доставка по всьому світу займає приблизно 7–12 робочих днів. Експрес-доставка займає приблизно 5–7 робочих днів (по всьому світу).
+        `Стандартна доставка по всьому світу займає приблизно 8–12 робочих днів. Експрес-доставка займає приблизно 5–7 робочих днів (по всьому світу).
 
 Доставка зі складу в США (по території США) займає приблизно 2–5 робочих днів.
 
 Терміни доставки можуть відрізнятися залежно від митниці та місцевих поштових служб.`,
         undefined,
-        `El envío estándar a todo el mundo tarda aproximadamente 7–12 días hábiles. El envío exprés tarda aproximadamente 5–7 días hábiles (en todo el mundo).
+        `El envío estándar a todo el mundo tarda aproximadamente 8–12 días hábiles. El envío exprés tarda aproximadamente 5–7 días hábiles (en todo el mundo).
 
 El envío desde el almacén de EE. UU. (dentro de EE. UU.) tarda aproximadamente 2–5 días hábiles.
 
@@ -13012,9 +13012,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 <div className="mt-auto pt-4 text-center">
                   <div className="inline-block mx-auto rounded-xl border border-white/20 bg-black/10 px-5 py-3 text-[16px] leading-[1.6] text-white font-medium max-w-[620px] normal-case text-center">
                     {tx(
-                      <>STANDARD WORLDWIDE SHIPPING TAKES APPROXIMATELY<br />7–12 BUSINESS DAYS DEPENDING ON LOCATION.</>,
-                      <>СТАНДАРТНАЯ ДОСТАВКА ПО ВСЕМУ МИРУ ЗАНИМАЕТ ПРИМЕРНО<br />7–12 РАБОЧИХ ДНЕЙ В ЗАВИСИМОСТИ ОТ МЕСТОПОЛОЖЕНИЯ.</>,
-                      <>СТАНДАРТНА ДОСТАВКА ПО ВСЬОМУ СВІТУ ЗАЙМАЄ ПРИБЛИЗНО<br />7–12 РОБОЧИХ ДНІВ ЗАЛЕЖНО ВІД МІСЦЯ.</>
+                      <>STANDARD WORLDWIDE SHIPPING TAKES APPROXIMATELY<br />8–12 BUSINESS DAYS DEPENDING ON LOCATION.</>,
+                      <>СТАНДАРТНАЯ ДОСТАВКА ПО ВСЕМУ МИРУ ЗАНИМАЕТ ПРИМЕРНО<br />8–12 РАБОЧИХ ДНЕЙ В ЗАВИСИМОСТИ ОТ МЕСТОПОЛОЖЕНИЯ.</>,
+                      <>СТАНДАРТНА ДОСТАВКА ПО ВСЬОМУ СВІТУ ЗАЙМАЄ ПРИБЛИЗНО<br />8–12 РОБОЧИХ ДНІВ ЗАЛЕЖНО ВІД МІСЦЯ.</>
                     )}
                   </div>
                 </div>
@@ -13497,7 +13497,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 <section className="border-t border-white/10 pt-8 mt-8">
                   <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">3. INTERNATIONAL STANDARD SHIPPING</h2>
                   <div className="space-y-3 text-white/75">
-                    <p>Standard international shipping typically takes approximately 7–12 business days.</p>
+                    <p>Standard international shipping typically takes approximately 8–12 business days.</p>
                     <p>Delivery times are estimates only and are not guaranteed.</p>
                     <p>Actual delivery times may vary depending on destination country, customs clearance, local carrier operations, weather conditions, public holidays, transportation disruptions, governmental inspections, and other circumstances beyond our reasonable control.</p>
                   </div>
@@ -18560,7 +18560,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         <div className="rounded-xl border border-white/15 bg-black/15 px-4 py-3 text-center">
                           <div className="text-base">📦</div>
                           <div className="mt-1 text-sm font-black text-white">{tx("Standard Shipping", "Стандартная доставка", "Стандартна доставка", "Standardversand", "Envío estándar")}</div>
-                          <div className="mt-0.5 text-[11px] text-white">7–12 {tx("business days", "раб. дней", "роб. днів", "Werktage", "días háb.")}</div>
+                          <div className="mt-0.5 text-[11px] text-white">8–12 {tx("business days", "раб. дней", "роб. днів", "Werktage", "días háb.")}</div>
                         </div>
                       );
 
@@ -18589,7 +18589,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-xl border border-white/8 bg-black/15 px-4 py-3 text-center">
                       <div className="text-[10px] uppercase tracking-[0.15em] text-white/50">{tx("Standard", "Стандарт", "Стандарт", "Standard", "Estándar")}</div>
-                      <div className="mt-1 text-sm font-bold text-white">7–12 {tx("days", "дней", "днів", "Tage", "días")}</div>
+                      <div className="mt-1 text-sm font-bold text-white">8–12 {tx("days", "дней", "днів", "Tage", "días")}</div>
                     </div>
                     <div className="rounded-xl border border-white/8 bg-black/15 px-4 py-3 text-center">
                       <div className="text-[10px] uppercase tracking-[0.15em] text-white/50">{tx("Express", "Экспресс", "Експрес", "Express", "Exprés")}</div>
@@ -18929,7 +18929,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         {tx("Standard", "Стандартная", "Стандартна")}
                       </div>
                       <div className={`mt-1 text-sm ${shippingType === "standard" ? "text-black/75" : "text-white"}`}>
-                        7–12 business days
+                        8–12 business days
                       </div>
                       <div className="mt-2 flex items-center justify-between gap-2">
                         <div className={`text-sm font-semibold ${shippingType === "standard" ? "text-black" : "text-white"}`}>
