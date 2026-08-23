@@ -1230,6 +1230,8 @@ const PRODUCTS_BASE = [
       total: "50 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 35,
+      coaImages: ["coa-tirz-10mg-p1.png"],
+      coaPdf: "coa-tirz-10mg.pdf",
     },
     {
       name: "Tirzepatide / GLP-2",
@@ -1238,6 +1240,8 @@ const PRODUCTS_BASE = [
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 55,
+      coaImages: ["coa-tirz-10mg-p1.png"],
+      coaPdf: "coa-tirz-10mg.pdf",
     },
     {
       name: "Tirzepatide / GLP-2",
@@ -1248,6 +1252,8 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 55,
       warehouse: "us",
+      coaImages: ["coa-tirz-10mg-p1.png"],
+      coaPdf: "coa-tirz-10mg.pdf",
     },
     {
       name: "Tirzepatide / GLP-2",
@@ -1256,6 +1262,8 @@ const PRODUCTS_BASE = [
       total: "150 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 70,
+      coaImages: ["coa-tirz-10mg-p1.png"],
+      coaPdf: "coa-tirz-10mg.pdf",
     },
     {
       name: "Tirzepatide / GLP-2",
@@ -1264,6 +1272,8 @@ const PRODUCTS_BASE = [
       total: "200 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 80,
+      coaImages: ["coa-tirz-10mg-p1.png"],
+      coaPdf: "coa-tirz-10mg.pdf",
     },
     {
       name: "Tirzepatide / GLP-2",
@@ -1272,6 +1282,8 @@ const PRODUCTS_BASE = [
       total: "300 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 90,
+      coaImages: ["coa-tirz-10mg-p1.png"],
+      coaPdf: "coa-tirz-10mg.pdf",
     },
     {
       name: "Tirzepatide / GLP-2",
@@ -1280,6 +1292,8 @@ const PRODUCTS_BASE = [
       total: "600 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 160,
+      coaImages: ["coa-tirz-10mg-p1.png"],
+      coaPdf: "coa-tirz-10mg.pdf",
     },
     {
       name: "Sermorelin",
@@ -1526,6 +1540,8 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 95,
       warehouse: "us",
+      coaImages: ["coa-tirz-10mg-p1.png"],
+      coaPdf: "coa-tirz-10mg.pdf",
     },
     {
       name: "Tirzepatide / GLP-2",
@@ -1534,6 +1550,8 @@ const PRODUCTS_BASE = [
       total: "400 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 110,
+      coaImages: ["coa-tirz-10mg-p1.png"],
+      coaPdf: "coa-tirz-10mg.pdf",
     },
     {
       name: "Tirzepatide / GLP-2",
@@ -1544,6 +1562,8 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 110,
       warehouse: "us",
+      coaImages: ["coa-tirz-10mg-p1.png"],
+      coaPdf: "coa-tirz-10mg.pdf",
     },
     {
       name: "Tirzepatide / GLP-2",
@@ -1552,6 +1572,8 @@ const PRODUCTS_BASE = [
       total: "500 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 130,
+      coaImages: ["coa-tirz-10mg-p1.png"],
+      coaPdf: "coa-tirz-10mg.pdf",
     },
     {
       name: "Tirzepatide / GLP-2",
@@ -1562,6 +1584,8 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 150,
       warehouse: "us",
+      coaImages: ["coa-tirz-10mg-p1.png"],
+      coaPdf: "coa-tirz-10mg.pdf",
     },
     {
       name: "Semax",
