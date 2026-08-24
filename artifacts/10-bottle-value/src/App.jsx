@@ -12458,7 +12458,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   {(selectedProduct?.coaImages?.length > 0) && (
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1">
                       {coaPage === 0 && (
-                        <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-white/70">COA</span>
+                        <span className="text-[13px] font-bold uppercase tracking-[0.18em] text-white">COA</span>
                       )}
                     <button
                       type="button"
