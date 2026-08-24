@@ -6956,10 +6956,40 @@ export default function App() {
     if (!affiliateCode) return;
     setAffiliateCommissionLoading(true);
     try {
-      const rows = await supabaseFetch(
-        `affiliate_orders?select=order_id,affiliate_code,commission_amount,shipping_type,created_at&affiliate_code=eq.${encodeURIComponent(affiliateCode)}&order=order_id.desc`
-      );
-      setAffiliateCommissionOrders(Array.isArray(rows) ? rows : []);
+      // Fetch from affiliate_orders (primary) and orders table (fallback/supplement) in parallel
+      const [affRows, ordersResult] = await Promise.allSettled([
+        supabaseFetch(
+          `affiliate_orders?select=order_id,affiliate_code,commission_amount,shipping_type,created_at&affiliate_code=eq.${encodeURIComponent(affiliateCode)}&order=order_id.desc`
+        ),
+        supabase.from("orders")
+          .select("id,status,created_at,metadata,affiliate_code")
+          .eq("affiliate_code", affiliateCode.toUpperCase())
+          .in("status", ["paid", "done"])
+          .order("created_at", { ascending: false }),
+      ]);
+
+      const primary = affRows.status === "fulfilled" && Array.isArray(affRows.value) ? affRows.value : [];
+      const primaryIds = new Set(primary.map(r => r.order_id));
+
+      // Build supplemental rows from orders table for any missing order_ids
+      const supplemental = [];
+      if (ordersResult.status === "fulfilled" && Array.isArray(ordersResult.value?.data)) {
+        const DAY_MS = 24 * 60 * 60 * 1000;
+        for (const row of ordersResult.value.data) {
+          if (primaryIds.has(row.id)) continue; // already in affiliate_orders
+          const meta = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
+          const commission = Number(meta.affiliateCommission) || Number(meta.subtotal || meta.total || row.total || 0) * 0.1;
+          supplemental.push({
+            order_id: row.id,
+            affiliate_code: affiliateCode.toUpperCase(),
+            commission_amount: commission,
+            shipping_type: String(meta.shippingType || "standard").toLowerCase(),
+            created_at: row.created_at,
+          });
+        }
+      }
+
+      setAffiliateCommissionOrders([...primary, ...supplemental]);
     } catch (error) {
       console.error("Failed to load affiliate commission orders", error);
       setAffiliateCommissionOrders([]);
