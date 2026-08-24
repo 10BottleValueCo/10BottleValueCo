@@ -4248,10 +4248,19 @@ export default function App() {
       if (mode === "set") newAmount = amount;
       else if (mode === "subtract") newAmount = Math.max(0, currentAmount - Math.abs(amount));
       else newAmount = Math.max(0, currentAmount + amount);
-      const { error } = await supabase.from("user_credits").upsert(
-        { email, amount: newAmount, note: adminCreditNote.trim() || null, updated_at: new Date().toISOString() },
-        { onConflict: "email" }
-      );
+      // UPDATE existing row first; INSERT if none exists (avoids duplicate rows from missing UNIQUE constraint)
+      const { error: updErr, count } = await supabase.from("user_credits")
+        .update({ amount: newAmount, note: adminCreditNote.trim() || null, updated_at: new Date().toISOString() })
+        .eq("email", email);
+      const needsInsert = !existing && !updErr;
+      const { error } = needsInsert
+        ? await supabase.from("user_credits").insert({ email, amount: newAmount, note: adminCreditNote.trim() || null, updated_at: new Date().toISOString() })
+        : { error: updErr };
+      // Clean up any duplicate rows
+      const { data: dupRows } = await supabase.from("user_credits").select("id, updated_at").eq("email", email).order("updated_at", { ascending: false });
+      if (dupRows && dupRows.length > 1) {
+        await supabase.from("user_credits").delete().in("id", dupRows.slice(1).map(r => r.id));
+      }
       if (error) { setAdminCreditMessage("Error: " + error.message); }
       else {
         setAdminCreditMessage(`✓ ${email} — new balance: $${newAmount.toFixed(2)}`);
@@ -10193,9 +10202,20 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       });
     } catch (e) { console.error("Credit order Supabase failed", e); }
     try {
-      const { data } = await supabase.from("user_credits").select("amount").eq("email", normalizedEmail).maybeSingle();
-      const newAmt = Math.max(0, (data ? Number(data.amount) : 0) - Number(storeCreditApplied.toFixed(2)));
-      await supabase.from("user_credits").upsert({ email: normalizedEmail, amount: newAmt, updated_at: new Date().toISOString() }, { onConflict: "email" });
+      const { data: creditRow } = await supabase.from("user_credits").select("amount").eq("email", normalizedEmail).order("updated_at", { ascending: false }).limit(1).single();
+      const currentAmt = creditRow ? Number(creditRow.amount) : 0;
+      const newAmt = Math.max(0, currentAmt - Number(storeCreditApplied.toFixed(2)));
+      // Use UPDATE to avoid duplicate-row issues; INSERT only if no row exists
+      const { error: updateErr } = await supabase.from("user_credits").update({ amount: newAmt, updated_at: new Date().toISOString() }).eq("email", normalizedEmail);
+      if (updateErr || !creditRow) {
+        await supabase.from("user_credits").insert({ email: normalizedEmail, amount: newAmt, updated_at: new Date().toISOString() });
+      }
+      // Delete any duplicate rows (keep the one with correct balance, delete extras)
+      const { data: allRows } = await supabase.from("user_credits").select("id, amount, updated_at").eq("email", normalizedEmail).order("updated_at", { ascending: false });
+      if (allRows && allRows.length > 1) {
+        const idsToDelete = allRows.slice(1).map(r => r.id);
+        await supabase.from("user_credits").delete().in("id", idsToDelete);
+      }
       setStoreCredit(newAmt);
     } catch (e) { console.error("Credit deduction failed", e); }
     setCreditPayAmount(Number(storeCreditApplied.toFixed(2)));
