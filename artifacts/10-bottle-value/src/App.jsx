@@ -6947,25 +6947,26 @@ export default function App() {
     if (!affiliateCode) return;
     setAffiliateCommissionLoading(true);
     try {
-      const [rows, payoutRows] = await Promise.all([
-        supabaseFetch(
-          `affiliate_orders?select=order_id,affiliate_code,commission_amount,shipping_type,created_at&affiliate_code=eq.${encodeURIComponent(affiliateCode)}&order=order_id.desc`
-        ),
-        supabaseFetch(
-          `affiliate_payouts?select=amount&affiliate_code=eq.${encodeURIComponent(affiliateCode)}`
-        ),
-      ]);
+      const rows = await supabaseFetch(
+        `affiliate_orders?select=order_id,affiliate_code,commission_amount,shipping_type,created_at&affiliate_code=eq.${encodeURIComponent(affiliateCode)}&order=order_id.desc`
+      );
       setAffiliateCommissionOrders(Array.isArray(rows) ? rows : []);
-      const totalPaid = Array.isArray(payoutRows)
-        ? payoutRows.reduce((s, r) => s + Number(r.amount || 0), 0)
-        : 0;
-      setAffiliatePaidOut(totalPaid);
     } catch (error) {
       console.error("Failed to load affiliate commission orders", error);
       setAffiliateCommissionOrders([]);
     } finally {
       setAffiliateCommissionLoading(false);
     }
+    // Load payouts separately so any failure doesn't break the orders fetch
+    try {
+      const payoutRows = await supabaseFetch(
+        `affiliate_payouts?select=amount&affiliate_code=eq.${encodeURIComponent(affiliateCode)}`
+      );
+      const totalPaid = Array.isArray(payoutRows)
+        ? payoutRows.reduce((s, r) => s + Number(r.amount || 0), 0)
+        : 0;
+      setAffiliatePaidOut(totalPaid);
+    } catch (_) { /* payouts table optional */ }
   }
 
   const promoCatalog = {
