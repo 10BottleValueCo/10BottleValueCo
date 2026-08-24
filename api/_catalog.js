@@ -225,7 +225,7 @@ function getShippingPrice(subtotal, type) {
     return 99.99;
   }
   if (subtotal >= 300) return 0;
-  if (subtotal >= 100) return 49.99;
+  if (subtotal >= 100) return 39.99;
   return 59.99;
 }
 
