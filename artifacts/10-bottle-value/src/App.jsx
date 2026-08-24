@@ -8438,7 +8438,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     }
     // standard
     if (subtotal >= 300) return 0;
-    if (subtotal >= 100) return 49.99;
+    if (subtotal >= 100) return 39.99;
     return 59.99;
   };
 
@@ -13068,7 +13068,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
                   <div className="flex justify-between">
                     <span>$100 – $299</span>
-                    <span>$49.99</span>
+                    <span>$39.99</span>
                   </div>
                   <div className="flex justify-between font-semibold text-white">
                     <span>$300+</span>
