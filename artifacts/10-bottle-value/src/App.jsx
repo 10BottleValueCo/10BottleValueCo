@@ -5406,7 +5406,14 @@ export default function App() {
               if (currentUser?.email) setUserOrders(getPaidOrdersForEmail(currentUser.email, nextOrders));
               const paidOrder = (Array.isArray(nextOrders) ? nextOrders : []).find((o) => o.id === order);
               const creditEmail = paidOrder?.email || currentUser?.email;
-              if (creditEmail) loadStoreCredit(creditEmail);
+              const creditUsedCatalyst = Number(paidOrder?.storeCreditUsed || 0);
+              if (creditUsedCatalyst > 0) {
+                setStoreCredit((prev) => Math.max(0, prev - creditUsedCatalyst));
+              }
+              if (creditEmail) {
+                loadStoreCredit(creditEmail);
+                setTimeout(() => loadStoreCredit(creditEmail), 6000);
+              }
               setPaymentReturn({ status: "success", order, paymentId: npId });
               setCatalystPayPending(false);
               setCart([]);
@@ -5451,7 +5458,17 @@ export default function App() {
           // that was used to spend the credit, regardless of session state.
           const paidOrderForCredit = (Array.isArray(nextOrders) ? nextOrders : []).find((o) => o.id === order);
           const creditRefreshEmail = paidOrderForCredit?.email || currentUser?.email;
-          if (creditRefreshEmail) loadStoreCredit(creditRefreshEmail);
+          // Optimistically deduct credits immediately so the balance updates
+          // before the server-side webhook has a chance to run.
+          const creditUsedNow = Number(paidOrderForCredit?.storeCreditUsed || 0);
+          if (creditUsedNow > 0) {
+            setStoreCredit((prev) => Math.max(0, prev - creditUsedNow));
+          }
+          if (creditRefreshEmail) {
+            loadStoreCredit(creditRefreshEmail);
+            // Re-sync after 6s to pick up any webhook-written value
+            setTimeout(() => loadStoreCredit(creditRefreshEmail), 6000);
+          }
 
           // Fallback for crypto orders: the DB "paid" status is normally set by the
           // NOWPayments IPN webhook, which can be delayed or occasionally never
