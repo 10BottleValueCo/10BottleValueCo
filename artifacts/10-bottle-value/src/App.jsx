@@ -17667,7 +17667,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                     {tx("Available earnings", "Доступный заработок", "Доступний заробіток", "Verfügbarer Verdienst", "Ganancias disponibles")}
                                   </div>
                                   <div className="mt-1 text-lg font-semibold text-white">
-                                    {affiliateCommissionLoading ? "…" : formatPricePrecise(availableTotal)}
+                                    {affiliateCommissionLoading ? "…" : formatPricePrecise(Math.max(0, availableTotal - affiliatePaidOut))}
                                   </div>
                                   <div className="mt-1 text-[11px] leading-5 text-white/60">
                                     {tx("Return window has closed — counted as real earnings.", "Окно возврата закрыто — засчитано как реальный заработок.", "Вікно повернення закрито — зараховано як реальний заробіток.", "Rückgabefrist ist abgelaufen — als echter Verdienst gezählt.", "La ventana de devolución se cerró — se cuenta como ganancias reales.")}
@@ -17678,14 +17678,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                     <div className="text-[10px] uppercase tracking-[0.2em] text-sky-300/70">Paid out</div>
                                     <div className="mt-1 text-lg font-semibold text-sky-300">{formatPricePrecise(affiliatePaidOut)}</div>
                                     <div className="mt-1 text-[11px] leading-5 text-white/60">Paid to you by 10BottleValue.</div>
-                                  </div>
-                                )}
-                                {affiliatePaidOut > 0 && (
-                                  <div className={`rounded-xl border px-4 py-3 ${remainingTotal > 0 ? "border-orange-400/25 bg-orange-400/8" : "border-emerald-400/25 bg-emerald-400/8"}`}>
-                                    <div className={`text-[10px] uppercase tracking-[0.2em] ${remainingTotal > 0 ? "text-orange-300/70" : "text-emerald-300/70"}`}>Remaining to pay</div>
-                                    <div className={`mt-1 text-lg font-semibold ${remainingTotal > 0 ? "text-orange-300" : "text-emerald-400"}`}>
-                                      {remainingTotal > 0 ? formatPricePrecise(remainingTotal) : "✓ Fully settled"}
-                                    </div>
                                   </div>
                                 )}
                               </div>
