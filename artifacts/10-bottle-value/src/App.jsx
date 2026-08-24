@@ -14907,7 +14907,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                   const next = currentItems.filter((_, i) => i !== idx);
                                   updateOrderItemsAdmin(order.id, next);
                                 };
-                                const resolveAdminPrice = (p) => p?.price ?? ((p?.usPriceBase ?? 0) + 5) ?? 0;
+                                const resolveAdminPrice = (p) => p?.warehouse === "us" ? ((p?.usPriceBase ?? p?.price ?? 0) + 5) : (p?.price ?? 0);
                                 const addItem = () => {
                                   const first = products[0];
                                   const next = [...currentItems, { name: first.name, dose: first.dose, quantity: 1, price: resolveAdminPrice(first) }];
