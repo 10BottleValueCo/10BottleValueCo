@@ -16143,7 +16143,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   const itemRevenue = lines.reduce((s, ln) => s + ln.salePrice * ln.qty, 0);
                   // Revenue = order.total (actual money received, already includes customer shipping)
                   // Fall back to itemRevenue only if total is missing
-                  const revenue = Number(order.total || 0) || itemRevenue;
+                  const revenue = (order.total != null && order.total !== "") ? Number(order.total) : itemRevenue;
                   // Affiliate payout: adjustment override → stored commission → 10% of subtotal
                   const affiliateCode = String(order.affiliateCode || "").trim();
                   const affiliatePayout = affiliateCode
