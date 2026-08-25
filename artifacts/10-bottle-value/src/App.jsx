@@ -598,7 +598,7 @@ function FedExTrackBlock() {
     e.preventDefault();
     const num = fedexInput.trim();
     if (!num) return;
-    window.open(`https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(num)}`, "_blank", "noopener,noreferrer");
+    window.open(`https://www.fedex.com/en-us/tracking.html?tracknumbers=${encodeURIComponent(num)}`, "_blank", "noopener,noreferrer");
   }
 
   return (
