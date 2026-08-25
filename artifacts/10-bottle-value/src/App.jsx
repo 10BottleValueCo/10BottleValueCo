@@ -18868,7 +18868,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
                 </div>
               </section>
-            ) : (catalystPayPending || catalystPayTimedOut) ? (
+            ) : ((catalystPayPending || catalystPayTimedOut) && paymentReturn.status !== "cancelled") ? (
               <section className="overflow-hidden rounded-[2.4rem] border border-white/15 bg-black/25 shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
                 <div className="h-1 w-full bg-gradient-to-r from-amber-400 via-orange-300 to-amber-400" />
                 <div className="px-8 pt-12 pb-10 text-center md:px-12">
