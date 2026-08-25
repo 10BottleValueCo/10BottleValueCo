@@ -1513,6 +1513,7 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
       isNew: true,
+      outOfStock: true,
     },
     {
       name: "Eloralintide",
@@ -1522,6 +1523,7 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
       isNew: true,
+      outOfStock: true,
     },
     {
       name: "Mazdutide",
