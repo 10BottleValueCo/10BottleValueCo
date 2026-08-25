@@ -18868,7 +18868,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
                 </div>
               </section>
-            ) : ((catalystPayPending || catalystPayTimedOut) && paymentReturn.status !== "cancelled") ? (
+            ) : (catalystPayPending) ? (
               <section className="overflow-hidden rounded-[2.4rem] border border-white/15 bg-black/25 shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
                 <div className="h-1 w-full bg-gradient-to-r from-amber-400 via-orange-300 to-amber-400" />
                 <div className="px-8 pt-12 pb-10 text-center md:px-12">
@@ -18883,14 +18883,14 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     {tx("Bitcoin payment", "Bitcoin оплата", "Bitcoin оплата", "Bitcoin-Zahlung", "Pago Bitcoin")}
                   </div>
                   <h1 className="mt-3 text-3xl font-black uppercase tracking-[0.08em] text-white md:text-4xl">
-                    {tx("Awaiting Confirmation", "Ожидание подтверждения", "Очікування підтвердження", "Warten auf Bestätigung", "Esperando confirmación")}
+                    {tx("Processing Payment", "Обработка платежа", "Обробка платежу", "Zahlung wird verarbeitet", "Procesando pago")}
                   </h1>
                   <p className="mx-auto mt-5 max-w-sm text-sm leading-7 text-white/60">
-                    {tx("Bitcoin payments can take up to 1 hour to confirm. Contact our support team to check whether your payment went through.",
-                      "Подтверждение Bitcoin-платежа может занять до 1 часа. Свяжитесь с нашей поддержкой, чтобы узнать, прошёл ли ваш платёж.",
-                      "Підтвердження Bitcoin-платежу може зайняти до 1 години. Зв'яжіться з підтримкою, щоб дізнатися, чи пройшов ваш платіж.",
-                      "Bitcoin-Zahlungen können bis zu 1 Stunde dauern. Kontaktieren Sie unseren Support, um zu prüfen, ob Ihre Zahlung eingegangen ist.",
-                      "Los pagos con Bitcoin pueden tardar hasta 1 hora. Contacte a nuestro soporte para verificar si su pago fue procesado.")}
+                    {tx("Please wait while we confirm your payment. This usually takes a few seconds.",
+                      "Подождите, мы проверяем ваш платёж. Обычно это занимает несколько секунд.",
+                      "Зачекайте, ми перевіряємо ваш платіж.",
+                      "Bitte warten, wir prüfen Ihre Zahlung.",
+                      "Espere, estamos verificando su pago.")}
                   </p>
                   {paymentReturn.order && (
                     <div className="mx-auto mt-5 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-5 py-2">
