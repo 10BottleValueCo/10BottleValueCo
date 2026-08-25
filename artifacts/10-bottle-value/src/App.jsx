@@ -6968,9 +6968,10 @@ export default function App() {
       const primaryArr = Array.isArray(primary) ? primary : [];
       const primaryIds = new Set(primaryArr.map(r => r.order_id));
 
-      // Supplemental: check allOrders in-memory state (same source as admin panel)
-      // affiliate code may be in metadata.affiliateCode or top-level affiliateCode field
+      // Supplemental: check allOrders in-memory state (available for admin users)
       const supplemental = [];
+      const seenIds = new Set(primaryIds);
+
       const inMemoryMatches = allOrders.filter(o => {
         const status = String(o.status || "").toLowerCase();
         if (status !== "paid" && status !== "done") return false;
@@ -6978,7 +6979,8 @@ export default function App() {
         return code === codeUpper;
       });
       for (const o of inMemoryMatches) {
-        if (primaryIds.has(o.id)) continue;
+        if (seenIds.has(o.id)) continue;
+        seenIds.add(o.id);
         const commission = Number(o.affiliateCommission) || Number(o.subtotal || o.total || 0) * 0.1;
         supplemental.push({
           order_id: o.id,
@@ -6988,6 +6990,30 @@ export default function App() {
           created_at: o.createdAt || o.paidAt || null,
         });
       }
+
+      // Also query Supabase orders by metadata affiliateCode (for non-admin affiliates)
+      try {
+        const { data: metaOrders } = await supabase
+          .from("orders")
+          .select("id,status,created_at,metadata")
+          .filter("metadata->>affiliateCode", "eq", codeUpper)
+          .in("status", ["paid", "done"]);
+        if (Array.isArray(metaOrders)) {
+          for (const row of metaOrders) {
+            if (seenIds.has(row.id)) continue;
+            seenIds.add(row.id);
+            const meta = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
+            const commission = Number(meta.affiliateCommission) || Number(meta.subtotal || meta.total || 0) * 0.1;
+            supplemental.push({
+              order_id: row.id,
+              affiliate_code: codeUpper,
+              commission_amount: commission,
+              shipping_type: String(meta.shippingType || "standard").toLowerCase(),
+              created_at: row.created_at,
+            });
+          }
+        }
+      } catch (_) { /* best effort */ }
 
       setAffiliateCommissionOrders([...primaryArr, ...supplemental]);
     } catch (error) {
