@@ -1735,6 +1735,7 @@ const PRODUCTS_BASE = [
     {
       name: "SS-31",
       price: 209,
+      usPriceBase: 204,
       dose: "10 mg",
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
