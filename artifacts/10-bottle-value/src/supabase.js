@@ -87,5 +87,6 @@ export function userFromSupabase(supabaseUser) {
     state: meta.state || "",
     postalCode: meta.postalCode || "",
     phone: meta.phone || "",
+    carrierPreference: meta.carrierPreference || "",
   };
 }
