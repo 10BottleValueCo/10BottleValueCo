@@ -1001,7 +1001,7 @@ function ContactPage({ copySupportEmail, copiedEmail, t, language, onNewMessage 
       name: "X",
       icon: SOCIAL_ICONS.X,
       url: "https://x.com/10BottleValueCo",
-      sub: "1150+ followers",
+      sub: "1200+ followers",
     },
   ];
 
@@ -11926,7 +11926,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       name: "X",
                       icon: SOCIAL_ICONS.X,
                       url: "https://x.com/10BottleValueCo",
-                      sub: "1150+ followers",
+                      sub: "1200+ followers",
                     },
                   ].map((item) => {
                     const inner = (
