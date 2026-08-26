@@ -18087,24 +18087,32 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                   ))}
                                 </div>
 
-                                {(order.firstName || order.lastName || order.address || order.phone) && (
+                                {(true) && (
                                   <div className="mx-5 mt-3 mb-0 flex flex-col gap-2">
                                     <div className="rounded-2xl border border-white/20 bg-white/[0.08] px-4 py-3">
                                       <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[11px]">
-                                      {(order.firstName || order.lastName) && (<><span className="text-white/60 uppercase tracking-[0.12em] font-semibold self-start pt-[1px]">Name</span><span className="text-white font-semibold">{[order.firstName, order.lastName].filter(Boolean).join(" ")}</span></>)}
-                                      {order.address && (<><span className="text-white/60 uppercase tracking-[0.12em] font-semibold self-start pt-[1px]">Address</span><span className="text-white/80">{order.address}</span></>)}
-                                      {order.address2 && (<><span className="text-white/60 uppercase tracking-[0.12em] font-semibold self-start pt-[1px]">Apt/Suite</span><span className="text-white/80">{order.address2}</span></>)}
-                                      {order.city && (<><span className="text-white/60 uppercase tracking-[0.12em] font-semibold self-start pt-[1px]">City</span><span className="text-white/80">{order.city}</span></>)}
-                                      {order.postalCode && (<><span className="text-white/60 uppercase tracking-[0.12em] font-semibold self-start pt-[1px]">Postal code</span><span className="text-white/80">{order.postalCode}</span></>)}
-                                      {order.state && (<><span className="text-white/60 uppercase tracking-[0.12em] font-semibold self-start pt-[1px]">State</span><span className="text-white/80">{order.state}</span></>)}
-                                      {order.country && (<><span className="text-white/60 uppercase tracking-[0.12em] font-semibold self-start pt-[1px]">Country</span><span className="text-white/80">{order.country}</span></>)}
-                                      {order.phone && (<><span className="text-white/60 uppercase tracking-[0.12em] font-semibold self-start pt-[1px]">Phone</span><span className="text-white/80">{order.phone}</span></>)}
-                                      {order.taxId && (<><span className="text-white/60 uppercase tracking-[0.12em] font-semibold self-start pt-[1px]">Tax ID</span><span className="text-white/80 font-semibold">{order.taxId}</span></>)}
-                                      {(() => { const carrier = (order.orderNotes || "").match(/Carrier preference: (\S+)/i)?.[1]; return <><span className="text-white/60 uppercase tracking-[0.12em] font-semibold self-start pt-[1px]">Carrier</span><span className={carrier ? "text-sky-300 font-semibold" : "text-white/30"}>{carrier || "—"}</span></>; })()}
-                                      {order.orderNotes && (<><span className="text-white/60 uppercase tracking-[0.12em] font-semibold self-start pt-[1px]">Notes</span><span className="text-amber-300/90 whitespace-pre-wrap">{order.orderNotes.replace(/\nCarrier preference: \S+/i, "").replace(/Carrier preference: \S+\n?/i, "").trim()}</span></>)}
+                                        {[
+                                          { label: "Email",       val: order.email },
+                                          { label: "Name",        val: [order.firstName, order.lastName].filter(Boolean).join(" "), bold: true },
+                                          { label: "Address",     val: order.address },
+                                          { label: "Apt/Suite",   val: order.address2 },
+                                          { label: "City",        val: order.city },
+                                          { label: "Postal code", val: order.postalCode },
+                                          { label: "State",       val: order.state },
+                                          { label: "Country",     val: order.country },
+                                          { label: "Phone",       val: order.phone },
+                                          { label: "Tax ID",      val: order.taxId },
+                                          { label: "Carrier",     val: (order.orderNotes || "").match(/Carrier preference: (\S+)/i)?.[1], sky: true },
+                                          { label: "Notes",       val: (order.orderNotes || "").replace(/\nCarrier preference: \S+/i, "").replace(/Carrier preference: \S+\n?/i, "").trim() || null },
+                                        ].map(({ label, val, bold, sky }) => (
+                                          <React.Fragment key={label}>
+                                            <span className="text-white/60 uppercase tracking-[0.12em] font-semibold self-start pt-[1px]">{label}</span>
+                                            <span className={val ? (sky ? "text-sky-300 font-semibold" : bold ? "text-white font-semibold" : "text-white/80") : "text-white/30"}>{val || "—"}</span>
+                                          </React.Fragment>
+                                        ))}
                                       </div>
                                     </div>
-                                    <div className="flex justify-center pb-1">
+                                                                        <div className="flex justify-center pb-1">
                                       <button
                                         type="button"
                                         onClick={() => setContactModalOpen(true)}
