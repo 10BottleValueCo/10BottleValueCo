@@ -1,6 +1,6 @@
 // @ts-nocheck
 // @ts-nocheck
-import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, startTransition, useEffect, useMemo, useRef, useState } from "react";
 import confetti from "canvas-confetti";
 import { supabase, userFromSupabase } from "./supabase.js";
 import { useSEO } from "./useSEO.js";
@@ -18105,10 +18105,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                           { label: "Carrier",     val: (order.orderNotes || "").match(/Carrier preference: (\S+)/i)?.[1], sky: true },
                                           { label: "Notes",       val: (order.orderNotes || "").replace(/\nCarrier preference: \S+/i, "").replace(/Carrier preference: \S+\n?/i, "").trim() || null },
                                         ].map(({ label, val, bold, sky }) => (
-                                          <React.Fragment key={label}>
+                                          <Fragment key={label}>
                                             <span className="text-white/60 uppercase tracking-[0.12em] font-semibold self-start pt-[1px]">{label}</span>
                                             <span className={val ? (sky ? "text-sky-300 font-semibold" : bold ? "text-white font-semibold" : "text-white/80") : "text-white/30"}>{val || "—"}</span>
-                                          </React.Fragment>
+                                          </Fragment>
                                         ))}
                                       </div>
                                     </div>
