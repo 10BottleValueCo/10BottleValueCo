@@ -15781,13 +15781,76 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                               return `[${time}] ${who}:\n${e.text}\n`;
                                             })
                                           ];
-                                          const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
-                                          const url = URL.createObjectURL(blob);
-                                          const a = document.createElement("a");
-                                          a.href = url;
-                                          a.download = `chat-${email}-${new Date().toISOString().slice(0,10)}.txt`;
-                                          a.click();
-                                          URL.revokeObjectURL(url);
+                                          // Generate PDF using jsPDF
+                                          const loadAndExport = async () => {
+                                            if (!window.jspdf) {
+                                              await new Promise((res, rej) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+                                            }
+                                            const { jsPDF } = window.jspdf;
+                                            const doc = new jsPDF({ unit: "mm", format: "a4" });
+                                            const pageW = doc.internal.pageSize.getWidth();
+                                            const pageH = doc.internal.pageSize.getHeight();
+                                            const margin = 14;
+                                            const maxW = pageW - margin * 2;
+                                            let y = margin;
+                                            const addPage = () => { doc.addPage(); y = margin; };
+                                            const checkY = (h) => { if (y + h > pageH - margin) addPage(); };
+                                            // Header
+                                            doc.setFillColor(20, 20, 20);
+                                            doc.rect(0, 0, pageW, 22, "F");
+                                            doc.setTextColor(255, 255, 255);
+                                            doc.setFontSize(13);
+                                            doc.setFont("helvetica", "bold");
+                                            doc.text("10BottleValue — Chat Export", margin, 14);
+                                            doc.setFontSize(8);
+                                            doc.setFont("helvetica", "normal");
+                                            doc.setTextColor(180, 180, 180);
+                                            doc.text(`Exported: ${new Date().toLocaleString()}`, pageW - margin, 14, { align: "right" });
+                                            y = 30;
+                                            // Email label
+                                            doc.setFontSize(10);
+                                            doc.setFont("helvetica", "bold");
+                                            doc.setTextColor(40, 40, 40);
+                                            doc.text(`Conversation with: ${email}`, margin, y);
+                                            y += 8;
+                                            doc.setDrawColor(220, 220, 220);
+                                            doc.line(margin, y, pageW - margin, y);
+                                            y += 6;
+                                            // Messages
+                                            dlTimeline.forEach(entry => {
+                                              const isSupport = entry.type === "out";
+                                              const who = isSupport ? "Support" : email;
+                                              const time = new Date(entry.ts).toLocaleString();
+                                              const text = entry.text || "";
+                                              const wrappedText = doc.splitTextToSize(text, maxW - 6);
+                                              const bubbleH = wrappedText.length * 5 + 12;
+                                              checkY(bubbleH + 4);
+                                              // Bubble background
+                                              if (isSupport) {
+                                                doc.setFillColor(220, 245, 230);
+                                              } else {
+                                                doc.setFillColor(245, 245, 245);
+                                              }
+                                              const bx = isSupport ? pageW - margin - maxW : margin;
+                                              doc.roundedRect(bx, y, maxW, bubbleH, 3, 3, "F");
+                                              // Who + time
+                                              doc.setFontSize(7.5);
+                                              doc.setFont("helvetica", "bold");
+                                              doc.setTextColor(isSupport ? 30 : 80, isSupport ? 100 : 80, isSupport ? 60 : 80);
+                                              doc.text(who, bx + 4, y + 6);
+                                              doc.setFont("helvetica", "normal");
+                                              doc.setTextColor(160, 160, 160);
+                                              doc.text(time, bx + maxW - 4, y + 6, { align: "right" });
+                                              // Message text
+                                              doc.setFontSize(9);
+                                              doc.setFont("helvetica", "normal");
+                                              doc.setTextColor(30, 30, 30);
+                                              doc.text(wrappedText, bx + 4, y + 12);
+                                              y += bubbleH + 4;
+                                            });
+                                            doc.save(`chat-${email}-${new Date().toISOString().slice(0,10)}.pdf`);
+                                          };
+                                          loadAndExport();
                                         }} className="flex items-center gap-1.5 text-[10px] text-white/30 hover:text-sky-300 transition-colors">
                                           <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                                           Download chat
