@@ -8532,9 +8532,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   const baseTotal = subtotal - automaticDiscount - promoDiscount - affiliateDiscount + shipping;
   // Crypto discount removed
   const cryptoDiscountAmount = 0;
-  // Stripe card payments carry a 4% processing fee, added on top of the total.
+  // Stripe card payments carry a 2.95% processing fee, added on top of the total.
   const stripeFeeAmount = (paymentMethod === "stripe" && checkoutStep === "payment")
-    ? Math.round(baseTotal * 0.04 * 100) / 100
+    ? Math.round(baseTotal * 0.0295 * 100) / 100
     : 0;
   const totalAfterDiscount = baseTotal - cryptoDiscountAmount + stripeFeeAmount;
   const PAYPAL_FEE_RATE = 0;
@@ -15127,7 +15127,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                 const isStripeProvider = /stripe/i.test(order.paymentProvider || "");
                                 const isCryptoProvider = /crypto|btc|eth|usdt|usdc|cash.?app|nowpayments|catalystpay|paylio/i.test(order.paymentProvider || "");
                                 const baseBeforeFee = displaySubtotal + displayShipping - knownDiscounts + Number(order.paypalFee || 0);
-                                const impliedStripeFee = isStripeProvider ? Math.round(baseBeforeFee * 0.04 * 100) / 100 : 0;
+                                const impliedStripeFee = isStripeProvider ? Math.round(baseBeforeFee * 0.0295 * 100) / 100 : 0;
                                 const rawImpliedDiscount = (displayTotal > 0.009 && displayTotal < baseBeforeFee + impliedStripeFee - 0.009) ? (baseBeforeFee + impliedStripeFee - displayTotal) : 0;
                                 const isFeeArtifact = isStripeProvider && Math.abs(rawImpliedDiscount - impliedStripeFee) < 0.02;
                                 const impliedDiscount = isFeeArtifact ? 0 : rawImpliedDiscount;
@@ -15163,7 +15163,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                 {Number(order.cryptoDiscount) > 0 && (<><span className="text-white/50 uppercase tracking-[0.12em]">Crypto disc. (5%)</span><span className="text-emerald-300 text-right tabular-nums">-{formatPricePrecise(order.cryptoDiscount)}</span></>)}
                                 {impliedDiscount > 0 && (<><span className="text-white/50 uppercase tracking-[0.12em]">{impliedLabel}</span><span className="text-emerald-300 text-right tabular-nums">-{formatPricePrecise(impliedDiscount)}</span></>)}
                                 {Number(order.paypalFee) > 0 && (<><span className="text-white/50 uppercase tracking-[0.12em]">PayPal fee (4.9%)</span><span className="text-amber-300/80 text-right tabular-nums">+{formatPricePrecise(order.paypalFee)}</span></>)}
-                                {impliedStripeFee > 0.009 && (<><span className="text-white/50 uppercase tracking-[0.12em]">Stripe fee (4%)</span><span className="text-amber-300/80 text-right tabular-nums">+{formatPricePrecise(impliedStripeFee)}</span></>)}
+                                {impliedStripeFee > 0.009 && (<><span className="text-white/50 uppercase tracking-[0.12em]">Stripe fee (2.95%)</span><span className="text-amber-300/80 text-right tabular-nums">+{formatPricePrecise(impliedStripeFee)}</span></>)}
                                 <span className="text-white/50 uppercase tracking-[0.12em] font-bold">Total</span>
                                 {priceInput("total", displayTotal, "font-bold text-white")}
                               </div>
@@ -20171,7 +20171,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                 ) : (
                                   <>
                                     <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "stripe" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>No KYC</span>
-                                    <span className={`text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "stripe" ? "text-white/70" : "text-black/70"}`}>FEE 4%</span>
+                                    <span className={`text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "stripe" ? "text-white/70" : "text-black/70"}`}>FEE 2.95%</span>
                                   </>
                                 )}
                               </div>
@@ -20345,7 +20345,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               <div className="text-xs font-semibold md:text-sm">Cards</div>
                             </div>
                             <div className="mt-2 flex flex-col items-center gap-0.5">
-                              <div className={`text-sm font-black uppercase tracking-[0.1em] ${stripeTemporarilyDisabled ? "text-black/25" : paymentMethod === "stripe" ? "text-white" : "text-black/70"}`}>FEE 4%</div>
+                              <div className={`text-sm font-black uppercase tracking-[0.1em] ${stripeTemporarilyDisabled ? "text-black/25" : paymentMethod === "stripe" ? "text-white" : "text-black/70"}`}>FEE 2.95%</div>
                             </div>
                           </button>
                           {/* 2 — Crypto (BEST OPTION) */}
@@ -21122,7 +21122,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             )}
                             {stripeFeeAmount > 0 && (
                               <div className="flex items-center justify-between">
-                                <span>Card processing fee (4%)</span>
+                                <span>Card processing fee (2.95%)</span>
                                 <span>+{formatPricePrecise(stripeFeeAmount)}</span>
                               </div>
                             )}
