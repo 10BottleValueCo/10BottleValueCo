@@ -8550,8 +8550,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   const shipping =
     cart.length === 0 ? 0 : (appliedPromo?.freeShipping || ownerFreeShippingActive ? 0 : (regularSubtotal === 0 ? 0 : getShippingPrice(regularSubtotal, shippingType)));
   const baseTotal = subtotal - automaticDiscount - promoDiscount - affiliateDiscount + shipping;
-  // Crypto discount removed
-  const cryptoDiscountAmount = 0;
+  // 2.5% discount for crypto payments
+  const cryptoDiscountAmount = (paymentMethod === "crypto" && checkoutStep === "payment")
+    ? Math.round(baseTotal * 0.025 * 100) / 100
+    : 0;
   // Stripe card payments carry a 2.95% processing fee, added on top of the total.
   const stripeFeeAmount = (paymentMethod === "stripe" && checkoutStep === "payment")
     ? Math.round(baseTotal * 0.0295 * 100) / 100
@@ -20341,6 +20343,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               <div className="text-[14px] font-semibold">{tx("Crypto", "Крипто", "Крипто", "Krypto", "Cripto")}</div>
                               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                                 <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "crypto" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>No KYC</span>
+                                <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "crypto" ? "bg-emerald-400/25 text-emerald-300" : "bg-emerald-500 text-white"}`}>2.5% OFF</span>
                               </div>
                             </div>
                             {paymentMethod === "crypto" && <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500"><svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>}
@@ -21251,7 +21254,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             )}
                             {cryptoDiscountAmount > 0 && (
                               <div className="flex items-center justify-between">
-                                <span>{"Crypto discount (5%)"}</span>
+                                <span>Crypto discount (2.5%)</span>
                                 <span>-{formatPricePrecise(cryptoDiscountAmount)}</span>
                               </div>
                             )}
