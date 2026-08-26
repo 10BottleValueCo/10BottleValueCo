@@ -15155,7 +15155,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                 const rawImpliedDiscount = (displayTotal > 0.009 && displayTotal < baseBeforeFee + impliedStripeFee - 0.009) ? (baseBeforeFee + impliedStripeFee - displayTotal) : 0;
                                 const isFeeArtifact = isStripeProvider && Math.abs(rawImpliedDiscount - impliedStripeFee) < 0.02;
                                 const impliedDiscount = isFeeArtifact ? 0 : rawImpliedDiscount;
-                                const impliedLabel = isCryptoProvider ? "Crypto disc. (5%)" : "Discount";
+                                const impliedLabel = isCryptoProvider ? "Crypto disc. (2.5%)" : "Discount";
                                 const priceInput = (field, val, colorClass = "text-white/70", prefix = "") => (
                                   <input
                                     type="number"
@@ -15184,7 +15184,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                 {Number(order.affiliateDiscount) > 0 && (<><span className="text-white/50 uppercase tracking-[0.12em]">Affiliate disc.{order.affiliateCode ? ` (${order.affiliateCode})` : ""}</span><span className="text-emerald-300 text-right tabular-nums">-{formatPricePrecise(order.affiliateDiscount)}</span></>)}
                                 <span className="text-white/50 uppercase tracking-[0.12em]">Credits used</span>
                                 {priceInput("storeCreditUsed", displayCredits, "text-cyan-300")}
-                                {Number(order.cryptoDiscount) > 0 && (<><span className="text-white/50 uppercase tracking-[0.12em]">Crypto disc. (5%)</span><span className="text-emerald-300 text-right tabular-nums">-{formatPricePrecise(order.cryptoDiscount)}</span></>)}
+                                {Number(order.cryptoDiscount) > 0 && (<><span className="text-white/50 uppercase tracking-[0.12em]">Crypto disc. (2.5%)</span><span className="text-emerald-300 text-right tabular-nums">-{formatPricePrecise(order.cryptoDiscount)}</span></>)}
                                 {impliedDiscount > 0 && (<><span className="text-white/50 uppercase tracking-[0.12em]">{impliedLabel}</span><span className="text-emerald-300 text-right tabular-nums">-{formatPricePrecise(impliedDiscount)}</span></>)}
                                 {Number(order.paypalFee) > 0 && (<><span className="text-white/50 uppercase tracking-[0.12em]">PayPal fee (4.9%)</span><span className="text-amber-300/80 text-right tabular-nums">+{formatPricePrecise(order.paypalFee)}</span></>)}
                                 {impliedStripeFee > 0.009 && (<><span className="text-white/50 uppercase tracking-[0.12em]">Stripe fee (2.95%)</span><span className="text-amber-300/80 text-right tabular-nums">+{formatPricePrecise(impliedStripeFee)}</span></>)}
