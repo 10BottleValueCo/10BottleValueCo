@@ -1654,6 +1654,15 @@ const PRODUCTS_BASE = [
       marketPrice: 35,
     },
     {
+      name: "DSIP",
+      price: 175,
+      usPriceBase: 170,
+      dose: "10 mg",
+      total: "100 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
+    },
+    {
       name: "GHK-CU",
       price: 109,
       dose: "100 mg",
