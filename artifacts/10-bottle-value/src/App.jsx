@@ -2966,6 +2966,7 @@ export default function App() {
     state: "",
     postalCode: "",
     phone: "",
+    carrierPreference: "",
   });
   const [promoInput, setPromoInput] = useState("");
   const [promoMessage, setPromoMessage] = useState("");
@@ -8082,6 +8083,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         state: "",
         postalCode: "",
         phone: "",
+        carrierPreference: "",
       });
       setIsEditingProfile(false);
       setAffiliateCodeInput("");
@@ -8098,6 +8100,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       state: currentUser.state || "",
       postalCode: currentUser.postalCode || "",
       phone: currentUser.phone || "",
+      carrierPreference: currentUser.carrierPreference || "",
     });
 
     const existingAffiliate = affiliateProfiles.find(
@@ -10672,6 +10675,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       state: profileForm.state.trim(),
       postalCode: profileForm.postalCode.trim(),
       phone: profileForm.phone.trim(),
+      carrierPreference: profileForm.carrierPreference || "",
     };
 
     await supabase.auth.updateUser({ data: updatedMeta });
@@ -10689,6 +10693,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       state: updatedUser.state,
       postalCode: updatedUser.postalCode,
       phone: updatedUser.phone,
+      carrierPreference: updatedUser.carrierPreference || "",
     }));
     setAccountMessage(
       tx(
@@ -17492,6 +17497,19 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           placeholder={t("phone")}
                           className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
                         />
+                        {/* Carrier preference */}
+                        <div>
+                          <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-white/50">Carrier preference (optional)</div>
+                          <div className="flex gap-2">
+                            {["FedEx", "USPS", "UPS"].map((c) => (
+                              <button key={c} type="button"
+                                onClick={() => handleProfileFieldChange("carrierPreference", profileForm.carrierPreference === c ? "" : c)}
+                                className={`flex-1 rounded-2xl border py-2.5 text-[12px] font-semibold tracking-wide transition ${profileForm.carrierPreference === c ? "border-white/60 bg-white/15 text-white" : "border-white/20 bg-black/10 text-white/50 hover:border-white/40 hover:text-white/80"}`}>
+                                {c}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     ) : (
                       <div className="mt-5 border-t border-white/10 pt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
