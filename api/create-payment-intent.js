@@ -72,7 +72,7 @@ export default async function handler(req, res) {
 
     // Fee is always calculated on preCreditTotal (before store credit), so store credit
     // doesn't also save the customer from the card processing fee.
-    const stripeFee = Math.round(preCreditTotal * 0.04 * 100) / 100;
+    const stripeFee = Math.round(preCreditTotal * 0.0295 * 100) / 100;
     const amount = Math.max(0, Math.round((preCreditTotal + stripeFee - safeStoreCreditUsed) * 100) / 100);
 
     if (!amount || amount <= 0) return res.status(400).json({ error: "Order total must be greater than zero." });
