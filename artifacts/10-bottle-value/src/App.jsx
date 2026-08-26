@@ -4411,7 +4411,7 @@ export default function App() {
 
     y = 42;
 
-    // ── Title ────────────────────────────────────────────────────────────────
+    // ── Title ------------------------------------------------------------────
     doc.setTextColor(20, 20, 20);
     doc.setFontSize(22);
     doc.setFont("helvetica", "bold");
@@ -4448,7 +4448,7 @@ export default function App() {
     }
     y += 4;
 
-    // ── Separator ────────────────────────────────────────────────────────────
+    // ── Separator ------------------------------------------------------------
     doc.setDrawColor(230, 230, 230);
     doc.line(margin, y, W - margin, y);
     y += 7;
@@ -4534,7 +4534,7 @@ export default function App() {
     doc.text(`$${Number(order.total || 0).toFixed(2)}`, W - margin - 2, y + 5.5, { align: "right" });
     y += 16;
 
-    // ── Footer ────────────────────────────────────────────────────────────────
+    // ── Footer ------------------------------------------------------------────
     doc.setDrawColor(220, 220, 220);
     doc.line(margin, y, W - margin, y);
     y += 5;
@@ -15762,7 +15762,36 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                         </div>
                                         </>
                                       )}
-                                      <div className="mt-2 flex justify-end">
+                                      <div className="mt-2 flex items-center justify-between">
+                                        <button onClick={() => {
+                                          const dlTimeline = [];
+                                          sorted.forEach(m => {
+                                            const isOut = m.message === "[Admin initiated message]";
+                                            if (!isOut) dlTimeline.push({ type: "in", ts: m.created_at, text: m.message });
+                                            if (m.admin_reply || isOut) dlTimeline.push({ type: "out", ts: m.replied_at || m.created_at, text: isOut ? (m.message.replace("[Admin initiated message]","").trim() || m.admin_reply || "") : m.admin_reply });
+                                          });
+                                          dlTimeline.sort((a, b) => new Date(a.ts) - new Date(b.ts));
+                                          const lines = [
+                                            `Conversation with: ${email}`,
+                                            `Exported: ${new Date().toLocaleString()}`,
+                                            "─".repeat(60), "",
+                                            ...dlTimeline.map(e => {
+                                              const who = e.type === "in" ? email : "Support";
+                                              const time = new Date(e.ts).toLocaleString();
+                                              return `[${time}] ${who}:\n${e.text}\n`;
+                                            })
+                                          ];
+                                          const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+                                          const url = URL.createObjectURL(blob);
+                                          const a = document.createElement("a");
+                                          a.href = url;
+                                          a.download = `chat-${email}-${new Date().toISOString().slice(0,10)}.txt`;
+                                          a.click();
+                                          URL.revokeObjectURL(url);
+                                        }} className="flex items-center gap-1.5 text-[10px] text-white/30 hover:text-sky-300 transition-colors">
+                                          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                          Download chat
+                                        </button>
                                         <button onClick={() => { if (window.confirm("Delete entire conversation?")) { msgs.forEach(m => deleteMessage(m.id, { fromAdmin: true })); setExpandedThreadEmail(null); } }} className="text-[10px] text-white/15 hover:text-red-300 transition-colors">Delete conversation</button>
                                       </div>
                                     </div>
