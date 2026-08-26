@@ -118,9 +118,9 @@ export default async function handler(req, res) {
       subtotal - finalAutomaticDiscount - promoDiscount - finalAffiliateDiscount + shipping
     );
 
-    // Crypto discount removed
-    const cryptoDiscount = 0;
-    const totalAfterCryptoDiscount = preCreditTotal;
+    // 2.5% discount for crypto payments
+    const cryptoDiscount = Math.round(preCreditTotal * 0.025 * 100) / 100;
+    const totalAfterCryptoDiscount = preCreditTotal - cryptoDiscount;
 
     const safeStoreCreditUsed = Math.min(Math.max(Number(storeCreditUsed) || 0, 0), totalAfterCryptoDiscount);
 
