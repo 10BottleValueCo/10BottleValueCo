@@ -11136,7 +11136,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
   // 1. Умная функция, которая раздает картинки и текст
   function getProductVisual(product) {
-    const name = product?.name || "";
+    const name = (product?.name || "").replace(/\s*\/\s*GLP-\d+/i, "").trim();
     const lower = name.toLowerCase();
     // Убираем "EACH" из дозировки
     let dose = (product?.dose || "").toUpperCase().replace(" EACH", "").trim();
