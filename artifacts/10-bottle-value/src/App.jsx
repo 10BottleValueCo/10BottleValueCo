@@ -12529,7 +12529,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   )}
                   {/* US warehouse badge */}
                   {productOriginPage.current === "us-warehouse" && coaPage === 0 && (
-                    <span className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 rounded-full border border-amber-400/50 bg-gradient-to-br from-amber-400/20 to-orange-500/10 px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-amber-300 shadow-[0_2px_8px_rgba(251,191,36,0.15)]">🇺🇸 US</span>
+                    <span className="absolute top-3 right-3 z-10 inline-flex items-center rounded-md border border-blue-400/60 bg-blue-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.18em] text-blue-300 shadow-[0_0_10px_rgba(96,165,250,0.2)] backdrop-blur-sm">US</span>
                   )}
                   {/* COA badge when on COA slide */}
                   {coaPage > 0 && (
@@ -15073,7 +15073,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                               </optgroup>
                                             </select>
                                             {isUSItem && (
-                                              <span className="pointer-events-none absolute right-6 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 rounded-full border border-amber-400/50 bg-gradient-to-br from-amber-400/20 to-orange-500/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-amber-300">🇺🇸 US</span>
+                                              <span className="pointer-events-none absolute right-6 top-1/2 -translate-y-1/2 inline-flex items-center rounded-md border border-blue-400/60 bg-blue-500/15 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.18em] text-blue-300 shadow-[0_0_8px_rgba(96,165,250,0.2)] backdrop-blur-sm">US</span>
                                             )}
                                           </div>
                                           <label className="flex items-center gap-1 text-[11px] text-white/50">
@@ -18667,7 +18667,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       )}
                       <div className="relative flex h-[150px] items-center justify-center rounded-[1rem] bg-white/[0.04] overflow-hidden md:h-[260px] md:rounded-[1.4rem]">
                         <ProductVialImage product={product} />
-                        <span className="absolute top-2 right-2 z-10 inline-flex items-center gap-0.5 rounded-full border border-amber-400/50 bg-gradient-to-br from-amber-400/20 to-orange-500/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-amber-300 shadow-[0_2px_8px_rgba(251,191,36,0.15)] md:top-3 md:right-3 md:gap-1 md:px-2.5 md:py-1 md:text-[11px]">🇺🇸 US</span>
+                        <span className="absolute top-2 right-2 z-10 inline-flex items-center rounded-md border border-blue-400/60 bg-blue-500/15 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.18em] text-blue-300 shadow-[0_0_10px_rgba(96,165,250,0.2)] backdrop-blur-sm md:top-3 md:right-3 md:px-2 md:text-[10px]">US</span>
                       </div>
                       <div className="mt-2 text-center md:mt-3 min-h-[58px] md:min-h-[84px] w-full overflow-hidden">
                         <div className="flex items-center justify-center gap-1 flex-wrap">
@@ -19131,7 +19131,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                     {item.name}
                                   </div>
                                   {item.fromWarehouse === "us" && (
-                                    <span className="inline-flex items-center gap-0.5 rounded-full border border-amber-400/50 bg-gradient-to-br from-amber-400/20 to-orange-500/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-amber-300">🇺🇸 US</span>
+                                    <span className="inline-flex items-center rounded-md border border-blue-400/60 bg-blue-500/15 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.18em] text-blue-300 shadow-[0_0_8px_rgba(96,165,250,0.2)]">US</span>
                                   )}
                                 </div>
                                 <div className="mt-0.5 text-[12px] text-white/60 md:mt-1 md:text-sm whitespace-nowrap overflow-hidden">
