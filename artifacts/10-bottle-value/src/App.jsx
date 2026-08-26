@@ -20512,6 +20512,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             <div className="mt-1.5 text-base font-semibold md:mt-2 md:text-lg">
                               {tx("Crypto", "Крипто", "Крипто", "Krypto", "Cripto")}
                             </div>
+                            <div className="mt-1.5">
+                              <span className={`inline-flex rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] ${paymentMethod === "crypto" ? "bg-emerald-400/25 text-emerald-300" : "bg-emerald-500 text-white"}`}>2.5% OFF</span>
+                            </div>
                           </button>
                           {/* 3 — Cash App */}
                           {(() => {
