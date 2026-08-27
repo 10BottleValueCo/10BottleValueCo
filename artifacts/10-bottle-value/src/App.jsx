@@ -3407,6 +3407,7 @@ export default function App() {
   const [chartsExpandedOrder, setChartsExpandedOrder] = useState(null);
   const [chartsFrom, setChartsFrom] = useState("");
   const [chartsTo, setChartsTo] = useState("");
+  const [lineCostEdits, setLineCostEdits] = useState({}); // { "orderId-lineIdx": draftString }
   const [adminAffiliates, setAdminAffiliates] = useState([]);
   const [adminAffiliatesLoading, setAdminAffiliatesLoading] = useState(false);
   const [copiedAffCode, setCopiedAffCode] = useState("");
@@ -16293,10 +16294,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 // Calculate cost + profit for one order
                 const calcOrder = (order) => {
                   const items = Array.isArray(order.items) ? order.items : [];
+                  const overrides = (typeof order.metadata?.lineCostOverrides === "object" && order.metadata.lineCostOverrides) ? order.metadata.lineCostOverrides : {};
                   let cogs = 0;
                   let hasChinaItem = false;
                   let hasUnknown = false;
-                  const lines = items.map(it => {
+                  const lines = items.map((it, idx) => {
                     const qty = Number(it.quantity || it.qty || 1);
                     const isUS = String(it.fromWarehouse||"").toLowerCase() === "us";
                     const key = normName(it.name) + "|" + normDose(it.dose);
@@ -16304,10 +16306,14 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       ? (US_COST[key] ?? null)
                       : (CHINA_COST[key] ?? null);
                     if (!isUS) hasChinaItem = true;
-                    if (unitCost === null) hasUnknown = true;
-                    const lineCost = unitCost !== null ? unitCost * qty : null;
+                    const catalogLineCost = unitCost !== null ? unitCost * qty : null;
+                    // Apply admin override if present
+                    const hasOverride = overrides[idx] != null;
+                    const lineCost = hasOverride ? Number(overrides[idx]) : catalogLineCost;
+                    if (lineCost !== null && !hasUnknown) {}
+                    if (!hasOverride && unitCost === null) hasUnknown = true;
                     if (lineCost !== null) cogs += lineCost;
-                    return { name: it.name, dose: normDose(it.dose), qty, isUS, unitCost, lineCost, salePrice: Number(it.price||0) };
+                    return { name: it.name, dose: normDose(it.dose), qty, isUS, unitCost, lineCost, hasOverride, salePrice: Number(it.price||0) };
                   });
                   const isExpress = String(order.shippingType||"").toLowerCase().includes("express");
                   const supplierShipping = hasChinaItem ? (isExpress ? 100 : 60) : 0;
@@ -16563,7 +16569,49 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                                     <td className="py-1.5 pr-4" style={{color:ln.unitCost===null?"#fbbf24":"#f87171"}}>
                                                       {ln.unitCost===null?"unknown":fmtMoney(ln.unitCost)}×{ln.qty}={fmtMoney(ln.lineCost)}
                                                     </td>
-                                                    <td className="py-1.5 pr-4" style={{color:"#f87171"}}>{ln.lineCost===null?"—":fmtMoney(ln.lineCost)}</td>
+                                                    <td className="py-1.5 pr-4">
+                                                      {(() => {
+                                                        const editKey = `${order.id}-${li}`;
+                                                        const isEditing = lineCostEdits[editKey] !== undefined;
+                                                        const saveLineCost = async (rawVal) => {
+                                                          const parsed = parseFloat(String(rawVal).replace(/[^0-9.]/g,""));
+                                                          setLineCostEdits(p => { const n={...p}; delete n[editKey]; return n; });
+                                                          if (isNaN(parsed)) return;
+                                                          // Save override to order metadata in Supabase + local state
+                                                          const existingOverrides = (typeof order.metadata?.lineCostOverrides === "object" && order.metadata.lineCostOverrides) ? order.metadata.lineCostOverrides : {};
+                                                          const newOverrides = { ...existingOverrides, [li]: parsed };
+                                                          setAllOrders(prev => prev.map(o => o.id !== order.id ? o : {
+                                                            ...o,
+                                                            metadata: { ...(o.metadata||{}), lineCostOverrides: newOverrides }
+                                                          }));
+                                                          try {
+                                                            const { data: rd } = await supabase.from("orders").select("metadata").eq("id", order.id).single();
+                                                            const base = (typeof rd?.metadata === "object" && rd.metadata) ? rd.metadata : {};
+                                                            await supabase.from("orders").update({ metadata: { ...base, lineCostOverrides: newOverrides } }).eq("id", order.id);
+                                                          } catch(e) { console.error("lineCost save failed", e); }
+                                                        };
+                                                        if (isEditing) return (
+                                                          <input
+                                                            autoFocus
+                                                            type="text"
+                                                            value={lineCostEdits[editKey]}
+                                                            onChange={e => setLineCostEdits(p => ({...p, [editKey]: e.target.value}))}
+                                                            onBlur={e => saveLineCost(e.target.value)}
+                                                            onKeyDown={e => { if (e.key==="Enter") e.target.blur(); if (e.key==="Escape") setLineCostEdits(p=>{ const n={...p}; delete n[editKey]; return n; }); }}
+                                                            style={{width:"72px",background:"rgba(255,255,255,0.08)",border:"1px solid rgba(248,113,113,0.6)",borderRadius:"4px",color:"#f87171",padding:"1px 4px",fontSize:"11px",outline:"none"}}
+                                                          />
+                                                        );
+                                                        return (
+                                                          <span
+                                                            title="Click to edit"
+                                                            onClick={() => setLineCostEdits(p => ({...p, [editKey]: ln.lineCost != null ? String(ln.lineCost) : ""}))}
+                                                            style={{color: ln.hasOverride ? "#fb923c" : "#f87171", cursor:"pointer", borderBottom:"1px dashed rgba(248,113,113,0.4)", paddingBottom:"1px"}}
+                                                          >
+                                                            {ln.lineCost===null?"—":fmtMoney(ln.lineCost)}{ln.hasOverride?" ✎":""}
+                                                          </span>
+                                                        );
+                                                      })()}
+                                                    </td>
                                                     <td className="py-1.5" style={{color:lineProfit===null?"#fbbf24":lineProfit>=0?"#16c784":"#f87171",fontWeight:600}}>
                                                       {lineProfit===null?"?":fmtMoney(lineProfit)}
                                                     </td>
