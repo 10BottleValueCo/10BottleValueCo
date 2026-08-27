@@ -1834,7 +1834,6 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 115,
       warehouse: "us",
-      outOfStock: true,
     },
     {
       name: "BAC Water",
