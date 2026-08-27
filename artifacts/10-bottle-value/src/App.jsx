@@ -16282,6 +16282,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   "Ipamorelin|5mg":85,
                   "5-Amino-1MQ|5mg":85,"5-amino-1mq|5mg":85,
                   "KLOW|80mg":235,"Klow|80mg":235,"KLOW80|80mg":235,
+                  "SS-31|10mg":126,
+                  "DSIP|10mg":105,
                 };
                 const CHINA_SHIP = 60; // $60 per order from China
 
