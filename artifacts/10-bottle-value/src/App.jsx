@@ -16571,23 +16571,23 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                                     </td>
                                                     <td className="py-1.5 pr-4">
                                                       {(() => {
-                                                        const editKey = `${order.id}-${li}`;
+                                                        const editKey = `${o.id}-${li}`;
                                                         const isEditing = lineCostEdits[editKey] !== undefined;
                                                         const saveLineCost = async (rawVal) => {
                                                           const parsed = parseFloat(String(rawVal).replace(/[^0-9.]/g,""));
                                                           setLineCostEdits(p => { const n={...p}; delete n[editKey]; return n; });
                                                           if (isNaN(parsed)) return;
                                                           // Save override to order metadata in Supabase + local state
-                                                          const existingOverrides = (typeof order.metadata?.lineCostOverrides === "object" && order.metadata.lineCostOverrides) ? order.metadata.lineCostOverrides : {};
+                                                          const existingOverrides = (typeof o.metadata?.lineCostOverrides === "object" && o.metadata.lineCostOverrides) ? o.metadata.lineCostOverrides : {};
                                                           const newOverrides = { ...existingOverrides, [li]: parsed };
-                                                          setAllOrders(prev => prev.map(o => o.id !== order.id ? o : {
-                                                            ...o,
-                                                            metadata: { ...(o.metadata||{}), lineCostOverrides: newOverrides }
+                                                          setAllOrders(prev => prev.map(row => row.id !== o.id ? row : {
+                                                            ...row,
+                                                            metadata: { ...(row.metadata||{}), lineCostOverrides: newOverrides }
                                                           }));
                                                           try {
-                                                            const { data: rd } = await supabase.from("orders").select("metadata").eq("id", order.id).single();
+                                                            const { data: rd } = await supabase.from("orders").select("metadata").eq("id", o.id).single();
                                                             const base = (typeof rd?.metadata === "object" && rd.metadata) ? rd.metadata : {};
-                                                            await supabase.from("orders").update({ metadata: { ...base, lineCostOverrides: newOverrides } }).eq("id", order.id);
+                                                            await supabase.from("orders").update({ metadata: { ...base, lineCostOverrides: newOverrides } }).eq("id", o.id);
                                                           } catch(e) { console.error("lineCost save failed", e); }
                                                         };
                                                         if (isEditing) return (
