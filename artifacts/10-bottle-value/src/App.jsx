@@ -15980,7 +15980,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         <div key={p.id} className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-4 py-2.5">
                           <div className="flex items-center gap-3">
                             <span className="font-mono font-bold text-sm text-white tracking-widest">{p.code}</span>
-                            <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-300 font-semibold">{Math.round(p.rate * 100)}% OFF</span>
+                            <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-300 font-semibold">{(+(p.rate * 100).toFixed(2))}% OFF</span>
                           </div>
                           <button type="button" onClick={() => deletePublicPromo(p.id, p.code)} className="rounded-xl bg-red-500/15 border border-red-500/30 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.15em] text-red-400 hover:bg-red-500/30 transition">Remove</button>
                         </div>
