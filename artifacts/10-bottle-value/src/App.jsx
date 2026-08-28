@@ -4323,7 +4323,7 @@ export default function App() {
           setAppliedPromo({
             code: first.code,
             rate: first.rate,
-            label: `${Math.round(first.rate * 100)}% discount`,
+            label: `${+(first.rate * 100).toFixed(2)}% discount`,
             type: "user_promo",
             id: first.id,
             issuedAt: first.created_at || "",
@@ -9535,7 +9535,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       setAffiliateManuallyApplied(false);
       setActiveAffiliateCode("");
       try { localStorage.removeItem("tbv-active-affiliate"); } catch {}
-      setAppliedPromo({ code: normalizedCode, rate: matchedUserPromo.rate, label: `${Math.round(matchedUserPromo.rate * 100)}% personal discount`, type: "user_promo", id: matchedUserPromo.id });
+      setAppliedPromo({ code: normalizedCode, rate: matchedUserPromo.rate, label: `${+(matchedUserPromo.rate * 100).toFixed(2)}% personal discount`, type: "user_promo", id: matchedUserPromo.id });
       setPromoInput("");
       setPromoMessage(
         tx(
@@ -17768,7 +17768,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                 {promo.code}
                               </span>
                               <span className="text-[11px] text-white/60">
-                                {Math.round((promo.rate || 0) * 100)}% {tx("discount", "скидка", "знижка", "Rabatt", "descuento")}
+                                {+(((promo.rate || 0) * 100).toFixed(2))}% {tx("discount", "скидка", "знижка", "Rabatt", "descuento")}
                               </span>
                             </div>
                             <div className="flex shrink-0 items-center gap-2">
@@ -19554,7 +19554,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     <div className="flex items-center justify-between text-[13px] text-white">
                       <span className="uppercase tracking-[0.1em]">
                         {t("promoCode")} <span className="font-bold">{appliedPromo?.code}</span>
-                        <span className="ml-1 text-white/50">({Math.round((appliedPromo?.rate || 0) * 100)}% off)</span>
+                        <span className="ml-1 text-white/50">({+(((appliedPromo?.rate || 0) * 100).toFixed(2))}% off)</span>
                       </span>
                       <span className="tabular-nums font-semibold text-emerald-300">−${Number(promoDiscount).toFixed(2)}</span>
                     </div>
@@ -20177,7 +20177,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                 <span className="font-semibold text-white">
                                   {appliedPromo.code}
                                 </span>{" "}
-                                - {Math.round(appliedPromo.rate * 100)}% {tx("off", "скидка", "знижка", "Rabatt", "de descuento")}.
+                                - {+(( appliedPromo.rate * 100).toFixed(2))}% {tx("off", "скидка", "знижка", "Rabatt", "de descuento")}.
                               </>
                             ) : (
                               <>
@@ -21384,7 +21384,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             )}
                             {promoDiscountRate > 0 && (
                               <div className="flex items-center justify-between">
-                                <span>{t("promoCode")} {appliedPromo?.code} ({Math.round((appliedPromo?.rate || 0) * 100)}% off)</span>
+                                <span>{t("promoCode")} {appliedPromo?.code} ({+(((appliedPromo?.rate || 0) * 100).toFixed(2))}% off)</span>
                                 <span>
                                   -{formatPricePrecise(promoDiscount)}
                                 </span>
