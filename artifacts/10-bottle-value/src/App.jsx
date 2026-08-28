@@ -16338,11 +16338,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         ? Number(order.affiliateCommissionAdjustment)
                         : Number(order.affiliateCommission) || Number(order.subtotal || order.total || 0) * 0.1)
                     : 0;
-                  // Payment processing fees: CatalystPay 4%, Paylio Card 8%
+                  // Payment processing fees: Stripe 2.5%, CatalystPay 4%, Paylio Card 8%
                   const providerRaw = String(order.paymentProvider || "");
                   const providerLower = providerRaw.toLowerCase();
                   const paymentFeeRate = providerLower.includes("catalystpay") ? 0.04
                     : (providerRaw === "Paylio Card" || providerRaw === "Card (Paylio)") ? 0.08
+                    : providerLower.includes("stripe") ? 0.025
                     : 0;
                   const paymentFee = Math.round(revenue * paymentFeeRate * 100) / 100;
                   const totalCogs = cogs + supplierShipping + affiliatePayout + paymentFee;
@@ -16643,7 +16644,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                                 : <span>🇺🇸 US warehouse — shipping free</span>}
                                             </span>
                                             {calc.affiliatePayout>0&&<span style={{color:"rgba(255,255,255,0.4)"}}>🤝 Affiliate (<span style={{color:"rgba(255,255,255,0.6)"}}>{calc.affiliateCode}</span>): <span style={{color:"#f87171"}}>−{fmtMoney(calc.affiliatePayout)}</span></span>}
-                                            {calc.paymentFee>0&&<span style={{color:"rgba(255,255,255,0.4)"}}>💳 {calc.paymentFeeRate===0.04?"CatalystPay fee (4%)":"Paylio Card fee (8%)"}: <span style={{color:"#f87171"}}>−{fmtMoney(calc.paymentFee)}</span></span>}
+                                            {calc.paymentFee>0&&<span style={{color:"rgba(255,255,255,0.4)"}}>💳 {calc.paymentFeeRate===0.04?"CatalystPay fee (4%)":calc.paymentFeeRate===0.08?"Paylio Card fee (8%)":"Stripe fee (2.5%)"}: <span style={{color:"#f87171"}}>−{fmtMoney(calc.paymentFee)}</span></span>}
                                             <span style={{color:"rgba(255,255,255,0.4)"}}>Total COGS: <span style={{color:"#f87171"}}>{fmtMoney(calc.totalCogs)}</span></span>
                                             <span style={{color:"rgba(255,255,255,0.4)"}}>Revenue: <span style={{color:"rgba(255,255,255,0.75)"}}>{fmtMoney(calc.revenue)}</span></span>
                                             <span style={{color:"rgba(255,255,255,0.4)"}}>Net Profit: <span style={{color:"#16c784",fontWeight:700}}>{calc.profit===null?"?"+fmtMoney(calc.revenue-calc.totalCogs):fmtMoney(calc.profit)}</span></span>
