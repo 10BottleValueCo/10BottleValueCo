@@ -4388,7 +4388,7 @@ export default function App() {
       window.setTimeout(() => setPublicPromoMessage(""), 4000);
       return;
     }
-    const rateDecimal = rate > 1 ? rate / 100 : rate;
+    const rateDecimal = rate / 100;
     try {
       const { error } = await supabase.from("user_promos").insert({ email: "__PUBLIC__", code, rate: rateDecimal, used: false });
       if (error) { setPublicPromoMessage(`Error: ${error.message}`); }
