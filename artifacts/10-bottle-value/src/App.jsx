@@ -4318,8 +4318,9 @@ export default function App() {
         const publicPromoRows = Array.isArray(pubData) ? pubData : [];
         const activePromos = [...data.filter((p) => !p.used), ...publicPromoRows];
         setUserPromos(activePromos);
-        if (activePromos.length > 0 && !currentAppliedPromo) {
-          const first = activePromos[0];
+        const autoApplyPromos = activePromos.filter((p) => p.email !== "__PUBLIC__");
+        if (autoApplyPromos.length > 0 && !currentAppliedPromo) {
+          const first = autoApplyPromos[0];
           setAppliedPromo({
             code: first.code,
             rate: first.rate,
