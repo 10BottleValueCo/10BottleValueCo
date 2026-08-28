@@ -1897,6 +1897,8 @@ const PRODUCTS_BASE = [
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 45,
+      coaImages: ["coa-pt141-10mg-p1.png"],
+      coaPdf: "coa-pt141-10mg.pdf",
     },
     {
       name: "Cagrilintide",
