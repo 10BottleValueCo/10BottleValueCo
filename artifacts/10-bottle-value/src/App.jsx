@@ -12149,6 +12149,51 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     ? "TODAS LAS TRADUCCIONES SE PROPORCIONAN SOLO POR CONVENIENCIA. EN CASO DE DISCREPANCIAS, PREVALECE LA VERSION EN INGLES."
                     : "ALL TRANSLATIONS ARE PROVIDED FOR CONVENIENCE ONLY. THE ENGLISH VERSION SHALL PREVAIL IN CASE OF DISCREPANCIES."}
                 </div>
+
+                {/* Payment method icons */}
+                <div className="mt-6 flex items-center justify-center gap-2 flex-wrap">
+                  {/* Visa */}
+                  <div style={{background:"#1a1f71",borderRadius:"6px",padding:"4px 10px",display:"flex",alignItems:"center",height:"28px"}}>
+                    <svg viewBox="0 0 60 20" width="42" height="14" xmlns="http://www.w3.org/2000/svg">
+                      <text x="0" y="16" fontFamily="Arial,sans-serif" fontWeight="900" fontSize="18" fill="#fff" letterSpacing="-1">VISA</text>
+                    </svg>
+                  </div>
+                  {/* Mastercard */}
+                  <div style={{background:"#252525",borderRadius:"6px",padding:"4px 8px",display:"flex",alignItems:"center",gap:"3px",height:"28px"}}>
+                    <svg viewBox="0 0 38 24" width="38" height="24" xmlns="http://www.w3.org/2000/svg">
+                      <circle cx="13" cy="12" r="11" fill="#eb001b"/>
+                      <circle cx="25" cy="12" r="11" fill="#f79e1b"/>
+                      <path d="M19 4.8a11 11 0 0 1 0 14.4A11 11 0 0 1 19 4.8z" fill="#ff5f00"/>
+                    </svg>
+                  </div>
+                  {/* Amex */}
+                  <div style={{background:"#2e77bc",borderRadius:"6px",padding:"4px 8px",display:"flex",alignItems:"center",height:"28px"}}>
+                    <svg viewBox="0 0 70 20" width="52" height="14" xmlns="http://www.w3.org/2000/svg">
+                      <text x="0" y="15" fontFamily="Arial,sans-serif" fontWeight="800" fontSize="13" fill="#fff" letterSpacing="0.5">AMEX</text>
+                    </svg>
+                  </div>
+                  {/* Bitcoin */}
+                  <div style={{background:"#f7931a",borderRadius:"6px",padding:"4px 8px",display:"flex",alignItems:"center",gap:"4px",height:"28px"}}>
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="#fff" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M23.638 14.904c-1.602 6.425-8.113 10.339-14.54 8.736C2.67 22.037-1.244 15.524.36 9.1 1.962 2.676 8.475-1.24 14.9.365c6.423 1.601 10.338 8.11 8.738 14.54zm-6.35-4.613c.24-1.59-.974-2.45-2.64-3.03l.54-2.153-1.315-.33-.525 2.107c-.345-.087-.7-.167-1.052-.25l.526-2.127-1.314-.33-.54 2.165c-.285-.067-.57-.132-.842-.2l-1.815-.45-.35 1.404s.975.224.955.236c.533.136.63.486.61.766l-1.477 5.92c-.075.166-.24.413-.614.319.015.02-.96-.24-.96-.24l-.66 1.51 1.71.426.93.236-.54 2.19 1.315.33.54-2.165c.36.1.705.19 1.05.273l-.54 2.143 1.315.33.54-2.18c2.24.427 3.93.255 4.64-1.774.57-1.637-.03-2.58-1.217-3.196.854-.193 1.5-.76 1.68-1.93h.01zm-3.01 4.22c-.404 1.64-3.157.75-4.05.53l.72-2.9c.896.22 3.757.67 3.33 2.37zm.41-4.24c-.37 1.49-2.662.735-3.405.55l.654-2.64c.744.18 3.137.524 2.75 2.084v.006z"/>
+                    </svg>
+                    <svg viewBox="0 0 70 20" width="34" height="14" xmlns="http://www.w3.org/2000/svg">
+                      <text x="0" y="15" fontFamily="Arial,sans-serif" fontWeight="700" fontSize="12" fill="#fff">Crypto</text>
+                    </svg>
+                  </div>
+                  {/* USDT */}
+                  <div style={{background:"#26a17b",borderRadius:"6px",padding:"4px 8px",display:"flex",alignItems:"center",height:"28px"}}>
+                    <svg viewBox="0 0 50 20" width="38" height="14" xmlns="http://www.w3.org/2000/svg">
+                      <text x="0" y="15" fontFamily="Arial,sans-serif" fontWeight="700" fontSize="13" fill="#fff">USDT</text>
+                    </svg>
+                  </div>
+                  {/* Wire */}
+                  <div style={{background:"rgba(255,255,255,0.1)",borderRadius:"6px",padding:"4px 8px",display:"flex",alignItems:"center",height:"28px",border:"1px solid rgba(255,255,255,0.15)"}}>
+                    <svg viewBox="0 0 60 20" width="42" height="14" xmlns="http://www.w3.org/2000/svg">
+                      <text x="0" y="15" fontFamily="Arial,sans-serif" fontWeight="600" fontSize="11" fill="rgba(255,255,255,0.7)" letterSpacing="0.5">WIRE</text>
+                    </svg>
+                  </div>
+                </div>
               </div>
             </section>
           </>
