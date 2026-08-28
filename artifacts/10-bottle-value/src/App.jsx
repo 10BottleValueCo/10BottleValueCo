@@ -16295,7 +16295,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 // Calculate cost + profit for one order
                 const calcOrder = (order) => {
                   const items = Array.isArray(order.items) ? order.items : [];
-                  const overrides = (typeof order.metadata?.lineCostOverrides === "object" && order.metadata.lineCostOverrides) ? order.metadata.lineCostOverrides : {};
+                  // After loading from Supabase the order is spread from metadata,
+                  // so lineCostOverrides lives at the top level, not under .metadata
+                  const overrides = (typeof order.lineCostOverrides === "object" && order.lineCostOverrides)
+                    ? order.lineCostOverrides
+                    : (typeof order.metadata?.lineCostOverrides === "object" && order.metadata.lineCostOverrides)
+                    ? order.metadata.lineCostOverrides
+                    : {};
                   let cogs = 0;
                   let hasChinaItem = false;
                   let hasUnknown = false;
@@ -16578,12 +16584,18 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                                           const parsed = parseFloat(String(rawVal).replace(/[^0-9.]/g,""));
                                                           setLineCostEdits(p => { const n={...p}; delete n[editKey]; return n; });
                                                           if (isNaN(parsed)) return;
-                                                          // Save override to order metadata in Supabase + local state
-                                                          const existingOverrides = (typeof o.metadata?.lineCostOverrides === "object" && o.metadata.lineCostOverrides) ? o.metadata.lineCostOverrides : {};
+                                                          // Save override to order metadata in Supabase + local state.
+                                                          // After Supabase load, order is spread from metadata so
+                                                          // lineCostOverrides lives at top level (not under .metadata).
+                                                          const existingOverrides = (typeof o.lineCostOverrides === "object" && o.lineCostOverrides)
+                                                            ? o.lineCostOverrides
+                                                            : (typeof o.metadata?.lineCostOverrides === "object" && o.metadata.lineCostOverrides)
+                                                            ? o.metadata.lineCostOverrides : {};
                                                           const newOverrides = { ...existingOverrides, [li]: parsed };
+                                                          // Update top-level field in local state so UI reflects immediately
                                                           setAllOrders(prev => prev.map(row => row.id !== o.id ? row : {
                                                             ...row,
-                                                            metadata: { ...(row.metadata||{}), lineCostOverrides: newOverrides }
+                                                            lineCostOverrides: newOverrides,
                                                           }));
                                                           try {
                                                             const { data: rd } = await supabase.from("orders").select("metadata").eq("id", o.id).single();
