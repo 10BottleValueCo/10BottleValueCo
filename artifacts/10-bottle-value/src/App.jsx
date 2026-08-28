@@ -3472,6 +3472,10 @@ export default function App() {
   const [issuePromoCode, setIssuePromoCode] = useState("");
   const [issuePromoRate, setIssuePromoRate] = useState("");
   const [issuePromoMessage, setIssuePromoMessage] = useState("");
+  const [publicPromoCode, setPublicPromoCode] = useState("");
+  const [publicPromoRate, setPublicPromoRate] = useState("");
+  const [publicPromoMessage, setPublicPromoMessage] = useState("");
+  const [publicPromos, setPublicPromos] = useState([]);
   const [issueAffEmail, setIssueAffEmail] = useState("");
   const [issueAffCode, setIssueAffCode] = useState("");
   const [issueAffMessage, setIssueAffMessage] = useState("");
@@ -4363,6 +4367,44 @@ export default function App() {
       setIssuePromoMessage(`Error: ${String(e)}`);
     }
     window.setTimeout(() => setIssuePromoMessage(""), 6000);
+  }
+
+  async function loadPublicPromos() {
+    try {
+      const { data, error } = await supabase
+        .from("user_promos")
+        .select("id,code,rate,created_at")
+        .eq("email", "__PUBLIC__")
+        .order("created_at", { ascending: false });
+      if (!error && Array.isArray(data)) setPublicPromos(data);
+    } catch (e) { console.error("loadPublicPromos", e); }
+  }
+
+  async function createPublicPromo() {
+    const code = publicPromoCode.trim().toUpperCase();
+    const rate = parseFloat(publicPromoRate);
+    if (!code || !rate || rate <= 0 || rate > 100) {
+      setPublicPromoMessage("Введи код и скидку (1–100%).");
+      window.setTimeout(() => setPublicPromoMessage(""), 4000);
+      return;
+    }
+    const rateDecimal = rate > 1 ? rate / 100 : rate;
+    try {
+      const { error } = await supabase.from("user_promos").insert({ email: "__PUBLIC__", code, rate: rateDecimal, used: false });
+      if (error) { setPublicPromoMessage(`Error: ${error.message}`); }
+      else {
+        setPublicPromoMessage(`✓ Промокод ${code} (${rate}%) опубликован`);
+        setPublicPromoCode(""); setPublicPromoRate("");
+        loadPublicPromos();
+      }
+    } catch (e) { setPublicPromoMessage(`Error: ${String(e)}`); }
+    window.setTimeout(() => setPublicPromoMessage(""), 5000);
+  }
+
+  async function deletePublicPromo(id, code) {
+    if (!window.confirm(`Удалить промокод ${code}?`)) return;
+    await supabase.from("user_promos").delete().eq("id", id);
+    setPublicPromos(prev => prev.filter(p => p.id !== id));
   }
 
   async function sendTrackingEmail({ email, orderId, trackingNumber, firstName }) {
@@ -15911,8 +15953,44 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 </div>
               )}
 
+              {adminActiveTab === "promo" && isAdminUser() && (() => { if (publicPromos.length === 0) loadPublicPromos(); return null; })()}
               {adminActiveTab === "promo" && isAdminUser() && (
                 <>
+                {/* ── PUBLIC PROMO CODES ── */}
+                <div className="rounded-[1.6rem] border border-emerald-500/20 bg-emerald-500/5 p-6 mb-6">
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-emerald-400/70">Public Promo Code</div>
+                  <h2 className="mt-2 text-xl font-semibold text-white">Create public promo code</h2>
+                  <p className="mt-1 text-xs text-white/60">Код будет работать для всех без ограничений. Опубликуй в соцсетях или рассылке.</p>
+                  <div className="mt-5 grid gap-3 md:grid-cols-[1fr_auto_auto]">
+                    <input type="text" placeholder="КОД (напр. SAVE5)" value={publicPromoCode} onChange={e => setPublicPromoCode(e.target.value.toUpperCase())} className="rounded-2xl border border-white/20 bg-black/10 px-4 py-3 text-sm text-white placeholder:text-white/50 outline-none uppercase" />
+                    <div className="flex items-center rounded-2xl border border-white/20 bg-black/10 px-4 py-3 gap-1">
+                      <input type="number" min="1" max="100" placeholder="5" value={publicPromoRate} onChange={e => setPublicPromoRate(e.target.value)} className="w-16 bg-transparent text-sm text-white placeholder:text-white/50 outline-none" />
+                      <span className="text-sm text-white/60">%</span>
+                    </div>
+                    <button type="button" onClick={createPublicPromo} className="rounded-2xl bg-emerald-500 px-5 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white transition hover:bg-emerald-400 whitespace-nowrap">Publish</button>
+                  </div>
+                  {publicPromoMessage && (
+                    <div className={`mt-3 rounded-xl px-4 py-3 text-sm ${publicPromoMessage.startsWith("✓") ? "bg-emerald-500/15 text-emerald-300" : "bg-red-500/15 text-red-300"}`}>{publicPromoMessage}</div>
+                  )}
+                  {/* List of active public promos */}
+                  {publicPromos.length > 0 && (
+                    <div className="mt-5 space-y-2">
+                      <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-3">Active public codes</div>
+                      {publicPromos.map(p => (
+                        <div key={p.id} className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-4 py-2.5">
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono font-bold text-sm text-white tracking-widest">{p.code}</span>
+                            <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-300 font-semibold">{Math.round(p.rate * 100)}% OFF</span>
+                          </div>
+                          <button type="button" onClick={() => deletePublicPromo(p.id, p.code)} className="rounded-xl bg-red-500/15 border border-red-500/30 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.15em] text-red-400 hover:bg-red-500/30 transition">Remove</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {publicPromos.length === 0 && (
+                    <div className="mt-4 text-xs text-white/30 text-center">Нет активных публичных промокодов</div>
+                  )}
+                </div>
                 <div className="rounded-[1.6rem] border border-white/15 bg-black/20 p-6">
                   <div className="text-[11px] uppercase tracking-[0.24em] text-white/60">Issue Promo Code</div>
                   <h2 className="mt-2 text-xl font-semibold text-white">Issue one-time promo to account</h2>
