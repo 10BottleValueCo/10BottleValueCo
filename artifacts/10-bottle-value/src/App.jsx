@@ -17747,13 +17747,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   )}
 
                   
-                  {userPromos.length > 0 && (
+                  {userPromos.filter(p => p.email !== "__PUBLIC__").length > 0 && (
                   <div className="mt-6 md:mt-8 rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-5">
                     <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
                       {tx("My Promocodes", "Мои промокоды", "Мої промокоди", "Meine Promocodes", "Mis Promocódigos")}
                     </div>
                     <div className="mt-4 flex flex-col gap-3">
-                      {userPromos.map((promo) => {
+                      {userPromos.filter(p => p.email !== "__PUBLIC__").map((promo) => {
                         const isApplied = appliedPromo?.code === promo.code;
                         return (
                           <div
