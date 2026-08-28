@@ -4310,12 +4310,13 @@ export default function App() {
   async function fetchUserPromos(email, currentAppliedPromo) {
     if (!email) return;
     try {
-      const { data, error } = await supabase
-        .from("user_promos")
-        .select("*")
-        .eq("email", String(email).trim().toLowerCase());
+      const [{ data, error }, { data: pubData }] = await Promise.all([
+        supabase.from("user_promos").select("*").eq("email", String(email).trim().toLowerCase()),
+        supabase.from("user_promos").select("*").eq("email", "__PUBLIC__"),
+      ]);
       if (!error && Array.isArray(data)) {
-        const activePromos = data.filter((p) => !p.used);
+        const publicPromoRows = Array.isArray(pubData) ? pubData : [];
+        const activePromos = [...data.filter((p) => !p.used), ...publicPromoRows];
         setUserPromos(activePromos);
         if (activePromos.length > 0 && !currentAppliedPromo) {
           const first = activePromos[0];
@@ -9488,7 +9489,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     );
 
     const matchedUserPromo = !promo && !matchedAffiliate
-      ? userPromos.find((p) => p.code === normalizedCode && !p.used)
+      ? userPromos.find((p) => p.code === normalizedCode && (!p.used || p.email === "__PUBLIC__"))
       : null;
 
     if (!promo && !matchedAffiliate && !matchedUserPromo) {
