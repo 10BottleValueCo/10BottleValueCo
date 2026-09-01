@@ -130,7 +130,7 @@ const PRODUCTS = [
   { "name": "Melatonin", "dose": "10 mg", "price": 109 },
   { "name": "NAD+", "dose": "100 mg", "price": 79 },
   { "name": "5-Amino-1MQ", "dose": "5 mg", "price": 89 },
-  { "name": "5-Amino-1MQ", "dose": "5 mg", "price": 89, "usPriceBase": 140, "warehouse": "us", "outOfStock": true },
+  { "name": "5-Amino-1MQ", "dose": "5 mg", "price": 89, "usPriceBase": 140, "warehouse": "us" },
   { "name": "5-Amino-1MQ", "dose": "10 mg", "price": 119 },
   { "name": "Lipo-C (with B12)", "dose": "10 ml", "price": 149 },
   { "name": "L-Carnitine (600mg/ml)", "dose": "10 ml", "price": 159 },
