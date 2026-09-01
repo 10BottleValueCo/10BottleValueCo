@@ -2235,7 +2235,6 @@ const PRODUCTS_BASE = [
       total: "50 mg total",
       note: "10 vial kit (10 vials included)",
       warehouse: "us",
-      outOfStock: true,
     },
     {
       name: "5-Amino-1MQ",
