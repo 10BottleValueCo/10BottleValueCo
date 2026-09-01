@@ -2238,9 +2238,9 @@ const PRODUCTS_BASE = [
     },
     {
       name: "5-Amino-1MQ",
-      price: 119,
-      dose: "10 mg",
-      total: "100 mg total",
+      price: 219,
+      dose: "50 mg",
+      total: "500 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 85,
     },
