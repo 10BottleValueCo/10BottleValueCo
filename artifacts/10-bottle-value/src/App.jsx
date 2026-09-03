@@ -1364,7 +1364,8 @@ const PRODUCTS_BASE = [
     {
       name: "Retatrutide / GLP-3",
       price: 109,
-      usPriceBase: 154,
+      usPriceBase: 138,
+      usStrikePrice: 159,
       dose: "5 mg",
       total: "50 mg total",
       note: "10 vial kit (10 vials included)",
@@ -18870,6 +18871,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       <div className="mt-3 flex flex-col items-start gap-1 md:mt-4 md:flex-row md:items-end md:justify-between md:gap-3">
                         <div className="flex items-baseline gap-2">
                           <div className="text-xl font-semibold tracking-[-0.03em] md:text-3xl" style={{ transform: "scale(1.1)", transformOrigin: "left" }}>{formatPrice(product.price)}</div>
+                          {rawProduct.usStrikePrice && (
+                            <div className="text-sm md:text-xl font-semibold tracking-[-0.03em] text-white/40 line-through">${rawProduct.usStrikePrice}</div>
+                          )}
                         </div>
                         <div className="text-[9px] uppercase tracking-[0.14em] text-white md:text-[11px] md:tracking-[0.18em]">{language === "RU" ? "10 флаконов включено" : language === "UA" ? "10 флаконів включено" : "10 vials included"}</div>
                       </div>
