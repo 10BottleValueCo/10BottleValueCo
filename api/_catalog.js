@@ -32,7 +32,7 @@ const PRODUCTS = [
   { "name": "IGF-1 LR3", "dose": "1 mg", "price": 375 },
   { "name": "IGF-1 LR3", "dose": "0.1 mg", "price": 79 },
   { "name": "Retatrutide / GLP-3", "dose": "5 mg", "price": 109 },
-  { "name": "Retatrutide / GLP-3", "dose": "5 mg", "price": 109, "usPriceBase": 154, "warehouse": "us" },
+  { "name": "Retatrutide / GLP-3", "dose": "5 mg", "price": 109, "usPriceBase": 134, "warehouse": "us" },
   { "name": "Retatrutide / GLP-3", "dose": "10 mg", "price": 159 },
   { "name": "Retatrutide / GLP-3", "dose": "10 mg", "price": 159, "usPriceBase": 194, "warehouse": "us" },
   { "name": "Retatrutide / GLP-3", "dose": "15 mg", "price": 209 },
