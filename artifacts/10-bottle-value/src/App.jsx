@@ -18841,7 +18841,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       <div className="relative flex h-[150px] items-center justify-center rounded-[1rem] bg-white/[0.04] overflow-hidden md:h-[260px] md:rounded-[1.4rem]">
                         <ProductVialImage product={product} />
                         {rawProduct.usStrikePrice && (
-                          <span className="absolute top-2 left-2 z-10 inline-flex items-center rounded-md bg-red-500 px-1 py-0.5 text-[7px] font-black uppercase tracking-[0.12em] text-white md:top-3 md:left-3 md:px-2 md:text-[10px] md:tracking-[0.18em]">SALE</span>
+                          <span className="absolute top-2 left-2 z-10 inline-flex items-center rounded-md bg-red-500 px-1 py-0.5 text-[7px] font-black uppercase tracking-[0.12em] text-black md:top-3 md:left-3 md:px-2 md:text-[10px] md:tracking-[0.18em]">SALE</span>
                         )}
                         <span className="absolute top-2 right-2 z-10 inline-flex items-center rounded-md border border-blue-400 bg-blue-500/25 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.18em] text-blue-200 shadow-[0_0_12px_rgba(96,165,250,0.4)] backdrop-blur-sm md:top-3 md:right-3 md:px-2 md:text-[10px]">US</span>
                       </div>
