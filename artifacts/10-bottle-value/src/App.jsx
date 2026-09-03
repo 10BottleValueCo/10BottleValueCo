@@ -1364,7 +1364,7 @@ const PRODUCTS_BASE = [
     {
       name: "Retatrutide / GLP-3",
       price: 109,
-      usPriceBase: 138,
+      usPriceBase: 134,
       usStrikePrice: 159,
       dose: "5 mg",
       total: "50 mg total",
