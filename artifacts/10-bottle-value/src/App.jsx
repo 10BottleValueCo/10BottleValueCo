@@ -20082,26 +20082,41 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           }`}
                         />
 
-                        {/* Carrier preference — optional */}
-                        <div>
-                          <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-white/50">Carrier preference (optional)</div>
-                          <div className="flex gap-2">
-                            {["FedEx", "USPS", "UPS"].map((carrier) => (
-                              <button
-                                key={carrier}
-                                type="button"
-                                onClick={() => updateCheckoutField("carrierPreference", checkoutForm.carrierPreference === carrier ? "" : carrier)}
-                                className={`flex-1 rounded-2xl border py-2.5 text-[12px] font-semibold tracking-wide ${
-                                  checkoutForm.carrierPreference === carrier
-                                    ? "border-white/60 bg-white/15 text-white"
-                                    : "border-white/20 bg-black/10 text-white/50 hover:border-white/40 hover:bg-white/10 hover:text-white/80"
-                                }`}
-                              >
-                                {carrier}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
+                        {/* Carrier preference — optional, worldwide only */}
+                        {(() => {
+                          const hasWorldwide = cart.some(i => i.fromWarehouse !== "us");
+                          const hasUS = cart.some(i => i.fromWarehouse === "us");
+                          const onlyUS = hasUS && !hasWorldwide;
+                          if (onlyUS) return null;
+                          return (
+                            <div>
+                              <div className="mb-1.5 text-[11px] uppercase tracking-[0.18em] text-white/50">
+                                Carrier preference (optional)
+                              </div>
+                              {hasUS && (
+                                <div className="mb-2 text-[10px] text-white/35 tracking-wide">
+                                  Applies to Shop Worldwide items only · US Warehouse always ships via USPS
+                                </div>
+                              )}
+                              <div className="flex gap-2">
+                                {["FedEx", "USPS", "UPS"].map((carrier) => (
+                                  <button
+                                    key={carrier}
+                                    type="button"
+                                    onClick={() => updateCheckoutField("carrierPreference", checkoutForm.carrierPreference === carrier ? "" : carrier)}
+                                    className={`flex-1 rounded-2xl border py-2.5 text-[12px] font-semibold tracking-wide ${
+                                      checkoutForm.carrierPreference === carrier
+                                        ? "border-white/60 bg-white/15 text-white"
+                                        : "border-white/20 bg-black/10 text-white/50 hover:border-white/40 hover:bg-white/10 hover:text-white/80"
+                                    }`}
+                                  >
+                                    {carrier}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
 
