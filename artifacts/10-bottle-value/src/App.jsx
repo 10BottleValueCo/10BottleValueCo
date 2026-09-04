@@ -20094,7 +20094,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                 Carrier preference (optional)
                               </div>
                               {hasUS && (
-                                <div className="mb-2 text-[10px] text-white/35 tracking-wide">
+                                <div className="mb-2 text-[10px] text-white/60 tracking-wide">
                                   Applies to Shop Worldwide items only · US Warehouse always ships via USPS
                                 </div>
                               )}
