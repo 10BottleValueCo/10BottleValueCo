@@ -1809,6 +1809,8 @@ const PRODUCTS_BASE = [
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 55.99,
+      coaImages: ["coa-mt2-10mg-p1.png"],
+      coaPdf: "coa-mt2-10mg.pdf",
     },
     {
       name: "SNAP-8",
