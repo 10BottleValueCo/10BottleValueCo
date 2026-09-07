@@ -1726,6 +1726,15 @@ const PRODUCTS_BASE = [
       marketPrice: 55,
     },
     {
+      name: "NAD+",
+      price: 159,
+      usPriceBase: 194,
+      dose: "500 mg",
+      total: "5000 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
+    },
+    {
       name: "SS-31",
       price: 569,
       dose: "50 mg",
@@ -1774,6 +1783,15 @@ const PRODUCTS_BASE = [
       total: "400 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 115,
+    },
+    {
+      name: "MOTS-C",
+      price: 369,
+      usPriceBase: 304,
+      dose: "40 mg",
+      total: "400 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
     },
     {
       name: "MOTS-C",
