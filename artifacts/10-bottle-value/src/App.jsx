@@ -1323,6 +1323,8 @@ const PRODUCTS_BASE = [
       dose: "5 mg",
       total: "50 mg total",
       note: "10 vial kit (10 vials included)",
+      coaImages: ["coa-tesamorelin-p1.png"],
+      coaPdf: "coa-tesamorelin.pdf",
     },
     {
       name: "Tesamorelin",
@@ -1331,6 +1333,8 @@ const PRODUCTS_BASE = [
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 70,
+      coaImages: ["coa-tesamorelin-p1.png"],
+      coaPdf: "coa-tesamorelin.pdf",
     },
     {
       name: "Tesamorelin",
@@ -1341,6 +1345,8 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 70,
       warehouse: "us",
+      coaImages: ["coa-tesamorelin-p1.png"],
+      coaPdf: "coa-tesamorelin.pdf",
     },
     {
       name: "IGF-1 LR3",
