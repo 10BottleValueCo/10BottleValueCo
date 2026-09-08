@@ -1993,8 +1993,7 @@ const PRODUCTS_BASE = [
     {
       name: "CJC-1295 + Ipamorelin",
       price: 239,
-      usPriceBase: 184,
-      usStrikePrice: 239,
+      usPriceBase: 234,
       dose: "10 mg each",
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
@@ -2103,8 +2102,7 @@ const PRODUCTS_BASE = [
     {
       name: "HCG",
       price: 169,
-      usPriceBase: 162,
-      usStrikePrice: 209,
+      usPriceBase: 204,
       dose: "5000 iu",
       total: "50000 iu total",
       note: "10 vial kit (10 vials included)",
