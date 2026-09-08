@@ -1680,6 +1680,8 @@ const PRODUCTS_BASE = [
       total: "1000 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 55,
+      coaImages: ["coa-ghk-cu-p1.png"],
+      coaPdf: "coa-ghk-cu.pdf",
     },
     {
       name: "GHK-CU",
@@ -1687,6 +1689,8 @@ const PRODUCTS_BASE = [
       dose: "50 mg",
       total: "500 mg total",
       note: "10 vial kit (10 vials included)",
+      coaImages: ["coa-ghk-cu-p1.png"],
+      coaPdf: "coa-ghk-cu.pdf",
     },
     {
       name: "GHK-CU",
@@ -1697,6 +1701,8 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 35,
       warehouse: "us",
+      coaImages: ["coa-ghk-cu-p1.png"],
+      coaPdf: "coa-ghk-cu.pdf",
     },
     {
       name: "GHK-CU",
@@ -1706,6 +1712,8 @@ const PRODUCTS_BASE = [
       total: "1000 mg total",
       note: "10 vial kit (10 vials included)",
       warehouse: "us",
+      coaImages: ["coa-ghk-cu-p1.png"],
+      coaPdf: "coa-ghk-cu.pdf",
     },
     {
       name: "Glutathione",
