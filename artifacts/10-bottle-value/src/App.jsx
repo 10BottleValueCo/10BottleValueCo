@@ -1148,6 +1148,8 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 50,
       image: "/images/vial.png",
+      coaImages: ["coa-bpc157-10mg-p1.png"],
+      coaPdf: "coa-bpc157-10mg.pdf",
     },
     {
       name: "BPC-157",
@@ -1157,6 +1159,8 @@ const PRODUCTS_BASE = [
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
       warehouse: "us",
+      coaImages: ["coa-bpc157-10mg-p1.png"],
+      coaPdf: "coa-bpc157-10mg.pdf",
     },
     {
       name: "BPC-157",
