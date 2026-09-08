@@ -1168,6 +1168,8 @@ const PRODUCTS_BASE = [
       dose: "5 mg",
       total: "50 mg total",
       note: "10 vial kit (10 vials included)",
+      coaImages: ["coa-bpc157-10mg-p1.png"],
+      coaPdf: "coa-bpc157-10mg.pdf",
     },
     {
       name: "TB-500",
