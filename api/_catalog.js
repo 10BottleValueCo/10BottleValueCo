@@ -78,7 +78,7 @@ const PRODUCTS = [
   { "name": "MOTS-C", "dose": "40 mg", "price": 369 },
   { "name": "MOTS-C", "dose": "40 mg", "price": 369, "usPriceBase": 364, "warehouse": "us" },
   { "name": "MOTS-C", "dose": "10 mg", "price": 129 },
-  { "name": "MOTS-C", "dose": "10 mg", "price": 129, "usPriceBase": 174, "warehouse": "us" },
+  { "name": "MOTS-C", "dose": "10 mg", "price": 179, "usPriceBase": 174, "warehouse": "us" },
   { "name": "Thymosin Alpha-1", "dose": "10 mg", "price": 289 },
   { "name": "Melanotan-2", "dose": "10 mg", "price": 89 },
   { "name": "SNAP-8", "dose": "10 mg", "price": 79 },
