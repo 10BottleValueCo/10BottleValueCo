@@ -16395,7 +16395,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   "TB-500 + BPC-157|10mg each":135,"TB-500 + BPC-157|20mg each":210,
                   "GLOW|70mg":235,"Glow|70mg":235,"GLOW70|70mg":235,
                   "AOD|5mg":145,"AOD 9604|5mg":145,
-                  "MOTS-C|10mg":105,
+                  "MOTS-C|10mg":105,"NAD+|500mg":120,"MOTS-C|40mg":185,
                   "Epithalon|10mg":88,"Epitalon|10mg":88,
                   "KPV|10mg":100,
                   "Semax|10mg":90,
