@@ -4235,7 +4235,9 @@ export default function App() {
   }
 
   function getAffiliateCommissionBaseAmount(order) {
-    return Number(order?.affiliateCommission || Number(order?.subtotal || 0) * 0.1);
+    const subtotal = Number(order?.subtotal || 0);
+    if (subtotal > 0) return subtotal * 0.1;
+    return Number(order?.affiliateCommission || 0);
   }
 
   function isCommissionEligibleOrder(order) {
@@ -8307,16 +8309,15 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       let code, commission, createdAt, shippingType, fromWarehouse;
       if (isReconstructed) {
         code = String(row.affiliateCode || "").trim().toUpperCase();
-        // Mirror getAffiliateCommissionBaseAmount: if affiliateCommission is 0/missing,
-        // fall back to 10% of subtotal (NOT affiliateDiscount which is the customer discount)
-        commission = Number(row.affiliateCommission) || Number(row.subtotal || row.total || 0) * 0.1;
+        // Mirror getAffiliateCommissionBaseAmount: prefer subtotal*0.1 so manually-edited prices reflect correctly
+        { const _s = Number(row.subtotal || row.total || 0); commission = _s > 0 ? _s * 0.1 : Number(row.affiliateCommission || 0); }
         createdAt = row.createdAt ? new Date(row.createdAt).getTime() : 0;
         shippingType = String(row.shippingType || "");
         fromWarehouse = String(row.fromWarehouse || "");
       } else {
         const meta = (row.metadata && typeof row.metadata === "object") ? row.metadata : {};
         code = String(meta.affiliateCode || row.affiliate_code || "").trim().toUpperCase();
-        commission = Number(meta.affiliateCommission) || Number(meta.subtotal || meta.total || row.subtotal || row.total || 0) * 0.1;
+        { const _s = Number(meta.subtotal || meta.total || row.subtotal || row.total || 0); commission = _s > 0 ? _s * 0.1 : Number(meta.affiliateCommission || 0); }
         createdAt = row.created_at ? new Date(row.created_at).getTime() : 0;
         shippingType = String(meta.shippingType || "");
         fromWarehouse = String(meta.fromWarehouse || "");
