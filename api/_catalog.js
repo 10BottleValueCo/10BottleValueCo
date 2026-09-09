@@ -76,7 +76,7 @@ const PRODUCTS = [
   { "name": "KPV", "dose": "10 mg", "price": 119 },
   { "name": "KPV", "dose": "10 mg", "price": 119, "usPriceBase": 164, "warehouse": "us" },
   { "name": "MOTS-C", "dose": "40 mg", "price": 369 },
-  { "name": "MOTS-C", "dose": "40 mg", "price": 309, "usPriceBase": 304, "warehouse": "us" },
+  { "name": "MOTS-C", "dose": "40 mg", "price": 369, "usPriceBase": 364, "warehouse": "us" },
   { "name": "MOTS-C", "dose": "10 mg", "price": 129 },
   { "name": "MOTS-C", "dose": "10 mg", "price": 129, "usPriceBase": 174, "warehouse": "us" },
   { "name": "Thymosin Alpha-1", "dose": "10 mg", "price": 289 },
