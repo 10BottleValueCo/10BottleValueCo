@@ -1864,6 +1864,8 @@ const PRODUCTS_BASE = [
       total: "800 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 115,
+      coaImages: ["coa-klow80-p1.png"],
+      coaPdf: "coa-klow80.pdf",
     },
     {
       name: "KLOW80",
@@ -1874,6 +1876,8 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 115,
       warehouse: "us",
+      coaImages: ["coa-klow80-p1.png"],
+      coaPdf: "coa-klow80.pdf",
     },
     {
       name: "BAC Water",
@@ -11745,7 +11749,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               />
 
               {/* Текст */}
-              <span className="text-lg font-semibold tracking-[0.08em] text-white md:text-2xl" style={{ textShadow: "1px 1px 0 rgba(0,0,0,0.2), 2px 2px 0 rgba(0,0,0,0.2), 3px 3px 0 rgba(0,0,0,0.2), 4px 4px 0 rgba(0,0,0,0.2), 6px 6px 10px rgba(0,0,0,0.2)" }}>
+              <span className="text-lg font-semibold tracking-[0.08em] text-white md:text-2xl" style={{ textShadow: "1px 1px 0 rgba(0,0,0,0.4), 2px 2px 0 rgba(0,0,0,0.4), 3px 3px 0 rgba(0,0,0,0.4), 4px 4px 0 rgba(0,0,0,0.4), 6px 6px 10px rgba(0,0,0,0.4)" }}>
                 BottleValueCo
               </span>
             </button>
