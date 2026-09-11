@@ -36,12 +36,18 @@ export default async function handler(req, res) {
     if (!id) return res.status(400).json({ ok: false, error: "Missing order id" });
     const body = req.body || {};
     const update = {};
+    let zeroAffiliateCommission = false;
+
     if (Object.prototype.hasOwnProperty.call(body, "status")) {
       const status = String(body.status || "").toLowerCase();
       if (!ALLOWED_ORDER_STATUSES.has(status)) {
         return res.status(400).json({ ok: false, error: `Invalid status: ${status}` });
       }
       update.status = status;
+      // When order is refunded or cancelled, deduct affiliate commission
+      if (status === "refunded" || status === "cancelled") {
+        zeroAffiliateCommission = true;
+      }
     }
     if (Object.prototype.hasOwnProperty.call(body, "affiliate_commission_adjustment")) {
       const raw = Number(body.affiliate_commission_adjustment);
@@ -53,10 +59,25 @@ export default async function handler(req, res) {
     if (Object.keys(update).length === 0) {
       return res.status(400).json({ ok: false, error: "No supported fields to update" });
     }
+
+    // Update order status
     await supabaseAdmin(`orders?id=eq.${encodeURIComponent(id)}`, {
       method: "PATCH", body: JSON.stringify(update),
     });
-    return res.status(200).json({ ok: true, updated: update });
+
+    // Zero out affiliate commission for refunded/cancelled orders
+    if (zeroAffiliateCommission) {
+      try {
+        await supabaseAdmin(`affiliate_orders?order_id=eq.${encodeURIComponent(id)}`, {
+          method: "PATCH", body: JSON.stringify({ commission_amount: 0 }),
+        });
+      } catch (affErr) {
+        // Non-fatal: log but don't fail the whole request
+        console.warn("affiliate_orders zero-commission failed:", affErr.message);
+      }
+    }
+
+    return res.status(200).json({ ok: true, updated: update, affiliateCommissionZeroed: zeroAffiliateCommission });
   } catch (err) {
     console.error("orders/[id] PATCH failed:", err.message);
     return res.status(500).json({ ok: false, error: err.message });

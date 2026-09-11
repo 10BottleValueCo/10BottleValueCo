@@ -4673,10 +4673,15 @@ export default function App() {
           ? order.paidAt || new Date().toISOString()
           : order.paidAt || "";
         supabasePayload = { status: nextStatus };
+        const isRefundedOrCancelled = nextStatus === "refunded" || nextStatus === "cancelled";
         return {
           ...order,
           status: nextStatus,
           paidAt: nextPaidAt,
+          // Zero out affiliate commission locally so UI reflects deduction immediately
+          ...(isRefundedOrCancelled && order.affiliateCode
+            ? { affiliateCommission: 0, affiliateCommissionAdjustment: 0 }
+            : {}),
         };
       }
       const nextValue = field === "affiliateCommissionAdjustment" ? Number(value || 0) : value;
