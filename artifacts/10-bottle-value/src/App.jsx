@@ -11953,7 +11953,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   <div className="flex flex-col items-center gap-2">
                     <button
                       onClick={() => { setAccountPromoCodeInput(""); setPage("shop"); }}
-                      className="hero-cta-btn w-full rounded-full px-8 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition active:scale-[0.98] md:w-auto"
+                      className="hero-cta-btn w-full rounded-full px-8 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition active:scale-[0.98] md:w-auto whitespace-nowrap"
                       style={{background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.28)", backdropFilter: "blur(4px)", boxShadow: "0 0 0 0 transparent", transition: "box-shadow 0.25s"}}
                       onMouseEnter={e => e.currentTarget.style.boxShadow = "0 0 18px 2px rgba(255,255,255,0.12)"}
                       onMouseLeave={e => e.currentTarget.style.boxShadow = "0 0 0 0 transparent"}
@@ -11968,7 +11968,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   <div className="flex flex-col items-center gap-2">
                     <button
                       onClick={() => { setAccountPromoCodeInput(""); setPage("us-warehouse"); }}
-                      className="hero-cta-btn w-full rounded-full px-8 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition active:scale-[0.98] md:w-auto"
+                      className="hero-cta-btn w-full rounded-full px-8 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition active:scale-[0.98] md:w-auto whitespace-nowrap"
                       style={{background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.28)", backdropFilter: "blur(4px)", boxShadow: "0 0 0 0 transparent", transition: "box-shadow 0.25s"}}
                       onMouseEnter={e => e.currentTarget.style.boxShadow = "0 0 18px 2px rgba(255,255,255,0.12)"}
                       onMouseLeave={e => e.currentTarget.style.boxShadow = "0 0 0 0 transparent"}
