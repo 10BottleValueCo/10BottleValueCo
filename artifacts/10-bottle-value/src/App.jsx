@@ -11900,7 +11900,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   className="leading-[1.05]"
                   style={{"--hero-fs": `min(5.5vw, ${(88 / (Math.max(t("hero1").length, t("hero2").length) * 0.58)).toFixed(2)}vw)`}}
                 >
-                  <span className="flex flex-nowrap items-center gap-x-3 whitespace-nowrap font-extrabold md:font-normal [font-size:var(--hero-fs)] md:text-[clamp(16px,4.5vw,128px)]">
+                  <span className="flex flex-wrap items-center gap-x-3 gap-y-2 whitespace-nowrap font-extrabold md:font-normal [font-size:var(--hero-fs)] md:text-[clamp(16px,4.5vw,128px)]">
                     <span className="hero-3d-text">{t("hero1")}</span>
                     <span className="!hidden md:!inline-flex items-end hero-dollar-break-wrap font-black text-red-500 [font-size:22px] md:[font-size:36px]">
                       <span className="hero-dollar-break" style={{ animationDelay: "0s", "--peak": 1.15 }}>$</span>
@@ -11908,7 +11908,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       <span className="hero-dollar-break" style={{ animationDelay: "0.7s", "--peak": 2.05 }}>$</span>
                     </span>
                   </span>
-                  <span className="flex flex-nowrap items-center gap-x-3 whitespace-nowrap font-extrabold md:font-normal [font-size:var(--hero-fs)] md:text-[clamp(16px,4.5vw,128px)] mt-[3px] md:mt-[4px]">
+                  <span className="flex flex-wrap items-center gap-x-3 gap-y-2 whitespace-nowrap font-extrabold md:font-normal [font-size:var(--hero-fs)] md:text-[clamp(16px,4.5vw,128px)] mt-[3px] md:mt-[4px]">
                     <span className="hero-3d-text">{t("hero2")}</span>
                     <HeroSavingsTicker className="hidden md:inline-flex [font-size:15px] md:[font-size:22px]" />
                   </span>
