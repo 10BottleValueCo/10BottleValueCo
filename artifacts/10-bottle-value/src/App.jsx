@@ -11892,10 +11892,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
         {page === "home" && (
           <>
-            <main className="relative mx-auto flex w-full max-w-[1700px] items-start pt-8 px-4 pb-10 md:min-h-[calc(100vh-73px)] md:pt-20 md:px-10 md:pb-16">
+            <main className="relative mx-auto flex w-full max-w-[1700px] items-start pt-8 px-4 pb-10 md:min-h-[calc(100vh-73px)] md:pt-20 md:pr-10 md:pl-0 md:pb-16">
 
 
-              <div className="relative z-10 w-full max-w-none">
+              <div className="relative z-10 w-full max-w-none md:-ml-9">
                 <h1
                   className="leading-[1.05]"
                   style={{"--hero-fs": `min(5.5vw, ${(88 / (Math.max(t("hero1").length, t("hero2").length) * 0.58)).toFixed(2)}vw)`}}
