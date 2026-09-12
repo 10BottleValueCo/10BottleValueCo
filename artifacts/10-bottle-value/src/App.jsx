@@ -16455,7 +16455,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     return { name: it.name, dose: normDose(it.dose), qty, isUS, unitCost, lineCost, hasOverride, salePrice: Number(it.price||0) };
                   });
                   const isExpress = String(order.shippingType||"").toLowerCase().includes("express");
-                  const supplierShipping = hasChinaItem ? (isExpress ? 100 : 60) : 0;
+                  const supplierShippingOverride = order.supplierShippingOverride ?? order.metadata?.supplierShippingOverride;
+                  const supplierShipping = supplierShippingOverride != null
+                    ? Number(supplierShippingOverride)
+                    : hasChinaItem ? (isExpress ? 100 : 60) : 0;
                   const customerShipping = Number(order.shipping || 0);
                   const itemRevenue = lines.reduce((s, ln) => s + ln.salePrice * ln.qty, 0);
                   // Revenue = order.total (actual money received, already includes customer shipping)
@@ -16768,10 +16771,27 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                           </table>
                                           {/* Shipping + totals */}
                                           <div className="mt-3 pt-3 flex flex-wrap gap-x-6 gap-y-1 text-[11px]" style={{borderTop:"1px solid rgba(255,255,255,0.06)"}}>
-                                            <span style={{color:"rgba(255,255,255,0.4)"}}>
-                                              {calc.supplierShipping>0
-                                                ? <>{calc.isExpress?"🚀 Express":"📦 Standard"} shipping: <span style={{color:"#f87171"}}>−${calc.supplierShipping}</span>{calc.customerShipping>0&&<> / client paid: <span style={{color:"#4ade80"}}>+{fmtMoney(calc.customerShipping)}</span> / net: <span style={{color:calc.supplierShipping-calc.customerShipping>0?"#f87171":"#4ade80"}}>−{fmtMoney(calc.supplierShipping-calc.customerShipping)}</span></>}</>
-                                                : <span>🇺🇸 US warehouse — shipping free</span>}
+                                            <span style={{color:"rgba(255,255,255,0.4)",display:"inline-flex",alignItems:"center",gap:4}}>
+                                              {calc.isExpress?"🚀 Express":"📦 Standard"} shipping: <span style={{color:"#f87171"}}>−$</span>
+                                              <input
+                                                type="number"
+                                                min="0"
+                                                step="1"
+                                                defaultValue={calc.supplierShipping}
+                                                key={`ship-${o.id}-${calc.supplierShipping}`}
+                                                onBlur={async (e) => {
+                                                  const val = Number(e.target.value);
+                                                  if (isNaN(val) || val < 0) return;
+                                                  setAllOrders(prev => prev.map(row => row.id !== o.id ? row : { ...row, supplierShippingOverride: val }));
+                                                  try {
+                                                    const { data: rd } = await supabase.from("orders").select("metadata").eq("id", o.id).single();
+                                                    const base = (typeof rd?.metadata === "object" && rd.metadata) ? rd.metadata : {};
+                                                    await supabase.from("orders").update({ metadata: { ...base, supplierShippingOverride: val } }).eq("id", o.id);
+                                                  } catch(err) { console.error("shipping save failed", err); }
+                                                }}
+                                                style={{width:52,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:4,color:"#f87171",fontWeight:700,padding:"1px 4px",fontSize:11,outline:"none"}}
+                                              />
+                                              {calc.customerShipping>0&&<> / client paid: <span style={{color:"#4ade80"}}>+{fmtMoney(calc.customerShipping)}</span></>}
                                             </span>
                                             {calc.affiliatePayout>0&&<span style={{color:"rgba(255,255,255,0.4)"}}>🤝 Affiliate (<span style={{color:"rgba(255,255,255,0.6)"}}>{calc.affiliateCode}</span>): <span style={{color:"#f87171"}}>−{fmtMoney(calc.affiliatePayout)}</span></span>}
                                             {calc.paymentFee>0&&<span style={{color:"rgba(255,255,255,0.4)"}}>💳 {calc.paymentFeeRate===0.04?"CatalystPay fee (4%)":calc.paymentFeeRate===0.08?"Paylio Card fee (8%)":"Stripe fee (2.5%)"}: <span style={{color:"#f87171"}}>−{fmtMoney(calc.paymentFee)}</span></span>}
