@@ -19718,8 +19718,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               : subtotal >= 2000
                               ? tx("15% Discount", "Скидка 15%", "Знижка 15%", "15% Rabatt", "15% de descuento")
                               : subtotal >= 1000
-                              ? tx("5% Discount", "Скидка 5%", "Знижка 5%", "5% Rabatt", "5% de descuento")
-                              : tx("5% Discount", "Скидка 5%", "Знижка 5%", "5% Rabatt", "5% de descuento")
+                              ? tx("10% Discount", "Скидка 10%", "Знижка 10%", "10% Rabatt", "10% de descuento")
+                              : tx("10% Discount", "Скидка 10%", "Знижка 10%", "10% Rabatt", "10% de descuento")
                             }
                           </span>
                         </div>
