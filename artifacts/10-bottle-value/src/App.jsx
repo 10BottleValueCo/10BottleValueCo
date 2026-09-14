@@ -995,7 +995,7 @@ function ContactPage({ copySupportEmail, copiedEmail, t, language, onNewMessage 
       name: "Trustpilot",
       icon: SOCIAL_ICONS.Trustpilot,
       url: "https://www.trustpilot.com/review/10bottlevalue.co",
-      rating: { score: 4.5, count: 17 },
+      rating: { score: 4.6, count: 21 },
     },
     {
       name: "X",
@@ -12022,7 +12022,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       name: "Trustpilot",
                       icon: SOCIAL_ICONS.Trustpilot,
                       url: "https://www.trustpilot.com/review/10bottlevalue.co",
-                      rating: { score: 4.5, count: 17 },
+                      rating: { score: 4.6, count: 21 },
                     },
                     {
                       name: "X",
