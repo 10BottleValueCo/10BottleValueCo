@@ -17049,7 +17049,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         <div className="rounded-2xl border border-emerald-400/25 bg-emerald-400/8 px-5 py-3">
                           <div className="text-[10px] uppercase tracking-[0.2em] text-emerald-300/60">Available to pay out</div>
                           <div className="mt-0.5 text-2xl font-bold text-emerald-300">
-                            ${adminAffiliates.reduce((s, a) => s + a.available, 0).toFixed(2)}
+                            ${adminAffiliates.reduce((s, a) => s + Math.max(0, a.available - (Number(affPaidMap[a.code]) || 0)), 0).toFixed(2)}
                           </div>
                         </div>
                         <div className="rounded-2xl border border-amber-400/25 bg-amber-400/8 px-5 py-3">
@@ -17079,7 +17079,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               <th className="px-4 py-3 text-right">Available</th>
                               <th className="px-4 py-3 text-right">Pending</th>
                               <th className="px-4 py-3 text-right">Paid out</th>
-                              <th className="px-4 py-3 text-right">Remaining</th>
                               <th className="px-4 py-3"></th>
                             </tr>
                           </thead>
@@ -17114,7 +17113,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                     </button>
                                   </td>
                                   <td className="px-4 py-3 text-right text-white/70">{aff.orders}</td>
-                                  <td className="px-4 py-3 text-right font-bold text-emerald-300">{aff.available > 0 ? `$${aff.available.toFixed(2)}` : <span className="text-white/20">—</span>}</td>
+                                  <td className="px-4 py-3 text-right font-bold text-emerald-300">{remaining > 0 ? `$${remaining.toFixed(2)}` : paid > 0 ? <span className="text-emerald-400 text-xs">✓ Settled</span> : aff.available > 0 ? `$${aff.available.toFixed(2)}` : <span className="text-white/20">—</span>}</td>
                                   <td className="px-4 py-3 text-right font-semibold text-amber-300">{aff.pending > 0 ? `$${aff.pending.toFixed(2)}` : <span className="text-white/20">—</span>}</td>
                                   <td className="px-4 py-3 text-right font-bold text-sky-300">{paid > 0 ? `$${paid.toFixed(2)}` : <span className="text-white/20">—</span>}</td>
                                   <td className="px-4 py-3 text-right font-bold">
@@ -17176,10 +17175,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             <tr className="border-t border-white/15 bg-black/20">
                               <td colSpan={4} className="px-4 py-3 text-[10px] uppercase tracking-[0.18em] text-white/40">Total</td>
                               <td className="px-4 py-3 text-right font-bold text-white">{adminAffiliates.reduce((s, a) => s + a.orders, 0)}</td>
-                              <td className="px-4 py-3 text-right font-bold text-emerald-300">${adminAffiliates.reduce((s, a) => s + a.available, 0).toFixed(2)}</td>
+                              <td className="px-4 py-3 text-right font-bold text-emerald-300">${adminAffiliates.reduce((s, a) => s + Math.max(0, a.available - (Number(affPaidMap[a.code]) || 0)), 0).toFixed(2)}</td>
                               <td className="px-4 py-3 text-right font-bold text-amber-300">${adminAffiliates.reduce((s, a) => s + a.pending, 0).toFixed(2)}</td>
                               <td className="px-4 py-3 text-right font-bold text-sky-300">${adminAffiliates.reduce((s, a) => s + (Number(affPaidMap[a.code]) || 0), 0).toFixed(2)}</td>
-                              <td className="px-4 py-3 text-right font-bold text-orange-300">${adminAffiliates.reduce((s, a) => s + Math.max(0, a.available - (Number(affPaidMap[a.code]) || 0)), 0).toFixed(2)}</td>
                               <td></td>
                             </tr>
                           </tfoot>
