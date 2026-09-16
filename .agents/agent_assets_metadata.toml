@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "3XcI2033VaIfpI0757QTn"
+uri = "file://products.csv"
+type = "table"
+title = "products.csv — Shop Worldwide"
+description = "116 товаров из каталога Shop Worldwide. Поля: product_name, price, dosage, quantity, sku, product_url."
+logical_id = "ae768680-22da-485f-b101-13d48593c1ab"
+content_hash = "sha256:893439ffd51272fa5a0952d4537325f799774719cad670eefa3497f4ccc7ce02"
+size = 10456
+mtime_ms = 1789576547966
+storage_uri = "gcs://replit-rams-assets-archer/rams/assets/repl:e91de99c-54e2-4d8d-9cb4-c3f51b19c82c/ae768680-22da-485f-b101-13d48593c1ab/3e39a6cf-7786-48b5-a2f8-05be974fd34a"
+storage_version_token = "1789576555172006"
+content_type = "text/csv"
