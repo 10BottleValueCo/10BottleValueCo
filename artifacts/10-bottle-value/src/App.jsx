@@ -1876,6 +1876,7 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 115,
       warehouse: "us",
+      outOfStock: true,
       coaImages: ["coa-klow80-p1.png"],
       coaPdf: "coa-klow80.pdf",
     },
