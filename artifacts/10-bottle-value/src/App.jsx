@@ -18327,7 +18327,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                         ))}
                                       </div>
                                     </div>
-                                                                        <div className="flex justify-center pb-1">
+                                                                        <div className="flex flex-wrap justify-center gap-2 pb-1">
                                       <button
                                         type="button"
                                         onClick={() => setContactModalOpen(true)}
@@ -18335,6 +18335,35 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                       >
                                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
                                         {tx("Got questions? Message us","Есть вопросы? Напишите нам","Є питання? Напишіть нам","Fragen? Schreiben Sie uns","¿Preguntas? Escríbenos")}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setPaymentReturn({ status: "success", order: order.id });
+                                          setPaymentReturnOrder({
+                                            id: order.id,
+                                            email: order.email,
+                                            firstName: order.firstName,
+                                            lastName: order.lastName,
+                                            address: order.address,
+                                            city: order.city,
+                                            state: order.state,
+                                            postalCode: order.postalCode,
+                                            country: order.country,
+                                            phone: order.phone,
+                                            items: order.items,
+                                            total: order.total,
+                                            subtotal: order.subtotal,
+                                            shipping: order.shipping,
+                                            paymentProvider: order.paymentProvider,
+                                          });
+                                          setPage("payment-return");
+                                          window.scrollTo({ top: 0, behavior: "smooth" });
+                                        }}
+                                        className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.07] px-4 py-2 text-[11px] font-semibold text-white/70 hover:text-white hover:bg-white/12 transition-none"
+                                      >
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="m9 12 2 2 4-4"/></svg>
+                                        {tx("View order confirmation","Подтверждение заказа","Підтвердження замовлення","Bestellbestätigung","Ver confirmación")}
                                       </button>
                                     </div>
                                   </div>
