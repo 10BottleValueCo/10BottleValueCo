@@ -1,6 +1,6 @@
 // @ts-nocheck
 // @ts-nocheck
-import { Fragment, startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import confetti from "canvas-confetti";
 import { supabase, userFromSupabase } from "./supabase.js";
 import { useSEO } from "./useSEO.js";
@@ -3733,24 +3733,25 @@ export default function App() {
   }, [contactModalOpen]);
 
   const prevContactModalOpen = useRef(false);
+  const scrollInboxToBottom = () => {
+    const el = inboxScrollRef.current;
+    if (el) { el.style.scrollBehavior = "auto"; el.scrollTop = el.scrollHeight; }
+  };
+  // Sync scroll before paint so user never sees the top position
+  useLayoutEffect(() => {
+    if (!contactModalOpen) return;
+    scrollInboxToBottom();
+  }, [contactModalOpen, userInboxMessages]);
+  // Also scroll when near bottom (new message arrives while chat is open)
   useEffect(() => {
     const el = inboxScrollRef.current;
-    if (!el) return;
-    const justOpened = contactModalOpen && !prevContactModalOpen.current;
+    if (!el || !contactModalOpen) return;
+    const justOpened = !prevContactModalOpen.current;
     prevContactModalOpen.current = contactModalOpen;
+    if (justOpened) return; // already handled by useLayoutEffect
     const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    if (justOpened || isNearBottom) {
-      setTimeout(() => { if (inboxScrollRef.current) inboxScrollRef.current.scrollTop = inboxScrollRef.current.scrollHeight; }, 50);
-    }
+    if (isNearBottom) scrollInboxToBottom();
   }, [userInboxMessages, contactModalOpen]);
-
-  // Scroll to bottom when modal first opens (messages may already be in state)
-  useEffect(() => {
-    if (!contactModalOpen) return;
-    const t1 = setTimeout(() => { if (inboxScrollRef.current) inboxScrollRef.current.scrollTop = inboxScrollRef.current.scrollHeight; }, 80);
-    const t2 = setTimeout(() => { if (inboxScrollRef.current) inboxScrollRef.current.scrollTop = inboxScrollRef.current.scrollHeight; }, 300);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [contactModalOpen]);
 
   useEffect(() => {
     setUserIsTyping(false);
