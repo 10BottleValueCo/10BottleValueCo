@@ -11467,7 +11467,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
             </div>
 
             {/* Chat messages area */}
-            <div ref={inboxScrollRef} className="flex-1 overflow-y-auto mx-4 mb-2 flex flex-col gap-2.5 rounded-2xl border border-white/8 bg-black/25 px-3 pt-3 pb-3 min-h-[120px] [&::-webkit-scrollbar]:w-[6px] [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/40 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-white/60">
+            <div ref={inboxScrollRef} className="flex-1 overflow-y-auto overscroll-contain mx-4 mb-2 flex flex-col gap-2.5 rounded-2xl border border-white/8 bg-black/25 px-3 pt-3 pb-3 min-h-[120px] [&::-webkit-scrollbar]:w-[6px] [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/40 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-white/60">
               {userInboxMessages.length === 0 && (
                 <div className="py-10 text-center text-white/25 text-sm">No messages yet — send us one below!</div>
               )}
