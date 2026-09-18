@@ -3733,15 +3733,18 @@ export default function App() {
   }, [contactModalOpen]);
 
   const prevContactModalOpen = useRef(false);
+  const needsScrollToBottom = useRef(false);
   useEffect(() => {
     const el = inboxScrollRef.current;
     if (!el) return;
     const justOpened = contactModalOpen && !prevContactModalOpen.current;
     prevContactModalOpen.current = contactModalOpen;
-    // Always scroll to bottom when modal opens; otherwise only if already near bottom
+    if (justOpened) { needsScrollToBottom.current = true; return; }
+    // Always scroll to bottom after modal opens and messages first load
     const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    if (justOpened || isNearBottom) {
-      el.scrollTop = el.scrollHeight;
+    if (needsScrollToBottom.current || isNearBottom) {
+      needsScrollToBottom.current = false;
+      setTimeout(() => { if (inboxScrollRef.current) inboxScrollRef.current.scrollTop = inboxScrollRef.current.scrollHeight; }, 0);
     }
   }, [userInboxMessages, contactModalOpen]);
 
