@@ -3733,20 +3733,24 @@ export default function App() {
   }, [contactModalOpen]);
 
   const prevContactModalOpen = useRef(false);
-  const needsScrollToBottom = useRef(false);
   useEffect(() => {
     const el = inboxScrollRef.current;
     if (!el) return;
     const justOpened = contactModalOpen && !prevContactModalOpen.current;
     prevContactModalOpen.current = contactModalOpen;
-    if (justOpened) { needsScrollToBottom.current = true; return; }
-    // Always scroll to bottom after modal opens and messages first load
     const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    if (needsScrollToBottom.current || isNearBottom) {
-      needsScrollToBottom.current = false;
-      setTimeout(() => { if (inboxScrollRef.current) inboxScrollRef.current.scrollTop = inboxScrollRef.current.scrollHeight; }, 0);
+    if (justOpened || isNearBottom) {
+      setTimeout(() => { if (inboxScrollRef.current) inboxScrollRef.current.scrollTop = inboxScrollRef.current.scrollHeight; }, 50);
     }
   }, [userInboxMessages, contactModalOpen]);
+
+  // Scroll to bottom when modal first opens (messages may already be in state)
+  useEffect(() => {
+    if (!contactModalOpen) return;
+    const t1 = setTimeout(() => { if (inboxScrollRef.current) inboxScrollRef.current.scrollTop = inboxScrollRef.current.scrollHeight; }, 80);
+    const t2 = setTimeout(() => { if (inboxScrollRef.current) inboxScrollRef.current.scrollTop = inboxScrollRef.current.scrollHeight; }, 300);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [contactModalOpen]);
 
   useEffect(() => {
     setUserIsTyping(false);
