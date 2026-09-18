@@ -1308,6 +1308,7 @@ const PRODUCTS_BASE = [
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 70,
+      outOfStock: true,
     },
     {
       name: "Sermorelin",
@@ -1952,6 +1953,7 @@ const PRODUCTS_BASE = [
       dose: "5 mg",
       total: "50 mg total",
       note: "10 vial kit (10 vials included)",
+      outOfStock: true,
     },
     {
       name: "Cagrilintide",
@@ -1960,6 +1962,7 @@ const PRODUCTS_BASE = [
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 90,
+      outOfStock: true,
     },
     {
       name: "Cagrilintide + Semaglutide",
@@ -1968,6 +1971,7 @@ const PRODUCTS_BASE = [
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
+      outOfStock: true,
     },
     {
       name: "CJC-1295",
