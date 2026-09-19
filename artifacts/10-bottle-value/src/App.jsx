@@ -8696,7 +8696,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
   useEffect(() => {
     if (checkoutStep === "payment" && finalTotalRef.current > 0) {
-      setPaymentMethod("stripe");
+      setPaymentMethod("cashapp");
     }
   }, [checkoutStep]);
 
