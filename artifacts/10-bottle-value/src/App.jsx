@@ -6752,7 +6752,7 @@ export default function App() {
       });
     }
   }, [page, checkoutStep]);
-  const [paymentMethod, setPaymentMethod] = useState("stripe");
+  const [paymentMethod, setPaymentMethod] = useState("cashapp");
 
 
   const [selectedCrypto, setSelectedCrypto] = useState("USDT");
