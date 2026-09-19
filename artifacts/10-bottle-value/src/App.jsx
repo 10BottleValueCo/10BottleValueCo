@@ -8682,7 +8682,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   // charge (base order total minus store credit, BEFORE any payment-method-
   // specific discount or fee) — not `finalTotal`, which reflects whichever
   // method happens to be selected right now. Otherwise selecting a discounted
-  const stripeTemporarilyDisabled = new Date() < new Date("2026-07-23T00:00:00");
+  const stripeTemporarilyDisabled = true;
 
   // Cash App orders are capped at $999, checked against the same
   // pre-discount base amount as Stripe's cap (see comment above) so the
@@ -20749,7 +20749,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             className={`relative flex flex-col items-center justify-start text-center rounded-[1.3rem] border px-2.5 pt-6 pb-3 md:px-3 md:pt-7 md:pb-3 min-h-[148px] md:min-h-[160px] ${stripeTemporarilyDisabled ? "border-black/10 bg-white/60 cursor-not-allowed" : paymentMethod === "stripe" ? "border-black bg-black text-white" : "border-black/10 bg-white text-black hover:bg-black/5"}`}
                           >
                             {stripeTemporarilyDisabled ? (
-                              <span className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-gray-400 px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-white shadow-sm">Available Jul 23</span>
+                              <span className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-gray-400 px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-white shadow-sm">Temporarily unavailable</span>
                             ) : (
                               <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">No KYC</span>
                             )}
