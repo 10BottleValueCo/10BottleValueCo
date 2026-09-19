@@ -70,3 +70,17 @@ mtime_ms = 1789861593322
 storage_uri = "gcs://replit-rams-assets-archer/rams/assets/repl:e91de99c-54e2-4d8d-9cb4-c3f51b19c82c/668b1094-a750-4dd4-b853-a9cdcd69ceec/9f1f9dac-deb1-4b64-bae7-eaae71d19a1f"
 storage_version_token = "1789861602753662"
 content_type = "image/jpeg"
+
+[[outputs]]
+id = "_Z81ttFqNsS_XxjxOc-RL"
+uri = "file://screenshots/card-retatrutide.jpg"
+type = "image"
+title = "Retatrutide — 8 дозировок"
+description = "8 кнопок складываются в 2 ряда по 4"
+logical_id = "cbbc194d-1bf2-4326-acf4-9407d4971f68"
+content_hash = "sha256:855a08b0d9196aa2bfe12e7b9317b21c0515ed1c92f0135d8300a0989c27cdd4"
+size = 20486
+mtime_ms = 1789861712021
+storage_uri = "gcs://replit-rams-assets-archer/rams/assets/repl:e91de99c-54e2-4d8d-9cb4-c3f51b19c82c/cbbc194d-1bf2-4326-acf4-9407d4971f68/4878f223-945c-489e-826b-3bc31e7f1898"
+storage_version_token = "1789861852685309"
+content_type = "image/jpeg"
