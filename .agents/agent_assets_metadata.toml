@@ -42,3 +42,17 @@ mtime_ms = 1789861316516
 storage_uri = "gcs://replit-rams-assets-archer/rams/assets/repl:e91de99c-54e2-4d8d-9cb4-c3f51b19c82c/8ecb9009-5d18-4322-8c3d-38c8f70f623d/824d5af3-0e1c-4b41-819f-be84294d8ea8"
 storage_version_token = "1789861323364027"
 content_type = "image/jpeg"
+
+[[outputs]]
+id = "YQHoA-IHklWmE5UShtVVv"
+uri = "file://screenshots/product-card-dosage-v2.jpg"
+type = "image"
+title = "Карточка BPC-157 — выбор дозировки"
+description = "Тот же стиль, добавлены кнопки выбора дозировки"
+logical_id = "9ddebb3c-236c-4076-993f-69ff9ee27299"
+content_hash = "sha256:9bdd74fbd75a998c913a1a98158676ccbc94cbbdef439bf15198dc55577be2f3"
+size = 92907
+mtime_ms = 1789861468628
+storage_uri = "gcs://replit-rams-assets-archer/rams/assets/repl:e91de99c-54e2-4d8d-9cb4-c3f51b19c82c/9ddebb3c-236c-4076-993f-69ff9ee27299/e0ace179-7193-4f7b-adc1-1d3b3fbe4e96"
+storage_version_token = "1789861475087939"
+content_type = "image/jpeg"
