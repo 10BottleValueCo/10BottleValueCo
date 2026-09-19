@@ -28,3 +28,17 @@ mtime_ms = 1789857542281
 storage_uri = "gcs://replit-rams-assets-archer/rams/assets/repl:e91de99c-54e2-4d8d-9cb4-c3f51b19c82c/bd35c136-3fac-4c55-93c4-85135d7743ba/e42ae320-54f3-47d2-93c6-6e331240b359"
 storage_version_token = "1789858210364295"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "zC0eYugwh1Xn1nFqx65Aj"
+uri = "file://screenshots/product-card-mockup.jpg"
+type = "image"
+title = "Карточка продукта — выбор дозировки"
+description = "Одна карточка с кнопками дозировки вместо отдельных карточек"
+logical_id = "8ecb9009-5d18-4322-8c3d-38c8f70f623d"
+content_hash = "sha256:de67d9a3c317d203e9ff4c3ad64527c68c3d0146414297513a74089240389ce5"
+size = 91837
+mtime_ms = 1789861316516
+storage_uri = "gcs://replit-rams-assets-archer/rams/assets/repl:e91de99c-54e2-4d8d-9cb4-c3f51b19c82c/8ecb9009-5d18-4322-8c3d-38c8f70f623d/824d5af3-0e1c-4b41-819f-be84294d8ea8"
+storage_version_token = "1789861323364027"
+content_type = "image/jpeg"
