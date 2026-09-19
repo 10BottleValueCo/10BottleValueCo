@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #6b6b6b;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  }
+
+  .card {
+    background: #888;
+    border-radius: 28px;
+    padding: 24px 20px 20px;
+    width: 320px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .product-title {
+    text-align: center;
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 0.3px;
+  }
+
+  /* dosage selector */
+  .dose-label {
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.55);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .dose-buttons {
+    display: flex;
+    gap: 7px;
+    justify-content: center;
+  }
+  .dose-btn {
+    background: #6a6a6a;
+    border-radius: 30px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.7);
+    cursor: pointer;
+    border: none;
+  }
+  .dose-btn.selected {
+    background: #fff;
+    color: #222;
+  }
+
+  /* specs table */
+  .specs {
+    background: #777;
+    border-radius: 18px;
+    padding: 4px 16px;
+    display: flex;
+    flex-direction: column;
+  }
+  .spec-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 11px 0;
+    border-bottom: 1px solid rgba(0,0,0,0.12);
+  }
+  .spec-row:last-child { border-bottom: none; }
+  .spec-key {
+    font-size: 15px;
+    font-weight: 500;
+    color: #fff;
+  }
+  .spec-val {
+    background: #5a5a5a;
+    border-radius: 30px;
+    padding: 6px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  /* price row */
+  .price-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 0 2px;
+  }
+  .price {
+    font-size: 38px;
+    font-weight: 800;
+    color: #fff;
+  }
+  .vials-note {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.55);
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    text-align: right;
+  }
+
+  /* button */
+  .add-btn {
+    background: #fff;
+    border-radius: 40px;
+    padding: 16px;
+    text-align: center;
+    font-size: 15px;
+    font-weight: 800;
+    color: #111;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="product-title">BPC-157</div>
+
+  <div>
+    <div class="dose-label">Choose Dosage</div>
+    <div class="dose-buttons">
+      <button class="dose-btn">2 mg</button>
+      <button class="dose-btn selected">5 mg</button>
+      <button class="dose-btn">10 mg</button>
+      <button class="dose-btn">15 mg</button>
+    </div>
+  </div>
+
+  <div class="specs">
+    <div class="spec-row">
+      <span class="spec-key">Kit</span>
+      <span class="spec-val">10-vial kit</span>
+    </div>
+    <div class="spec-row">
+      <span class="spec-key">Per vial</span>
+      <span class="spec-val">5 mg</span>
+    </div>
+    <div class="spec-row">
+      <span class="spec-key">Kit total</span>
+      <span class="spec-val">50 mg</span>
+    </div>
+    <div class="spec-row">
+      <span class="spec-key">Price per vial</span>
+      <span class="spec-val">7.90$</span>
+    </div>
+  </div>
+
+  <div class="price-row">
+    <div class="price">$79</div>
+    <div class="vials-note">10 VIALS<br>INCLUDED</div>
+  </div>
+
+  <div class="add-btn">ADD TO CART</div>
+</div>
+</body>
+</html>
