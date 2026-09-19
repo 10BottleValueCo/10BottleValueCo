@@ -14,3 +14,17 @@ mtime_ms = 1789577456773
 storage_uri = "gcs://replit-rams-assets-archer/rams/assets/repl:e91de99c-54e2-4d8d-9cb4-c3f51b19c82c/ae768680-22da-485f-b101-13d48593c1ab/8b3fb0c2-a3c6-42ed-95f6-10d2828c9eb0"
 storage_version_token = "1789577465091632"
 content_type = "text/csv"
+
+[[outputs]]
+id = "SYdI9QTPW1EeOopttGesk"
+uri = "file://CRO-analysis.md"
+type = "text"
+title = "CRO / UX Competitive Analysis — 10BottleValue.co"
+description = "Анализ конкурентов + 10 A/B тестов с приоритетами"
+logical_id = "bd35c136-3fac-4c55-93c4-85135d7743ba"
+content_hash = "sha256:aeaa661e1e7bf3b629e7d658c16d06c082739dc6ea40bb40a0012d29ed808f7d"
+size = 19280
+mtime_ms = 1789857542281
+storage_uri = "gcs://replit-rams-assets-archer/rams/assets/repl:e91de99c-54e2-4d8d-9cb4-c3f51b19c82c/bd35c136-3fac-4c55-93c4-85135d7743ba/e42ae320-54f3-47d2-93c6-6e331240b359"
+storage_version_token = "1789858210364295"
+content_type = "text/markdown"
