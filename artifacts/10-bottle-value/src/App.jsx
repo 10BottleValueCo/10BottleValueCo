@@ -20581,7 +20581,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               <div className={`text-[14px] font-semibold leading-tight ${stripeTemporarilyDisabled ? "text-black/30" : ""}`}>Apple Pay · Google Pay · Cards · Stripe</div>
                               <div className="mt-1.5 flex flex-nowrap items-center gap-1.5">
                                 {stripeTemporarilyDisabled ? (
-                                  <span className="inline-flex rounded-md bg-gray-400 px-2 py-0.5 text-[11px] font-black text-white">Available Jul 23</span>
+                                  <span className="inline-flex rounded-md bg-gray-400 px-2 py-0.5 text-[11px] font-black text-white">Unavailable</span>
                                 ) : (
                                   <>
                                     <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "stripe" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>No KYC</span>
