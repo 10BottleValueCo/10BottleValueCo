@@ -4,6 +4,7 @@
 import { Fragment, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import confetti from "canvas-confetti";
 import { supabase, userFromSupabase } from "./supabase.js";
+import { track, trackPageView, setAnalyticsUser } from "./analytics.js";
 import { useSEO } from "./useSEO.js";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
@@ -2456,6 +2457,294 @@ const PRODUCTS_BASE = [
     },
 ];
 // CATALOG_DATA_END
+
+// ── Funnel Analytics Tab ───────────────────────────────────────────────────
+function FunnelTab({ supabase }) {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [range, setRange] = useState("7d");
+  const [sessions, setSessions] = useState([]);
+  const [activeSession, setActiveSession] = useState(null);
+
+  useEffect(() => {
+    loadEvents();
+  }, [range]);
+
+  async function loadEvents() {
+    setLoading(true);
+    const days = range === "1d" ? 1 : range === "7d" ? 7 : range === "30d" ? 30 : 90;
+    const since = new Date(Date.now() - days * 86400000).toISOString();
+    const { data, error } = await supabase
+      .from("analytics_events")
+      .select("*")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(5000);
+    if (!error && data) {
+      setEvents(data);
+      // Build sessions list
+      const sessionMap = {};
+      for (const e of [...data].reverse()) {
+        if (!sessionMap[e.session_id]) {
+          sessionMap[e.session_id] = { session_id: e.session_id, user_id: e.user_id, events: [], first_seen: e.created_at, last_seen: e.created_at };
+        }
+        sessionMap[e.session_id].events.push(e);
+        sessionMap[e.session_id].last_seen = e.created_at;
+      }
+      setSessions(Object.values(sessionMap).sort((a, b) => new Date(b.last_seen) - new Date(a.last_seen)));
+    }
+    setLoading(false);
+  }
+
+  // Funnel steps — count unique sessions that hit each step
+  const funnelSteps = [
+    { key: "visit",       label: "Visited site",      events: ["page_view"], icon: "👁" },
+    { key: "shop",        label: "Opened shop",        events: ["page_view"], page: "shop", icon: "🏪" },
+    { key: "product",     label: "Viewed product",     events: ["product_view"], icon: "🔬" },
+    { key: "cart",        label: "Added to cart",      events: ["add_to_cart"], icon: "🛒" },
+    { key: "checkout",    label: "Started checkout",   events: ["page_view"], page: "cart", icon: "📋" },
+    { key: "order",       label: "Placed order",       events: ["order_placed"], icon: "✅" },
+  ];
+
+  const funnelData = funnelSteps.map(step => {
+    let matchingSessions;
+    if (step.page) {
+      matchingSessions = new Set(
+        events.filter(e => step.events.includes(e.event_type) && e.page === step.page).map(e => e.session_id)
+      );
+    } else {
+      matchingSessions = new Set(
+        events.filter(e => step.events.includes(e.event_type)).map(e => e.session_id)
+      );
+    }
+    return { ...step, count: matchingSessions.size };
+  });
+
+  const topVisit = funnelData[0].count || 1;
+
+  // Top pages
+  const pageMap = {};
+  for (const e of events.filter(ev => ev.event_type === "page_view")) {
+    const pg = e.page || "unknown";
+    pageMap[pg] = (pageMap[pg] || 0) + 1;
+  }
+  const topPages = Object.entries(pageMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+  // Top products viewed
+  const productMap = {};
+  for (const e of events.filter(ev => ev.event_type === "product_view")) {
+    const name = e.properties?.product_name || "Unknown";
+    productMap[name] = (productMap[name] || 0) + 1;
+  }
+  const topProducts = Object.entries(productMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+  // Top products added to cart
+  const cartMap = {};
+  for (const e of events.filter(ev => ev.event_type === "add_to_cart")) {
+    const name = `${e.properties?.product_name || "?"} ${e.properties?.product_dose || ""}`.trim();
+    cartMap[name] = (cartMap[name] || 0) + 1;
+  }
+  const topCart = Object.entries(cartMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+  // KPIs
+  const totalSessions = new Set(events.map(e => e.session_id)).size;
+  const totalEvents = events.length;
+  const avgEventsPerSession = totalSessions > 0 ? (totalEvents / totalSessions).toFixed(1) : "—";
+  const ordersPlaced = new Set(events.filter(e => e.event_type === "order_placed").map(e => e.session_id)).size;
+  const overallCvr = totalSessions > 0 ? ((ordersPlaced / totalSessions) * 100).toFixed(1) : "0.0";
+
+  const card = "rounded-xl border border-white/10 bg-black/15 px-4 py-3";
+  const pill = "rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.15em] border cursor-pointer transition-all";
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="rounded-[1.6rem] border border-white/15 bg-black/20 p-6">
+        <div className="text-[11px] uppercase tracking-[0.24em] text-white/60 mb-1">Funnel</div>
+        <div className="flex flex-wrap items-end justify-between gap-4 mb-5">
+          <h2 className="text-2xl font-semibold text-white">Visitor Behaviour</h2>
+          <div className="flex gap-2">
+            {["1d","7d","30d","90d"].map(r => (
+              <button key={r} onClick={() => setRange(r)}
+                className={[pill, range === r ? "border-white bg-white text-black" : "border-white/20 text-white/50 hover:text-white"].join(" ")}>
+                {r}
+              </button>
+            ))}
+            <button onClick={loadEvents}
+              className={[pill, "border-white/20 text-white/50 hover:text-white"].join(" ")}>
+              ↻
+            </button>
+          </div>
+        </div>
+
+        {/* KPI row */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+          {[
+            { label: "Sessions",      value: totalSessions.toLocaleString() },
+            { label: "Events",        value: totalEvents.toLocaleString() },
+            { label: "Avg depth",     value: avgEventsPerSession + " events" },
+            { label: "Conversion",    value: overallCvr + "%" },
+          ].map(({ label, value }) => (
+            <div key={label} className={card}>
+              <div className="text-[10px] uppercase tracking-[0.18em] text-white/40 mb-1">{label}</div>
+              <div className="text-lg font-bold text-white">{value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Funnel */}
+        {loading ? (
+          <div className="text-center text-white/30 py-12 text-sm">Loading…</div>
+        ) : totalSessions === 0 ? (
+          <div className="text-center text-white/30 py-12 text-sm">
+            No data yet. Events will appear here once visitors load the site.<br/>
+            <span className="text-[11px] text-white/20 mt-2 block">Make sure the SQL migration has been run in Supabase.</span>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {funnelData.map((step, i) => {
+              const pct = topVisit > 0 ? (step.count / topVisit) * 100 : 0;
+              const dropPct = i > 0 && funnelData[i-1].count > 0
+                ? (((funnelData[i-1].count - step.count) / funnelData[i-1].count) * 100).toFixed(0)
+                : null;
+              const barColor = i === 0 ? "#6bff8a" : i === 1 ? "#4ade80" : i === 2 ? "#22d3ee" : i === 3 ? "#a78bfa" : i === 4 ? "#f59e0b" : "#f87171";
+              return (
+                <div key={step.key}>
+                  <div className="flex items-center gap-3 mb-1">
+                    <span className="text-lg w-7 text-center">{step.icon}</span>
+                    <span className="text-sm text-white font-medium w-40 shrink-0">{step.label}</span>
+                    <div className="flex-1 h-7 rounded-lg bg-white/5 overflow-hidden relative">
+                      <div className="h-full rounded-lg transition-all duration-500"
+                        style={{ width: `${Math.max(1, pct)}%`, background: barColor, opacity: 0.85 }} />
+                    </div>
+                    <span className="text-sm font-bold text-white w-12 text-right">{step.count.toLocaleString()}</span>
+                    <span className="text-xs text-white/40 w-10 text-right">{pct.toFixed(0)}%</span>
+                  </div>
+                  {dropPct && Number(dropPct) > 0 && (
+                    <div className="ml-10 text-[11px] text-red-400/70 mb-1">▼ {dropPct}% dropped off</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 3-column breakdown */}
+      {!loading && totalSessions > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {[
+            { title: "Top Pages", data: topPages, color: "#6bff8a" },
+            { title: "Top Products Viewed", data: topProducts, color: "#22d3ee" },
+            { title: "Top Added to Cart", data: topCart, color: "#a78bfa" },
+          ].map(({ title, data, color }) => (
+            <div key={title} className="rounded-[1.4rem] border border-white/15 bg-black/20 p-4">
+              <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-3">{title}</div>
+              {data.length === 0 ? (
+                <div className="text-white/20 text-xs py-4 text-center">No data</div>
+              ) : (
+                <div className="space-y-2">
+                  {data.map(([name, count], i) => {
+                    const max = data[0][1];
+                    return (
+                      <div key={name}>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-white/70 truncate max-w-[140px]">{name}</span>
+                          <span className="text-white font-bold">{count}</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-white/5">
+                          <div className="h-1.5 rounded-full" style={{ width: `${(count/max)*100}%`, background: color, opacity: 0.7 }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Sessions list */}
+      {!loading && sessions.length > 0 && (
+        <div className="rounded-[1.4rem] border border-white/15 bg-black/20 p-4">
+          <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-3">Recent Sessions</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-white/10 text-[10px] uppercase tracking-[0.15em] text-white/30">
+                  <th className="pb-2 text-left">Session</th>
+                  <th className="pb-2 text-left">User</th>
+                  <th className="pb-2 text-center">Events</th>
+                  <th className="pb-2 text-left">Path</th>
+                  <th className="pb-2 text-right">Last seen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sessions.slice(0, 30).map(sess => {
+                  const pages = [...new Set(sess.events.filter(e => e.event_type === "page_view").map(e => e.page))];
+                  const ordered = sess.events.some(e => e.event_type === "order_placed");
+                  const added = sess.events.some(e => e.event_type === "add_to_cart");
+                  const isActive = activeSession === sess.session_id;
+                  return (
+                    <>
+                      <tr key={sess.session_id}
+                        className={`border-b border-white/5 cursor-pointer hover:bg-white/5 transition ${isActive ? "bg-white/5" : ""}`}
+                        onClick={() => setActiveSession(isActive ? null : sess.session_id)}>
+                        <td className="py-2 pr-3 font-mono text-white/40">{sess.session_id.slice(0, 8)}…</td>
+                        <td className="py-2 pr-3 text-white/40">{sess.user_id ? "✓ auth" : "anon"}</td>
+                        <td className="py-2 text-center">
+                          <span className={`inline-flex items-center gap-1 ${ordered ? "text-green-400" : added ? "text-yellow-400" : "text-white/50"}`}>
+                            {ordered ? "✅" : added ? "🛒" : ""} {sess.events.length}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-3 text-white/50">{pages.join(" → ")}</td>
+                        <td className="py-2 text-right text-white/30">
+                          {new Date(sess.last_seen).toLocaleString("en-GB", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </td>
+                      </tr>
+                      {isActive && (
+                        <tr key={sess.session_id + "-detail"} className="bg-black/20">
+                          <td colSpan={5} className="px-3 py-3">
+                            <div className="text-[10px] uppercase tracking-widest text-white/30 mb-2">Event timeline</div>
+                            <div className="space-y-1">
+                              {sess.events.slice().reverse().map((e, i) => (
+                                <div key={i} className="flex gap-3 text-xs">
+                                  <span className="text-white/25 font-mono w-40 shrink-0">
+                                    {new Date(e.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                                  </span>
+                                  <span className={`font-semibold w-32 shrink-0 ${
+                                    e.event_type === "order_placed" ? "text-green-400" :
+                                    e.event_type === "add_to_cart" ? "text-yellow-400" :
+                                    e.event_type === "product_view" ? "text-cyan-400" : "text-white/50"}`}>
+                                    {e.event_type}
+                                  </span>
+                                  <span className="text-white/40 truncate">
+                                    {e.page ? `page: ${e.page}` : ""}
+                                    {e.properties?.product_name ? ` · ${e.properties.product_name} ${e.properties.product_dose || ""}` : ""}
+                                    {e.properties?.total ? ` · $${e.properties.total}` : ""}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  );
+                })}
+              </tbody>
+            </table>
+            {sessions.length > 30 && (
+              <div className="text-center text-white/25 text-xs pt-3">Showing 30 of {sessions.length} sessions</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const orderLoadInitiatedRef = useRef(false);
 
@@ -8303,6 +8592,18 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     }
   }, [page, adminActiveTab, currentUser?.email]);
 
+  // ── Analytics: sync authenticated user ID ─────────────────────────────
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setAnalyticsUser(data?.user?.id || null);
+    });
+  }, [currentUser?.email]);
+
+  // ── Analytics: track every page change ────────────────────────────────
+  useEffect(() => {
+    trackPageView(page);
+  }, [page]);
+
   async function loadAdminAffiliates() {
     setAdminAffiliatesLoading(true);
     const DAY_MS = 24 * 60 * 60 * 1000;
@@ -8762,6 +9063,14 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       }, 1400);
     }
 
+    // Analytics
+    track("add_to_cart", {
+      page,
+      source,
+      product_name: product.name,
+      product_dose: product.dose,
+      product_price: product.price,
+    });
   }
 
   function updateQuantity(id, change) {
@@ -10282,6 +10591,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     setNowPaymentError("");
     setPaypalPaymentError("");
     setCheckoutStep("payment");
+    track("order_placed", { page: "cart", payment_method: paymentMethod, total: orderRecord?.total, items_count: cart?.length });
     // On mobile, scroll down so the Stripe loading form is visible
     if (window.innerWidth < 768) {
       setTimeout(() => window.scrollTo({ top: 640, behavior: "smooth" }), 80);
@@ -10499,6 +10809,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     setCoaLightbox(false);
     setPage("product");
     window.scrollTo({ top: 0, behavior: "auto" });
+    track("product_view", { page: "product", product_name: product.name, product_dose: product.dose, product_price: product.price });
     const affCode = currentAffiliateProfile?.code;
     const newPath = "/" + makeProductSlug(product) + (affCode ? "?c=" + affCode.toLowerCase() : "");
     window.history.replaceState({}, "", newPath);
@@ -14822,6 +15133,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   { key: "tools", label: "Tools" },
                   { key: "affiliates", label: "Affiliates" },
                   { key: "analytics", label: "Analytics" },
+                  { key: "funnel", label: "Funnel" },
                 ].map(({ key, label, unread }) => (
                   <button key={key} type="button" onClick={() => setAdminActiveTab(key)}
                     className={[
@@ -17202,6 +17514,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   )}
                 </div>
               )}
+
+              {adminActiveTab === "funnel" && isAdminUser() && <FunnelTab supabase={supabase} />}
 
               {adminActiveTab === "analytics" && isAdminUser() && (() => {
                 const paidOrders = allOrders.filter(o => {
