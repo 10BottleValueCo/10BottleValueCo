@@ -5,6 +5,7 @@
  * Zero user-visible changes.
  */
 import { useEffect } from "react";
+import { productSlug, publicProductName } from "./productNames.js";
 
 const SITE_NAME  = "10BottleValue.co";
 const SITE_URL   = "https://10bottlevalue.co";
@@ -25,7 +26,7 @@ function productImage(name) {
 
 // Slug formula — must mirror makeProductSlug() in App.jsx
 function makeSlug(p) {
-  return `${p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${p.dose.toLowerCase().replace(/\s+/g, "")}`;
+  return productSlug(p);
 }
 
 // Strictly pharmacological/biochemical class labels.
@@ -33,7 +34,7 @@ function makeSlug(p) {
 // Falls back to "research peptide" for anything not firmly classified.
 function productClass(name) {
   const n = name.toLowerCase();
-  if (/semaglutide|tirzepatide|retatrutide|cagrilintide|mazdutide|survodutide|eloralintide/.test(n))
+  if (/glp-[123]-[str]|semaglutide|tirzepatide|retatrutide|cagrilintide|mazdutide|survodutide|eloralintide/.test(n))
     return "GLP receptor research peptide";
   if (/ipamorelin|sermorelin|tesamorelin|cjc-1295|ghrp/.test(n))
     return "growth hormone secretagogue research peptide";
@@ -98,7 +99,7 @@ export function useSEO({ page, product }) {
       // ── Product page ────────────────────────────────────────────────────────
       const slug      = makeSlug(product);
       const canonical = `${SITE_URL}/${slug}`;
-      const name      = product.name;
+      const name      = publicProductName(product.name);
       const dose      = product.dose;
       const price     = product.price;
       const total     = product.total;
@@ -168,7 +169,7 @@ export function useSEO({ page, product }) {
       // ── Home / other pages ──────────────────────────────────────────────────
       const canonical = SITE_URL + "/";
       const title = "10BottleValueCo — Research Peptides At Wholesale Prices";
-      const desc  = "Buy research peptides in 10-vial kits. Up to 4× cheaper than most brands. BPC-157, TB-500, Semaglutide, Tirzepatide, Retatrutide and more. Ships worldwide. Research use only.";
+      const desc  = "Buy research peptides in 10-vial kits. Up to 4× cheaper than most brands. BPC-157, TB-500, GLP-1-S, GLP-2-T, GLP-3-R and more. Ships worldwide. Research use only.";
 
       document.title = title;
       setCanonical(canonical);

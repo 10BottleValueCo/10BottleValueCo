@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import { publicProductName } from "./_public-product-name.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -106,7 +107,7 @@ async function sendConfirmationEmail({ email, orderId, meta, items, paymentId, s
         .map(
           (item) =>
             `<tr>
-              <td style="padding:16px 0;border-bottom:1px solid #d7d7d7;color:#222;font-size:16px;">${(item.quantity || 1) * 10} vials × ${item.name || "Product"} ${item.dose || ""}</td>
+              <td style="padding:16px 0;border-bottom:1px solid #d7d7d7;color:#222;font-size:16px;">${(item.quantity || 1) * 10} vials × ${publicProductName(item.name) || "Product"} ${item.dose || ""}</td>
               <td align="right" style="padding:16px 0;border-bottom:1px solid #d7d7d7;color:#222;font-size:16px;font-weight:700;">$${money(Number(item.price || 0) * Number(item.quantity || 1))}</td>
             </tr>`
         )

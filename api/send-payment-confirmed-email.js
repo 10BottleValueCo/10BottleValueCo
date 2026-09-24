@@ -1,3 +1,5 @@
+import { publicProductName } from "./_public-product-name.js";
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -100,7 +102,7 @@ export default async function handler(req, res) {
               (item) => `
           <tr>
             <td style="padding:16px 0;border-bottom:1px solid #d7d7d7;color:#222;font-size:16px;">
-              ${(item.quantity || 1) * 10} vials × ${item.name || "Product"} ${item.dose || ""}
+              ${(item.quantity || 1) * 10} vials × ${publicProductName(item.name) || "Product"} ${item.dose || ""}
             </td>
             <td align="right" style="padding:16px 0;border-bottom:1px solid #d7d7d7;color:#222;font-size:16px;font-weight:700;">
               $${money(Number(item.price || 0) * Number(item.quantity || 1))}

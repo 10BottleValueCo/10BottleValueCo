@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import { checkoutDescription } from "./_public-product-name.js";
 import {
   validateAndPriceItems,
   getShippingPrice,
@@ -101,6 +102,7 @@ export default async function handler(req, res) {
       amount: Math.round(amount * 100),
       currency: "usd",
       receipt_email: email || undefined,
+      description: checkoutDescription(orderId, pricedItems),
       metadata: intentMetadata,
       automatic_payment_methods: { enabled: true },
     });

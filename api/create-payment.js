@@ -1,5 +1,6 @@
 import { validateAndPriceItems, getShippingPrice, getAutomaticDiscountRate } from "./_catalog.js";
 import { verifyPromoCode } from "./_promo.js";
+import { checkoutDescription } from "./_public-product-name.js";
 
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
@@ -138,7 +139,7 @@ export default async function handler(req, res) {
     // NOWPayments has a ~500 char limit on order_description.
     // All order details are already saved in Supabase; the webhook
     // only needs the order_id to look them up.
-    const orderDescription = String(order_id);
+    const orderDescription = checkoutDescription(order_id, pricedItems);
 
     // Mark order as checkout started in Supabase.
     // NEVER overwrite an already-paid order: if the customer re-opens/retries the

@@ -1,0 +1,21 @@
+// Presentation-only names. Never use these for catalog lookup or pricing.
+const names = {
+  semaglutide: "GLP-1-S",
+  "tirzepatide / glp-2": "GLP-2-T",
+  tirzepatide: "GLP-2-T",
+  "retatrutide / glp-3": "GLP-3-R",
+  retatrutide: "GLP-3-R",
+  "cagrilintide + semaglutide": "Cagrilintide + GLP-1-S",
+};
+
+export function publicProductName(name) {
+  const original = String(name || "");
+  return names[original.trim().toLowerCase()] || original;
+}
+
+export function checkoutDescription(orderId, items) {
+  const summary = (Array.isArray(items) ? items : [])
+    .map((item) => String(item.quantity) + " × " + publicProductName(item.name) + " " + (item.dose || ""))
+    .join(", ");
+  return ("Order #" + orderId + ": " + summary).slice(0, 500);
+}
