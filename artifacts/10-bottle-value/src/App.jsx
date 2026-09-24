@@ -6,6 +6,7 @@ import confetti from "canvas-confetti";
 import { supabase, userFromSupabase } from "./supabase.js";
 import { track, trackPageView, setAnalyticsUser } from "./analytics.js";
 import { useSEO } from "./useSEO.js";
+import { catalogProductName, productSlug as productSlugFor, publicProductName } from "./productNames.js";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import {
@@ -872,7 +873,7 @@ function TrackOrderPage({ t, supabase }) {
                 <ul className="space-y-2">
                   {result.items.map((item, i) => (
                     <li key={i} className="flex items-center justify-between text-[14px] text-white">
-                      <span>{item.name} {String(item.dose || "").replace(/ each$/i, "")} × {item.quantity}</span>
+                      <span>{publicProductName(item.name)} {String(item.dose || "").replace(/ each$/i, "")} × {item.quantity}</span>
                       {item.price && <span className="text-white/70">${(item.price * item.quantity).toFixed(2)}</span>}
                     </li>
                   ))}
@@ -3207,7 +3208,7 @@ export default function App() {
     const productSlug = productSlugFromPath || productSlugFromQuery;
     if (productSlug) {
       const hit = PRODUCTS_BASE.find(p =>
-        `${p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${p.dose.toLowerCase().replace(/\s+/g, "")}` === productSlug
+        productSlug === productSlugFor(p) || productSlug === productSlugFor(p, true)
       );
       if (hit) return "product";
     }
@@ -3260,7 +3261,7 @@ export default function App() {
     const productSlug = productSlugFromPath2 || productSlugFromQuery2;
     if (!productSlug) return null;
     return PRODUCTS_BASE.find(p =>
-      `${p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${p.dose.toLowerCase().replace(/\s+/g, "")}` === productSlug
+      productSlug === productSlugFor(p) || productSlug === productSlugFor(p, true)
     ) ?? null;
   });
   // ── SEO: dynamic meta/title/JSON-LD per page (invisible to users) ────────
@@ -3915,14 +3916,12 @@ export default function App() {
 
     // Normalise name: old short names → current full names
     const NAME_MAP = {
-      "retatrutide":          "Retatrutide / GLP-3",
-      "tirzepatide":          "Tirzepatide / GLP-2",
       "ghk-cu":               "GHK-CU",
       "ghk-cop":              "GHK-CU",
       "ghk cu":               "GHK-CU",
     };
     const nameKey = String(name || "").trim().toLowerCase();
-    if (NAME_MAP[nameKey]) name = NAME_MAP[nameKey];
+    name = NAME_MAP[nameKey] || catalogProductName(name);
 
     // Normalise dose: "20mg" → "20 mg", "10mcg" → "10 mcg", etc.
     if (dose) {
@@ -4908,7 +4907,7 @@ export default function App() {
     items.forEach((item, i) => {
       if (i % 2 === 0) { doc.setFillColor(248, 248, 248); doc.rect(margin, y, W - margin * 2, 6.5, "F"); }
       const qty = item.quantity ?? item.qty ?? 1;
-      doc.text(`${item.name} ${item.dose || ""}`.trim(), margin + 3, y + 4.5);
+      doc.text(`${publicProductName(item.name)} ${item.dose || ""}`.trim(), margin + 3, y + 4.5);
       doc.text(String(qty), W - margin - 42, y + 4.5, { align: "right" });
       doc.text(`$${Number(item.price || 0).toFixed(2)}`, W - margin - 22, y + 4.5, { align: "right" });
       doc.text(`$${(Number(item.price || 0) * qty).toFixed(2)}`, W - margin - 2, y + 4.5, { align: "right" });
@@ -5644,7 +5643,7 @@ export default function App() {
           affiliateOwnerEmail: order.affiliateOwnerEmail || "",
           affiliateCommission: order.affiliateCommission || 0,
           shippingType: order.shippingType,
-          items: order.items || [],
+          items: (order.items || []).map((item) => ({ ...item, name: publicProductName(item.name) })),
           paymentProvider: order.paymentProvider || "Crypto",
           paymentId: order.paymentId || "",
           firstName: order.firstName || "",
@@ -7291,8 +7290,8 @@ export default function App() {
     : 0;
 
   const SITE_URL = "https://10bottlevalue.co";
-  const SUPABASE_URL = "https://danpkqqzcptamojrnrmk.supabase.co";
-  const SUPABASE_ANON_KEY = "sb_publishable_gOi1ydrIb2e86NM-uEBNRg_KawnIBN0";
+  const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+  const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
   async function supabaseFetch(path, options = {}) {
     const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -8765,7 +8764,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     const expanded = searchAliases[raw] || raw;
     return products.filter((product) =>
       product.warehouse !== "us" &&
-      `${product.name} ${product.dose} ${product.total} ${product.note}`
+      `${publicProductName(product.name)} ${product.name} ${product.dose} ${product.total} ${product.note}`
         .toLowerCase()
         .replace(/\s+/g, "")
         .includes(expanded)
@@ -8785,7 +8784,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     const base = [...usWarehouseProducts];
     const filtered = term
       ? base.filter(p =>
-          `${p.name} ${p.dose}`.toLowerCase().includes(term) ||
+          `${publicProductName(p.name)} ${p.name} ${p.dose}`.toLowerCase().includes(term) ||
           p.name.toLowerCase().includes(term)
         )
       : base;
@@ -8800,7 +8799,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     const term = usWhSearchTerm.trim().toLowerCase();
     if (!term) return usWarehouseProducts;
     return usWarehouseProducts.filter(p =>
-      `${p.name} ${p.dose}`.toLowerCase().includes(term) ||
+      `${publicProductName(p.name)} ${p.name} ${p.dose}`.toLowerCase().includes(term) ||
       p.name.toLowerCase().includes(term)
     );
   }, [usWarehouseProducts, usWhSearchTerm]);
@@ -10797,7 +10796,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   }
 
   function makeProductSlug(p) {
-    return `${p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${p.dose.toLowerCase().replace(/\s+/g, "")}`;
+    return productSlugFor(p);
   }
 
   function openProduct(product) {
@@ -11564,7 +11563,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
   // 1. Умная функция, которая раздает картинки и текст
   function getProductVisual(product) {
-    const name = (product?.name || "").replace(/\s*\/\s*GLP-\d+/i, "").trim();
+    const name = publicProductName(product?.name || "").replace(/\s*\/\s*GLP-\d+/i, "").trim();
     const lower = name.toLowerCase();
     // Убираем "EACH" из дозировки
     let dose = (product?.dose || "").toUpperCase().replace(" EACH", "").trim();
@@ -11704,7 +11703,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         {/* КАРТИНКА БУТЫЛКИ */}
         <img
           src={imgUrl}
-          alt={product.name}
+          alt={publicProductName(product.name)}
           className="absolute h-full w-auto object-contain select-none z-0"
           draggable={false}
           loading="eager"
@@ -12275,7 +12274,24 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       >
                         {row.icon}
                       </span>
-                      <span className="transition-transform duration-300 group-hover:translate-x-1.5" style={{textShadow: "1px 1px 0 rgba(0,0,0,0.1), 2px 2px 0 rgba(0,0,0,0.1), 3px 3px 0 rgba(0,0,0,0.1), 4px 4px 0 rgba(0,0,0,0.1), 6px 6px 10px rgba(0,0,0,0.1)"}}>{t(row.key)}</span>
+                      <span className="transition-transform duration-300 group-hover:translate-x-1.5" style={{textShadow: "1px 1px 0 rgba(0,0,0,0.1), 2px 2px 0 rgba(0,0,0,0.1), 3px 3px 0 rgba(0,0,0,0.1), 4px 4px 0 rgba(0,0,0,0.1), 6px 6px 10px rgba(0,0,0,0.1)"}}>
+                        {row.key === "heroBulletPayment" ? (
+                          <span className="inline-flex flex-wrap items-center gap-x-[0.34em] gap-y-1">
+                            <span>CARDS</span>
+                            <span>&amp;</span>
+                            <span aria-label="Cash App" title="Cash App" className="inline-flex h-[1.35em] w-[1.35em] shrink-0 items-center justify-center overflow-hidden rounded-[0.28em] bg-[#00d64f] align-middle shadow-[0_3px_7px_rgba(0,0,0,0.22)]">
+                              <svg aria-hidden="true" viewBox="0 0 24 24" className="h-[1.08em] w-[1.08em]">
+                                <path d="M15.9 5.1c-1-.6-2.2-.9-3.6-.9-3 0-5.1 1.5-5.1 3.8 0 2.1 1.6 3.1 4.3 3.9 1.8.5 2.4.9 2.4 1.7 0 .9-.8 1.5-2.1 1.5-1.5 0-2.9-.5-4.1-1.4l-1.8 2.5c1.2.9 2.6 1.5 4.1 1.7v2h3.1v-2c2.8-.4 4.5-2.1 4.5-4.5 0-2.2-1.5-3.3-4.4-4.1-1.7-.5-2.3-.8-2.3-1.6 0-.7.6-1.2 1.7-1.2 1.2 0 2.4.4 3.5 1.1l1.5-2.6c-.7-.5-1.5-.8-2.4-1.1V2h-3.1v1.9c-2.8.2-4.7 1.9-4.7 4.2" fill="white" />
+                              </svg>
+                            </span>
+                            <span>&amp;</span>
+                            <span aria-label="PayPal" title="PayPal" className="inline-flex h-[1.35em] shrink-0 items-center justify-center rounded-[0.28em] bg-white px-[0.34em] align-middle shadow-[0_3px_7px_rgba(0,0,0,0.18)]">
+                              <img src={`${import.meta.env.BASE_URL}paypal-logo-horizontal.svg`} alt="" aria-hidden="true" className="h-[0.82em] w-auto max-w-[3.3em] object-contain" />
+                            </span>
+                            <span>&amp; CRYPTO.</span>
+                          </span>
+                        ) : t(row.key)}
+                      </span>
                     </p>
                   ))}
                 </div>
@@ -12607,14 +12623,14 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       <button
                         key={`${product.name}-${product.noteLabel ?? ""}-${product.dose}`}
                         onClick={() => {
-                          setInputValue(`${product.name} ${product.dose}`);
-                          setSearchTerm(`${product.name} ${product.dose}`);
+                          setInputValue(`${publicProductName(product.name)} ${product.dose}`);
+                          setSearchTerm(`${publicProductName(product.name)} ${product.dose}`);
                         }}
                         className="flex items-center justify-between w-full rounded-xl px-4 py-2 text-left text-base font-semibold text-white hover:bg-white/5 gap-2"
                       >
                         <span className="flex flex-col leading-tight min-w-0">
                           <span className="whitespace-nowrap overflow-hidden text-ellipsis">
-                            {product.name.replace(/ \/ GLP-[23]/g, "")}
+                            {publicProductName(product.name)}
                             {product.noteLabel ? (
                               <span className="ml-1.5 text-[10px] font-normal opacity-50 tracking-[0.12em]">{product.noteLabel}</span>
                             ) : null}
@@ -12771,8 +12787,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           </div>
 
                           <div className="mt-2 text-center md:mt-3 min-h-[58px] md:min-h-[84px]">
-                            <div className={`font-semibold tracking-[-0.03em] leading-tight whitespace-nowrap ${product.name.length > 20 ? "text-xs md:text-base" : product.name.length > 14 ? "text-sm md:text-lg" : "text-base md:text-xl"}`}>
-                              {product.name}
+                            <div className={`font-semibold tracking-[-0.03em] leading-tight whitespace-nowrap ${publicProductName(product.name).length > 20 ? "text-xs md:text-base" : publicProductName(product.name).length > 14 ? "text-sm md:text-lg" : "text-base md:text-xl"}`}>
+                              {publicProductName(product.name)}
                               {product.noteLabel ? (
                                 <span className="text-[10px] opacity-60 ml-2 align-middle tracking-[0.2em] md:ml-4 md:text-xs">
                                   {product.noteLabel}
@@ -13024,7 +13040,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   {t("product")}
                 </div>
                 <h1 className="mt-2 md:mt-3 text-3xl font-semibold tracking-[-0.04em] md:text-5xl">
-                  {selectedProduct.name}
+                  {publicProductName(selectedProduct.name)}
                   {selectedProduct.noteLabel ? (
                     <span className="text-xs opacity-60 ml-4 align-middle tracking-[0.2em]">
                       {selectedProduct.noteLabel}
@@ -15234,7 +15250,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         ? [order.email, order.id, order.firstName, order.lastName, [order.firstName, order.lastName].filter(Boolean).join(" ")]
                         : [order.id, order.email, order.status, order.affiliateCode, order.affiliateOwnerEmail, order.paymentProvider, order.paymentId, order.firstName, order.lastName, [order.firstName, order.lastName].filter(Boolean).join(" "), order.address, order.city, order.state, order.postalCode, order.country, order.phone, order.trackingNumber, order.orderNotes];
                       const fieldMatch = searchFields.filter(Boolean).some((v) => String(v).toLowerCase().includes(q));
-                      const itemMatch = !isEmailQuery && Array.isArray(order.items) && order.items.some(item => item.name && String(item.name).toLowerCase().includes(q));
+                      const itemMatch = !isEmailQuery && Array.isArray(order.items) && order.items.some(item => item.name && `${publicProductName(item.name)} ${item.name}`.toLowerCase().includes(q));
                       if (!fieldMatch && !itemMatch) return false;
                     }
                     if (adminDateFrom || adminDateTo) {
@@ -15432,9 +15448,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                 }
                                 worldOptions.sort((a, b) => a.replace("|||", " ").localeCompare(b.replace("|||", " ")));
                                 usOptions.sort((a, b) => a.replace("|||", " ").localeCompare(b.replace("|||", " ")));
+                                const optionLabel = (key) => {
+                                  const [name, dose] = key.split("|||");
+                                  return `${publicProductName(name)} ${dose}`;
+                                };
                                 const allOptions = [
-                                  ...worldOptions.map(k => ({ key: k, label: k.split("|||").join(" "), isUS: false })),
-                                  ...usOptions.map(k => ({ key: k + "|||US", label: k.split("|||").join(" ") + " (US)", isUS: true })),
+                                  ...worldOptions.map(k => ({ key: k, label: optionLabel(k), isUS: false })),
+                                  ...usOptions.map(k => ({ key: k + "|||US", label: optionLabel(k) + " (US)", isUS: true })),
                                 ];
 
                                 const currentItems = Array.isArray(order.items) ? order.items.map((i) => ({ ...i, quantity: i.quantity ?? i.qty ?? 1 })) : [];
@@ -15486,7 +15506,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                               className="w-full rounded-lg border border-white/20 bg-[#555] px-2 py-1.5 text-xs text-white outline-none focus:border-white/40"
                                             >
                                               {!optionExists && (
-                                                <option value="">{item.name} {String(item.dose || "").replace(/ each$/i, "")}{isUSItem ? " (US)" : ""}</option>
+                                                <option value="">{publicProductName(item.name)} {String(item.dose || "").replace(/ each$/i, "")}{isUSItem ? " (US)" : ""}</option>
                                               )}
                                               <optgroup label="Worldwide">
                                                 {worldOptions.map((opt) => {
@@ -16747,7 +16767,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 const CHINA_SHIP = 60; // $60 per order from China
 
                 // Normalize product name (strip "/ GLP-N" variants)
-                const normName = (n) => (n||"").replace(/\s*\/\s*GLP-\d+/i,"").trim();
+                const normName = (n) => catalogProductName(n).replace(/\s*\/\s*GLP-\d+/i,"").trim();
                 // Normalize dose: "5 mg" → "5mg", "10 iu" → "10iu", etc.
                 const normDose = (d) => String(d||"").trim().replace(/(\d)\s+([a-zA-Z])/g,"$1$2");
 
@@ -16779,7 +16799,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     if (lineCost !== null && !hasUnknown) {}
                     if (!hasOverride && unitCost === null) hasUnknown = true;
                     if (lineCost !== null) cogs += lineCost;
-                    return { name: it.name, dose: normDose(it.dose), qty, isUS, unitCost, lineCost, hasOverride, salePrice: Number(it.price||0) };
+                    return { name: publicProductName(it.name), dose: normDose(it.dose), qty, isUS, unitCost, lineCost, hasOverride, salePrice: Number(it.price||0) };
                   });
                   const isExpress = String(order.shippingType||"").toLowerCase().includes("express");
                   const supplierShippingOverride = order.supplierShippingOverride ?? order.metadata?.supplierShippingOverride;
@@ -16984,7 +17004,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               const calc = o._calc;
                               const isOpen = chartsExpandedOrder === (o.id||i);
                               const items = Array.isArray(o.items)?o.items:[];
-                              const itemsSummary = items.map(it=>`${normName(it.name)||""}${it.dose?" "+it.dose:""} ×${it.quantity||it.qty||1}`).join(", ")||"—";
+                              const itemsSummary = items.map(it=>`${publicProductName(it.name)||""}${it.dose?" "+it.dose:""} ×${it.quantity||it.qty||1}`).join(", ")||"—";
                               const rowKey = o.id||i;
                               return [
                                 <tr key={rowKey}
@@ -17530,7 +17550,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 // Normalize product name variants to canonical form for grouping
                 const normalizePeptideName = (name) => {
                   // "Retatrutide / GLP-3" → "Retatrutide", "Tirzepatide / GLP-2" → "Tirzepatide"
-                  return (name || "").replace(/\s*\/\s*GLP-\d+/i, "").trim();
+                  return publicProductName(name).replace(/\s*\/\s*GLP-\d+/i, "").trim();
                 };
 
                 // Aggregate by peptide name only (all doses combined)
@@ -17580,7 +17600,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     `Orders: ${paidOrders.length} | Total revenue: $${totalRevenue.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`,
                     "",
                     ...top.map((r, i) =>
-                      `${i+1}. ${r.name} — ${r.units} units · $${r.revenue.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} (${totalRevenue > 0 ? (r.revenue/totalRevenue*100).toFixed(1) : 0}%)`
+                      `${i+1}. ${publicProductName(r.name)} — ${r.units} units · $${r.revenue.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} (${totalRevenue > 0 ? (r.revenue/totalRevenue*100).toFixed(1) : 0}%)`
                     ),
                   ];
                   navigator.clipboard.writeText(lines.join("\n")).then(() => {
@@ -17653,7 +17673,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               return (
                                 <tr key={r.name} className={`border-b border-white/5 ${i % 2 === 0 ? "bg-black/10" : ""} hover:bg-white/5 transition-colors`}>
                                   <td className="px-4 py-3 text-white/30 font-mono">{i + 1}</td>
-                                  <td className="px-4 py-3 font-semibold text-white">{r.name}</td>
+                                  <td className="px-4 py-3 font-semibold text-white">{publicProductName(r.name)}</td>
                                   <td className="px-4 py-3 text-right text-white">{r.units}</td>
                                   <td className="px-4 py-3 text-right font-bold text-emerald-300">${r.revenue.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                                   <td className="px-4 py-3 text-right text-white/70">{revPct.toFixed(1)}%</td>
@@ -18625,7 +18645,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                 <div className="px-5 pt-4 pb-1 flex flex-wrap gap-2">
                                   {order.items.map((item, index) => (
                                     <span key={order.id + "-" + item.name + "-" + item.dose + "-" + index} className="inline-flex items-center rounded-full border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[12px] text-white/90">
-                                      <span className="text-white/60 mr-1.5 text-[11px]">{item.quantity}×</span>{item.name} {String(item.dose || "").replace(/ each$/i, "")}
+                                      <span className="text-white/60 mr-1.5 text-[11px]">{item.quantity}×</span>{publicProductName(item.name)} {String(item.dose || "").replace(/ each$/i, "")}
                                     </span>
                                   ))}
                                 </div>
@@ -19102,12 +19122,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       return (
                         <button
                           key={`${product.name}-${product.noteLabel ?? ""}-${product.dose}`}
-                          onClick={() => { setUsWhInputValue(`${product.name} ${product.dose}`); setUsWhSearchTerm(`${product.name} ${product.dose}`); }}
+                          onClick={() => { setUsWhInputValue(`${publicProductName(product.name)} ${product.dose}`); setUsWhSearchTerm(`${publicProductName(product.name)} ${product.dose}`); }}
                           className="flex items-center justify-between w-full rounded-xl px-4 py-2 text-left text-base font-semibold text-white hover:bg-white/5 gap-2"
                         >
                           <span className="flex flex-col leading-tight min-w-0">
                             <span className="whitespace-nowrap overflow-hidden text-ellipsis">
-                              {product.name.replace(/ \/ GLP-[23]/g, "")}
+                              {publicProductName(product.name)}
                               {product.noteLabel ? (
                                 <span className="ml-1.5 text-[10px] font-normal opacity-50 tracking-[0.12em]">{product.noteLabel}</span>
                               ) : null}
@@ -19272,8 +19292,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       </div>
                       <div className="mt-2 text-center md:mt-3 min-h-[58px] md:min-h-[84px] w-full overflow-hidden">
                         <div className="flex items-center justify-center gap-1 flex-wrap">
-                          <span className={`font-semibold tracking-[-0.03em] leading-tight whitespace-nowrap ${product.name.length > 20 ? "text-xs md:text-base" : product.name.length > 14 ? "text-sm md:text-lg" : "text-base md:text-xl"}`}>
-                            {product.name}
+                          <span className={`font-semibold tracking-[-0.03em] leading-tight whitespace-nowrap ${publicProductName(product.name).length > 20 ? "text-xs md:text-base" : publicProductName(product.name).length > 14 ? "text-sm md:text-lg" : "text-base md:text-xl"}`}>
+                            {publicProductName(product.name)}
                             {product.noteLabel ? <span className="text-[10px] opacity-60 ml-2 align-middle tracking-[0.2em] md:ml-4 md:text-xs">{product.noteLabel}</span> : null}
                           </span>
                         </div>
@@ -19425,7 +19445,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           <div key={i} className={`flex items-center justify-between px-5 py-3 ${i < paymentReturnOrder.items.length - 1 ? "border-b border-white/8" : ""}`}>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-baseline gap-2 flex-wrap">
-                                <span className="text-sm font-semibold text-white leading-tight">{item.name}{item.dose ? ` ${item.dose}` : ""}</span>
+                                <span className="text-sm font-semibold text-white leading-tight">{publicProductName(item.name)}{item.dose ? ` ${item.dose}` : ""}</span>
                                 {item.noteLabel && (
                                   <span className="text-[10px] font-normal text-white/50 tracking-[0.12em]">{item.noteLabel}</span>
                                 )}
@@ -19732,7 +19752,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               <div className="min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <div className={`text-[15px] font-semibold leading-tight md:text-xl ${isOOS ? "text-red-300" : "text-white"}`}>
-                                    {item.name}
+                                    {publicProductName(item.name)}
                                   </div>
                                   {item.fromWarehouse === "us" && (
                                     <span className="inline-flex items-center rounded-md border border-blue-400 bg-blue-500/25 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.18em] text-blue-200 shadow-[0_0_10px_rgba(96,165,250,0.4)]">US</span>
@@ -21804,7 +21824,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                 <div className="min-w-0">
                                   <>
                                     <div className={`font-semibold ${isOOS ? "text-red-600" : "text-black"}`}>
-                                      {item.name}
+                                      {publicProductName(item.name)}
                                       {isOOS && <span className="ml-2 text-[10px] font-bold uppercase tracking-[0.1em] text-red-500">Out of stock</span>}
                                     </div>
                                     <div className="text-black/50">{`10 VIALS x ${item.dose.toUpperCase().replace(" EACH", "")} EACH`}</div>
