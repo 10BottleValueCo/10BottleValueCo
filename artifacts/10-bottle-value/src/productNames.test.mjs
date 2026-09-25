@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { catalogProductName, productSlug, publicProductName } from "./productNames.js";
+import { catalogProductName, matchesProductSearch, productSlug, publicProductName } from "./productNames.js";
 
 const renamed = [
   ["Semaglutide", "GLP-1-S", "5 mg", "semaglutide-5mg", "glp-1-s-5mg"],
@@ -23,4 +23,14 @@ test("legacy short names and unrelated products remain compatible", () => {
   assert.equal(catalogProductName("Retatrutide"), "Retatrutide / GLP-3");
   assert.equal(catalogProductName("Tirzepatide"), "Tirzepatide / GLP-2");
   assert.equal(publicProductName("BPC-157"), "BPC-157");
+});
+
+test("search matches the displayed GLP name immediately followed by the dose", () => {
+  const reta = { name: "Retatrutide / GLP-3", dose: "50 mg", total: "500 mg total" };
+  assert.equal(matchesProductSearch(reta, "GLP-3-R 50 mg"), true);
+  assert.equal(matchesProductSearch(reta, "GLP-3-R 5 mg"), false);
+  assert.equal(matchesProductSearch(reta, "Retatrutide / GLP-3 50 mg"), true);
+  assert.equal(matchesProductSearch({ name: "Semaglutide", dose: "5 mg" }, "GLP-1-S 5 mg"), true);
+  assert.equal(matchesProductSearch({ name: "Tirzepatide / GLP-2", dose: "20 mg" }, "GLP-2-T 20 mg"), true);
+  assert.equal(matchesProductSearch({ name: "Melanotan2", dose: "10 mg" }, "mt2"), true);
 });

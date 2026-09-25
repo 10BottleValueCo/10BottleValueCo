@@ -6,7 +6,7 @@ import confetti from "canvas-confetti";
 import { supabase, userFromSupabase } from "./supabase.js";
 import { track, trackPageView, setAnalyticsUser } from "./analytics.js";
 import { useSEO } from "./useSEO.js";
-import { catalogProductName, productSlug as productSlugFor, publicProductName } from "./productNames.js";
+import { catalogProductName, matchesProductSearch, productSlug as productSlugFor, publicProductName } from "./productNames.js";
 import cashAppLogo from "./assets/payment-logos/cash-app.svg";
 import bitcoinLogo from "./assets/payment-logos/bitcoin.svg";
 import paypalMark from "./assets/payment-logos/paypal-mark.svg";
@@ -8909,16 +8909,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       document.removeEventListener("mousedown", handleLanguageClickOutside);
   }, []);
 
-  const searchAliases = { "mt": "melanotan", "mt1": "melanotan1", "mt2": "melanotan2" };
   const filteredProducts = useMemo(() => {
-    const raw = searchTerm.toLowerCase().replace(/\s+/g, "");
-    const expanded = searchAliases[raw] || raw;
     return products.filter((product) =>
       product.warehouse !== "us" &&
-      `${publicProductName(product.name)} ${product.name} ${product.dose} ${product.total} ${product.note}`
-        .toLowerCase()
-        .replace(/\s+/g, "")
-        .includes(expanded)
+      matchesProductSearch(product, searchTerm)
     );
   }, [searchTerm]);
 
@@ -8934,10 +8928,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     const term = usWhSearchTerm.trim().toLowerCase();
     const base = [...usWarehouseProducts];
     const filtered = term
-      ? base.filter(p =>
-          `${publicProductName(p.name)} ${p.name} ${p.dose}`.toLowerCase().includes(term) ||
-          p.name.toLowerCase().includes(term)
-        )
+      ? base.filter(p => matchesProductSearch(p, term))
       : base;
     return filtered.sort((a, b) => {
       const nc = a.name.localeCompare(b.name);
@@ -8949,10 +8940,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   const filteredUsWhProducts = useMemo(() => {
     const term = usWhSearchTerm.trim().toLowerCase();
     if (!term) return usWarehouseProducts;
-    return usWarehouseProducts.filter(p =>
-      `${publicProductName(p.name)} ${p.name} ${p.dose}`.toLowerCase().includes(term) ||
-      p.name.toLowerCase().includes(term)
-    );
+    return usWarehouseProducts.filter(p => matchesProductSearch(p, term));
   }, [usWarehouseProducts, usWhSearchTerm]);
 
   const shopSortedProducts = useMemo(() => {
@@ -12813,10 +12801,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     {sortedSearchProducts.map((product) => (
                       <button
                         key={`${product.name}-${product.noteLabel ?? ""}-${product.dose}`}
-                        onClick={() => {
-                          setInputValue(`${publicProductName(product.name)} ${product.dose}`);
-                          setSearchTerm(`${publicProductName(product.name)} ${product.dose}`);
-                        }}
+                        onClick={() => openProduct(product)}
                         className="flex items-center justify-between w-full rounded-xl px-4 py-2 text-left text-base font-semibold text-white hover:bg-white/5 gap-2"
                       >
                         <span className="flex flex-col leading-tight min-w-0">
@@ -19362,7 +19347,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       return (
                         <button
                           key={`${product.name}-${product.noteLabel ?? ""}-${product.dose}`}
-                  onClick={() => { setUsWhInputValue(`${publicProductName(product.name)} ${product.dose}`); setUsWhSearchTerm(`${publicProductName(product.name)} ${product.dose}`); }}
+                          onClick={() => openProduct(product)}
                           className="flex items-center justify-between w-full rounded-xl px-4 py-2 text-left text-base font-semibold text-white hover:bg-white/5 gap-2"
                         >
                           <span className="flex flex-col leading-tight min-w-0">
