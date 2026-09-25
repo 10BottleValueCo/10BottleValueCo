@@ -171,19 +171,9 @@ function normalizeDose(value) {
 //   - exact match: "Retatrutide / GLP-3" === "Retatrutide / GLP-3"
 //   - prefix match: "Retatrutide / GLP-3" matches client sending just "Retatrutide"
 //     (handles old localStorage cart entries that pre-date the "/ GLP-X" rename)
-// Public labels resolve to the existing SKU; dose, warehouse, stock and price
-// are still validated against the same server-owned catalog record.
-const PUBLIC_NAME_ALIASES = {
-  "glp-1-s": "semaglutide",
-  "glp-2-t": "tirzepatide / glp-2",
-  "glp-3-r": "retatrutide / glp-3",
-  "cagrilintide + glp-1-s": "cagrilintide + semaglutide",
-};
-
 function namesMatch(catalogName, clientName) {
   const cat = normalize(catalogName);
-  const submitted = normalize(clientName);
-  const cli = PUBLIC_NAME_ALIASES[submitted] || submitted;
+  const cli = normalize(clientName);
   if (cat === cli) return true;
   // If client sent the base name before " / ", accept it
   const base = cat.split(" / ")[0].trim();

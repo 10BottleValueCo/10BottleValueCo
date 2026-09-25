@@ -1,5 +1,5 @@
-// Presentation-only names. Never use these for catalog lookup or pricing.
-const names = {
+// Email display only. Catalog lookups, pricing, and stored order items keep their original names.
+const displayNames = {
   semaglutide: "GLP-1-S",
   "tirzepatide / glp-2": "GLP-2-T",
   tirzepatide: "GLP-2-T",
@@ -10,12 +10,5 @@ const names = {
 
 export function publicProductName(name) {
   const original = String(name || "");
-  return names[original.trim().toLowerCase()] || original;
-}
-
-export function checkoutDescription(orderId, items) {
-  const summary = (Array.isArray(items) ? items : [])
-    .map((item) => String(item.quantity) + " × " + publicProductName(item.name) + " " + (item.dose || ""))
-    .join(", ");
-  return ("Order #" + orderId + ": " + summary).slice(0, 500);
+  return displayNames[original.trim().toLowerCase()] || original;
 }

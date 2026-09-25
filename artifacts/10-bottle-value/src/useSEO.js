@@ -94,8 +94,131 @@ function removeJsonLd(id) {
 // ── Main hook ────────────────────────────────────────────────────────────────
 export function useSEO({ page, product }) {
   useEffect(() => {
+    const publicPages = {
+      refund: {
+        path: "/refund-policy",
+        title: `Refund & Return Policy | ${SITE_NAME}`,
+        description: "Refund and return conditions, request deadlines, eligibility, resolution options, and contact instructions for 10BottleValueCo orders.",
+      },
+      shipping: {
+        path: "/shipping-policy",
+        title: `Shipping Policy | ${SITE_NAME}`,
+        description: "Shipping destinations, delivery estimates, customs handling, tracking, delays, and support information for 10BottleValueCo orders.",
+      },
+      privacy: {
+        path: "/privacy-policy",
+        title: `Privacy Policy | ${SITE_NAME}`,
+        description: "How 10BottleValueCo collects, uses, stores, and protects personal information.",
+      },
+      terms: {
+        path: "/terms-and-conditions",
+        title: `Terms & Conditions | ${SITE_NAME}`,
+        description: "Terms and conditions governing use of the 10BottleValueCo website and purchase of research products.",
+      },
+      shop: {
+        path: "/shop",
+        title: `Worldwide Research Peptide Shop | ${SITE_NAME}`,
+        description: "Browse 10-vial research peptide kits available for worldwide shipping.",
+      },
+      "us-warehouse": {
+        path: "/us-warehouse",
+        title: `US Warehouse Research Peptides | ${SITE_NAME}`,
+        description: "Browse research peptide kits available from the 10BottleValueCo US warehouse.",
+      },
+      bonuses: {
+        path: "/shipping-prices",
+        title: `Shipping Prices | ${SITE_NAME}`,
+        description: "Shipping prices, delivery options, and free-shipping thresholds for 10BottleValueCo orders.",
+      },
+      affiliate: {
+        path: "/affiliate",
+        title: `Affiliate Program | ${SITE_NAME}`,
+        description: "Information about the 10BottleValueCo affiliate program.",
+      },
+      about: {
+        path: "/about",
+        title: `About Us | ${SITE_NAME}`,
+        description: "Learn about 10BottleValueCo and our research-product standards.",
+      },
+      faq: {
+        path: "/faq",
+        title: `Frequently Asked Questions | ${SITE_NAME}`,
+        description: "Answers to common questions about products, orders, payment, shipping, and support.",
+      },
+      contact: {
+        path: "/contact",
+        title: `Contact 10BottleValueCo SIA | ${SITE_NAME}`,
+        description: "Contact 10BottleValueCo SIA for order and product support. Business address: Avotu iela 8, Lielvārde, Ogres nov., LV-5071, Latvia.",
+      },
+      attestation: {
+        path: "/researcher-attestation",
+        title: `Qualified Purchaser & Researcher Attestation | ${SITE_NAME}`,
+        description: "Mandatory qualified researcher or licensed professional attestation and no-human-or-animal-use commitment required before purchase.",
+      },
+      track: {
+        path: "/track-order",
+        title: `Track Your Order | ${SITE_NAME}`,
+        description: "Track a 10BottleValueCo shipment using the carrier tracking tools.",
+      },
+      account: {
+        path: "/account",
+        title: `My Account | ${SITE_NAME}`,
+        description: "Sign in to your 10BottleValueCo customer account.",
+      },
+      cart: {
+        path: "/cart",
+        title: `Shopping Cart | ${SITE_NAME}`,
+        description: "Review the products in your 10BottleValueCo shopping cart.",
+      },
+    };
 
-    if (page === "product" && product) {
+    if (publicPages[page]) {
+      const publicPage = publicPages[page];
+      const canonical = `${SITE_URL}${publicPage.path}`;
+      document.title = publicPage.title;
+      setCanonical(canonical);
+      setMeta("name", "description", publicPage.description);
+      setMeta("name", "robots", "index, follow");
+      setMeta("property", "og:title", publicPage.title);
+      setMeta("property", "og:description", publicPage.description);
+      setMeta("property", "og:type", "website");
+      setMeta("property", "og:url", canonical);
+      setMeta("property", "og:image", SITE_IMAGE);
+      setMeta("property", "og:site_name", SITE_NAME);
+      setMeta("name", "twitter:card", "summary_large_image");
+      setMeta("name", "twitter:title", publicPage.title);
+      setMeta("name", "twitter:description", publicPage.description);
+      setMeta("name", "twitter:image", SITE_IMAGE);
+      removeJsonLd("product");
+      removeJsonLd("breadcrumb");
+      setJsonLd("webpage", {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "name": publicPage.title,
+        "description": publicPage.description,
+        "url": canonical,
+        "isPartOf": { "@id": SITE_URL + "/#website" }
+      });
+      if (page === "contact") {
+        setJsonLd("organization", {
+          "@context": "https://schema.org",
+          "@type": "Organization",
+          "name": "10BottleValueCo SIA",
+          "url": SITE_URL,
+          "email": "support@10bottlevalue.co",
+          "address": {
+            "@type": "PostalAddress",
+            "streetAddress": "Avotu iela 8",
+            "addressLocality": "Lielvārde",
+            "addressRegion": "Ogres nov.",
+            "postalCode": "LV-5071",
+            "addressCountry": "LV"
+          }
+        });
+      } else {
+        removeJsonLd("organization");
+      }
+    } else if (page === "product" && product) {
       // ── Product page ────────────────────────────────────────────────────────
       const slug      = makeSlug(product);
       const canonical = `${SITE_URL}/${slug}`;
@@ -164,6 +287,7 @@ export function useSEO({ page, product }) {
       });
 
       removeJsonLd("webpage");
+      removeJsonLd("organization");
 
     } else {
       // ── Home / other pages ──────────────────────────────────────────────────
@@ -189,6 +313,7 @@ export function useSEO({ page, product }) {
 
       removeJsonLd("product");
       removeJsonLd("breadcrumb");
+      removeJsonLd("organization");
 
       setJsonLd("webpage", {
         "@context": "https://schema.org",
