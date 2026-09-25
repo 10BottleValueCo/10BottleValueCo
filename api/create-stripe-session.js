@@ -1,5 +1,4 @@
 import Stripe from "stripe";
-import { checkoutDescription } from "./_public-product-name.js";
 import {
   validateAndPriceItems,
   getShippingPrice,
@@ -126,7 +125,7 @@ export default async function handler(req, res) {
     const lineItems = [{
       price_data: {
         currency: "usd",
-        product_data: { name: productName, description: checkoutDescription(orderId, pricedItems) },
+        product_data: { name: productName },
         unit_amount: Math.round(Number(amount) * 100),
       },
       quantity: 1,

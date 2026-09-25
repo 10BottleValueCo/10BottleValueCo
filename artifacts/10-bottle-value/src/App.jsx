@@ -7,6 +7,9 @@ import { supabase, userFromSupabase } from "./supabase.js";
 import { track, trackPageView, setAnalyticsUser } from "./analytics.js";
 import { useSEO } from "./useSEO.js";
 import { catalogProductName, productSlug as productSlugFor, publicProductName } from "./productNames.js";
+import cashAppLogo from "./assets/payment-logos/cash-app.svg";
+import bitcoinLogo from "./assets/payment-logos/bitcoin.svg";
+import paypalMark from "./assets/payment-logos/paypal-mark.svg";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import {
@@ -1031,23 +1034,12 @@ function ContactPage({ copySupportEmail, copiedEmail, t, language, onNewMessage 
           <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-white">
             {t("emailSupport")}
           </div>
-          <button
-            type="button"
-            onClick={copySupportEmail}
+          <a
+            href="mailto:support@10bottlevalue.co"
             className="mt-4 block w-full text-center text-[14px] font-semibold uppercase tracking-[0.12em] text-white transition hover:text-white sm:text-[18px] md:text-[24px]"
           >
-            {copiedEmail
-              ? language === "RU"
-                ? "EMAIL СКОПИРОВАН"
-                : language === "UA"
-                ? "EMAIL СКОПІЙОВАНО"
-                : language === "DE"
-                ? "E-MAIL KOPIERT"
-                : language === "ES"
-                ? "EMAIL COPIADO"
-                : "EMAIL COPIED"
-              : "SUPPORT@10BOTTLEVALUE.CO"}
-          </button>
+            SUPPORT@10BOTTLEVALUE.CO
+          </a>
           <div className="mx-auto mt-6 h-px w-20 bg-white/30" />
           <div className="mt-6 text-[12px] uppercase tracking-[0.22em] text-white">
             {t("responseTime")}
@@ -1231,6 +1223,8 @@ const PRODUCTS_BASE = [
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 50,
+      coaImages: ["coa-ipamorelin-5mg-p1.png"],
+      coaPdf: "coa-ipamorelin-5mg.pdf",
     },
     {
       name: "Tirzepatide / GLP-2",
@@ -1740,6 +1734,8 @@ const PRODUCTS_BASE = [
       dose: "1000 mg",
       total: "10000 mg total",
       note: "10 vial kit (10 vials included)",
+      coaImages: ["coa-nad-500mg-p1.png"],
+      coaPdf: "coa-nad-500mg.pdf",
     },
     {
       name: "NAD+",
@@ -1748,6 +1744,8 @@ const PRODUCTS_BASE = [
       total: "5000 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 55,
+      coaImages: ["coa-nad-500mg-p1.png"],
+      coaPdf: "coa-nad-500mg.pdf",
     },
     {
       name: "NAD+",
@@ -1757,6 +1755,8 @@ const PRODUCTS_BASE = [
       total: "5000 mg total",
       note: "10 vial kit (10 vials included)",
       warehouse: "us",
+      coaImages: ["coa-nad-500mg-p1.png"],
+      coaPdf: "coa-nad-500mg.pdf",
     },
     {
       name: "SS-31",
@@ -1817,6 +1817,7 @@ const PRODUCTS_BASE = [
       total: "400 mg total",
       note: "10 vial kit (10 vials included)",
       warehouse: "us",
+      outOfStock: true,
     },
     {
       name: "MOTS-C",
@@ -2043,6 +2044,8 @@ const PRODUCTS_BASE = [
       dose: "5 mg",
       total: "50 mg total",
       note: "10 vial kit (10 vials included)",
+      coaImages: ["coa-ipamorelin-5mg-p1.png"],
+      coaPdf: "coa-ipamorelin-5mg.pdf",
     },
     {
       name: "Ipamorelin",
@@ -2052,6 +2055,8 @@ const PRODUCTS_BASE = [
       total: "50 mg total",
       note: "10 vial kit (10 vials included)",
       warehouse: "us",
+      coaImages: ["coa-ipamorelin-5mg-p1.png"],
+      coaPdf: "coa-ipamorelin-5mg.pdf",
     },
     {
       name: "AOD",
@@ -2119,6 +2124,8 @@ const PRODUCTS_BASE = [
       total: "50000 iu total",
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
+      coaImages: ["coa-hcg-5000iu-p1.png"],
+      coaPdf: "coa-hcg-5000iu.pdf",
     },
     {
       name: "HCG",
@@ -2129,6 +2136,8 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
       warehouse: "us",
+      coaImages: ["coa-hcg-5000iu-p1.png"],
+      coaPdf: "coa-hcg-5000iu.pdf",
     },
     {
       name: "HCG",
@@ -2137,6 +2146,8 @@ const PRODUCTS_BASE = [
       total: "100000 iu total",
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
+      coaImages: ["coa-hcg-5000iu-p1.png"],
+      coaPdf: "coa-hcg-5000iu.pdf",
     },
     {
       name: "HCG",
@@ -2147,6 +2158,8 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
       warehouse: "us",
+      coaImages: ["coa-hcg-5000iu-p1.png"],
+      coaPdf: "coa-hcg-5000iu.pdf",
     },
     {
       name: "HMG",
@@ -2171,6 +2184,8 @@ const PRODUCTS_BASE = [
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 40,
+      coaImages: ["coa-epitalon-50mg-p1.png"],
+      coaPdf: "coa-epitalon-50mg.pdf",
     },
     {
       name: "Epitalon",
@@ -2181,6 +2196,8 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 40,
       warehouse: "us",
+      coaImages: ["coa-epitalon-50mg-p1.png"],
+      coaPdf: "coa-epitalon-50mg.pdf",
     },
     {
       name: "Epitalon",
@@ -2188,6 +2205,8 @@ const PRODUCTS_BASE = [
       dose: "50 mg",
       total: "500 mg total",
       note: "10 vial kit (10 vials included)",
+      coaImages: ["coa-epitalon-50mg-p1.png"],
+      coaPdf: "coa-epitalon-50mg.pdf",
     },
     {
       name: "Cartalax",
@@ -2272,6 +2291,8 @@ const PRODUCTS_BASE = [
       dose: "100 mg",
       total: "1000 mg total",
       note: "10 vial kit (10 vials included)",
+      coaImages: ["coa-nad-500mg-p1.png"],
+      coaPdf: "coa-nad-500mg.pdf",
     },
     {
       name: "5-Amino-1MQ",
@@ -2748,6 +2769,42 @@ function FunnelTab({ supabase }) {
 
 export default function App() {
   const orderLoadInitiatedRef = useRef(false);
+  const publicPathToPage = {
+    "terms-and-conditions": "terms",
+    "privacy-policy": "privacy",
+    "shipping-policy": "shipping",
+    "refund-policy": "refund",
+    "shop": "shop",
+    "us-warehouse": "us-warehouse",
+    "shipping-prices": "bonuses",
+    "affiliate": "affiliate",
+    "about": "about",
+    "faq": "faq",
+    "contact": "contact",
+    "researcher-attestation": "attestation",
+    "track-order": "track",
+    "account": "account",
+    "cart": "cart",
+    "cart/confirmation": "cart",
+  };
+  const publicPageToPath = {
+    home: "/",
+    terms: "/terms-and-conditions",
+    privacy: "/privacy-policy",
+    shipping: "/shipping-policy",
+    refund: "/refund-policy",
+    shop: "/shop",
+    "us-warehouse": "/us-warehouse",
+    bonuses: "/shipping-prices",
+    affiliate: "/affiliate",
+    about: "/about",
+    faq: "/faq",
+    contact: "/contact",
+    attestation: "/researcher-attestation",
+    track: "/track-order",
+    account: "/account",
+    cart: "/cart",
+  };
 
   function fallbackCopyText(text) {
     try {
@@ -3202,9 +3259,11 @@ export default function App() {
     const params = new URLSearchParams(window.location.search || "");
     const payment = (params.get("payment") || "").toLowerCase().trim();
     if (["success", "cancelled", "cancel", "failed"].includes(payment)) return "payment-return";
+    const pathSlug = window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase().trim();
+    if (publicPathToPage[pathSlug]) return publicPathToPage[pathSlug];
     // Support both old ?product=slug and new /slug format
     const productSlugFromQuery = (params.get("product") || "").toLowerCase().trim();
-    const productSlugFromPath = window.location.pathname.replace(/^\//, "").toLowerCase().trim();
+    const productSlugFromPath = pathSlug;
     const productSlug = productSlugFromPath || productSlugFromQuery;
     if (productSlug) {
       const hit = PRODUCTS_BASE.find(p =>
@@ -3214,15 +3273,22 @@ export default function App() {
     }
     return "home";
   });
-  // Reset URL to "/" when navigating away from product page
+  // Keep every public section on a stable, crawlable URL.
   useEffect(() => {
-    if (page !== "product") {
-      const path = window.location.pathname;
-      if (path !== "/" && path !== "") {
-        window.history.replaceState({}, "", "/");
-      }
+    const publicPath = publicPageToPath[page];
+    const path = window.location.pathname;
+    if (publicPath) {
+      if (path !== publicPath) window.history.replaceState({}, "", publicPath);
+    } else if (page !== "product" && path !== "/" && path !== "") {
+      window.history.replaceState({}, "", "/");
     }
   }, [page]);
+
+  const handlePublicPageLink = (event, nextPage) => {
+    event.preventDefault();
+    setAccountPromoCodeInput("");
+    setPage(nextPage);
+  };
   const [searchTerm, setSearchTerm] = useState("");
   const [shopTab, setShopTab] = useState("all");
   const [inputValue, setInputValue] = useState("");
@@ -3512,10 +3578,51 @@ export default function App() {
   const userFileInputRef = useRef(null);
   const adminFileInputRef = useRef(null);
   const termsSectionRef = useRef(null);
+  const attestationResearchRef = useRef(null);
+  const attestationQualifiedRef = useRef(null);
+  const attestationTermsRef = useRef(null);
+  const attestationConfirmRef = useRef(null);
   const stickyClickCountRef = useRef(0);
   const [researchAccepted, setResearchAccepted] = useState(false);
   const [qualifiedAccepted, setQualifiedAccepted] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [attestationModalOpen, setAttestationModalOpen] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.location.pathname.replace(/\/+$/, "").toLowerCase() === "/cart/confirmation";
+  });
+  const [pendingAttestationAction, setPendingAttestationAction] = useState("checkout");
+  useEffect(() => {
+    if (page !== "cart") return;
+    const targetPath = attestationModalOpen ? "/cart/confirmation" : "/cart";
+    if (window.location.pathname !== targetPath) {
+      window.history.replaceState({}, "", targetPath);
+    }
+  }, [attestationModalOpen, page]);
+  const syncAttestationConfirmButton = () => {
+    if (!attestationConfirmRef.current) return;
+    const enabled = Boolean(
+      attestationResearchRef.current?.checked &&
+      attestationQualifiedRef.current?.checked &&
+      attestationTermsRef.current?.checked
+    );
+    attestationConfirmRef.current.disabled = false;
+    attestationConfirmRef.current.className = `mt-6 w-full rounded-full px-6 py-4 text-[13px] font-bold uppercase tracking-[0.22em] ${
+      enabled
+        ? "bg-white text-black"
+        : "cursor-not-allowed bg-white/45 text-black/45"
+    }`;
+  };
+  const toggleAttestationImmediately = (event, inputRef) => {
+    if (event.target.closest("a")) return;
+    event.preventDefault();
+    if (!inputRef.current) return;
+    inputRef.current.checked = !inputRef.current.checked;
+    syncAttestationConfirmButton();
+  };
+  const preventAttestationDelayedToggle = (event) => {
+    if (event.target.closest("a")) return;
+    event.preventDefault();
+  };
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [language, setLanguage] = useState("EN");
   const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
@@ -3916,6 +4023,8 @@ export default function App() {
 
     // Normalise name: old short names → current full names
     const NAME_MAP = {
+      "retatrutide":          "Retatrutide / GLP-3",
+      "tirzepatide":          "Tirzepatide / GLP-2",
       "ghk-cu":               "GHK-CU",
       "ghk-cop":              "GHK-CU",
       "ghk cu":               "GHK-CU",
@@ -4131,6 +4240,31 @@ export default function App() {
     return [quoteBlock, ...renderMsgBody(body)];
   }
 
+  function renderLinkedMessageText(text) {
+    const nodes = [];
+    let lastIndex = 0;
+    for (const match of text.matchAll(/\b(?:https?:\/\/|www\.)[^\s<>"']+/gi)) {
+      const urlText = match[0].replace(/[.,!?;:)\]}]+$/, "");
+      if (!urlText) continue;
+      const href = /^www\./i.test(urlText) ? `https://${urlText}` : urlText;
+      try {
+        const parsed = new URL(href);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") continue;
+      } catch {
+        continue;
+      }
+      nodes.push(text.slice(lastIndex, match.index));
+      nodes.push(
+        <a key={match.index} href={href} target="_blank" rel="noopener noreferrer" className="break-all text-sky-300 underline underline-offset-2 hover:text-sky-200">
+          {urlText}
+        </a>
+      );
+      lastIndex = match.index + urlText.length;
+    }
+    nodes.push(text.slice(lastIndex));
+    return nodes;
+  }
+
   function renderMsgBody(text) {
     if (!text) return [];
     const parts = text.split(/(\[IMAGE:[^\]]+\]|\[FILE:[^\]]+\]|\[VIDEO:[^\]]+\])/g);
@@ -4157,7 +4291,7 @@ export default function App() {
           </a>
         );
       }
-      return part ? <span key={i} className="whitespace-pre-wrap">{part}</span> : null;
+      return part ? <span key={i} className="whitespace-pre-wrap break-words">{renderLinkedMessageText(part)}</span> : null;
     });
   }
 
@@ -5999,7 +6133,7 @@ export default function App() {
       responseTime: "Response time: 0 – 12 hours",
       responseTimeGuarantee: "We guarantee a reply within this time.",
       commonQuestions: "COMMON QUESTIONS",
-      shippingSavings: "SHIPPING & SAVINGS",
+      shippingSavings: "SHIPPING & DISCOUNTS",
       affiliateProgram: "Affiliate Program",
       whyExists: "WHY 10BOTTLEVALUECO EXISTS",
       email: "Email",
@@ -6576,7 +6710,7 @@ export default function App() {
     "GROWTH FACTOR INTERACTIONS": "INTERACCIONES DE FACTORES DE CRECIMIENTO",
     "CONNECTIVE TISSUE SUPPORT": "SOPORTE DEL TEJIDO CONECTIVO",
 
-    "SHIPPING & SAVINGS": "ENVÍO Y AHORROS",
+    "SHIPPING & DISCOUNTS": "ENVÍO Y DESCUENTOS",
     "ORDER VALUE": "VALOR DEL PEDIDO",
     "STANDARD SHIPPING": "ENVÍO ESTÁNDAR",
     "EXPRESS SHIPPING": "ENVÍO EXPRESS",
@@ -6751,11 +6885,11 @@ export default function App() {
       ES: "CONFIRMO QUE TENGO MÁS DE 21 AÑOS Y ENTIENDO QUE TODOS LOS PRODUCTOS SE VENDEN ESTRICTAMENTE PARA FINES DE INVESTIGACIÓN Y NO PARA USO HUMANO O ANIMAL.",
     },
     qualifiedResearchCheckbox: {
-      EN: "I CONFIRM I AM PURCHASING FOR LABORATORY, ANALYTICAL, OR SCIENTIFIC RESEARCH PURPOSES ONLY AND I AM QUALIFIED TO HANDLE SUCH MATERIALS.",
-      RU: "Я ПОДТВЕРЖДАЮ, ЧТО ПОКУПАЮ ТОЛЬКО ДЛЯ ЛАБОРАТОРНЫХ, АНАЛИТИЧЕСКИХ ИЛИ НАУЧНЫХ ИССЛЕДОВАТЕЛЬСКИХ ЦЕЛЕЙ И КВАЛИФИЦИРОВАН ДЛЯ ОБРАЩЕНИЯ С ТАКИМИ МАТЕРИАЛАМИ.",
-      UA: "Я ПІДТВЕРДЖУЮ, ЩО КУПУЮ ЛИШЕ ДЛЯ ЛАБОРАТОРНИХ, АНАЛІТИЧНИХ АБО НАУКОВИХ ДОСЛІДНИЦЬКИХ ЦІЛЕЙ І КВАЛІФІКОВАНИЙ ДЛЯ РОБОТИ З ТАКИМИ МАТЕРІАЛАМИ.",
-      DE: "ICH BESTÄTIGE, DASS ICH AUSSCHLIESSLICH FÜR LABORATORISCHE, ANALYTISCHE ODER WISSENSCHAFTLICHE FORSCHUNGSZWECKE KAUFE UND FÜR DEN UMGANG MIT SOLCHEN MATERIALIEN QUALIFIZIERT BIN.",
-      ES: "CONFIRMO QUE COMPRO EXCLUSIVAMENTE PARA FINES DE INVESTIGACIÓN DE LABORATORIO, ANALÍTICOS O CIENTÍFICOS Y QUE ESTOY CUALIFICADO PARA MANEJAR DICHOS MATERIALES.",
+      EN: "I CONFIRM THAT I AM A QUALIFIED RESEARCHER, LICENSED PROFESSIONAL, OR AUTHORIZED REPRESENTATIVE OF A QUALIFIED RESEARCH ORGANIZATION. I WILL NOT USE THESE PRODUCTS ON HUMANS OR ANIMALS.",
+      RU: "Я ПОДТВЕРЖДАЮ, ЧТО Я ЯВЛЯЮСЬ КВАЛИФИЦИРОВАННЫМ ИССЛЕДОВАТЕЛЕМ, ЛИЦЕНЗИРОВАННЫМ СПЕЦИАЛИСТОМ ИЛИ УПОЛНОМОЧЕННЫМ ПРЕДСТАВИТЕЛЕМ КВАЛИФИЦИРОВАННОЙ ИССЛЕДОВАТЕЛЬСКОЙ ОРГАНИЗАЦИИ. Я НЕ БУДУ ИСПОЛЬЗОВАТЬ ЭТИ ПРОДУКТЫ НА ЛЮДЯХ ИЛИ ЖИВОТНЫХ.",
+      UA: "Я ПІДТВЕРДЖУЮ, ЩО Я Є КВАЛІФІКОВАНИМ ДОСЛІДНИКОМ, ЛІЦЕНЗОВАНИМ ФАХІВЦЕМ АБО УПОВНОВАЖЕНИМ ПРЕДСТАВНИКОМ КВАЛІФІКОВАНОЇ ДОСЛІДНИЦЬКОЇ ОРГАНІЗАЦІЇ. Я НЕ БУДУ ВИКОРИСТОВУВАТИ ЦІ ПРОДУКТИ НА ЛЮДЯХ АБО ТВАРИНАХ.",
+      DE: "ICH BESTÄTIGE, DASS ICH EIN QUALIFIZIERTER FORSCHER, EIN LIZENZIERTER FACHMANN ODER EIN BEVOLLMÄCHTIGTER VERTRETER EINER QUALIFIZIERTEN FORSCHUNGSORGANISATION BIN. ICH WERDE DIESE PRODUKTE NICHT AN MENSCHEN ODER TIEREN ANWENDEN.",
+      ES: "CONFIRMO QUE SOY UN INVESTIGADOR CUALIFICADO, UN PROFESIONAL CON LICENCIA O UN REPRESENTANTE AUTORIZADO DE UNA ORGANIZACIÓN DE INVESTIGACIÓN CUALIFICADA. NO UTILIZARÉ ESTOS PRODUCTOS EN SERES HUMANOS NI EN ANIMALES.",
     },
     termsCheckboxStart: {
       EN: "I HAVE READ AND AGREE TO THE WEBSITE",
@@ -6792,7 +6926,7 @@ export default function App() {
     "Quality, reports, pricing, and discount-related details.":
       "Qualität, Berichte, Preise und Details zu Rabatten.",
     questions: "Fragen",
-    "SHIPPING & SAVINGS": "VERSAND & ERSPARNIS",
+    "SHIPPING & DISCOUNTS": "VERSAND & RABATTE",
     "ORDER VALUE": "BESTELLWERT",
     "STANDARD SHIPPING": "STANDARDVERSAND",
     "EXPRESS SHIPPING": "EXPRESSVERSAND",
@@ -7290,8 +7424,8 @@ export default function App() {
     : 0;
 
   const SITE_URL = "https://10bottlevalue.co";
-  const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
-  const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+  const SUPABASE_URL = "https://danpkqqzcptamojrnrmk.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_gOi1ydrIb2e86NM-uEBNRg_KawnIBN0";
 
   async function supabaseFetch(path, options = {}) {
     const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -7487,6 +7621,23 @@ export default function App() {
   }
 
   const faqs = [
+    {
+      q: tx(
+        "What will show on my card or PayPal statement?",
+        "ЧТО БУДЕТ ОТОБРАЖАТЬСЯ В ВЫПИСКЕ ПО КАРТЕ ИЛИ PAYPAL?",
+        "ЩО ВІДОБРАЖАТИМЕТЬСЯ У ВИПИСЦІ ПО КАРТІ АБО PAYPAL?",
+        "WAS ERSCHEINT AUF MEINER KARTEN- ODER PAYPAL-ABRECHNUNG?",
+        "¿QUÉ APARECERÁ EN MI ESTADO DE CUENTA DE TARJETA O PAYPAL?"
+      ),
+      id: "billing-descriptor",
+      a: tx(
+        "Charges from this website appear on your card or PayPal statement as \"10BottleValueCo\". This matches our business name so you can always recognize the charge and avoid unnecessary disputes.",
+        "Списания с этого сайта отображаются в выписке по карте или PayPal как «10BottleValueCo». Это совпадает с названием нашей компании, чтобы вы всегда могли узнать платёж и избежать ненужных споров.",
+        "Списання з цього сайту відображаються у виписці по карті або PayPal як «10BottleValueCo». Це збігається з назвою нашої компанії, щоб ви завжди могли впізнати платіж і уникнути зайвих суперечок.",
+        "Belastungen von dieser Website erscheinen auf Ihrer Karten- oder PayPal-Abrechnung als „10BottleValueCo“. Dies entspricht unserem Firmennamen, damit Sie die Belastung stets erkennen und unnötige Reklamationen vermeiden können.",
+        "Los cargos de este sitio web aparecen en su estado de cuenta de tarjeta o PayPal como «10BottleValueCo». Esto coincide con el nombre de nuestra empresa para que siempre pueda reconocer el cargo y evitar disputas innecesarias."
+      ),
+    },
     {
       q: tx(
         "Can I combine discounts or promo codes?",
@@ -10378,7 +10529,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     return errors;
   }
 
-  async function handleCheckout() {
+  async function handleCheckout(attestationOverride = null) {
+    const acceptedResearch = attestationOverride?.researchAccepted ?? researchAccepted;
+    const acceptedQualified = attestationOverride?.qualifiedAccepted ?? qualifiedAccepted;
+    const acceptedTerms = attestationOverride?.termsAccepted ?? termsAccepted;
     if (!currentUser?.email) {
       setPendingCheckoutAfterAuth(true);
       setAuthMode("create");
@@ -10461,9 +10615,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       return;
     }
 
-    if (!researchAccepted || !qualifiedAccepted || !termsAccepted) {
+    if (!acceptedResearch || !acceptedQualified || !acceptedTerms) {
       setCheckoutMessage(
-        !researchAccepted
+        !acceptedResearch
           ? tx(
               "Please confirm that you are over 21 and understand that all products are for research use only before continuing.",
               "Перед продолжением подтвердите, что вам больше 21 года и вы понимаете, что все продукты только для исследовательского использования.",
@@ -10471,7 +10625,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               "Bitte bestätigen Sie vor dem Fortfahren, dass Sie über 21 Jahre alt sind und verstehen, dass alle Produkte nur für Forschungszwecke bestimmt sind.",
               "Antes de continuar, confirma que tienes más de 21 años y entiendes que todos los productos son solo para uso de investigación."
             )
-          : !qualifiedAccepted
+          : !acceptedQualified
           ? tx(
               "Please confirm that you are purchasing for laboratory, analytical, or scientific research purposes only and are qualified to handle such materials.",
               "Подтвердите, что покупаете только для лабораторных, аналитических или научных исследовательских целей и квалифицированы для работы с такими материалами.",
@@ -10546,6 +10700,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       postalCode: syncedForm.postalCode || "",
       phone: syncedForm.phone || "",
       taxId: syncedForm.taxId || "",
+      purchaserAttestation: {
+        over21AndResearchUseOnly: acceptedResearch,
+        qualifiedResearcherOrLicensedProfessional: acceptedQualified,
+        noHumanOrAnimalUse: acceptedQualified,
+        policiesAccepted: acceptedTerms,
+        acceptedAt: new Date().toISOString(),
+      },
       orderNotes: [(checkoutForm.orderNotes || "").trim(), checkoutForm.carrierPreference ? `Carrier preference: ${checkoutForm.carrierPreference}` : ""].filter(Boolean).join("\n"),
       subtotal: Number(subtotal.toFixed(2)),
       shipping: Number(shipping.toFixed(2)),
@@ -10583,7 +10744,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       console.error("Failed to save order", error);
     }
 
-    window.scrollTo({ top: 0, behavior: "instant" });
     setPaymentTimer(59 * 60 + 45);
     setNowPaymentData(null);
     setNowPaymentStatus("waiting");
@@ -10591,10 +10751,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     setPaypalPaymentError("");
     setCheckoutStep("payment");
     track("order_placed", { page: "cart", payment_method: paymentMethod, total: orderRecord?.total, items_count: cart?.length });
-    // On mobile, scroll down so the Stripe loading form is visible
-    if (window.innerWidth < 768) {
-      setTimeout(() => window.scrollTo({ top: 640, behavior: "smooth" }), 80);
-    }
+    // Scroll to the invoice/payment view in a single smooth motion (no jump-then-jump).
+    requestAnimationFrame(() => {
+      const target = window.innerWidth < 768 ? 640 : 0;
+      window.scrollTo({ top: target, behavior: "smooth" });
+    });
 
     supabase
       .from("orders")
@@ -10613,9 +10774,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       });
   }
 
-  async function handlePayWithCredits() {
+  async function handlePayWithCredits(attestationOverride = null) {
+    const acceptedResearch = attestationOverride?.researchAccepted ?? researchAccepted;
+    const acceptedQualified = attestationOverride?.qualifiedAccepted ?? qualifiedAccepted;
+    const acceptedTerms = attestationOverride?.termsAccepted ?? termsAccepted;
     if (!currentUser?.email) return;
-    if (!researchAccepted || !qualifiedAccepted || !termsAccepted) {
+    if (!acceptedResearch || !acceptedQualified || !acceptedTerms) {
       setCheckboxHighlight(true);
       setTimeout(() => setCheckboxHighlight(false), 900);
       if (termsSectionRef.current) termsSectionRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -10666,6 +10830,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       postalCode: syncedForm.postalCode || "",
       phone: syncedForm.phone || "",
       taxId: syncedForm.taxId || "",
+      purchaserAttestation: {
+        over21AndResearchUseOnly: acceptedResearch,
+        qualifiedResearcherOrLicensedProfessional: acceptedQualified,
+        noHumanOrAnimalUse: acceptedQualified,
+        policiesAccepted: acceptedTerms,
+        acceptedAt: paidAt,
+      },
       orderNotes: [(checkoutForm.orderNotes || "").trim(), checkoutForm.carrierPreference ? `Carrier preference: ${checkoutForm.carrierPreference}` : ""].filter(Boolean).join("\n"),
       subtotal: Number(subtotal.toFixed(2)),
       shipping: Number(shipping.toFixed(2)),
@@ -12062,8 +12233,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           className="sticky top-0 md:top-[32px] z-[200] border-b border-white/20 bg-[#8f8f8f] pb-0 md:pb-[3px]"
         >
           <div className="mx-auto flex min-h-[44px] w-full items-center justify-between px-4 py-1 pt-[19px] md:min-h-0 md:px-10 md:py-0 md:pt-[19px]">
-            <button
-              onClick={handleLogoClick}
+            <a
+              href="/"
+              onClick={(event) => {
+                event.preventDefault();
+                handleLogoClick();
+              }}
               className={`flex items-center gap-1 active:scale-95 ${
                 isScrolled
                   ? "md:pointer-events-none md:invisible md:w-0 md:overflow-hidden md:opacity-0"
@@ -12082,7 +12257,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               <span className="text-lg font-semibold tracking-[0.08em] text-white md:text-2xl" style={{ textShadow: "1px 1px 0 rgba(0,0,0,0.4), 2px 2px 0 rgba(0,0,0,0.4), 3px 3px 0 rgba(0,0,0,0.4), 4px 4px 0 rgba(0,0,0,0.4), 6px 6px 10px rgba(0,0,0,0.4)" }}>
                 BottleValueCo
               </span>
-            </button>
+            </a>
 
             {/* Desktop nav */}
             <nav className="ml-auto hidden flex-1 items-center justify-end gap-1 xl:flex">
@@ -12096,11 +12271,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 </button>
               )}
               {navItems.map((item) => (
-                <button
+                <a
                   key={item.key}
-                  onClick={() => {
-                    setAccountPromoCodeInput("");
-                    setPage(item.key);
+                  href={publicPageToPath[item.key] || "/"}
+                  onClick={(event) => {
+                    handlePublicPageLink(event, item.key);
                     if (item.key === "account" && currentUser?.email && !isAdminUser()) {
                       refreshUserOrdersFromSupabase(currentUser.email);
                     }
@@ -12126,23 +12301,20 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       {item.label}
                     </span>
                   ) : item.label}
-                </button>
+                </a>
               ))}
             </nav>
 
             {/* Mobile: cart pill + hamburger */}
             <div className="ml-auto flex items-center gap-2 xl:hidden">
-              <button
-                type="button"
-                onClick={() => {
-                  setAccountPromoCodeInput("");
-                  setPage("cart");
-                }}
+              <a
+                href="/cart"
+                onClick={(event) => handlePublicPageLink(event, "cart")}
                 className={`rounded-full px-3.5 py-2 text-[12px] font-bold uppercase tracking-[0.18em] whitespace-nowrap bg-black text-white${cartHighlight ? " cart-pop" : ""}`}
                 aria-label="Cart"
               >
                 {`${t("cart")}${cartCount ? ` (${cartCount})` : ""}`}
-              </button>
+              </a>
               <button
                 type="button"
                 onClick={() => setIsMobileMenuOpen(true)}
@@ -12194,11 +12366,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               </div>
               <nav className="flex flex-col gap-2">
                 {navItems.map((item) => (
-                  <button
+                  <a
                     key={item.key}
-                    onClick={() => {
-                      setAccountPromoCodeInput("");
-                      setPage(item.key);
+                    href={publicPageToPath[item.key] || "/"}
+                    onClick={(event) => {
+                      handlePublicPageLink(event, item.key);
                       setIsMobileMenuOpen(false);
                       if (item.key === "account" && currentUser?.email && !isAdminUser()) {
                         refreshUserOrdersFromSupabase(currentUser.email);
@@ -12213,7 +12385,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     }`}
                   >
                     {item.label}
-                  </button>
+                  </a>
                 ))}
               </nav>
             </div>
@@ -12279,18 +12451,33 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           <span className="inline-flex flex-wrap items-center gap-x-[0.34em] gap-y-1">
                             <span>CARDS</span>
                             <span>&amp;</span>
-                            <span aria-label="Cash App" title="Cash App" className="inline-flex h-[1.35em] w-[1.35em] shrink-0 items-center justify-center overflow-hidden rounded-[0.28em] bg-[#00d64f] align-middle shadow-[0_3px_7px_rgba(0,0,0,0.22)]">
+                            <span
+                              aria-label="Cash App"
+                              title="Cash App"
+                              className="inline-flex h-[1.35em] w-[1.35em] shrink-0 items-center justify-center overflow-hidden rounded-[0.28em] bg-[#00d64f] align-middle shadow-[0_3px_7px_rgba(0,0,0,0.22)]"
+                            >
                               <svg aria-hidden="true" viewBox="0 0 24 24" className="h-[1.08em] w-[1.08em]">
-                                <path d="M15.9 5.1c-1-.6-2.2-.9-3.6-.9-3 0-5.1 1.5-5.1 3.8 0 2.1 1.6 3.1 4.3 3.9 1.8.5 2.4.9 2.4 1.7 0 .9-.8 1.5-2.1 1.5-1.5 0-2.9-.5-4.1-1.4l-1.8 2.5c1.2.9 2.6 1.5 4.1 1.7v2h3.1v-2c2.8-.4 4.5-2.1 4.5-4.5 0-2.2-1.5-3.3-4.4-4.1-1.7-.5-2.3-.8-2.3-1.6 0-.7.6-1.2 1.7-1.2 1.2 0 2.4.4 3.5 1.1l1.5-2.6c-.7-.5-1.5-.8-2.4-1.1V2h-3.1v1.9c-2.8.2-4.7 1.9-4.7 4.2" fill="white" />
+                                <path d="M15.9 5.1c-1-.6-2.2-.9-3.6-.9-3 0-5.1 1.5-5.1 3.8 0 2.1 1.6 3.1 4.3 3.9 1.8.5 2.4.9 2.4 1.7 0 .9-.8 1.5-2.1 1.5-1.5 0-2.9-.5-4.1-1.4l-1.8 2.5c1.2.9 2.6 1.5 4.1 1.7v2h3.1v-2c2.8-.4 4.5-2.1 4.5-4.5 0-2.2-1.5-3.3-4.4-4.1-1.7-.5-2.3-.8-2.3-1.6 0-.7.6-1.2 1.7-1.2 1.2 0 2.4.4 3.5 1.1l1.5-2.6c-.7-.5-1.5-.8-2.4-1.1V2h-3.1v1.9c-2.8.2-4.7 1.9-4.7 4.2" fill="white"/>
                               </svg>
                             </span>
                             <span>&amp;</span>
-                            <span aria-label="PayPal" title="PayPal" className="inline-flex h-[1.35em] shrink-0 items-center justify-center rounded-[0.28em] bg-white px-[0.34em] align-middle shadow-[0_3px_7px_rgba(0,0,0,0.18)]">
-                              <img src={`${import.meta.env.BASE_URL}paypal-logo-horizontal.svg`} alt="" aria-hidden="true" className="h-[0.82em] w-auto max-w-[3.3em] object-contain" />
+                            <span
+                              aria-label="PayPal"
+                              title="PayPal"
+                              className="inline-flex h-[1.35em] shrink-0 items-center justify-center rounded-[0.28em] bg-white px-[0.34em] align-middle shadow-[0_3px_7px_rgba(0,0,0,0.18)]"
+                            >
+                              <img
+                                src="/paypal-logo-horizontal.svg"
+                                alt=""
+                                aria-hidden="true"
+                                className="h-[0.82em] w-auto max-w-[3.3em] object-contain"
+                              />
                             </span>
                             <span>&amp; CRYPTO.</span>
                           </span>
-                        ) : t(row.key)}
+                        ) : (
+                          t(row.key)
+                        )}
                       </span>
                     </p>
                   ))}
@@ -12433,9 +12620,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
             <div className="h-[80px] md:h-[460px]" />
 
-            <section className="w-full bg-black/10 px-6 py-20 md:px-10 md:py-16">
+            <section className="w-full bg-black/10 px-6 py-8 md:px-10 md:py-10">
               <div className="mx-auto max-w-6xl text-center">
-                <div className="text-[12px] uppercase tracking-[0.34em] text-white">
+                <div className="text-[10px] uppercase tracking-[0.28em] text-white">
                   {language === "RU"
                     ? "Только для исследований"
                     : language === "UA"
@@ -12447,19 +12634,15 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     : "Research Use Only"}
                 </div>
 
-                <div className="mx-auto mt-7 max-w-3xl text-[14px] font-semibold uppercase leading-7 tracking-[0.1em] text-white md:text-[15px] md:leading-8">
+                <div className="mx-auto mt-2 max-w-3xl text-[12px] font-semibold uppercase leading-5 tracking-[0.06em] text-white md:text-[13px]">
                   {i18n(legal.ruoStrict)}
                 </div>
 
-                <div className="mx-auto mt-9 h-px w-24 bg-white/40" />
+                <div className="mx-auto mt-4 h-px w-16 bg-white/30" />
 
-                <div className="mx-auto mt-9 flex flex-wrap items-center justify-center gap-x-6 gap-y-4 text-[12px] font-semibold uppercase tracking-[0.28em] text-white md:gap-x-8">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAccountPromoCodeInput("");
-                      setPage("terms");
-                    }}
+                <div className="mx-auto mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-white md:gap-x-6">
+                  <a
+                    href="/terms-and-conditions"
                     className="transition hover:text-white hover:underline hover:underline-offset-4"
                   >
                     {language === "RU"
@@ -12471,14 +12654,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       : language === "ES"
                       ? "Terminos"
                       : "Terms"}
-                  </button>
+                  </a>
                   <span className="text-white/30">•</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAccountPromoCodeInput("");
-                      setPage("privacy");
-                    }}
+                  <a
+                    href="/privacy-policy"
                     className="transition hover:text-white hover:underline hover:underline-offset-4"
                   >
                     {language === "RU"
@@ -12490,14 +12669,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       : language === "ES"
                       ? "Privacidad"
                       : "Privacy"}
-                  </button>
+                  </a>
                   <span className="text-white/30">•</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAccountPromoCodeInput("");
-                      setPage("shipping");
-                    }}
+                  <a
+                    href="/shipping-policy"
                     className="transition hover:text-white hover:underline hover:underline-offset-4"
                   >
                     {language === "RU"
@@ -12509,14 +12684,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       : language === "ES"
                       ? "Envío"
                       : "Shipping"}
-                  </button>
+                  </a>
                   <span className="text-white/30">•</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAccountPromoCodeInput("");
-                      setPage("refund");
-                    }}
+                  <a
+                    href="/refund-policy"
                     className="transition hover:text-white hover:underline hover:underline-offset-4"
                   >
                     {language === "RU"
@@ -12528,61 +12699,81 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       : language === "ES"
                       ? "Reembolso"
                       : "Refund"}
-                  </button>
+                  </a>
                   <span className="text-white/30">•</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                    setAccountPromoCodeInput("");
-                    setPage("contact");
-                  }}
+                  <a
+                    href="/contact"
                     className="transition hover:text-white hover:underline hover:underline-offset-4"
                   >
                     {t("contact")}
-                  </button>
+                  </a>
+                  <span className="text-white/30">•</span>
+                  <a
+                    href="/researcher-attestation"
+                    className="transition hover:text-white hover:underline hover:underline-offset-4"
+                  >
+                    {tx("Researcher Attestation", "Подтверждение исследователя", "Підтвердження дослідника", "Forscherbestätigung", "Declaración del investigador")}
+                  </a>
                 </div>
 
-                <div className="mt-8 text-[11px] uppercase tracking-[0.22em] text-white">
-                  21+ ·{" "}
-                  <button
-                    type="button"
-                    onClick={copySupportEmail}
-                    className="font-semibold text-white transition hover:text-white"
-                  >
-                    {copiedEmail
-                      ? language === "RU"
-                        ? "EMAIL СКОПИРОВАН"
-                        : language === "UA"
-                        ? "EMAIL СКОПІЙОВАНО"
-                        : language === "DE"
-                        ? "E-MAIL KOPIERT"
-                        : language === "ES"
-                        ? "EMAIL COPIADO"
-                        : "EMAIL COPIED"
-                      : "SUPPORT@10BOTTLEVALUE.CO"}
-                  </button>{" "}
+                <details className="mx-auto mt-3 max-w-3xl rounded-xl border border-white/15 bg-black/20 text-left text-[10px] uppercase leading-5 tracking-[0.1em] text-white">
+                  <summary className="cursor-pointer select-none px-4 py-2.5 font-semibold text-white">
+                    {tx("Researcher & purchaser attestation", "Подтверждение исследователя и покупателя", "Підтвердження дослідника та покупця", "Forscher- und Käuferbestätigung", "Declaración del investigador y comprador")}
+                  </summary>
+                  <div className="px-4 pb-4">
+                    <span className="block">
+                      {tx(
+                        "Every purchaser must confirm they are over 21 years old and that all products are sold strictly for research purposes only, not for human or animal use.",
+                        "Каждый покупатель обязан подтвердить, что ему больше 21 года и что все продукты продаются исключительно для исследовательских целей, а не для использования на людях или животных.",
+                        "Кожен покупець зобовʼязаний підтвердити, що йому більше 21 року і що всі продукти продаються виключно для дослідницьких цілей, а не для використання на людях чи тваринах.",
+                        "Jeder Käufer muss bestätigen, über 21 Jahre alt zu sein und dass alle Produkte ausschließlich für Forschungszwecke verkauft werden, nicht für den Gebrauch an Menschen oder Tieren.",
+                        "Todo comprador debe confirmar que tiene más de 21 años y que todos los productos se venden estrictamente para fines de investigación, no para uso en humanos o animales."
+                      )}
+                    </span>
+                    <span className="mt-2 block">
+                      {tx(
+                        "Every purchaser must also confirm they are a qualified researcher, licensed professional, or authorized representative of a qualified research organization, and will not use these products on humans or animals. This attestation is required and logged with every order before checkout.",
+                        "Каждый покупатель также обязан подтвердить, что является квалифицированным исследователем, лицензированным специалистом или уполномоченным представителем исследовательской организации и не будет использовать продукты на людях или животных. Это подтверждение обязательно и фиксируется с каждым заказом перед оформлением.",
+                        "Кожен покупець також зобовʼязаний підтвердити, що є кваліфікованим дослідником, ліцензованим фахівцем або уповноваженим представником дослідницької організації і не використовуватиме продукти на людях чи тваринах. Це підтвердження є обовʼязковим і фіксується з кожним замовленням перед оформленням.",
+                        "Jeder Käufer muss außerdem bestätigen, ein qualifizierter Forscher, lizenzierter Fachmann oder autorisierter Vertreter einer qualifizierten Forschungsorganisation zu sein und die Produkte nicht an Menschen oder Tieren zu verwenden. Diese Bestätigung ist erforderlich und wird bei jeder Bestellung vor dem Checkout protokolliert.",
+                        "Todo comprador también debe confirmar que es un investigador calificado, profesional con licencia o representante autorizado de una organización de investigación calificada, y que no usará estos productos en humanos o animales. Esta declaración es obligatoria y se registra con cada pedido antes de finalizar la compra."
+                      )}
+                    </span>
+                    <a
+                      href="/researcher-attestation"
+                      className="mt-2 inline-block font-semibold text-white underline underline-offset-4"
+                    >
+                      {tx("Read the full researcher attestation", "Полное подтверждение исследователя", "Повне підтвердження дослідника", "Vollständige Forscherbestätigung lesen", "Leer la declaración completa del investigador")}
+                    </a>
+                  </div>
+                </details>
+                <div className="mt-4 text-[10px] uppercase leading-5 tracking-[0.14em] text-white">
+                  <strong className="text-white">10BottleValueCo SIA</strong>
+                  {" · Reg. No. 40203750341 · Avotu iela 8, Lielvārde, Ogres nov., LV-5071, Latvia · "}
+                  <a href="mailto:support@10bottlevalue.co" className="font-semibold text-white transition hover:underline hover:underline-offset-4">
+                    SUPPORT@10BOTTLEVALUE.CO
+                  </a>
+                  <span> · 21+</span>
                 </div>
-                <div className="mx-auto mt-4 max-w-3xl text-[10px] uppercase leading-6 tracking-[0.18em] text-white">
+                <div className="mx-auto mt-2 max-w-3xl text-[9px] uppercase leading-5 tracking-[0.1em] text-white">
                   {language === "RU"
-                    ? "ПОКУПАТЕЛЬ НЕСЁТ ОТВЕТСТВЕННОСТЬ ЗА СОБЛЮДЕНИЕ МЕСТНЫХ ЗАКОНОВ И ПРАВИЛ. ЗАКАЗЫ ВЫПОЛНЯЮТСЯ МЕЖДУНАРОДНЫМИ ПАРТНЁРАМИ."
+                    ? "ПОКУПАТЕЛЬ НЕСЁТ ОТВЕТСТВЕННОСТЬ ЗА СОБЛЮДЕНИЕ МЕСТНЫХ ЗАКОНОВ И ПРАВИЛ. ЗАКАЗЫ ВЫПОЛНЯЮТСЯ МЕЖДУНАРОДНЫМИ ПАРТНЁРАМИ. ВСЕ ПЕРЕВОДЫ ПРЕДОСТАВЛЯЮТСЯ ТОЛЬКО ДЛЯ УДОБСТВА."
                     : language === "UA"
-                    ? "ПОКУПЕЦЬ ВІДПОВІДАЄ ЗА ДОТРИМАННЯ МІСЦЕВИХ ЗАКОНІВ І ПРАВИЛ. ЗАМОВЛЕННЯ ВИКОНУЮТЬСЯ МІЖНАРОДНИМИ ПАРТНЕРАМИ."
+                    ? "ПОКУПЕЦЬ ВІДПОВІДАЄ ЗА ДОТРИМАННЯ МІСЦЕВИХ ЗАКОНІВ І ПРАВИЛ. ЗАМОВЛЕННЯ ВИКОНУЮТЬСЯ МІЖНАРОДНИМИ ПАРТНЕРАМИ. УСІ ПЕРЕКЛАДИ НАДАЮТЬСЯ ЛИШЕ ДЛЯ ЗРУЧНОСТІ."
                     : language === "DE"
-                    ? "Der Käufer ist dafür verantwortlich, alle geltenden lokalen Gesetze und Vorschriften einzuhalten. Bestellungen werden über internationale Partner abgewickelt."
+                    ? "Der Käufer ist dafür verantwortlich, alle geltenden lokalen Gesetze und Vorschriften einzuhalten. Bestellungen werden über internationale Partner abgewickelt. Alle Übersetzungen dienen nur der Bequemlichkeit."
                     : language === "ES"
-                    ? "EL COMPRADOR ES RESPONSABLE DE GARANTIZAR EL CUMPLIMIENTO DE LAS LEYES Y NORMATIVAS LOCALES. LOS PEDIDOS SE GESTIONAN MEDIANTE SOCIOS INTERNACIONALES."
-                    : "THE BUYER IS RESPONSIBLE FOR ENSURING COMPLIANCE WITH LOCAL LAWS AND REGULATIONS. ORDERS FULFILLED VIA INTERNATIONAL PARTNERS."}
+                    ? "EL COMPRADOR ES RESPONSABLE DE GARANTIZAR EL CUMPLIMIENTO DE LAS LEYES Y NORMATIVAS LOCALES. LOS PEDIDOS SE GESTIONAN MEDIANTE SOCIOS INTERNACIONALES. TODAS LAS TRADUCCIONES SE PROPORCIONAN SOLO POR CONVENIENCIA."
+                    : "THE BUYER IS RESPONSIBLE FOR ENSURING COMPLIANCE WITH LOCAL LAWS AND REGULATIONS. ORDERS FULFILLED VIA INTERNATIONAL PARTNERS. ALL TRANSLATIONS ARE PROVIDED FOR CONVENIENCE ONLY."}
                 </div>
-                <div className="mx-auto mt-4 max-w-3xl text-[10px] uppercase leading-6 tracking-[0.18em] text-white">
-                  {language === "RU"
-                    ? "ВСЕ ПЕРЕВОДЫ ПРЕДОСТАВЛЯЮТСЯ ТОЛЬКО ДЛЯ УДОБСТВА. В СЛУЧАЕ РАСХОЖДЕНИЙ АНГЛИЙСКАЯ ВЕРСИЯ ИМЕЕТ ПРЕИМУЩЕСТВЕННУЮ СИЛУ."
-                    : language === "UA"
-                    ? "УСІ ПЕРЕКЛАДИ НАДАЮТЬСЯ ЛИШЕ ДЛЯ ЗРУЧНОСТІ. У РАЗІ РОЗБІЖНОСТЕЙ АНГЛІЙСЬКА ВЕРСІЯ МАЄ ПЕРЕВАЖНУ СИЛУ."
-                    : language === "DE"
-                    ? "ALLE ÜBERSETZUNGEN DIENEN NUR DER BEQUEMLICHKEIT. BEI ABWEICHUNGEN IST DIE ENGLISCHE VERSION MASSGEBLICH."
-                    : language === "ES"
-                    ? "TODAS LAS TRADUCCIONES SE PROPORCIONAN SOLO POR CONVENIENCIA. EN CASO DE DISCREPANCIAS, PREVALECE LA VERSION EN INGLES."
-                    : "ALL TRANSLATIONS ARE PROVIDED FOR CONVENIENCE ONLY. THE ENGLISH VERSION SHALL PREVAIL IN CASE OF DISCREPANCIES."}
+                <div data-medical-disclaimer="true" className="mx-auto mt-2 max-w-3xl text-[9px] uppercase leading-5 tracking-[0.1em] text-white">
+                  {tx(
+                    "This site does not provide medical advice. These statements have not been evaluated by the FDA. Products are not drugs and are not intended to diagnose, treat, cure, or prevent any disease.",
+                    "Этот сайт не предоставляет медицинских консультаций. Данные заявления не были оценены FDA. Продукция не является лекарственными препаратами и не предназначена для диагностики, лечения, излечения или профилактики каких-либо заболеваний.",
+                    "Цей сайт не надає медичних консультацій. Ці твердження не були оцінені FDA. Продукція не є лікарськими засобами і не призначена для діагностики, лікування, зцілення або профілактики будь-яких захворювань.",
+                    "Diese Website bietet keine medizinische Beratung. Diese Aussagen wurden nicht von der FDA bewertet. Die Produkte sind keine Arzneimittel und sind nicht zur Diagnose, Behandlung, Heilung oder Vorbeugung von Krankheiten bestimmt.",
+                    "Este sitio no proporciona asesoramiento médico. Estas declaraciones no han sido evaluadas por la FDA. Los productos no son medicamentos y no están destinados a diagnosticar, tratar, curar o prevenir ninguna enfermedad."
+                  )}
                 </div>
               </div>
             </section>
@@ -12800,9 +12991,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             </div>
                           </div>
 
-                          <div className="mt-auto pt-2 rounded-xl border border-white/20 bg-black/10 p-2 md:pt-3 md:rounded-2xl md:p-3 overflow-hidden">
-                            <div className="grid grid-cols-[auto_auto] gap-x-1 gap-y-1.5 text-[9px] md:gap-x-4 md:gap-y-2.5 md:text-[15px] items-center justify-between">
-                              <div className="text-white font-bold whitespace-nowrap">{t("kit")}</div>
+                          <div className="mt-auto rounded-xl border border-white/20 bg-black/10 p-2 pt-2 md:rounded-2xl md:p-3 md:pt-3">
+                            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-1.5 text-[9px] md:gap-x-3 md:gap-y-2.5 md:text-[13px] xl:text-[11px] 2xl:text-[13px]">
+                              <div className="min-w-0 font-bold leading-tight text-white">{t("kit")}</div>
                               <div className="flex justify-end">
                                 <span className="rounded-full bg-black/30 border border-white/20 px-1.5 py-0.5 md:px-3.5 md:py-1 text-[9px] md:text-[13px] font-extrabold text-white whitespace-nowrap tracking-[0.04em]">
                                   {language === "RU"
@@ -12818,7 +13009,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               </div>
 
                               <div className="col-span-2 h-px bg-white/10" />
-                              <div className="text-white font-bold whitespace-nowrap">{t("perVial")}</div>
+                              <div className="min-w-0 font-bold leading-tight text-white">{t("perVial")}</div>
                               <div className="flex justify-end">
                                 <span className="rounded-full bg-black/30 border border-white/20 px-1.5 py-0.5 md:px-3.5 md:py-1 text-[9px] md:text-[13px] font-extrabold text-white whitespace-nowrap tracking-[0.04em]">
                                   {displayPerVial}
@@ -12826,7 +13017,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               </div>
 
                               <div className="col-span-2 h-px bg-white/10" />
-                              <div className="text-white font-bold whitespace-nowrap">{t("kitTotal")}</div>
+                              <div className="min-w-0 font-bold leading-tight text-white">{t("kitTotal")}</div>
                               <div className="flex justify-end">
                                 <span className="rounded-full bg-black/30 border border-white/20 px-1.5 py-0.5 md:px-3.5 md:py-1 text-[9px] md:text-[13px] font-extrabold text-white whitespace-nowrap tracking-[0.04em]">
                                   {displayTotal}
@@ -12834,7 +13025,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               </div>
                               <div className="col-span-2 h-px bg-white/10" />
 
-                              <div className="text-white font-bold whitespace-nowrap">{t("pricePerVial")}</div>
+                              <div className="min-w-0 font-bold leading-tight text-white">{t("pricePerVial")}</div>
                               <div className="flex justify-end">
                                 <span className="rounded-full bg-black/30 border border-white/20 px-1.5 py-0.5 md:px-3.5 md:py-1 text-[9px] md:text-[13px] font-extrabold text-white whitespace-nowrap tracking-[0.04em]">
                                   {formatPricePrecise(product.price / (product.vials || 10)).replace(/^\$/, "") + "$"}
@@ -13422,6 +13613,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       "wrong-shipping-address",
                       "confirmation-email",
                       "order-issue",
+                      "billing-descriptor",
                     ].includes(f.id)
                   ),
                 },
@@ -13546,9 +13738,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           <main className="mx-auto w-full px-4 pt-8 pb-10 md:px-6 md:pt-12 md:pb-12">
             <h1 className="text-3xl md:text-5xl font-semibold tracking-[0.06em] text-white mb-6 md:mb-8 text-center">
               {tx(
-                "SHIPPING & SAVINGS",
-                "ДОСТАВКА И ЭКОНОМИЯ",
-                "ДОСТАВКА ТА ЕКОНОМІЯ"
+                "SHIPPING & DISCOUNTS",
+                "ДОСТАВКА И СКИДКИ",
+                "ДОСТАВКА ТА ЗНИЖКИ"
               )}
             </h1>
 
@@ -14072,6 +14264,58 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
             </div>
           </main>
         )}
+        {page === "attestation" && (
+          <main className="mx-auto max-w-5xl px-4 pb-16 pt-4 md:px-10 md:pb-24 md:pt-12">
+            <section className="rounded-[1.8rem] border border-white/20 bg-black/15 px-5 py-10 text-center shadow-[0_18px_55px_rgba(0,0,0,0.12)] md:rounded-[2.5rem] md:px-12 md:py-16">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.34em] text-white/65">
+                Research Use Only
+              </div>
+              <h1 className="mt-4 text-3xl font-semibold uppercase tracking-[0.12em] text-white md:text-5xl">
+                Qualified Purchaser &amp; Researcher Attestation
+              </h1>
+              <p className="mx-auto mt-6 max-w-3xl text-[12px] uppercase leading-7 tracking-[0.14em] text-white/75 md:text-[14px]">
+                These confirmations are mandatory for every purchaser before checkout.
+              </p>
+
+              <div className="mx-auto mt-10 max-w-3xl space-y-4 text-left">
+                <div className="rounded-[1.4rem] border border-white/20 bg-black/20 px-5 py-6 md:px-8">
+                  <h2 className="text-[12px] font-bold uppercase tracking-[0.2em] text-white">
+                    Qualified purchaser status
+                  </h2>
+                  <p className="mt-3 text-[12px] font-semibold uppercase leading-7 tracking-[0.1em] text-white/85 md:text-[14px]">
+                    I confirm that I am a qualified researcher, licensed professional, or authorized representative of a qualified research organization.
+                  </p>
+                </div>
+
+                <div className="rounded-[1.4rem] border border-white/20 bg-black/20 px-5 py-6 md:px-8">
+                  <h2 className="text-[12px] font-bold uppercase tracking-[0.2em] text-white">
+                    No human or animal use
+                  </h2>
+                  <p className="mt-3 text-[12px] font-semibold uppercase leading-7 tracking-[0.1em] text-white/85 md:text-[14px]">
+                    I will not use these products on humans or animals. All products are sold strictly for laboratory, analytical, or scientific research purposes only.
+                  </p>
+                </div>
+
+                <div className="rounded-[1.4rem] border border-white/20 bg-black/20 px-5 py-6 md:px-8">
+                  <h2 className="text-[12px] font-bold uppercase tracking-[0.2em] text-white">
+                    Mandatory checkout acceptance
+                  </h2>
+                  <p className="mt-3 text-[12px] font-semibold uppercase leading-7 tracking-[0.1em] text-white/85 md:text-[14px]">
+                    Before purchase, every customer must actively accept the qualified-purchaser statement, the no-human-or-animal-use commitment, and the website terms and policies. Acceptance is recorded with the order.
+                  </p>
+                </div>
+              </div>
+
+              <a
+                href="/cart"
+                onClick={(event) => handlePublicPageLink(event, "cart")}
+                className="mt-10 inline-flex rounded-full bg-white px-8 py-4 text-[12px] font-bold uppercase tracking-[0.22em] text-black transition hover:bg-white/90"
+              >
+                Proceed to Cart
+              </a>
+            </section>
+          </main>
+        )}
         {page === "contact" ? (
           <ContactPage
             copySupportEmail={copySupportEmail}
@@ -14444,7 +14688,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 <section>
                   <h2 className="text-white font-semibold">2. DATA CONTROLLER</h2>
                   <p>The data controller responsible for processing your personal information is:</p>
-                  <p className="mt-4">10BottleValueCo SIA<br />Registration Number: 40203750341<br />Registered Address: Avotu iela 8 - 74, Lielvārde, Ogres nov., LV-5071, Latvia<br />Email: SUPPORT@10BOTTLEVALUE.CO</p>
+                  <p className="mt-4">10BottleValueCo SIA<br />Registration Number: 40203750341<br />Registered Address: Avotu iela 8, Lielvārde, Ogres nov., LV-5071, Latvia<br />Email: SUPPORT@10BOTTLEVALUE.CO</p>
                   <p className="mt-4">Unless otherwise expressly stated, 10BottleValueCo SIA acts as the controller of personal information collected through this Website.</p>
                 </section>
 
@@ -14721,7 +14965,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 <section>
                   <h2 className="text-white font-semibold">29. CONTACT INFORMATION</h2>
                   <p>If you have any questions regarding this Privacy Policy or wish to exercise your privacy rights, please contact:</p>
-                  <p className="mt-4">10BottleValueCo SIA<br />Registration No.: 40203750341<br />Registered Address: Avotu iela 8 - 74, Lielvārde, Ogres nov., LV-5071, Latvia<br />Email: SUPPORT@10BOTTLEVALUE.CO<br />Website: HTTPS://10BOTTLEVALUE.CO</p>
+                  <p className="mt-4">10BottleValueCo SIA<br />Registration No.: 40203750341<br />Registered Address: Avotu iela 8, Lielvārde, Ogres nov., LV-5071, Latvia<br />Email: SUPPORT@10BOTTLEVALUE.CO<br />Website: HTTPS://10BOTTLEVALUE.CO</p>
                 </section>
 
                 <section>
@@ -15448,13 +15692,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                 }
                                 worldOptions.sort((a, b) => a.replace("|||", " ").localeCompare(b.replace("|||", " ")));
                                 usOptions.sort((a, b) => a.replace("|||", " ").localeCompare(b.replace("|||", " ")));
-                                const optionLabel = (key) => {
-                                  const [name, dose] = key.split("|||");
-                                  return `${publicProductName(name)} ${dose}`;
-                                };
                                 const allOptions = [
-                                  ...worldOptions.map(k => ({ key: k, label: optionLabel(k), isUS: false })),
-                                  ...usOptions.map(k => ({ key: k + "|||US", label: optionLabel(k) + " (US)", isUS: true })),
+                                  ...worldOptions.map(k => ({ key: k, label: k.split("|||").join(" "), isUS: false })),
+                                  ...usOptions.map(k => ({ key: k + "|||US", label: k.split("|||").join(" ") + " (US)", isUS: true })),
                                 ];
 
                                 const currentItems = Array.isArray(order.items) ? order.items.map((i) => ({ ...i, quantity: i.quantity ?? i.qty ?? 1 })) : [];
@@ -15511,13 +15751,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                               <optgroup label="Worldwide">
                                                 {worldOptions.map((opt) => {
                                                   const [n, d] = opt.split("|||");
-                                                  return <option key={opt} value={opt}>{n} {String(d || "").replace(/ each$/i, "")}</option>;
+                                                  return <option key={opt} value={opt}>{publicProductName(n)} {String(d || "").replace(/ each$/i, "")}</option>;
                                                 })}
                                               </optgroup>
                                               <optgroup label="US Warehouse">
                                                 {usOptions.map((opt) => {
                                                   const [n, d] = opt.split("|||");
-                                                  return <option key={opt + "|||US"} value={opt + "|||US"}>{n} {String(d || "").replace(/ each$/i, "")} (US)</option>;
+                                                  return <option key={opt + "|||US"} value={opt + "|||US"}>{publicProductName(n)} {String(d || "").replace(/ each$/i, "")} (US)</option>;
                                                 })}
                                               </optgroup>
                                             </select>
@@ -16767,7 +17007,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 const CHINA_SHIP = 60; // $60 per order from China
 
                 // Normalize product name (strip "/ GLP-N" variants)
-                const normName = (n) => catalogProductName(n).replace(/\s*\/\s*GLP-\d+/i,"").trim();
+                const normName = (n) => (n||"").replace(/\s*\/\s*GLP-\d+/i,"").trim();
                 // Normalize dose: "5 mg" → "5mg", "10 iu" → "10iu", etc.
                 const normDose = (d) => String(d||"").trim().replace(/(\d)\s+([a-zA-Z])/g,"$1$2");
 
@@ -17673,7 +17913,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               return (
                                 <tr key={r.name} className={`border-b border-white/5 ${i % 2 === 0 ? "bg-black/10" : ""} hover:bg-white/5 transition-colors`}>
                                   <td className="px-4 py-3 text-white/30 font-mono">{i + 1}</td>
-                                  <td className="px-4 py-3 font-semibold text-white">{publicProductName(r.name)}</td>
+                      <td className="px-4 py-3 font-semibold text-white">{publicProductName(r.name)}</td>
                                   <td className="px-4 py-3 text-right text-white">{r.units}</td>
                                   <td className="px-4 py-3 text-right font-bold text-emerald-300">${r.revenue.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                                   <td className="px-4 py-3 text-right text-white/70">{revPct.toFixed(1)}%</td>
@@ -19122,7 +19362,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       return (
                         <button
                           key={`${product.name}-${product.noteLabel ?? ""}-${product.dose}`}
-                          onClick={() => { setUsWhInputValue(`${publicProductName(product.name)} ${product.dose}`); setUsWhSearchTerm(`${publicProductName(product.name)} ${product.dose}`); }}
+                  onClick={() => { setUsWhInputValue(`${publicProductName(product.name)} ${product.dose}`); setUsWhSearchTerm(`${publicProductName(product.name)} ${product.dose}`); }}
                           className="flex items-center justify-between w-full rounded-xl px-4 py-2 text-left text-base font-semibold text-white hover:bg-white/5 gap-2"
                         >
                           <span className="flex flex-col leading-tight min-w-0">
@@ -20036,6 +20276,35 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     </span>
                     <span className="text-[17px] font-bold tabular-nums text-white">{formatPricePrecise(finalTotal)}</span>
                   </div>
+
+                  {/* Promo code */}
+                  <div className="border-t border-white/10 pt-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex max-w-[220px] flex-1 gap-2">
+                        <input
+                          value={promoInput}
+                          onChange={(e) => {
+                            setPromoInput(e.target.value);
+                            if (promoMessage) setPromoMessage("");
+                          }}
+                          placeholder={t("enterCode")}
+                          className="w-full min-w-0 rounded-full border border-white/20 bg-black/20 px-3 py-1.5 text-xs text-white placeholder:text-white/60 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={applyPromoCode}
+                          className="shrink-0 rounded-full border border-white/20 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-white hover:bg-white/10"
+                        >
+                          {t("apply")}
+                        </button>
+                      </div>
+                      {promoMessage && (
+                        <div className="shrink-0 text-right text-xs text-white/80">
+                          {promoMessage}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 {cart.length > 0 && (
@@ -20127,14 +20396,14 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     <button
                       type="button"
                       onClick={() => setIsBonusExpanded((v) => !v)}
-                      className="flex w-full items-start gap-3 p-5 text-left transition-colors hover:bg-white/[0.03] rounded-[1.6rem]"
+                      className="flex w-full items-start gap-2.5 p-2.5 text-left transition-colors hover:bg-white/[0.03] rounded-[1.6rem]"
                       aria-expanded={isBonusExpanded}
                     >
-                      <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/20 bg-black/10 text-base">
+                      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/20 bg-black/10 text-lg">
                         🎁
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="text-[18px] font-semibold text-white">
+                        <div className="text-[14px] font-semibold text-white">
                           {tx(
                             "Order bonus unlocked",
                             "Бонус за заказ разблокирован",
@@ -20142,7 +20411,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           )}
                         </div>
                         {!isBonusExpanded && (
-                          <div className="mt-0.5 text-[11px] uppercase tracking-[0.18em] text-white/60">
+                          <div className="mt-0.5 text-[10px] uppercase tracking-[0.16em] text-white/60">
                             {tx(
                               "Tap to view details",
                               "Нажмите, чтобы посмотреть",
@@ -20154,7 +20423,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         )}
                       </div>
                       <span
-                        className={`mt-1 shrink-0 text-sm text-white/70 transition-transform duration-200 ${
+                        className={`mt-1 shrink-0 text-xs text-white/70 transition-transform duration-200 ${
                           isBonusExpanded ? "rotate-180" : ""
                         }`}
                       >
@@ -20188,13 +20457,20 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                 )}{" "}
                                 <span className="font-semibold text-white">
                                   $350
-                                </span>
+                                </span>{" "}
+                                {tx(
+                                  "from shop worldwide",
+                                  "из магазина worldwide",
+                                  "з магазину worldwide",
+                                  undefined,
+                                  "de la tienda worldwide"
+                                )}
                                 .
                               </div>
                             </div>
                           )}
 
-                          {subtotal >= 500 && (
+                          {subtotal >= 1000 && (
                             <div className="rounded-xl border border-white/10 bg-black/10 px-4 py-3">
                               <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white">
                                 {tx(
@@ -20587,34 +20863,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       )}
                     </div>
 
-                    <div className="mt-6">
-                      <div className="text-[11px] uppercase tracking-[0.24em] text-white/60">
-                        {t("promoCode")}
-                      </div>
-                      <div className="mt-3 flex gap-3">
-                        <input
-                          value={promoInput}
-                          onChange={(e) => {
-                            setPromoInput(e.target.value);
-                            if (promoMessage) setPromoMessage("");
-                          }}
-                          placeholder={t("enterCode")}
-                          className="flex-1 rounded-full border border-white/20 bg-black/10 px-4 py-2 text-sm text-white placeholder:text-white outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={applyPromoCode}
-                          className="rounded-full border border-white/20 px-4 py-2 text-[11px] uppercase tracking-[0.22em] text-white hover:bg-black/20"
-                        >
-                          {t("apply")}
-                        </button>
-                      </div>
-                      {promoMessage && (
-                        <div className="mt-3 text-sm text-white">
-                          {promoMessage}
-                        </div>
-                      )}
-
+                    <div className="mt-2">
                       {checkoutMessage && (
                         <div className="mt-3 rounded-xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-white/80">
                           {checkoutMessage}
@@ -20636,126 +20885,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           </button>
                         </div>
                       )}
-                      {(appliedPromo || affiliateDiscount > 0) && (
-                        <div className="mt-3 flex items-center justify-between rounded-xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-white/90">
-                          <div>
-                            {appliedPromo ? (
-                              <>
-                                {t("appliedPromo")}:{" "}
-                                <span className="font-semibold text-white">
-                                  {appliedPromo.code}
-                                </span>{" "}
-                                - {+(( appliedPromo.rate * 100).toFixed(2))}% {tx("off", "скидка", "знижка", "Rabatt", "de descuento")}.
-                              </>
-                            ) : (
-                              <>
-                                {tx("Affiliate discount active", "Партнёрская скидка активна", "Партнерська знижка активна", "Affiliate-Rabatt aktiv", "Descuento de afiliado activo")}:{" "}
-                                <span className="font-semibold text-white">
-                                  {resolvedAffiliateCode}
-                                </span>{" "}
-                                - {tx("5% off applied", "применена скидка 5%", "застосовано знижку 5%", "5% Rabatt angewendet", "5% de descuento aplicado")}.
-                              </>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={removePromoCode}
-                            className="ml-4 text-lg leading-none text-white/70 transition hover:text-white"
-                            aria-label="Remove code"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    <div ref={termsSectionRef} className="mt-4 space-y-3">
-                      <label className={`flex cursor-pointer items-start gap-4 rounded-[1.35rem] border bg-white/[0.055] px-5 py-5 text-[11px] uppercase tracking-[0.12em] leading-[1.75] text-white shadow-[0_10px_28px_rgba(0,0,0,0.06)] transition-all duration-500 ease-out hover:bg-white/[0.075] ${checkboxHighlight && !researchAccepted ? "border-red-500 ring-2 ring-red-500/70 bg-red-500/20" : "border-white/20"}`}>
-                        <input
-                          type="checkbox"
-                          checked={researchAccepted}
-                          onChange={(e) => {
-                            setResearchAccepted(e.target.checked);
-                            if (checkoutMessage) setCheckoutMessage("");
-                          }}
-                          className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-black"
-                        />
-                        <span className="block font-semibold text-white">
-                          {i18n(legal.ageResearchCheckbox)}
-                        </span>
-                      </label>
-
-                      <label className={`flex cursor-pointer items-start gap-4 rounded-[1.35rem] border bg-white/[0.05] px-5 py-5 text-[11px] uppercase tracking-[0.12em] leading-[1.75] text-white shadow-[0_10px_28px_rgba(0,0,0,0.05)] transition-all duration-500 ease-out hover:bg-white/[0.07] ${checkboxHighlight && !qualifiedAccepted ? "border-red-500 ring-2 ring-red-500/70 bg-red-500/20" : "border-white/20"}`}>
-                        <input
-                          type="checkbox"
-                          checked={qualifiedAccepted}
-                          onChange={(e) => {
-                            setQualifiedAccepted(e.target.checked);
-                            if (checkoutMessage) setCheckoutMessage("");
-                          }}
-                          className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-black"
-                        />
-                        <span className="block font-semibold text-white">
-                          {i18n(legal.qualifiedResearchCheckbox)}
-                        </span>
-                      </label>
-
-                      <label className={`flex cursor-pointer items-start gap-4 rounded-[1.35rem] border bg-white/[0.04] px-5 py-5 text-[11px] uppercase tracking-[0.12em] leading-[1.75] shadow-[0_10px_28px_rgba(0,0,0,0.04)] transition-all duration-500 ease-out hover:bg-white/[0.06] ${checkboxHighlight && !termsAccepted ? "border-red-500 ring-2 ring-red-500/70 bg-red-500/20 text-white" : "border-white/20 text-white/70"}`}>
-                        <input
-                          type="checkbox"
-                          checked={termsAccepted}
-                          onChange={(e) => {
-                            setTermsAccepted(e.target.checked);
-                            if (checkoutMessage) setCheckoutMessage("");
-                          }}
-                          className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-black"
-                        />
-                        <span>
-                          {i18n(legal.termsCheckboxStart)}{" "}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              setPage("terms");
-                            }}
-                            className="font-semibold text-white underline underline-offset-4 hover:text-white/80"
-                          >
-                            {i18n(legal.termsAndConditions)}
-                          </button>{" "}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              setPage("privacy");
-                            }}
-                            className="font-semibold text-white underline underline-offset-4 hover:text-white/80"
-                          >
-                            {i18n(legal.privacyPolicy)}
-                          </button>{" "}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              setPage("refund");
-                            }}
-                            className="font-semibold text-white underline underline-offset-4 hover:text-white/80"
-                          >
-                            {i18n(legal.refundPolicy)}
-                          </button>{" "}
-                          {i18n(legal.and)}{" "}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              setPage("shipping");
-                            }}
-                            className="font-semibold text-white underline underline-offset-4 hover:text-white/80"
-                          >
-                            {i18n(legal.shippingPolicy)}
-                          </button>
-                          .
-                        </span>
-                      </label>
                     </div>
 
                     {hasOutOfStockInCart && (
@@ -20772,8 +20901,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     {finalTotal === 0 && storeCreditApplied > 0 && cart.length > 0 && !hasOutOfStockInCart ? (
                       <button
                         type="button"
-                        onClick={handlePayWithCredits}
-                        className="mt-8 w-full rounded-full px-6 py-3 text-[13px] font-bold uppercase tracking-[0.22em] transition shadow-[0_0_32px_rgba(234,179,8,0.35)] hover:shadow-[0_0_48px_rgba(234,179,8,0.55)]"
+                        onClick={() => {
+                          setPendingAttestationAction("credits");
+                          setAttestationModalOpen(true);
+                        }}
+                        className="mt-2 w-full rounded-full px-6 py-3 text-[13px] font-bold uppercase tracking-[0.22em] transition shadow-[0_0_32px_rgba(234,179,8,0.35)] hover:shadow-[0_0_48px_rgba(234,179,8,0.55)]"
                         style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)", color: "#fff" }}
                       >
                         💳 {tx("Pay with Credits", "Оплатить кредитами", "Оплатити кредитами", "Mit Credits bezahlen", "Pagar con créditos")} —{" "}
@@ -20782,20 +20914,17 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     ) : (
                       <button
                         type="button"
-                        onClick={handleCheckout}
+                        onClick={() => {
+                          setPendingAttestationAction("checkout");
+                          setAttestationModalOpen(true);
+                        }}
                         disabled={
                           cart.length === 0 ||
-                          hasOutOfStockInCart ||
-                          !researchAccepted ||
-                          !qualifiedAccepted ||
-                          !termsAccepted
+                          hasOutOfStockInCart
                         }
-                        className={`mt-8 w-full rounded-full px-6 py-3 text-[13px] font-bold uppercase tracking-[0.22em] transition ${
+                        className={`mt-2 w-full rounded-full px-6 py-3 text-[13px] font-bold uppercase tracking-[0.22em] transition ${
                           cart.length === 0 ||
-                          hasOutOfStockInCart ||
-                          !researchAccepted ||
-                          !qualifiedAccepted ||
-                          !termsAccepted
+                          hasOutOfStockInCart
                             ? "cursor-not-allowed bg-white/50 text-black/50"
                             : "bg-white text-black hover:bg-white/90"
                         }`}
@@ -20810,10 +20939,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             : "Cart is empty"
                           : hasOutOfStockInCart
                           ? tx("Remove out-of-stock items", "Удалите недоступные товары", "Видаліть недоступні товари", "Nicht vorrätigen Artikel entfernen", "Eliminar artículos sin stock")
-                          : !researchAccepted ||
-                            !qualifiedAccepted ||
-                            !termsAccepted
-                          ? t("acceptTerms")
                           : t("proceedCheckout")}
                       </button>
                     )}
@@ -20842,13 +20967,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       </button>
                     </div>
 
-                    <div className="mt-5 rounded-[22px] border border-black/10 bg-black/5 p-4 md:mt-6 md:p-6">
-                      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between md:gap-3">
-                        <div className="min-w-0">
+                    <div className="mt-5 rounded-[22px] border border-black/10 bg-black/5 p-4 md:mt-6 md:flex md:h-[70px] md:items-center md:px-6 md:py-0">
+                      <div className="flex flex-col gap-2 md:w-full md:flex-row md:items-center md:justify-between md:gap-3">
+                        <div className="min-w-0 md:flex md:flex-col md:items-center">
                           <div className="text-[10px] uppercase tracking-[0.2em] text-black/50 md:text-[11px] md:tracking-[0.22em]">
                             {t("paymentDue")}
                           </div>
-                          <div className="mt-2 text-2xl font-semibold tracking-[-0.03em] md:text-4xl md:tracking-[-0.04em]">
+                          <div className="mt-2 text-2xl font-semibold tracking-[-0.03em] md:mt-1 md:text-4xl md:tracking-[-0.04em]">
                             {formatPricePrecise(finalTotal)}
                           </div>
                         </div>
@@ -20878,15 +21003,15 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         <div className="text-[13px] font-semibold uppercase tracking-[0.2em] text-black/50">
                           {t("choosePaymentMethod")}
                         </div>
-                        {/* ── MOBILE list (hidden on md+) ── */}
-                        <div className="md:hidden mt-3 flex flex-col gap-2 pt-2">
+                        {/* ── Payment method list (same style on all screen sizes) ── */}
+                        <div className="mt-3 grid grid-cols-1 gap-2 pt-2 md:w-full md:grid-cols-2 md:grid-flow-col md:grid-rows-3 md:gap-4">
 
                           {/* M1 — Stripe */}
                           <button
                             type="button"
                             disabled={stripeTemporarilyDisabled}
                             onClick={() => { if (stripeTemporarilyDisabled) return; setPaymentMethod("stripe"); requestAnimationFrame(() => { const el = choosePaymentMethodRef.current; if (!el) return; window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - 130), behavior: "auto" }); }); }}
-                            className={`relative flex items-center gap-3.5 rounded-2xl border px-4 py-3.5 text-left ${stripeTemporarilyDisabled ? "border-black/10 bg-white/60 cursor-not-allowed" : paymentMethod === "stripe" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                            className={`relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border px-4 py-3.5 md:py-1 text-left ${stripeTemporarilyDisabled ? "border-black/10 bg-white/60 cursor-not-allowed" : paymentMethod === "stripe" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
                           >
                             <div className="relative shrink-0">
                               <div className="flex h-10 w-10 items-center justify-center rounded-xl overflow-hidden" style={{background:"#635BFF"}}>
@@ -20912,10 +21037,21 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               </div>
                             </div>
                             <div className="flex-1 min-w-0 pr-7">
-                              <div className={`text-[14px] font-semibold leading-tight ${stripeTemporarilyDisabled ? "text-black/30" : ""}`}>Apple Pay · Google Pay · Cards · Stripe</div>
-                              <div className="mt-1.5 flex flex-nowrap items-center gap-1.5">
+                              <div className={`text-[14px] font-semibold leading-tight md:text-[12px] ${stripeTemporarilyDisabled ? "text-black/30" : ""}`}>Apple Pay · Google Pay · Cards · Stripe</div>
+                              <div className="mt-1.5 md:mt-0.5 flex flex-nowrap items-center gap-1.5">
                                 {stripeTemporarilyDisabled ? (
-                                  <span className="inline-flex rounded-md bg-gray-400 px-2 py-0.5 text-[11px] font-black text-white">Unavailable</span>
+                                  <div>
+                                    <span className="inline-flex rounded-md bg-gray-400 px-2 py-0.5 text-[11px] font-black text-white">Unavailable</span>
+                                    <div className="mt-1 md:mt-0 text-[10px] font-semibold leading-tight text-black/35">
+                                      {tx(
+                                        "We're looking for a new provider.",
+                                        "Мы ищем нового провайдера.",
+                                        "Ми шукаємо нового провайдера.",
+                                        "Wir suchen einen neuen Anbieter.",
+                                        "Estamos buscando un nuevo proveedor."
+                                      )}
+                                    </div>
+                                  </div>
                                 ) : (
                                   <>
                                     <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "stripe" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>No KYC</span>
@@ -20930,24 +21066,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           <button
                             type="button"
                             onClick={() => { setPaymentMethod("crypto"); requestAnimationFrame(() => { const el = choosePaymentMethodRef.current; if (!el) return; window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - 130), behavior: "auto" }); }); }}
-                            className={`relative flex items-center gap-3.5 rounded-2xl border px-4 py-3.5 text-left ${paymentMethod === "crypto" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                            className={`relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border px-4 py-3.5 md:py-1 text-left ${paymentMethod === "crypto" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
                           >
                             <div className="relative shrink-0">
-                              <div className="flex h-10 w-10 items-center justify-center rounded-xl overflow-hidden" style={{background:"#F7931A"}}>
-                                <svg width="20" height="24" viewBox="0 0 20 24" fill="none">
-                                  {/* Vertical serifs top */}
-                                  <rect x="7" y="0.5" width="2" height="3.5" rx="1" fill="white"/>
-                                  <rect x="12" y="0.5" width="2" height="3.5" rx="1" fill="white"/>
-                                  {/* Upper body */}
-                                  <path d="M5 4h7.5c2.5 0 4 1.2 4 3.2 0 1.6-1 2.6-2.4 3.1C15.8 11 17 12.3 17 14.2c0 2.5-1.8 4-5 4H5V4z" fill="white"/>
-                                  {/* Inner cutouts for B */}
-                                  <rect x="7.5" y="6" width="4" height="3.5" rx="1.2" fill="#F7931A"/>
-                                  <rect x="7.5" y="11.2" width="4.5" height="4" rx="1.2" fill="#F7931A"/>
-                                  {/* Vertical serifs bottom */}
-                                  <rect x="7" y="20" width="2" height="3.5" rx="1" fill="white"/>
-                                  <rect x="12" y="20" width="2" height="3.5" rx="1" fill="white"/>
-                                </svg>
-                              </div>
+                              <img src={bitcoinLogo} alt="" className="h-10 w-10 object-contain" />
                               <span className={`absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-sm px-1 py-px text-[9px] font-black uppercase tracking-[0.06em] ${paymentMethod === "crypto" ? "bg-emerald-500/40 text-emerald-200" : "bg-emerald-500 text-white"}`}>★ Best</span>
                             </div>
                             <div className="flex-1 min-w-0">
@@ -20965,20 +21087,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             const cashAppEnabled = !cashAppOverLimit;
                             return cashAppEnabled ? (
                               <button type="button" onClick={() => setPaymentMethod("cashapp")}
-                                className={`relative flex items-center gap-3.5 rounded-2xl border px-4 py-3.5 text-left ${paymentMethod === "cashapp" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                                className={`relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border px-4 py-3.5 md:py-1 text-left ${paymentMethod === "cashapp" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
                               >
                                 <div className="relative shrink-0">
-                                  <div className="flex h-10 w-10 items-center justify-center rounded-xl overflow-hidden" style={{background:"#00D64F"}}>
-                                    <svg width="16" height="24" viewBox="0 0 16 24" fill="none">
-                                      {/* Top tick */}
-                                      <rect x="6.5" y="0" width="2.5" height="3.5" rx="1.25" fill="white"/>
-                                      {/* Dollar sign path */}
-                                      <path d="M12.5 7C12.5 5.3 10.8 4 8 4S3.5 5.3 3.5 7c0 2 1.5 3 3.5 3.8l2 .9c2 .9 3.5 2 3.5 4.3 0 2-1.8 3.5-4.5 3.8" stroke="white" strokeWidth="2.2" strokeLinecap="round"/>
-                                      <path d="M3.5 17c0 1.8 1.8 3 4.5 3s4.5-1.2 4.5-3" stroke="white" strokeWidth="2.2" strokeLinecap="round"/>
-                                      {/* Bottom tick */}
-                                      <rect x="6.5" y="20.5" width="2.5" height="3.5" rx="1.25" fill="white"/>
-                                    </svg>
-                                  </div>
+                                  <img src={cashAppLogo} alt="" className="h-10 w-10 rounded-xl object-contain" />
                                   <span className={`absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-sm px-1 py-px text-[9px] font-black uppercase tracking-[0.06em] ${paymentMethod === "cashapp" ? "bg-emerald-500/40 text-emerald-200" : "bg-emerald-500 text-white"}`}>★ Best</span>
                                 </div>
                                 <div className="flex-1 min-w-0">
@@ -20990,15 +21102,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                 {paymentMethod === "cashapp" && <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500"><svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>}
                               </button>
                             ) : (
-                              <button type="button" disabled className="relative flex items-center gap-3.5 rounded-2xl border border-black/10 bg-white/60 px-4 py-3.5 text-left cursor-not-allowed">
-                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl overflow-hidden opacity-40" style={{background:"#00D64F"}}>
-                                  <svg width="16" height="24" viewBox="0 0 16 24" fill="none">
-                                    <rect x="6.5" y="0" width="2.5" height="3.5" rx="1.25" fill="white"/>
-                                    <path d="M12.5 7C12.5 5.3 10.8 4 8 4S3.5 5.3 3.5 7c0 2 1.5 3 3.5 3.8l2 .9c2 .9 3.5 2 3.5 4.3 0 2-1.8 3.5-4.5 3.8" stroke="white" strokeWidth="2.2" strokeLinecap="round"/>
-                                    <path d="M3.5 17c0 1.8 1.8 3 4.5 3s4.5-1.2 4.5-3" stroke="white" strokeWidth="2.2" strokeLinecap="round"/>
-                                    <rect x="6.5" y="20.5" width="2.5" height="3.5" rx="1.25" fill="white"/>
-                                  </svg>
-                                </div>
+                              <button type="button" disabled className="relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border border-black/10 bg-white/60 px-4 py-3.5 md:py-1 text-left cursor-not-allowed">
+                                <img src={cashAppLogo} alt="" className="h-10 w-10 shrink-0 rounded-xl object-contain opacity-40" />
                                 <div className="flex-1 min-w-0">
                                   <div className="text-[14px] font-semibold text-black/30">Cash App</div>
                                   <div className="mt-1.5">
@@ -21011,21 +21116,14 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
                           {/* M4 — Paylio */}
                           <button type="button" onClick={() => setPaymentMethod("paylio")}
-                            className={`relative flex items-center gap-3.5 rounded-2xl border px-4 py-3.5 text-left ${paymentMethod === "paylio" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                            className={`relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border px-4 py-3.5 md:py-1 text-left ${paymentMethod === "paylio" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
                           >
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl overflow-hidden" style={{background:"#003087"}}>
-                              <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-                                {/* PayPal-style P */}
-                                <path d="M5 3h7.5c3.2 0 5.2 1.8 4.8 4.8C16.8 11 14.2 13 11 13H8.5L7.5 19H4L5 3z" fill="white" fillOpacity="0.95"/>
-                                {/* Inner cutout */}
-                                <path d="M7.5 5.5h4.5c1.8 0 2.8.8 2.5 2.8C14.2 10.2 12.8 11 11 11H8L7.5 5.5z" fill="#003087"/>
-                                {/* Second shadow P */}
-                                <path d="M8.5 7.5h3.8c3 0 5 1.5 4.5 4.5-.4 2.5-2.5 4-5 4H10l-1 5H6.5l2-13.5z" fill="white" fillOpacity="0.4"/>
-                              </svg>
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white">
+                              <img src={paypalMark} alt="" className="h-9 w-9 object-contain" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="text-[14px] font-semibold leading-snug">PayPal (US), Apple Pay,<br/>Google Pay, Cards</div>
-                              <div className="mt-1.5 flex flex-nowrap items-center gap-1.5">
+                              <div className="text-[14px] font-semibold leading-snug md:text-[12px]">PayPal (US), Apple Pay,<br/>Google Pay, Cards</div>
+                              <div className="mt-1.5 md:mt-0.5 flex flex-nowrap items-center gap-1.5">
                                 <span className="shrink-0 inline-flex rounded-md bg-sky-500 px-1.5 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] text-white">KYC Required</span>
                               </div>
                             </div>
@@ -21034,7 +21132,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
                           {/* M5 — Wire */}
                           <button type="button" onClick={() => setPaymentMethod("wire")}
-                            className={`relative flex items-center gap-3.5 rounded-2xl border px-4 py-3.5 text-left ${paymentMethod === "wire" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                            className={`relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border px-4 py-3.5 md:py-1 text-left ${paymentMethod === "wire" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
                           >
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl overflow-hidden" style={{background:"#1e293b"}}>
                               <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
@@ -21065,7 +21163,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         </div>
 
                         {/* ── DESKTOP grid (hidden below md, original layout) ── */}
-                        <div className="hidden md:grid md:grid-cols-5 gap-3 mt-3 pt-4">
+                        <div className="hidden">
                           {/* 1 — Stripe / Apple Pay / Google Pay */}
                           <button
                             type="button"
@@ -21095,6 +21193,17 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             </div>
                             <div className="mt-2 flex flex-col items-center gap-0.5">
                               <div className={`text-sm font-black uppercase tracking-[0.1em] ${stripeTemporarilyDisabled ? "text-black/25" : paymentMethod === "stripe" ? "text-white" : "text-black/70"}`}>FEE 2.95%</div>
+                              {stripeTemporarilyDisabled && (
+                                <div className="mt-1 max-w-[145px] text-[9px] font-semibold leading-[1.25] text-black/30">
+                                  {tx(
+                                    "We're looking for a new provider.",
+                                    "Мы ищем нового провайдера.",
+                                    "Ми шукаємо нового провайдера.",
+                                    "Wir suchen einen neuen Anbieter.",
+                                    "Estamos buscando un nuevo proveedor."
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </button>
                           {/* 2 — Crypto (BEST OPTION) */}
@@ -21208,7 +21317,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         {paymentMethod === "cashapp" && (
                           <div className="mt-6 rounded-[1.8rem] border border-black/10 bg-white p-4 shadow-[0_20px_50px_rgba(0,0,0,0.05)] md:p-5">
                             <div className="flex items-center gap-3 mb-4">
-                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#00D64F] text-base font-black text-white shadow-[0_10px_30px_rgba(0,214,79,0.25)] md:h-11 md:w-11 md:text-lg">$</div>
+                              <img src={cashAppLogo} alt="" className="h-10 w-10 shrink-0 rounded-2xl shadow-[0_10px_30px_rgba(0,214,79,0.25)] md:h-11 md:w-11" />
                               <div>
                                 <div className="text-[15px] font-semibold tracking-[-0.02em] text-black md:text-[18px]">Cash App</div>
                               </div>
@@ -21243,15 +21352,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         <div style={{ display: paymentMethod === "paylio" ? undefined : "none" }}>
                           <div>
                             <div className="mt-6 rounded-[1.4rem] border border-black/10 bg-black/[0.03] p-4 md:p-5">
-                              <div className="text-[10px] uppercase tracking-[0.2em] text-black/50 md:text-[11px] md:tracking-[0.22em]">
-                                {tx("Payment amount", "Сумма оплаты", "Сума оплати", "Zahlungsbetrag", "Importe del pago")}
-                              </div>
-                              <div className="mt-2 text-3xl font-semibold tracking-[-0.03em] text-black md:text-4xl md:tracking-[-0.04em]">
-                                {formatPricePrecise(finalTotal)}
-                              </div>
-
                               {/* Mobile: 3-column compact grid */}
-                              <div className="mt-3 grid grid-cols-3 gap-1 md:hidden">
+                              <div className="grid grid-cols-3 gap-1 md:hidden">
                                 {[
                                   { label: (<span className="flex items-center gap-0.5 justify-center"><svg width="20" height="7" viewBox="0 0 72 23" fill="none"><path d="M30.5 22H24.2L28.1 1H34.4L30.5 22ZM20.4 1L14.4 15.4L13.7 11.8L11.6 3.2C11.6 3.2 11.3 1 8.9 1H0.1L0 1.4C0 1.4 2.6 1.9 5.7 3.8L11.2 22H17.8L27.4 1H20.4ZM66.6 22H72.4L67.3 1H62.2C60.2 1 59.7 2.5 59.7 2.5L50.8 22H57.4L58.7 18.5H66.8L66.6 22ZM60.5 13.6L63.7 5L65.6 13.6H60.5ZM51 6.8L51.9 1.7C51.9 1.7 49.5 0.8 47 0.8C44.3 0.8 37.9 2 37.9 7.7C37.9 13.1 45.6 13.2 45.6 16.1C45.6 19 38.8 18.4 36.6 16.6L35.7 22C35.7 22 38.2 23.2 42 23.2C45.9 23.2 51 21.3 51 16.1C51 10.7 43.2 10.2 43.2 7.7C43.2 5.3 48.4 5.6 51 6.8Z" fill="#1A1F71"/></svg><span className="text-[10px] font-semibold text-black/60">Visa</span></span>), cls: "bg-white border-black/10" },
                                   { label: (<span className="flex items-center gap-0.5 justify-center"><svg width="16" height="10" viewBox="0 0 38 24"><circle cx="13" cy="12" r="11" fill="#EB001B"/><circle cx="25" cy="12" r="11" fill="#F79E1B"/><path d="M19 4.8A11 11 0 0 1 23.3 12 11 11 0 0 1 19 19.2 11 11 0 0 1 14.7 12 11 11 0 0 1 19 4.8z" fill="#FF5F00"/></svg><span className="text-[10px] font-semibold text-black/60">Card</span></span>), cls: "bg-white border-black/10" },
@@ -21264,7 +21366,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                 ))}
                               </div>
                               {/* Desktop: original two flex-wrap rows */}
-                              <div className="mt-4 hidden md:flex md:flex-col md:gap-2">
+                              <div className="hidden md:flex md:flex-col md:gap-2">
                                 <div className="flex flex-wrap gap-2">
                                   {[
                                     { label: (<span className="flex items-center gap-1.5"><svg width="30" height="10" viewBox="0 0 72 23" fill="none"><path d="M30.5 22H24.2L28.1 1H34.4L30.5 22ZM20.4 1L14.4 15.4L13.7 11.8L11.6 3.2C11.6 3.2 11.3 1 8.9 1H0.1L0 1.4C0 1.4 2.6 1.9 5.7 3.8L11.2 22H17.8L27.4 1H20.4ZM66.6 22H72.4L67.3 1H62.2C60.2 1 59.7 2.5 59.7 2.5L50.8 22H57.4L58.7 18.5H66.8L66.6 22ZM60.5 13.6L63.7 5L65.6 13.6H60.5ZM51 6.8L51.9 1.7C51.9 1.7 49.5 0.8 47 0.8C44.3 0.8 37.9 2 37.9 7.7C37.9 13.1 45.6 13.2 45.6 16.1C45.6 19 38.8 18.4 36.6 16.6L35.7 22C35.7 22 38.2 23.2 42 23.2C45.9 23.2 51 21.3 51 16.1C51 10.7 43.2 10.2 43.2 7.7C43.2 5.3 48.4 5.6 51 6.8Z" fill="#1A1F71"/></svg><span className="text-[12px] font-semibold text-black/60">Visa</span></span>), cls: "bg-white border-black/10" },
@@ -21303,7 +21405,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                     <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10" strokeOpacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round"/></svg>
                                     {tx("Loading…", "Загрузка…", "Завантаження…", "Laden…", "Cargando…")}
                                   </span>
-                                ) : tx("Continue to secure card payment", "Перейти к безопасной оплате", "Перейти до безпечної оплати", "Zur sicheren Kartenzahlung", "Continuar al pago seguro con tarjeta")}
+                                ) : `${tx("Continue to secure card payment", "Перейти к безопасной оплате", "Перейти до безпечної оплати", "Zur sicheren Kartenzahlung", "Continuar al pago seguro con tarjeta")} ${finalTotal.toFixed(2)}$`}
                               </button>
                               <div className="mt-3 text-center text-[12px] leading-5 text-black/40">
                                 {tx(
@@ -21538,23 +21640,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         {paymentMethod === "crypto" && (
                           <>
                             <div className="mt-6 rounded-[1.8rem] border border-black/10 bg-white p-4 shadow-[0_20px_50px_rgba(0,0,0,0.05)] md:p-5">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <div className="text-[12px] text-black/50 md:text-[13px]">
-                                    {t("amountDue")}
-                                  </div>
-                                  <div className="mt-0.5 text-[20px] font-semibold text-black md:text-[22px]">
-                                    {formatPricePrecise(finalTotal)}
-                                  </div>
-                                </div>
-                                <div className="shrink-0 pt-1">
-                                  <div className="inline-flex rounded-full bg-[#fff3df] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#c97a00] md:px-4 md:py-2 md:text-[13px] md:tracking-[0.14em]">
-                                    {t("waitingForPayment")}
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="mt-8">
+                              <div>
                                 <div className="text-[14px] text-black/70">
                                   {t("chooseCurrency")}
                                 </div>
@@ -21722,11 +21808,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               <button
                                 type="button"
                                 onClick={createNowPayment}
-                                className="mt-8 w-full rounded-full bg-[#ff9800] px-6 py-5 text-[18px] font-semibold text-white transition hover:brightness-95"
+                                className="mt-8 w-full rounded-full bg-[#ff9800] px-6 py-5 text-[18px] font-semibold text-black transition hover:brightness-95"
                               >
                                 {nowPaymentLoading
                                   ? t("creatingPayment")
-                                  : t("continueToPayment")}
+                                  : `${t("continueToPayment")} ${finalTotal.toFixed(2)}$`}
                               </button>
 
                               <label className="mt-4 flex items-center gap-3 text-[15px] text-black/80">
@@ -22010,6 +22096,132 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     className="shrink-0 rounded-full bg-white px-5 py-3 text-[13px] font-bold uppercase tracking-[0.22em] text-black transition hover:bg-white/90"
                   >
                     {t("proceedCheckout")}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {attestationModalOpen && (
+              <div
+                className="fixed inset-0 z-[10020] flex items-end justify-center bg-black/80 px-0 sm:items-center sm:px-4"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="purchaser-attestation-title"
+                onMouseDown={(event) => {
+                  if (event.target === event.currentTarget) setAttestationModalOpen(false);
+                }}
+              >
+                <div
+                  ref={termsSectionRef}
+                  className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-t-[2rem] border border-white/20 bg-[#858585] p-5 shadow-[0_28px_90px_rgba(0,0,0,0.45)] sm:rounded-[2rem] sm:p-8"
+                >
+                  <div className="mb-6 flex items-start justify-between gap-4">
+                    <div>
+                      <h2 id="purchaser-attestation-title" className="text-xl font-bold uppercase tracking-[0.16em] text-white sm:text-2xl">
+                        {tx("Purchaser attestation", "Подтверждение покупателя", "Підтвердження покупця", "Käuferbestätigung", "Declaración del comprador")}
+                      </h2>
+                      <p className="mt-2 text-[11px] uppercase leading-5 tracking-[0.14em] text-white/70">
+                        {tx(
+                          "All confirmations are required before checkout.",
+                          "Для перехода к оплате необходимы все подтверждения.",
+                          "Для переходу до оплати потрібні всі підтвердження.",
+                          "Vor dem Checkout sind alle Bestätigungen erforderlich.",
+                          "Todas las confirmaciones son obligatorias antes del pago."
+                        )}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setAttestationModalOpen(false)}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/25 text-xl text-white"
+                      aria-label="Close"
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label
+                      onPointerDown={(event) => toggleAttestationImmediately(event, attestationResearchRef)}
+                      onClick={preventAttestationDelayedToggle}
+                      className="flex cursor-pointer items-start gap-4 rounded-[1.35rem] border border-black/25 bg-black/25 px-5 py-5 text-[11px] uppercase leading-[1.75] tracking-[0.12em] text-white"
+                    >
+                      <input
+                        ref={attestationResearchRef}
+                        type="checkbox"
+                        defaultChecked={researchAccepted}
+                        onChange={syncAttestationConfirmButton}
+                        className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-black"
+                      />
+                      <span className="font-semibold">{i18n(legal.ageResearchCheckbox)}</span>
+                    </label>
+
+                    <label
+                      onPointerDown={(event) => toggleAttestationImmediately(event, attestationQualifiedRef)}
+                      onClick={preventAttestationDelayedToggle}
+                      className="flex cursor-pointer items-start gap-4 rounded-[1.35rem] border border-black/25 bg-black/25 px-5 py-5 text-[11px] uppercase leading-[1.75] tracking-[0.12em] text-white"
+                    >
+                      <input
+                        ref={attestationQualifiedRef}
+                        type="checkbox"
+                        defaultChecked={qualifiedAccepted}
+                        onChange={syncAttestationConfirmButton}
+                        className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-black"
+                      />
+                      <span className="font-semibold">{i18n(legal.qualifiedResearchCheckbox)}</span>
+                    </label>
+
+                    <label
+                      onPointerDown={(event) => toggleAttestationImmediately(event, attestationTermsRef)}
+                      onClick={preventAttestationDelayedToggle}
+                      className="flex cursor-pointer items-start gap-4 rounded-[1.35rem] border border-black/25 bg-black/25 px-5 py-5 text-[11px] uppercase leading-[1.75] tracking-[0.12em] text-white"
+                    >
+                      <input
+                        ref={attestationTermsRef}
+                        type="checkbox"
+                        defaultChecked={termsAccepted}
+                        onChange={syncAttestationConfirmButton}
+                        className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-black"
+                      />
+                      <span>
+                        {i18n(legal.termsCheckboxStart)}{" "}
+                        <a href="/terms-and-conditions" onClick={(event) => event.stopPropagation()} className="font-semibold text-white underline underline-offset-4">{i18n(legal.termsAndConditions)}</a>,{" "}
+                        <a href="/privacy-policy" onClick={(event) => event.stopPropagation()} className="font-semibold text-white underline underline-offset-4">{i18n(legal.privacyPolicy)}</a>,
+                        <br />
+                        <a href="/refund-policy" onClick={(event) => event.stopPropagation()} className="font-semibold text-white underline underline-offset-4">{i18n(legal.refundPolicy)}</a>,{" "}
+                        <a href="/shipping-policy" onClick={(event) => event.stopPropagation()} className="font-semibold text-white underline underline-offset-4">{i18n(legal.shippingPolicy)}</a>.
+                      </span>
+                    </label>
+                  </div>
+
+                  <button
+                    ref={attestationConfirmRef}
+                    type="button"
+                    onClick={() => {
+                      const attestation = {
+                        researchAccepted: Boolean(attestationResearchRef.current?.checked),
+                        qualifiedAccepted: Boolean(attestationQualifiedRef.current?.checked),
+                        termsAccepted: Boolean(attestationTermsRef.current?.checked),
+                      };
+                      if (!attestation.researchAccepted || !attestation.qualifiedAccepted || !attestation.termsAccepted) return;
+                      setResearchAccepted(attestation.researchAccepted);
+                      setQualifiedAccepted(attestation.qualifiedAccepted);
+                      setTermsAccepted(attestation.termsAccepted);
+                      setAttestationModalOpen(false);
+                      if (checkoutMessage) setCheckoutMessage("");
+                      if (pendingAttestationAction === "credits") {
+                        handlePayWithCredits(attestation);
+                      } else {
+                        handleCheckout(attestation);
+                      }
+                    }}
+                    className={`mt-6 w-full rounded-full px-6 py-4 text-[13px] font-bold uppercase tracking-[0.22em] ${
+                      researchAccepted && qualifiedAccepted && termsAccepted
+                        ? "bg-white text-black"
+                        : "cursor-not-allowed bg-white/45 text-black/45"
+                    }`}
+                  >
+                    {tx("Confirm & proceed to checkout", "Подтвердить и перейти к оплате", "Підтвердити та перейти до оплати", "Bestätigen und zum Checkout", "Confirmar y continuar al pago")}
                   </button>
                 </div>
               </div>

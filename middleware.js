@@ -4,11 +4,19 @@ const SITE_URL = "https://10bottlevalue.co";
 
 export const config = { matcher: "/(.*)" };
 
+function canonicalProductPath(path) {
+  return path
+    .replace(/^\/semaglutide-/, "/glp-1-s-")
+    .replace(/^\/tirzepatide-glp-2-/, "/glp-2-t-")
+    .replace(/^\/retatrutide-glp-3-/, "/glp-3-r-")
+    .replace(/^\/cagrilintide-semaglutide-/, "/cagrilintide-glp-1-s-");
+}
+
 function getProductPath(url) {
   const cleanPath = url.pathname === "/" ? "/" : url.pathname.replace(/\/+$/, "");
 
   if (PRODUCT_SEO_PATHS.has(cleanPath)) {
-    return cleanPath;
+    return canonicalProductPath(cleanPath);
   }
 
   // Older shared links used /?product=<slug>. Keep supporting them, but make
@@ -17,7 +25,7 @@ function getProductPath(url) {
     const legacySlug = (url.searchParams.get("product") || "").toLowerCase().trim();
     const legacyProductPath = `/${legacySlug}`;
     if (PRODUCT_SEO_PATHS.has(legacyProductPath)) {
-      return legacyProductPath;
+      return canonicalProductPath(legacyProductPath);
     }
   }
 

@@ -4,7 +4,6 @@ import {
   getAutomaticDiscountRate,
 } from "./_catalog.js";
 import { verifyPromoCode } from "./_promo.js";
-import { checkoutDescription } from "./_public-product-name.js";
 
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
@@ -186,7 +185,7 @@ export default async function handler(req, res) {
         amount: safeAmount,
         currency,
         email: finalEmail,
-        note: checkoutDescription(finalOrderId, pricedItems),
+        note: note || finalOrderId || "10BottleValueCo order",
         metadata: payload,
         ...(provider ? { provider } : {}),
       }),
