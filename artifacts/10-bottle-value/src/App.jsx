@@ -7,6 +7,7 @@ import { supabase, userFromSupabase } from "./supabase.js";
 import { track, trackPageView, setAnalyticsUser } from "./analytics.js";
 import { useSEO } from "./useSEO.js";
 import { catalogProductName, matchesProductSearch, productSlug as productSlugFor, publicProductName } from "./productNames.js";
+import { buildSupportTimeline } from "./support-timeline.js";
 import cashAppLogo from "./assets/payment-logos/cash-app.svg";
 import bitcoinLogo from "./assets/payment-logos/bitcoin.svg";
 import paypalMark from "./assets/payment-logos/paypal-mark.svg";
@@ -3882,6 +3883,8 @@ export default function App() {
   const ADMIN_PAGE_SIZE = 15;
   const [adminMessage, setAdminMessage] = useState("");
   const [contactModalOpen, setContactModalOpen] = useState(false);
+  const contactModalOpenRef = useRef(false);
+  contactModalOpenRef.current = contactModalOpen;
   const [contactForm, setContactForm] = useState({ name: "", email: "", message: "" });
   const [userEmojiOpen, setUserEmojiOpen] = useState(false);
   const [adminEmojiOpen, setAdminEmojiOpen] = useState(false);
@@ -3894,6 +3897,7 @@ export default function App() {
   const [adminMessages, setAdminMessages] = useState([]);
   const [emailCopied, setEmailCopied] = useState(false);
   const [adminMessagesLoading, setAdminMessagesLoading] = useState(false);
+  const adminSendingRef = useRef(false);
   const [adminReplyingId, setAdminReplyingId] = useState(null);
   const [adminReplyText, setAdminReplyText] = useState("");
   const [expandedThreadEmail, setExpandedThreadEmail] = useState(null);
@@ -3911,6 +3915,9 @@ export default function App() {
   const [msgReactions, setMsgReactions] = useState({});
   const [reactionPickerFor, setReactionPickerFor] = useState(null);
   const [userInboxLoading, setUserInboxLoading] = useState(false);
+  const [userInboxError, setUserInboxError] = useState("");
+  const userInboxRequestIdRef = useRef(0);
+  const userInboxEmailRef = useRef("");
   const [expandedMsgId, setExpandedMsgId] = useState(null);
   const [contactComposeOpen, setContactComposeOpen] = useState(false);
 
@@ -4107,11 +4114,11 @@ export default function App() {
   }, [currentUser?.email]);
 
   useEffect(() => {
-    if (!currentUser?.email) return;
+    if (!currentUser?.email || contactModalOpen) return;
     loadUserInbox(false);
     const pid = window.setInterval(() => loadUserInbox(true), 10000);
     return () => window.clearInterval(pid);
-  }, [currentUser?.email]);
+  }, [currentUser?.email, contactModalOpen]);
 
   useEffect(() => {
     if (currentUser?.email && (page === "account" || page === "checkout")) loadStoreCredit(currentUser.email);
@@ -4124,8 +4131,8 @@ export default function App() {
       setAdminIsTyping(false);
       return;
     }
-    loadUserInbox(true);
-    const pid = window.setInterval(() => loadUserInbox(true), 10000);
+    loadUserInbox(false, true);
+    const pid = window.setInterval(() => loadUserInbox(true, true), 10000);
     const email = (currentUser?.email || contactForm.email.trim() || "").toLowerCase();
     if (email) setupTypingChannel(email);
     return () => {
@@ -4330,22 +4337,33 @@ export default function App() {
     loadUserInbox();
   }
 
+  function showAdminDeliveryMessage(text, duration = 10000) {
+    setAdminMessage(text);
+    clearTimeout(window.__tbvAdminMessageTimeout);
+    window.__tbvAdminMessageTimeout = setTimeout(() => setAdminMessage(""), duration);
+  }
+
   async function sendImageAsAdminMessage(url, toEmail, lastUnanswered, fileName, isPdf, isVideo) {
+    if (adminSendingRef.current) { showAdminDeliveryMessage("Wait for the current support message to finish."); return; }
+    adminSendingRef.current = true;
     const fileTag = isVideo ? `[VIDEO:${url}]` : isPdf ? `[FILE:${url}:${fileName || 'document.pdf'}]` : `[IMAGE:${url}]`;
     const quotePrefix = adminReplyPreview ? `[QUOTE:${encodeURIComponent(JSON.stringify(adminReplyPreview))}]` : "";
     const tag = quotePrefix + fileTag;
     try {
       if (lastUnanswered) {
-        const { error } = await supabase.from("contact_messages").update({ admin_reply: tag, replied_at: new Date().toISOString() }).eq("id", lastUnanswered.id);
+        const { data, error } = await supabase.from("contact_messages").update({ admin_reply: tag, replied_at: new Date().toISOString(), user_read_at: null }).eq("id", lastUnanswered.id).select("id").single();
         if (error) throw new Error(error.message);
       } else {
-        const { error } = await supabase.from("contact_messages").insert({ name: "Support", email: toEmail.trim().toLowerCase(), message: "[Admin initiated message]", admin_reply: tag, replied_at: new Date().toISOString(), user_read_at: null });
+        const { data, error } = await supabase.from("contact_messages").insert({ name: "Support", email: toEmail.trim().toLowerCase(), message: "[Admin initiated message]", admin_reply: tag, replied_at: new Date().toISOString(), user_read_at: null }).select("id").single();
         if (error) throw new Error(error.message);
       }
       setAdminReplyPreview(null);
       loadAdminMessages();
+      showAdminDeliveryMessage("Message saved in the site's Support inbox.");
     } catch (err) {
       alert('Send failed: ' + err.message);
+    } finally {
+      adminSendingRef.current = false;
     }
   }
 
@@ -4528,45 +4546,58 @@ export default function App() {
   }
 
   async function sendAdminReply(id, { isEdit = false } = {}) {
-    if (!adminReplyText.trim()) return;
+    if (!adminReplyText.trim() || adminSendingRef.current) return;
+    adminSendingRef.current = true;
     try {
       const quotePrefix = (!isEdit && adminReplyPreview) ? `[QUOTE:${encodeURIComponent(JSON.stringify(adminReplyPreview))}]` : "";
-      const { error: patchErr } = await supabase
+      const reply = quotePrefix + adminReplyText.trim();
+      const change = { admin_reply: reply, replied_at: new Date().toISOString(), ...(!isEdit && { user_read_at: null }) };
+      const { data, error: patchErr } = await supabase
         .from("contact_messages")
-        .update({ admin_reply: quotePrefix + adminReplyText.trim(), replied_at: new Date().toISOString(), user_read_at: null })
-        .eq("id", id);
+        .update(change)
+        .eq("id", id)
+        .select("id")
+        .single();
       if (patchErr) throw new Error(patchErr.message);
       setAdminReplyingId(null);
       setAdminReplyText("");
       setAdminReplyPreview(null);
       loadAdminMessages();
+      showAdminDeliveryMessage(isEdit ? "Reply updated in the site's Support inbox." : "Reply saved in the site's Support inbox.");
     } catch (err) {
       setAdminMessage(`Reply failed: ${err.message}`);
       clearTimeout(window.__tbvAdminMessageTimeout);
       window.__tbvAdminMessageTimeout = setTimeout(() => setAdminMessage(""), 8000);
+    } finally {
+      adminSendingRef.current = false;
     }
   }
 
   async function sendAdminFollowUp(toEmail) {
-    if (!adminReplyText.trim()) return;
+    if (!adminReplyText.trim() || adminSendingRef.current) return;
+    adminSendingRef.current = true;
     try {
       const quotePrefix = adminReplyPreview ? `[QUOTE:${encodeURIComponent(JSON.stringify(adminReplyPreview))}]` : "";
-      const { error } = await supabase.from("contact_messages").insert({
+      const reply = quotePrefix + adminReplyText.trim();
+      const { data, error } = await supabase.from("contact_messages").insert({
         name: "Support",
         email: toEmail.trim().toLowerCase(),
         message: "[Admin initiated message]",
-        admin_reply: quotePrefix + adminReplyText.trim(),
+        admin_reply: reply,
         replied_at: new Date().toISOString(),
         user_read_at: null,
-      });
+      }).select("id").single();
       if (error) throw new Error(error.message);
       setAdminReplyText("");
       setAdminReplyPreview(null);
       loadAdminMessages();
+      showAdminDeliveryMessage("Message saved in the site's Support inbox.");
     } catch (err) {
       setAdminMessage(`Send failed: ${err.message}`);
       clearTimeout(window.__tbvAdminMessageTimeout);
       window.__tbvAdminMessageTimeout = setTimeout(() => setAdminMessage(""), 8000);
+    } finally {
+      adminSendingRef.current = false;
     }
   }
 
@@ -4613,65 +4644,105 @@ export default function App() {
     setHasUnreadReply((data || []).length > 0);
   }
 
-  async function markRepliesRead() {
-    if (!currentUser?.email) return;
-    await supabase
+  async function markRepliesRead(messages, email) {
+    const unreadIds = messages.filter((m) => m.admin_reply && !m.user_read_at).map((m) => m.id);
+    if (!unreadIds.length) return;
+    const { data, error } = await supabase
       .from("contact_messages")
       .update({ user_read_at: new Date().toISOString() })
-      .eq("email", currentUser.email.toLowerCase())
-      .is("user_read_at", null);
-    setHasUnreadReply(false);
+      .eq("email", email)
+      .in("id", unreadIds)
+      .is("user_read_at", null)
+      .select("id,user_read_at");
+    if (error) {
+      console.error("Support read status update failed:", error);
+      return;
+    }
+    if (!data?.length || userInboxEmailRef.current !== email) return;
+    const markedIds = new Set(data.map((m) => m.id));
+    setUserInboxMessages((prev) => prev.map((m) =>
+      markedIds.has(m.id) ? { ...m, user_read_at: data.find((row) => row.id === m.id).user_read_at } : m
+    ));
+    setHasUnreadReply(messages.some((m) => m.admin_reply && !m.user_read_at && !markedIds.has(m.id)));
   }
 
   async function sendAdminCompose() {
-    if (!adminComposeTo.trim() || !adminComposeText.trim()) return;
+    if (!adminComposeTo.trim() || !adminComposeText.trim() || adminSendingRef.current) return;
+    const recipient = normalizeEmail(adminComposeTo);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+      showAdminDeliveryMessage("Enter a valid account email for this site message.");
+      return;
+    }
+    adminSendingRef.current = true;
     setAdminComposeSending(true);
-    const { error } = await supabase.from("contact_messages").insert({
-      name: "Support",
-      email: adminComposeTo.trim().toLowerCase(),
-      message: "[Admin initiated message]",
-      admin_reply: adminComposeText.trim(),
-      replied_at: new Date().toISOString(),
-      user_read_at: null,
-    });
-    setAdminComposeSending(false);
-    if (error) {
-      setAdminMessage(`Send failed: ${error.message}`);
-      clearTimeout(window.__tbvAdminMessageTimeout);
-      window.__tbvAdminMessageTimeout = setTimeout(() => setAdminMessage(""), 6000);
-    } else {
-      const sentTo = adminComposeTo.trim().toLowerCase();
+    try {
+      const reply = adminComposeText.trim();
+      const { data, error } = await supabase.from("contact_messages").insert({
+        name: "Support",
+        email: recipient,
+        message: "[Admin initiated message]",
+        admin_reply: reply,
+        replied_at: new Date().toISOString(),
+        user_read_at: null,
+      }).select("id").single();
+      if (error) throw new Error(error.message);
       setAdminComposeTo("");
       setAdminComposeText("");
       setAdminComposeOpen(false);
-      setAdminMessage(`✓ Sent to ${sentTo} — they'll see it via "Message us" on their account page`);
-      clearTimeout(window.__tbvAdminMessageTimeout);
-      window.__tbvAdminMessageTimeout = setTimeout(() => setAdminMessage(""), 6000);
       loadAdminMessages();
       checkUnreadReply();
+      showAdminDeliveryMessage(`Message saved for ${recipient}. It appears in the site's Support chat under that account.`);
+    } catch (error) {
+      showAdminDeliveryMessage(`Send failed: ${error.message}`);
+    } finally {
+      setAdminComposeSending(false);
+      adminSendingRef.current = false;
     }
   }
 
-  async function loadUserInbox(silent = false) {
-    // Logged-in users use their account email; guests fall back to whatever email
-    // they last sent a message from (saved in localStorage), so their thread
-    // survives a page reload / modal reopen instead of vanishing.
-    let email = currentUser?.email || "";
+  async function loadUserInbox(silent = false, markVisibleRead = false) {
+    // Logged-in users use their account email; guests use the entered email,
+    // falling back to the last saved guest email after a reload.
+    let email = currentUser?.email || contactForm.email.trim();
     if (!email) {
       try { email = window.localStorage.getItem("tbv_guest_email") || ""; } catch {}
     }
-    if (!email) return;
-    email = email.toLowerCase();
+    if (!email) {
+      userInboxRequestIdRef.current += 1;
+      userInboxEmailRef.current = "";
+      setUserInboxMessages([]);
+      setUserInboxError("");
+      setUserInboxLoading(false);
+      return;
+    }
+    email = email.trim().toLowerCase();
+    if (userInboxEmailRef.current !== email) {
+      userInboxEmailRef.current = email;
+      setUserInboxMessages([]);
+      setUserInboxError("");
+      setHasUnreadReply(false);
+    }
+    const requestId = ++userInboxRequestIdRef.current;
     if (!silent) setUserInboxLoading(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("contact_messages")
       .select("*")
       .eq("email", email)
       .order("created_at", { ascending: true });
-    const msgs = data || [];
-    setUserInboxMessages(msgs);
-    setHasUnreadReply(msgs.some(m => m.admin_reply && !m.user_read_at));
+    if (requestId !== userInboxRequestIdRef.current) return;
+    if (error) {
+      console.error("Support inbox load failed:", error);
+      setUserInboxError("Messages could not be loaded. Please try again.");
+      setUserInboxLoading(false);
+      return;
+    }
+    setUserInboxError("");
+    setUserInboxMessages(data || []);
+    setHasUnreadReply((data || []).some(m => m.admin_reply && !m.user_read_at));
     setUserInboxLoading(false);
+    if (markVisibleRead && contactModalOpenRef.current && currentUser?.email?.toLowerCase() === email) {
+      markRepliesRead(data || [], email).catch((readError) => console.error("Support read status update failed:", readError));
+    }
     loadReactions();
   }
 
@@ -11942,11 +12013,18 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
             {/* Chat messages area */}
             <div ref={inboxScrollRef} className="flex-1 overflow-y-auto overscroll-contain mx-4 mb-2 flex flex-col gap-2.5 rounded-2xl border border-white/8 bg-black/25 px-3 pt-3 pb-3 min-h-[120px] [&::-webkit-scrollbar]:w-[6px] [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/40 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-white/60">
-              {userInboxMessages.length === 0 && (
+              {userInboxError && (
+                <div role="alert" className="rounded-xl border border-red-300/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+                  {userInboxError} <button type="button" onClick={() => loadUserInbox(false)} className="font-bold underline">Retry</button>
+                </div>
+              )}
+              {userInboxLoading && userInboxMessages.length === 0 && !userInboxError && (
+                <div className="py-10 text-center text-white/50 text-sm">Loading messages…</div>
+              )}
+              {!userInboxLoading && !userInboxError && userInboxMessages.length === 0 && (
                 <div className="py-10 text-center text-white/25 text-sm">No messages yet — send us one below!</div>
               )}
-              {userInboxMessages.map((msg) => {
-                const isAdminInit = msg.message === "[Admin initiated message]";
+              {buildSupportTimeline(userInboxMessages).map(({ msg, type }) => {
                 const fmt = (d) => d ? new Date(d).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
                 const USER_REACTION_EMOJIS = ["👍","❤️","😂","😮","😢","👏"];
                 const rKeySent = `usr_sent_${msg.id}`;
@@ -11954,8 +12032,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 const activeSent = Object.entries(msgReactions[rKeySent] || {}).filter(([,v]) => v).map(([e]) => e);
                 const activeRcvd = Object.entries(msgReactions[rKeyRcvd] || {}).filter(([,v]) => v).map(([e]) => e);
                 return (
-                  <div key={msg.id} className="flex flex-col gap-1.5">
-                    {!isAdminInit && (
+                  <div key={`${type}-${msg.id}`} className="flex flex-col gap-1.5">
+                    {type === "sent" && (
                       <div className="flex justify-end items-end gap-1.5 group">
                         {/* Edit / delete actions — only for unanswered messages */}
                         {editingMsgId !== msg.id && (
@@ -12008,8 +12086,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-white/30">
                                 <span>{fmt(msg.created_at)}</span>
                                 {msg.admin_reply
-                                  ? <span className="text-emerald-400 font-bold tracking-[-0.05em]">✓✓</span>
-                                  : <span className="opacity-50">✓</span>}
+                                  ? <span title="Support replied in the site inbox — not an email delivery receipt" className="text-emerald-400 font-bold tracking-[-0.05em]">✓✓</span>
+                                  : <span title="Saved in the site inbox — not an email delivery receipt" className="opacity-50">✓</span>}
                               </div>
                             </div>
                             {activeSent.length > 0 && (
@@ -12023,7 +12101,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         )}
                       </div>
                     )}
-                    {msg.admin_reply && (
+                    {type === "received" && (
                       <div className="flex items-end gap-2 group">
                         <div className="w-6 h-6 rounded-full bg-emerald-400/20 flex items-center justify-center text-[10px] text-emerald-300 font-bold shrink-0 mb-0.5 self-end">S</div>
                         <div className="group flex flex-col items-start gap-1 max-w-[80%]">
@@ -12049,7 +12127,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         </div>
                       </div>
                     )}
-                    {!isAdminInit && !msg.admin_reply && (
+                    {type === "sent" && !msg.admin_reply && (
                       <p className="text-right text-[10px] text-white/25 pr-1 italic">Waiting for reply…</p>
                     )}
                   </div>
@@ -16197,6 +16275,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   {adminComposeOpen && (
                     <div className="mt-5 rounded-[1.5rem] border border-emerald-400/25 bg-emerald-400/5 p-5">
                       <div className="text-[11px] uppercase tracking-[0.22em] text-emerald-300 mb-3">New Message to User</div>
+                      <p className="mb-3 text-xs text-white/55">This message appears in the site's Support chat for the account email below. It does not send an email.</p>
                       <div className="flex flex-col gap-3">
                         <input
                           type="email"
@@ -16376,8 +16455,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                                     <button onClick={() => { setAdminReplyingId(msg.id); setAdminReplyText(stripQuoteMarker(msg.admin_reply) || ""); setAdminReplyPreview(null); }} className="text-[10px] text-white/40 hover:text-white transition-colors">edit</button>
                                                     <button onClick={() => { if (window.confirm("Delete this reply?")) deleteAdminReply(msg.id); }} className="text-[10px] text-white/40 hover:text-red-300 transition-colors">delete</button>
                                                     {msg.user_read_at
-                                                      ? <span title={`Read ${ds(msg.user_read_at)}`} className="text-[13px] text-blue-400 font-black tracking-[-0.05em] ml-0.5">✓✓</span>
-                                                      : <span className="text-[13px] text-white/55 font-black tracking-[-0.05em] ml-0.5">✓</span>}
+                                                       ? <span title={`Customer opened Support messages ${ds(msg.user_read_at)} — not proof they saw this bubble`} className="text-[13px] text-blue-400 font-black tracking-[-0.05em] ml-0.5">✓✓</span>
+                                                       : <span title="Saved in site inbox — not an email delivery receipt" className="text-[13px] text-white/55 font-black tracking-[-0.05em] ml-0.5">✓</span>}
                                                   </div>
                                                 </div>
                                                 {activeReactionsOut.length > 0 && (
@@ -17985,7 +18064,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
                     <button
                       type="button"
-                      onClick={() => { if (currentUser?.email) setContactForm((f) => ({ ...f, email: f.email || currentUser.email })); setContactModalOpen(true); loadUserInbox(); if (hasUnreadReply) markRepliesRead(); }}
+                      onClick={() => { if (currentUser?.email) setContactForm((f) => ({ ...f, email: f.email || currentUser.email })); setContactModalOpen(true); }}
                       className={`relative rounded-[1.6rem] p-4 md:p-6 text-left transition-none hover:scale-[1.02] active:scale-[0.98] overflow-hidden ${hasUnreadReply ? "border border-red-400/60 bg-red-500/10 shadow-[0_0_24px_rgba(239,68,68,0.18)]" : "border border-white/20 bg-black/[0.18] hover:bg-black/[0.18] shadow-[0_4px_20px_rgba(0,0,0,0.15)]"}`}
                     >
                       <div className="flex items-center justify-between">
@@ -19799,7 +19878,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             </>
                           )}
                         </button>
-                        <button type="button" onClick={() => { setContactModalOpen(true); if (currentUser?.email) setContactForm((f) => ({ ...f, email: f.email || currentUser.email })); loadUserInbox(); }} className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-black/40 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-black/55 transition">
+                        <button type="button" onClick={() => { setContactModalOpen(true); if (currentUser?.email) setContactForm((f) => ({ ...f, email: f.email || currentUser.email })); }} className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-black/40 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-black/55 transition">
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                           {tx("Message us", "Написать нам", "Написати нам", "Schreib uns", "Escríbenos")}
                         </button>
