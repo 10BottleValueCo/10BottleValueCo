@@ -4,16 +4,18 @@ import { publicProductName } from "../api/_public-product-name.js";
 import sendPaymentConfirmedEmail from "../api/send-payment-confirmed-email.js";
 
 const expected = [
-  ["Semaglutide", "GLP-1-S"],
-  ["Tirzepatide / GLP-2", "GLP-2-T"],
-  ["Retatrutide / GLP-3", "GLP-3-R"],
-  ["Cagrilintide + Semaglutide", "Cagrilintide + GLP-1-S"],
+  ["BAC Water", "Reconstitution Solution", "3 ml"],
+  ["Semaglutide", "GLP-1-S", "10 mg"],
+  ["Tirzepatide / GLP-2", "GLP-2-T", "10 mg"],
+  ["Retatrutide / GLP-3", "GLP-3-R", "10 mg"],
+  ["Cagrilintide + Semaglutide", "Cagrilintide + GLP-1-S", "10 mg"],
 ];
 
 test("product names change only in email display", async () => {
-  const items = expected.map(([name]) => ({ name, dose: "10 mg", quantity: 1, price: 100 }));
+  const items = expected.map(([name, , dose]) => ({ name, dose, quantity: 1, price: 100 }));
   assert.equal(publicProductName("BPC-157"), "BPC-157");
   assert.equal(publicProductName("GLP-1-S"), "GLP-1-S");
+  assert.equal(publicProductName("Bacteriostatic Water"), "Reconstitution Solution");
 
   // The request is intercepted locally: no message is sent and no payment is created.
   process.env.RESEND_API_KEY = "test-only-key";
@@ -34,9 +36,9 @@ test("product names change only in email display", async () => {
       body: { email: "test@example.invalid", orderId: "TEST-ORDER", total: 400, items },
     }, response);
     assert.equal(status, 200);
-    for (const [original, renamed] of expected) {
-      assert.ok(renderedHtml.includes(`vials × ${renamed} 10 mg`), renamed);
-      assert.ok(!renderedHtml.includes(`vials × ${original} 10 mg`), original);
+    for (const [original, renamed, dose] of expected) {
+      assert.ok(renderedHtml.includes(`vials × ${renamed} ${dose}`), renamed);
+      assert.ok(!renderedHtml.includes(`vials × ${original} ${dose}`), original);
     }
     assert.deepEqual(items.map((item) => item.name), expected.map(([original]) => original));
     assert.ok(renderedHtml.includes("$100.00"));

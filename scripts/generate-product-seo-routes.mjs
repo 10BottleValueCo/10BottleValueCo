@@ -13,11 +13,16 @@ const canonicalPaths = [...sitemap.matchAll(/<loc>https:\/\/10bottlevalue\.co([^
 // Keep old shared product URLs recognized so the edge middleware can redirect
 // them to the new public names without changing the underlying catalog.
 const legacyPath = (path) => path
+  .replace(/^\/reconstitution-solution-/, "/bac-water-")
   .replace(/^\/glp-1-s-/, "/semaglutide-")
   .replace(/^\/glp-2-t-/, "/tirzepatide-glp-2-")
   .replace(/^\/glp-3-r-/, "/retatrutide-glp-3-")
   .replace(/^\/cagrilintide-glp-1-s-/, "/cagrilintide-semaglutide-");
-const paths = [...new Set([...canonicalPaths, ...canonicalPaths.map(legacyPath)])].sort();
+const historicalPaths = [
+  "/cagrilintide-glp-1-s-10mgeach",
+  "/cagrilintide-semaglutide-10mgeach",
+];
+const paths = [...new Set([...canonicalPaths, ...canonicalPaths.map(legacyPath), ...historicalPaths])].sort();
 
 if (paths.length === 0) {
   throw new Error("No product routes found in sitemap.xml");

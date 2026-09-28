@@ -6,7 +6,8 @@ import confetti from "canvas-confetti";
 import { supabase, userFromSupabase } from "./supabase.js";
 import { track, trackPageView, setAnalyticsUser } from "./analytics.js";
 import { useSEO } from "./useSEO.js";
-import { catalogProductName, matchesProductSearch, productSlug as productSlugFor, publicProductName } from "./productNames.js";
+import { catalogProductName, matchesProductSearch, matchesProductSlug, productSlug as productSlugFor, publicProductName } from "./productNames.js";
+import { buildContactTimeline, fetchContactMessages, hasContactEmail } from "./contactMessages.js";
 import cashAppLogo from "./assets/payment-logos/cash-app.svg";
 import bitcoinLogo from "./assets/payment-logos/bitcoin.svg";
 import paypalMark from "./assets/payment-logos/paypal-mark.svg";
@@ -1971,7 +1972,7 @@ const PRODUCTS_BASE = [
     {
       name: "Cagrilintide + Semaglutide",
       price: 379,
-      dose: "10 mg each",
+      dose: "10 mg",
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
@@ -3266,9 +3267,7 @@ export default function App() {
     const productSlugFromPath = pathSlug;
     const productSlug = productSlugFromPath || productSlugFromQuery;
     if (productSlug) {
-      const hit = PRODUCTS_BASE.find(p =>
-        productSlug === productSlugFor(p) || productSlug === productSlugFor(p, true)
-      );
+      const hit = PRODUCTS_BASE.find(p => matchesProductSlug(p, productSlug));
       if (hit) return "product";
     }
     return "home";
@@ -3326,9 +3325,7 @@ export default function App() {
     const productSlugFromPath2 = window.location.pathname.replace(/^\//, "").toLowerCase().trim();
     const productSlug = productSlugFromPath2 || productSlugFromQuery2;
     if (!productSlug) return null;
-    return PRODUCTS_BASE.find(p =>
-      productSlug === productSlugFor(p) || productSlug === productSlugFor(p, true)
-    ) ?? null;
+    return PRODUCTS_BASE.find(p => matchesProductSlug(p, productSlug)) ?? null;
   });
   // ── SEO: dynamic meta/title/JSON-LD per page (invisible to users) ────────
   useSEO({ page, product: selectedProduct });
@@ -3892,6 +3889,7 @@ export default function App() {
   const [userIsTyping, setUserIsTyping] = useState(false);
   const [contactSent, setContactSent] = useState(false);
   const [adminMessages, setAdminMessages] = useState([]);
+  const [adminMessagesError, setAdminMessagesError] = useState("");
   const [emailCopied, setEmailCopied] = useState(false);
   const [adminMessagesLoading, setAdminMessagesLoading] = useState(false);
   const [adminReplyingId, setAdminReplyingId] = useState(null);
@@ -3903,6 +3901,10 @@ export default function App() {
   const [adminComposeSending, setAdminComposeSending] = useState(false);
   const [adminComposeOpen, setAdminComposeOpen] = useState(false);
   const [userInboxMessages, setUserInboxMessages] = useState([]);
+  const [userInboxError, setUserInboxError] = useState("");
+  const userInboxTimeline = useMemo(() => buildContactTimeline(userInboxMessages), [userInboxMessages]);
+  const adminMessagesRequestId = useRef(0);
+  const userInboxRequestId = useRef(0);
   const [editingMsgId, setEditingMsgId] = useState(null);
   const [editingMsgText, setEditingMsgText] = useState("");
   const [replyPreview, setReplyPreview] = useState(null);
@@ -4300,6 +4302,10 @@ export default function App() {
     const isVideo = file?.type.startsWith('video/');
     const isPdf = file?.type === 'application/pdf' || file?.name?.toLowerCase().endsWith('.pdf');
     if (!file || (!isImage && !isVideo && !isPdf)) return;
+    if (sendFn === sendImageAsUserMessage && !hasContactEmail(currentUser?.email || contactForm.email)) {
+      alert("Enter a valid email so you can receive and see replies.");
+      return;
+    }
     if (isVideo && file.size > 100 * 1024 * 1024) { alert('Video must be under 100 MB'); return; }
     setChatImageUploading(true);
     try {
@@ -4319,12 +4325,14 @@ export default function App() {
   async function sendImageAsUserMessage(url, fileName, isPdf, isVideo) {
     const name = contactForm.name.trim() || (currentUser?.email || "Anonymous");
     const email = (currentUser?.email || contactForm.email.trim() || "").toLowerCase();
+    if (!hasContactEmail(email)) { alert("Enter a valid email so you can receive and see replies."); return; }
     const tag = isVideo ? `[VIDEO:${url}]` : isPdf ? `[FILE:${url}:${fileName || 'document.pdf'}]` : `[IMAGE:${url}]`;
     const quotePrefix = replyPreview ? `[QUOTE:${encodeURIComponent(JSON.stringify(replyPreview))}]` : "";
     const message = quotePrefix + tag;
     const { error } = await supabase.from("contact_messages").insert({ name, email, message });
     setReplyPreview(null);
     if (error) { alert("Send failed: " + error.message); return; }
+    try { window.localStorage.setItem("tbv_guest_email", email); } catch {}
     const optimistic = { id: "opt-" + Date.now(), name, email, message, created_at: new Date().toISOString(), admin_reply: null };
     setUserInboxMessages((prev) => [...prev, optimistic]);
     loadUserInbox();
@@ -4377,11 +4385,12 @@ export default function App() {
 
   async function sendContactMessage() {
     if (!contactForm.message.trim()) return;
-    setContactSending(true);
     const name = contactForm.name.trim() || (currentUser?.email || "Anonymous");
     // Logged-in account email always wins — a stale/typed value in contactForm.email
     // (e.g. left over from a guest session) must never override the real account.
     const email = (currentUser?.email || contactForm.email.trim() || "").toLowerCase();
+    if (!hasContactEmail(email)) { alert("Enter a valid email so you can receive and see replies."); return; }
+    setContactSending(true);
     const quotePrefix = replyPreview ? `[QUOTE:${encodeURIComponent(JSON.stringify(replyPreview))}]` : "";
     const message = quotePrefix + contactForm.message.trim();
     const { error } = await supabase.from("contact_messages").insert({ name, email, message });
@@ -4402,11 +4411,19 @@ export default function App() {
   }
 
   async function loadAdminMessages() {
+    const requestId = ++adminMessagesRequestId.current;
     setAdminMessagesLoading(true);
-    const { data } = await supabase.from("contact_messages").select("*").order("created_at", { ascending: false });
-    setAdminMessages(data || []);
-    setAdminMessagesLoading(false);
-    loadReactions();
+    try {
+      const messages = await fetchContactMessages(supabase);
+      if (requestId !== adminMessagesRequestId.current) return;
+      setAdminMessages(messages);
+      setAdminMessagesError("");
+      loadReactions();
+    } catch (error) {
+      if (requestId === adminMessagesRequestId.current) setAdminMessagesError(`Could not refresh messages: ${error.message}`);
+    } finally {
+      if (requestId === adminMessagesRequestId.current) setAdminMessagesLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -4660,19 +4677,27 @@ export default function App() {
     if (!email) {
       try { email = window.localStorage.getItem("tbv_guest_email") || ""; } catch {}
     }
-    if (!email) return;
-    email = email.toLowerCase();
+    if (!email) {
+      ++userInboxRequestId.current;
+      setUserInboxMessages([]);
+      setUserInboxError("");
+      return;
+    }
+    email = email.trim().toLowerCase();
+    const requestId = ++userInboxRequestId.current;
     if (!silent) setUserInboxLoading(true);
-    const { data } = await supabase
-      .from("contact_messages")
-      .select("*")
-      .eq("email", email)
-      .order("created_at", { ascending: true });
-    const msgs = data || [];
-    setUserInboxMessages(msgs);
-    setHasUnreadReply(msgs.some(m => m.admin_reply && !m.user_read_at));
-    setUserInboxLoading(false);
-    loadReactions();
+    try {
+      const msgs = await fetchContactMessages(supabase, email);
+      if (requestId !== userInboxRequestId.current) return;
+      setUserInboxMessages(msgs);
+      setUserInboxError("");
+      setHasUnreadReply(msgs.some(m => m.admin_reply && !m.user_read_at));
+      loadReactions();
+    } catch (error) {
+      if (requestId === userInboxRequestId.current) setUserInboxError(`Could not refresh messages: ${error.message}`);
+    } finally {
+      if (requestId === userInboxRequestId.current) setUserInboxLoading(false);
+    }
   }
 
   function getAffiliateCommissionBaseAmount(order) {
@@ -6725,8 +6750,8 @@ export default function App() {
     "AND GET 10% OFF YOUR NEXT ORDER": "Y OBTÉN UN 10% DE DESCUENTO EN TU PRÓXIMO PEDIDO",
 
     "ORDER BONUS": "BONO DE PEDIDO",
-    "ORDERS ABOVE $350 RECEIVE A FREE BAC WATER BONUS":
-      "LOS PEDIDOS SUPERIORES A $350 RECIBEN UN BONO GRATIS DE AGUA BAC",
+    "ORDERS ABOVE $350 RECEIVE A FREE RECONSTITUTION SOLUTION BONUS":
+      "LOS PEDIDOS SUPERIORES A $350 RECIBEN UN BONO GRATIS DE RECONSTITUTION SOLUTION",
     "CHECKOUT DISCOUNTS": "DESCUENTOS EN EL CHECKOUT",
     "ORDERS OVER $1000 GET 10% OFF AT CHECKOUT.":
       "LOS PEDIDOS SUPERIORES A $1000 OBTIENEN 10% DE DESCUENTO EN EL CHECKOUT.",
@@ -6943,7 +6968,7 @@ export default function App() {
     "Free bonus": "Kostenloser Bonus",
     "ORDERS ABOVE": "BESTELLUNGEN AB",
     "RECEIVE A": "ERHALTEN EINEN",
-    "FREE BAC WATER": "KOSTENLOSEN BAC WATER",
+    "FREE RECONSTITUTION SOLUTION": "KOSTENLOSE RECONSTITUTION SOLUTION",
     BONUS: "BONUS",
     "(10 VIALS × 3 ML EACH)": "(10 FLÄSCHCHEN × 3 ML JEWEILS)",
     "Checkout discounts": "Checkout-Rabatte",
@@ -7992,11 +8017,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       ),
       id: "lyophilized",
       a: tx(
-        "Yes — peptide materials are supplied in lyophilized (freeze-dried) form unless otherwise stated. BAC Water is provided as a liquid and is not lyophilized. Product format details are listed for identification and research documentation purposes only.",
-        "Да — пептидные материалы поставляются в лиофилизированной (freeze-dried) форме, если не указано иное. BAC Water поставляется как жидкость и не является лиофилизированным. Детали формата продукта указаны только для идентификации и исследовательской документации.",
-        "Так — пептидні матеріали постачаються у ліофілізованій (freeze-dried) формі, якщо не зазначено інше. BAC Water постачається як рідина і не є ліофілізованим. Деталі формату продукту вказані лише для ідентифікації та дослідницької документації.",
+        "Yes — peptide materials are supplied in lyophilized (freeze-dried) form unless otherwise stated. Reconstitution Solution is provided as a liquid and is not lyophilized. Product format details are listed for identification and research documentation purposes only.",
+        "Да — пептидные материалы поставляются в лиофилизированной (freeze-dried) форме, если не указано иное. Reconstitution Solution поставляется как жидкость и не является лиофилизированным. Детали формата продукта указаны только для идентификации и исследовательской документации.",
+        "Так — пептидні матеріали постачаються у ліофілізованій (freeze-dried) формі, якщо не зазначено інше. Reconstitution Solution постачається як рідина і не є ліофілізованим. Деталі формату продукту вказані лише для ідентифікації та дослідницької документації.",
         undefined,
-        "Sí — los materiales peptídicos se suministran en forma liofilizada (freeze-dried), salvo que se indique lo contrario. BAC Water se proporciona como líquido y no está liofilizada. Los detalles del formato del producto se indican únicamente para identificación y documentación de investigación."
+        "Sí — los materiales peptídicos se suministran en forma liofilizada (freeze-dried), salvo que se indique lo contrario. Reconstitution Solution se proporciona como líquido y no está liofilizada. Los detalles del formato del producto se indican únicamente para identificación y documentación de investigación."
       ),
     },
     {
@@ -11730,7 +11755,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     const IMG_WHITE = "/bottle-white.png"; // Для BPC, TB-500, Tirzepatide и всех остальных
     const IMG_BLUE = "/bottle-blue.png"; // Только для GHK-Cu
     const IMG_LIGHT_BLUE = "/bottle-light-blue.png"; // Для GLOW50, GLOW70, KLOW80
-    const IMG_WATER = "/bottle-water.png"; // Для BAC Water
+    const IMG_WATER = "/bottle-water.png"; // Для Reconstitution Solution
 
     // По умолчанию ставим белый порошок
     let selectedImg = IMG_WHITE;
@@ -11740,7 +11765,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       selectedImg = IMG_BLUE;
     } else if (lower.includes("glow") || lower.includes("klow")) {
       selectedImg = IMG_LIGHT_BLUE;
-    } else if (lower.includes("bac water")) {
+    } else if (lower.includes("reconstitution solution") || lower.includes("bac water")) {
       selectedImg = IMG_WATER;
     }
 
@@ -11783,7 +11808,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     const visual = getProductVisual(product);
 
     // БЕРЕМ КАРТИНКУ, КОТОРУЮ НАЗНАЧИЛА ФУНКЦИЯ ВЫШЕ
-    const imgUrl = visual.imgUrl;
+    const imgUrl = large && visual.printedLabel
+      ? visual.imgUrl.replace(".webp", "-native.webp")
+      : visual.imgUrl;
 
     // Мобильный breakpoint — md = 768px
     const mob = !large && typeof window !== "undefined" && window.innerWidth < 768;
@@ -11862,16 +11889,22 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         {/* КАРТИНКА БУТЫЛКИ */}
         <img
           src={imgUrl}
-          alt={publicProductName(product.name)}
-          className="absolute h-full w-auto object-contain select-none z-0"
+          alt={`${publicProductName(product.name)} ${product.dose}`}
+          width={visual.printedLabel ? (large ? 553 : 393) : undefined}
+          height={visual.printedLabel ? (large ? 1126 : 800) : undefined}
+          className={`absolute w-auto object-contain select-none z-0 ${
+            visual.printedLabel
+              ? "h-[93.1%] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+              : "h-full"
+          }`}
           draggable={false}
-          loading="eager"
-          fetchPriority="high"
-          decoding="sync"
+          loading={large ? "eager" : "lazy"}
+          fetchPriority={large ? "high" : "auto"}
+          decoding="async"
         />
 
         {/* ТЕКСТ НА ЭТИКЕТКЕ */}
-        <div className="absolute inset-0 z-[1] pointer-events-none overflow-hidden">
+        {!visual.printedLabel && <div className="absolute inset-0 z-[1] pointer-events-none overflow-hidden">
           <div
             className="absolute flex flex-col items-center text-center"
             style={{ left: "50%", top: "57%", transform: labelTransform }}
@@ -11913,7 +11946,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               </span>
             )}
           </div>
-        </div>
+        </div>}
       </div>
     );
   }
@@ -11934,18 +11967,24 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               <div>
                 <div className="text-[10px] uppercase tracking-[0.26em] text-white/50">Support</div>
                 <h2 className="mt-0.5 text-lg font-semibold text-white leading-tight">
-                  {userInboxMessages.length > 0 ? `Messages (${userInboxMessages.length})` : "Contact us"}
+                  {userInboxTimeline.length > 0 ? `Messages (${userInboxTimeline.length})` : "Contact us"}
                 </h2>
               </div>
               <button onClick={() => setContactModalOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition">✕</button>
             </div>
 
+            {userInboxError && (
+              <div role="alert" className="mx-5 mb-3 rounded-xl bg-red-500/15 px-3 py-2 text-xs text-red-100">
+                {userInboxError} <button type="button" onClick={() => loadUserInbox()} className="underline">Retry</button>
+              </div>
+            )}
+
             {/* Chat messages area */}
             <div ref={inboxScrollRef} className="flex-1 overflow-y-auto overscroll-contain mx-4 mb-2 flex flex-col gap-2.5 rounded-2xl border border-white/8 bg-black/25 px-3 pt-3 pb-3 min-h-[120px] [&::-webkit-scrollbar]:w-[6px] [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/40 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-white/60">
-              {userInboxMessages.length === 0 && (
-                <div className="py-10 text-center text-white/25 text-sm">No messages yet — send us one below!</div>
+              {userInboxTimeline.length === 0 && !userInboxError && (
+                <div className="py-10 text-center text-white/25 text-sm">{userInboxLoading ? "Loading messages…" : "No messages yet — send us one below!"}</div>
               )}
-              {userInboxMessages.map((msg) => {
+              {userInboxTimeline.map(({ type, message: msg }) => {
                 const isAdminInit = msg.message === "[Admin initiated message]";
                 const fmt = (d) => d ? new Date(d).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
                 const USER_REACTION_EMOJIS = ["👍","❤️","😂","😮","😢","👏"];
@@ -11954,8 +11993,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 const activeSent = Object.entries(msgReactions[rKeySent] || {}).filter(([,v]) => v).map(([e]) => e);
                 const activeRcvd = Object.entries(msgReactions[rKeyRcvd] || {}).filter(([,v]) => v).map(([e]) => e);
                 return (
-                  <div key={msg.id} className="flex flex-col gap-1.5">
-                    {!isAdminInit && (
+                  <div key={`${type}-${msg.id}`} className="flex flex-col gap-1.5">
+                    {type === "sent" && !isAdminInit && (
                       <div className="flex justify-end items-end gap-1.5 group">
                         {/* Edit / delete actions — only for unanswered messages */}
                         {editingMsgId !== msg.id && (
@@ -12023,7 +12062,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         )}
                       </div>
                     )}
-                    {msg.admin_reply && (
+                    {type === "reply" && msg.admin_reply && (
                       <div className="flex items-end gap-2 group">
                         <div className="w-6 h-6 rounded-full bg-emerald-400/20 flex items-center justify-center text-[10px] text-emerald-300 font-bold shrink-0 mb-0.5 self-end">S</div>
                         <div className="group flex flex-col items-start gap-1 max-w-[80%]">
@@ -12049,7 +12088,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         </div>
                       </div>
                     )}
-                    {!isAdminInit && !msg.admin_reply && (
+                    {type === "sent" && !isAdminInit && !msg.admin_reply && (
                       <p className="text-right text-[10px] text-white/25 pr-1 italic">Waiting for reply…</p>
                     )}
                   </div>
@@ -12926,7 +12965,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   {shopSortedProducts.map((product) => {
                       const isCombo = product.name === "TB-500 + BPC-157";
                       const doseValue = parseFloat(product.dose) || 0;
-                      const displayBadge = isCombo
+                      const displayBadge = product.name === "Cagrilintide + Semaglutide"
+                        ? product.dose.toUpperCase()
+                        : isCombo
                         ? `${doseValue} MG EACH`
                         : `${product.dose
                             .toUpperCase()
@@ -13246,7 +13287,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 })()}
                 <div className="mt-4 inline-flex w-full justify-center rounded-full border border-white/20 bg-black/30 px-3 py-2 text-[13px] font-bold uppercase tracking-[0.2em] text-white">
                   {`${selectedProduct.vials || 10} VIALS x ${
-                    selectedProduct.name.includes(" + ") && !selectedProduct.dose.includes("each")
+                    selectedProduct.name === "Cagrilintide + Semaglutide"
+                      ? selectedProduct.dose.toUpperCase()
+                      : selectedProduct.name.includes(" + ") && !selectedProduct.dose.includes("each")
                       ? parseFloat(selectedProduct.dose) + " MG EACH"
                       : selectedProduct.dose
                           .toUpperCase()
@@ -13998,11 +14041,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         <br />
                         <span className="font-bold text-white">
                           {tx(
-                            "FREE BAC WATER",
-                            "БЕСПЛАТНЫЙ BAC WATER",
-                            "БЕЗКОШТОВНИЙ BAC WATER",
+                            "FREE RECONSTITUTION SOLUTION",
+                            "БЕСПЛАТНЫЙ Reconstitution Solution",
+                            "БЕЗКОШТОВНИЙ Reconstitution Solution",
                             undefined,
-                            "BAC WATER GRATIS"
+                            "RECONSTITUTION SOLUTION GRATIS"
                           )}
                         </span>{" "}
                         {tx("BONUS", "БОНУС", "БОНУС", undefined, "BONO")}
@@ -16180,6 +16223,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       </button>
                     </div>
                   </div>
+                  {adminMessagesError && (
+                    <div role="alert" className="mt-4 rounded-xl bg-red-500/15 px-4 py-2 text-xs text-red-100">{adminMessagesError}</div>
+                  )}
                   <div className="mt-4 relative">
                     <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                     <input
@@ -16904,7 +16950,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   "GLOW|70mg":195,"Glow|70mg":195,"GLOW70|70mg":195,
                   "HGH|10iu":55,"HGH|15iu":80,"HGH|24iu":130,"HGH|36iu":180,"HGH|10IU":55,"HGH|15IU":80,"HGH|24IU":130,"HGH|36IU":180,
                   "Cagrilintide|5mg":105,"Cagrilintide|10mg":185,
-                  "Cagrilintide+Semaglutide|10mg":190,"Cagrilintide + Semaglutide|10mg each":190,
+                  "Cagrilintide+Semaglutide|10mg":190,"Cagrilintide + Semaglutide|10mg":190,"Cagrilintide + Semaglutide|10mg each":190,
                   "Mazdutide|10mg":195,
                   "Survodutide|10mg":270,
                   "GHK-CU|50mg":30,"GHK-CU|100mg":45,"GHK-Cu|50mg":30,"GHK-Cu|100mg":45,
@@ -19491,7 +19537,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   const product = { ...rawProduct, price: usOriginalPrice, originalPrice: usOriginalPrice, fromWarehouse: "us" };
                   const isCombo = product.name === "TB-500 + BPC-157";
                   const doseValue = parseFloat(product.dose) || 0;
-                  const displayBadge = isCombo ? `${doseValue} MG EACH` : `${product.dose.toUpperCase().replace(" EACH", "")} EACH`;
+                  const displayBadge = product.name === "Cagrilintide + Semaglutide"
+                    ? product.dose.toUpperCase()
+                    : isCombo ? `${doseValue} MG EACH` : `${product.dose.toUpperCase().replace(" EACH", "")} EACH`;
                   const displayPerVial = isCombo ? `${doseValue} mg` : product.dose.replace(/ each$/i, "");
                   const displayTotal = isCombo ? `${doseValue * 10} mg` : (product.total || "").replace(/\s*total\s*$/i, "").trim();
                   const productId = getProductId(product);
@@ -20431,7 +20479,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               <div className="mt-1 text-[15px] leading-6 text-white/90">
                                 {tx("Free", "Бесплатный", "Безкоштовний")}{" "}
                                 <span className="font-semibold text-white">
-                                  BAC Water
+                                  Reconstitution Solution
                                 </span>{" "}
                                 {tx(
                                   "(10 vials × 3 ml each) bonus added for orders above",
@@ -22101,7 +22149,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-t-[2rem] border border-white/20 bg-[#858585] p-5 shadow-[0_28px_90px_rgba(0,0,0,0.45)] sm:rounded-[2rem] sm:p-8"
                 >
                   <div className="mb-6 flex items-start justify-between gap-4">
-                    <div>
+                    <div className="min-w-0 w-fit max-w-[calc(100%-4rem)] rounded-[1.35rem] border border-black/25 bg-black/25 py-4 pl-5 pr-9">
                       <h2 id="purchaser-attestation-title" className="text-xl font-bold uppercase tracking-[0.16em] text-white sm:text-2xl">
                         {tx("Purchaser attestation", "Подтверждение покупателя", "Підтвердження покупця", "Käuferbestätigung", "Declaración del comprador")}
                       </h2>
@@ -22118,10 +22166,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     <button
                       type="button"
                       onClick={() => setAttestationModalOpen(false)}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/25 text-xl text-white"
+                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-2 border-white/90 bg-black/35 text-white shadow-md transition hover:bg-black/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#858585]"
                       aria-label="Close"
                     >
-                      ×
+                      <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+                        <path d="M5 5l14 14M19 5L5 19" />
+                      </svg>
                     </button>
                   </div>
 
@@ -22747,11 +22797,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-[13px] leading-[1.55] text-gray-700">
                 <p>
                   {tx(
-                    <>If you experience any issues, contact us at <button type="button" onClick={(e) => { navigator.clipboard.writeText("support@10bottlevalue.co"); const s = e.currentTarget.querySelector("span"); if(s){s.textContent="✓ copied";setTimeout(()=>{s.textContent=""},2000);} }} title="Click to copy" className="font-semibold text-black underline cursor-pointer inline-flex items-center gap-1">support@10bottlevalue.co <span className="text-[11px] font-normal text-gray-400"></span></button> or via <a href="https://x.com/10BottleValueCo" target="_blank" rel="noopener noreferrer" className="font-semibold text-black underline">Twitter DM</a>.</>,
-                    <>Если возникнут проблемы, напишите нам на <button type="button" onClick={(e) => { navigator.clipboard.writeText("support@10bottlevalue.co"); const s = e.currentTarget.querySelector("span"); if(s){s.textContent="✓ скопировано";setTimeout(()=>{s.textContent=""},2000);} }} title="Нажмите для копирования" className="font-semibold text-black underline cursor-pointer inline-flex items-center gap-1">support@10bottlevalue.co <span className="text-[11px] font-normal text-gray-400"></span></button> или в <a href="https://x.com/10BottleValueCo" target="_blank" rel="noopener noreferrer" className="font-semibold text-black underline">Twitter (личные сообщения)</a>.</>,
-                    <>Якщо виникнуть проблеми, напишіть нам на <button type="button" onClick={(e) => { navigator.clipboard.writeText("support@10bottlevalue.co"); const s = e.currentTarget.querySelector("span"); if(s){s.textContent="✓ скопійовано";setTimeout(()=>{s.textContent=""},2000);} }} title="Натисніть для копіювання" className="font-semibold text-black underline cursor-pointer inline-flex items-center gap-1">support@10bottlevalue.co <span className="text-[11px] font-normal text-gray-400"></span></button> або в <a href="https://x.com/10BottleValueCo" target="_blank" rel="noopener noreferrer" className="font-semibold text-black underline">Twitter (особисті повідомлення)</a>.</>,
-                    <>Bei Problemen kontaktieren Sie uns unter <button type="button" onClick={(e) => { navigator.clipboard.writeText("support@10bottlevalue.co"); const s = e.currentTarget.querySelector("span"); if(s){s.textContent="✓ kopiert";setTimeout(()=>{s.textContent=""},2000);} }} title="Zum Kopieren klicken" className="font-semibold text-black underline cursor-pointer inline-flex items-center gap-1">support@10bottlevalue.co <span className="text-[11px] font-normal text-gray-400"></span></button> oder per <a href="https://x.com/10BottleValueCo" target="_blank" rel="noopener noreferrer" className="font-semibold text-black underline">Twitter-DM</a>.</>,
-                    <>Si tiene algún problema, contáctenos en <button type="button" onClick={(e) => { navigator.clipboard.writeText("support@10bottlevalue.co"); const s = e.currentTarget.querySelector("span"); if(s){s.textContent="✓ copiado";setTimeout(()=>{s.textContent=""},2000);} }} title="Clic para copiar" className="font-semibold text-black underline cursor-pointer inline-flex items-center gap-1">support@10bottlevalue.co <span className="text-[11px] font-normal text-gray-400"></span></button> o por <a href="https://x.com/10BottleValueCo" target="_blank" rel="noopener noreferrer" className="font-semibold text-black underline">Twitter (mensaje directo)</a>.</>
+                    <>If you experience any issues, contact us at <button type="button" onClick={(e) => { navigator.clipboard.writeText("support@10bottlevalue.co"); const s = e.currentTarget.querySelector("span"); if(s){s.textContent="✓ copied";setTimeout(()=>{s.textContent=""},2000);} }} title="Click to copy" className="font-semibold text-black underline cursor-pointer inline-flex items-center gap-1">support@10bottlevalue.co <span className="text-[11px] font-normal text-gray-400"></span></button>, via <a href="https://x.com/10BottleValueCo" target="_blank" rel="noopener noreferrer" className="font-semibold text-black underline">Twitter DM</a>, or send us a message directly on our site through <a href="/contact" target="_blank" rel="noopener noreferrer" className="font-semibold text-black underline">Contact</a>.</>,
+                    <>Если возникнут проблемы, напишите нам на <button type="button" onClick={(e) => { navigator.clipboard.writeText("support@10bottlevalue.co"); const s = e.currentTarget.querySelector("span"); if(s){s.textContent="✓ скопировано";setTimeout(()=>{s.textContent=""},2000);} }} title="Нажмите для копирования" className="font-semibold text-black underline cursor-pointer inline-flex items-center gap-1">support@10bottlevalue.co <span className="text-[11px] font-normal text-gray-400"></span></button>, в <a href="https://x.com/10BottleValueCo" target="_blank" rel="noopener noreferrer" className="font-semibold text-black underline">Twitter (личные сообщения)</a> или напрямую на сайте через раздел <a href="/contact" target="_blank" rel="noopener noreferrer" className="font-semibold text-black underline">Contact</a>.</>,
+                    <>Якщо виникнуть проблеми, напишіть нам на <button type="button" onClick={(e) => { navigator.clipboard.writeText("support@10bottlevalue.co"); const s = e.currentTarget.querySelector("span"); if(s){s.textContent="✓ скопійовано";setTimeout(()=>{s.textContent=""},2000);} }} title="Натисніть для копіювання" className="font-semibold text-black underline cursor-pointer inline-flex items-center gap-1">support@10bottlevalue.co <span className="text-[11px] font-normal text-gray-400"></span></button>, у <a href="https://x.com/10BottleValueCo" target="_blank" rel="noopener noreferrer" className="font-semibold text-black underline">Twitter (особисті повідомлення)</a> або безпосередньо на сайті через розділ <a href="/contact" target="_blank" rel="noopener noreferrer" className="font-semibold text-black underline">Contact</a>.</>,
+                    <>Bei Problemen kontaktieren Sie uns unter <button type="button" onClick={(e) => { navigator.clipboard.writeText("support@10bottlevalue.co"); const s = e.currentTarget.querySelector("span"); if(s){s.textContent="✓ kopiert";setTimeout(()=>{s.textContent=""},2000);} }} title="Zum Kopieren klicken" className="font-semibold text-black underline cursor-pointer inline-flex items-center gap-1">support@10bottlevalue.co <span className="text-[11px] font-normal text-gray-400"></span></button>, per <a href="https://x.com/10BottleValueCo" target="_blank" rel="noopener noreferrer" className="font-semibold text-black underline">Twitter-DM</a> oder direkt auf unserer Website über <a href="/contact" target="_blank" rel="noopener noreferrer" className="font-semibold text-black underline">Contact</a>.</>,
+                    <>Si tiene algún problema, contáctenos en <button type="button" onClick={(e) => { navigator.clipboard.writeText("support@10bottlevalue.co"); const s = e.currentTarget.querySelector("span"); if(s){s.textContent="✓ copiado";setTimeout(()=>{s.textContent=""},2000);} }} title="Clic para copiar" className="font-semibold text-black underline cursor-pointer inline-flex items-center gap-1">support@10bottlevalue.co <span className="text-[11px] font-normal text-gray-400"></span></button>, por <a href="https://x.com/10BottleValueCo" target="_blank" rel="noopener noreferrer" className="font-semibold text-black underline">Twitter (mensaje directo)</a> o directamente en nuestro sitio desde <a href="/contact" target="_blank" rel="noopener noreferrer" className="font-semibold text-black underline">Contact</a>.</>
                   )}
                 </p>
               </div>

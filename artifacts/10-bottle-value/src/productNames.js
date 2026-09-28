@@ -1,4 +1,6 @@
 const displayNames = {
+  "bac water": "Reconstitution Solution",
+  "bacteriostatic water": "Reconstitution Solution",
   semaglutide: "GLP-1-S",
   "tirzepatide / glp-2": "GLP-2-T",
   tirzepatide: "GLP-2-T",
@@ -8,6 +10,7 @@ const displayNames = {
 };
 
 const catalogNames = {
+  "reconstitution solution": "BAC Water",
   "glp-1-s": "Semaglutide",
   "glp-2-t": "Tirzepatide / GLP-2",
   "glp-3-r": "Retatrutide / GLP-3",
@@ -29,6 +32,15 @@ export function catalogProductName(name) {
 export function productSlug(product, legacy = false) {
   const name = legacy ? product.name : publicProductName(product.name);
   return `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${product.dose.toLowerCase().replace(/\s+/g, "")}`;
+}
+
+export function matchesProductSlug(product, slug) {
+  if (slug === productSlug(product) || slug === productSlug(product, true)) return true;
+  // Both pre-correction URLs remain valid for previously shared links.
+  return product.name === "Cagrilintide + Semaglutide" &&
+    product.dose === "10 mg" &&
+    (slug === "cagrilintide-glp-1-s-10mgeach" ||
+      slug === "cagrilintide-semaglutide-10mgeach");
 }
 
 export function matchesProductSearch(product, searchTerm) {
