@@ -6,6 +6,7 @@
  */
 import { useEffect } from "react";
 import { productSlug, publicProductName } from "./productNames.js";
+import { vialAssetFor } from "./vialAssets.js";
 
 const SITE_NAME  = "10BottleValue.co";
 const SITE_URL   = "https://10bottlevalue.co";
@@ -13,13 +14,21 @@ const SITE_IMAGE = `${SITE_URL}/logo.png`;
 
 // Mirrors getProductVisual() in App.jsx — returns the bottle image actually
 // shown for this product. Must stay in sync if App.jsx image logic changes.
-function productImage(name) {
+function productImage(product) {
+  const image = vialAssetFor(product);
+  if (image) return `${SITE_URL}${image.nativeUrl}`;
+  const name = publicProductName(product.name);
+  const dose = product.dose;
+  if (name === "BPC-157" && /^5\s*mg$/i.test(dose))
+    return `${SITE_URL}/bpc-157-5mg-native.webp`;
+  if (name === "BPC-157" && /^10\s*mg$/i.test(dose))
+    return `${SITE_URL}/bpc-157-10mg-native.webp`;
   const n = name.toLowerCase();
   if (n.includes("ghk-cu") || n.includes("ghk"))
     return `${SITE_URL}/bottle-blue.png`;
   if (n.includes("glow") || n.includes("klow"))
     return `${SITE_URL}/bottle-light-blue.png`;
-  if (n.includes("bac water"))
+  if (n.includes("reconstitution solution") || n.includes("bac water"))
     return `${SITE_URL}/bottle-water.png`;
   return `${SITE_URL}/bottle-white.png`;
 }
@@ -228,14 +237,17 @@ export function useSEO({ page, product }) {
       const total     = product.total;
       const inStock   = !product.outOfStock;
       const cls       = productClass(name);
-      const prodImg   = productImage(name); // actual bottle shown for this product
+       const prodImg   = productImage(product); // actual bottle shown for this product
+      const isSolution = name === "Reconstitution Solution";
 
       // Title: name + dose + kit indicator
-      const title = `${name} ${dose} Research Peptide — 10-Vial Kit | ${SITE_NAME}`;
+      const title = isSolution
+        ? `${name} ${dose} — 10-Vial Kit | ${SITE_NAME}`
+        : `${name} ${dose} Research Peptide — 10-Vial Kit | ${SITE_NAME}`;
 
       // Description: strictly factual — name, dose, kit size, price, shipping, disclaimer.
       // No health claims, no inferred effects.
-      const desc = `${name} ${dose} research peptide kit — 10 vials (${total}), from $${price}. Ships worldwide. For laboratory research use only. | ${SITE_NAME}`;
+      const desc = `${name} ${dose}${isSolution ? " research solution" : " research peptide"} kit — 10 vials (${total}), from $${price}. Ships worldwide. For laboratory research use only. | ${SITE_NAME}`;
 
       document.title = title;
       setCanonical(canonical);
@@ -258,10 +270,10 @@ export function useSEO({ page, product }) {
         "@context": "https://schema.org",
         "@type": "Product",
         "name": `${name} ${dose}`,
-        "description": `${name} ${dose} ${cls}. Kit of 10 vials (${total}). For laboratory and research use only. Not for human or animal consumption.`,
+        "description": `${name} ${dose} ${isSolution ? "research solution" : cls}. Kit of 10 vials (${total}). For laboratory and research use only. Not for human or animal consumption.`,
         "sku": slug,
         "brand": { "@type": "Brand", "name": "10BottleValue" },
-        "category": "Research Peptides",
+        "category": isSolution ? "Research Supplies" : "Research Peptides",
         "url": canonical,
         "image": prodImg, // actual product bottle image, not site logo
         "offers": {

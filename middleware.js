@@ -6,10 +6,12 @@ export const config = { matcher: "/(.*)" };
 
 function canonicalProductPath(path) {
   return path
+    .replace(/^\/bac-water-/, "/reconstitution-solution-")
     .replace(/^\/semaglutide-/, "/glp-1-s-")
     .replace(/^\/tirzepatide-glp-2-/, "/glp-2-t-")
     .replace(/^\/retatrutide-glp-3-/, "/glp-3-r-")
-    .replace(/^\/cagrilintide-semaglutide-/, "/cagrilintide-glp-1-s-");
+    .replace(/^\/cagrilintide-semaglutide-/, "/cagrilintide-glp-1-s-")
+    .replace(/^\/cagrilintide-glp-1-s-10mgeach$/, "/cagrilintide-glp-1-s-10mg");
 }
 
 function getProductPath(url) {
