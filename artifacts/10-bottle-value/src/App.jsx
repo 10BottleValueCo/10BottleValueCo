@@ -3716,7 +3716,6 @@ export default function App() {
   }, []);
 
   const [cartToast, setCartToast] = useState("");
-  const [productPageJustAdded, setProductPageJustAdded] = useState(false);
   const productPrimaryActionRef = useRef(null);
   const [productPrimaryActionVisible, setProductPrimaryActionVisible] = useState(false);
   const stickyProductInfoRef = useRef(null);
@@ -3789,6 +3788,12 @@ export default function App() {
   const selectedProductUnavailable = Boolean(
     selectedProduct?.outOfStock &&
     (selectedProduct?.warehouse !== "us" || page === "us-warehouse" || productOriginPage.current === "us-warehouse")
+  );
+  const selectedProductCartItem = selectedProduct
+    ? cart.find((item) => getProductId(item) === getProductId(selectedProduct))
+    : null;
+  const selectedProductCartQuantity = Number(
+    selectedProductCartItem?.quantity ?? selectedProductCartItem?.qty ?? 0
   );
   const shopSidebarScrollRef = useRef(null);
   const shopSidebarThumbRef = useRef(null);
@@ -9668,14 +9673,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       setCartHighlight(false);
     }, 600);
 
-    if (source === "product") {
-      setProductPageJustAdded(true);
-      window.clearTimeout(window.__tbvProductPageTimeout);
-      window.__tbvProductPageTimeout = window.setTimeout(() => {
-        setProductPageJustAdded(false);
-      }, 1400);
-    }
-
     // Analytics
     track("add_to_cart", {
       page,
@@ -13471,6 +13468,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         {page === "product" && selectedProduct && (
           <main className="mx-auto max-w-7xl px-4 pt-1 pb-36 md:px-10 md:pt-2 md:pb-14">
             <button
+              type="button"
               onClick={() => {
                     setAccountPromoCodeInput("");
                     setPage(productOriginPage.current || "shop");
@@ -13484,7 +13482,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       }
                     });
                   }}
-              className="mb-4 inline-flex rounded-full bg-white px-7 py-2.5 text-[13px] font-bold uppercase tracking-[0.22em] text-black shadow-[0_4px_16px_rgba(0,0,0,0.18)] hover:bg-white/90 transition-all duration-200 active:scale-95"
+              className="mb-4 ml-auto flex w-fit rounded-full bg-white px-7 py-2.5 text-[13px] font-bold uppercase tracking-[0.22em] text-black shadow-[0_4px_16px_rgba(0,0,0,0.18)] hover:bg-white/90 transition-all duration-200 active:scale-95 md:ml-0"
             >
               <span className="text-[13px] font-extrabold tracking-[0.22em]">
                 {t("back")}
@@ -13784,17 +13782,39 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       </div>
                     ) : (
                       <>
-                        <button
+                        <div
                           ref={productPrimaryActionRef}
-                          onClick={() => addToCart(selectedProduct, "product")}
-                          className={`inline-flex w-full justify-center rounded-full px-7 py-4 text-[14px] font-black uppercase tracking-[0.22em] shadow-[0_12px_30px_rgba(0,0,0,0.22)] border border-black transition-none ${
-                            productPageJustAdded
-                              ? "bg-black text-white"
-                              : "bg-white text-black hover:bg-white/90"
+                          className={`flex w-full min-w-0 overflow-hidden ${
+                            selectedProductCartQuantity > 0
+                              ? "rounded-full border border-black shadow-[0_12px_30px_rgba(0,0,0,0.22)]"
+                              : ""
                           }`}
                         >
-                          {productPageJustAdded ? t("added") : t("addToCart")}
-                        </button>
+                          {selectedProductCartQuantity > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => decrementCartItem(getProductId(selectedProduct))}
+                              aria-label={`${tx("Remove one from cart", "Убрать один из корзины", "Прибрати один із кошика", "Einen Artikel aus dem Warenkorb entfernen", "Quitar uno del carrito")}: ${publicProductName(selectedProduct.name)} ${selectedProduct.dose}`}
+                              className="flex w-12 shrink-0 items-center justify-center bg-black text-white transition-none hover:bg-black/80"
+                            >
+                              <span className="select-none text-[14px] font-black leading-none">−</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => addToCart(selectedProduct, "product")}
+                            className={`inline-flex min-w-0 flex-1 items-center justify-center px-7 py-4 text-[14px] font-black uppercase tracking-[0.22em] transition-none ${
+                              selectedProductCartQuantity > 0
+                                ? "bg-white text-black hover:bg-white/90"
+                                : "w-full rounded-full border border-black bg-white text-black shadow-[0_12px_30px_rgba(0,0,0,0.22)] hover:bg-white/90"
+                            }`}
+                          >
+                            <span>{t("addToCart")}</span>
+                            {selectedProductCartQuantity > 1 && (
+                              <span className="ml-1 tracking-normal">×{selectedProductCartQuantity}</span>
+                            )}
+                          </button>
+                        </div>
                         <button
                           onClick={() => {
                             addToCart(selectedProduct, "product");
@@ -13897,24 +13917,44 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       {selectedProduct.name === "BPC-157" ? formatPricePrecise(selectedProduct.price) : formatPrice(selectedProduct.price)}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    disabled={selectedProductUnavailable}
-                    onClick={() => addToCart(selectedProduct, "product")}
-                    className={`inline-flex h-10 min-w-[124px] shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3 text-center text-[10px] font-black uppercase tracking-[0.07em] shadow-[0_8px_24px_rgba(0,0,0,0.2)] transition-none active:scale-[0.98] ${
-                      selectedProductUnavailable
-                        ? "cursor-not-allowed bg-white/20 text-white/50"
-                        : productPageJustAdded
-                        ? "bg-black text-white"
-                        : "bg-white text-black"
-                    }`}
-                  >
-                    {selectedProductUnavailable
-                      ? tx("Out of stock", "Нет в наличии", "Немає в наявності", "Nicht auf Lager", "Agotado")
-                      : productPageJustAdded
-                      ? t("added")
-                      : t("addToCart")}
-                  </button>
+                  {selectedProductUnavailable ? (
+                    <button
+                      type="button"
+                      disabled
+                      className="inline-flex h-10 min-w-[124px] shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-white/20 px-3 text-center text-[10px] font-black uppercase tracking-[0.07em] text-white/50 shadow-[0_8px_24px_rgba(0,0,0,0.2)] cursor-not-allowed transition-none"
+                    >
+                      {tx("Out of stock", "Нет в наличии", "Немає в наявності", "Nicht auf Lager", "Agotado")}
+                    </button>
+                  ) : selectedProductCartQuantity > 0 ? (
+                    <div className="flex h-10 min-w-[154px] shrink-0 overflow-hidden rounded-full border border-black shadow-[0_8px_24px_rgba(0,0,0,0.2)]">
+                      <button
+                        type="button"
+                        onClick={() => decrementCartItem(getProductId(selectedProduct))}
+                        aria-label={`${tx("Remove one from cart", "Убрать один из корзины", "Прибрати один із кошика", "Einen Artikel aus dem Warenkorb entfernen", "Quitar uno del carrito")}: ${publicProductName(selectedProduct.name)} ${selectedProduct.dose}`}
+                        className="flex w-9 shrink-0 items-center justify-center bg-black text-white transition-none hover:bg-black/80"
+                      >
+                        <span className="select-none text-[12px] font-black leading-none">−</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => addToCart(selectedProduct, "product")}
+                        className="flex min-w-0 flex-1 items-center justify-center gap-1 whitespace-nowrap bg-white px-2 text-[9px] font-black uppercase tracking-[0.03em] text-black transition-none hover:bg-white/90"
+                      >
+                        <span>{t("addToCart")}</span>
+                        {selectedProductCartQuantity > 1 && (
+                          <span className="shrink-0 tracking-normal">×{selectedProductCartQuantity}</span>
+                        )}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => addToCart(selectedProduct, "product")}
+                      className="inline-flex h-10 min-w-[124px] shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-white px-3 text-center text-[10px] font-black uppercase tracking-[0.07em] text-black shadow-[0_8px_24px_rgba(0,0,0,0.2)] transition-none active:scale-[0.98]"
+                    >
+                      {t("addToCart")}
+                    </button>
+                  )}
                 </div>
               </div>
             )}
