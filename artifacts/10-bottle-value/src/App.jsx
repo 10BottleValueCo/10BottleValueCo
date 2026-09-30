@@ -10,6 +10,7 @@ import { useSEO } from "./useSEO.js";
 import { catalogProductName, matchesProductSearch, productSlug as productSlugFor, publicProductName } from "./productNames.js";
 import { buildSupportTimeline } from "./support-timeline.js";
 import BpcCatalogCard from "./components/BpcCatalogCard.jsx";
+import ProductPackSelector from "./components/ProductPackSelector.jsx";
 import UsFlag from "./components/UsFlag.jsx";
 import vialCManifest from "./data/vialCManifest.json";
 import cashAppLogo from "./assets/payment-logos/cash-app.svg";
@@ -13538,7 +13539,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               </div>
 
 
-              <div className="rounded-[1.6rem] md:rounded-[2.25rem] border border-white/20 bg-black/20 p-5 shadow-[0_26px_80px_rgba(0,0,0,0.16)] md:p-10 lg:col-start-2 lg:row-start-1 lg:row-span-2 order-2 lg:order-none">
+              <div className="rounded-[1.6rem] md:rounded-[2.25rem] border border-white/20 bg-gradient-to-b from-white/[0.09] via-black/[0.12] to-black/25 p-5 shadow-[0_26px_80px_rgba(0,0,0,0.16)] md:p-10 lg:col-start-2 lg:row-start-1 lg:row-span-2 order-2 lg:order-none">
                 <div className="text-[10.5px] md:text-[11px] uppercase tracking-[0.2em] md:tracking-[0.24em] text-white">
                   {t("product")}
                 </div>
@@ -13565,16 +13566,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     </div>
                   );
                 })()}
-                <div className="mt-4 inline-flex w-full justify-center rounded-full border border-white/20 bg-black/30 px-3 py-2 text-[13px] font-bold uppercase tracking-[0.2em] text-white">
-                  {`${selectedProduct.vials || 10} VIALS x ${
-                    selectedProduct.name.includes(" + ") && !selectedProduct.dose.includes("each")
-                      ? parseFloat(selectedProduct.dose) + " MG EACH"
-                      : selectedProduct.dose
-                          .toUpperCase()
-                          .replace(" EACH", "") + " EACH"
-                  }`}
-                </div>
-
                 {(() => {
                   const isUs = selectedProduct?.fromWarehouse === "us";
                   const variants = products.filter(p =>
@@ -13608,7 +13599,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   );
                 })()}
 
-                <div className="mt-6 md:mt-8 rounded-[1.3rem] md:rounded-[1.6rem] border border-white/20 bg-black/10 p-4 md:p-5 shadow-[0_14px_42px_rgba(0,0,0,0.10)]">
+                <ProductPackSelector language={language} price={selectedProduct.price} />
+
+                <div className="mt-5 rounded-[1.3rem] md:rounded-[1.6rem] border border-white/20 bg-white/[0.06] p-4 md:p-5 shadow-[0_14px_42px_rgba(0,0,0,0.10)]">
                   <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 md:gap-y-3 text-[13px] md:text-sm items-center">
                     <div className="text-white font-bold">{t("format")}</div>
                     <div className="flex justify-end">
@@ -13652,7 +13645,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
                 </div>
 
-                <div className="mt-5 md:mt-7 rounded-[1.4rem] md:rounded-[1.9rem] border border-white/20 bg-black/20 p-5 md:p-6 shadow-[0_24px_70px_rgba(0,0,0,0.20)]">
+                <div className="mt-5 rounded-[1.4rem] md:rounded-[1.9rem] border border-white/20 bg-[#242424]/55 p-5 md:p-6 shadow-[0_24px_70px_rgba(0,0,0,0.20)]">
                   <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
                     <div className="flex items-baseline gap-3 flex-wrap">
                       <div className="text-[40px] font-bold leading-none tracking-[-0.06em] text-white md:text-[52px]">
@@ -13754,47 +13747,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     )}
                   </div>
                 </div>
-
-                {selectedProduct?.category !== "accessory" && (
-                    <div className="mt-10 rounded-[1.9rem] border border-white/20 bg-black/20 p-5 shadow-[0_18px_58px_rgba(0,0,0,0.14)]">
-                      <div className="text-center text-[11px] font-semibold uppercase tracking-[0.24em] text-white">
-                        <span style={{ color: "#ffffff" }}>
-                          {t("priceComparison")}
-                        </span>
-                      </div>
-                      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                        <div className="rounded-[1.15rem] border border-white/20 bg-white/[0.08] px-4 py-3">
-                          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white">
-                            {t("typicalMarket")}
-                          </div>
-                          <div className="mt-2 text-[20px] font-semibold text-white">
-                            {selectedProduct.marketPrice === "—"
-                              ? "—"
-                              : selectedProduct.marketPrice
-                              ? `$${selectedProduct.marketPrice} ${language === "ES" ? "POR VIAL" : "PER VIAL"}`
-                              : selectedProduct.dose === "5 mg"
-                              ? `$30-35 ${language === "ES" ? "POR VIAL" : "PER VIAL"}`
-                              : `$50-60 ${language === "ES" ? "POR VIAL" : "PER VIAL"}`}
-                          </div>
-                          <div className="mt-1 text-[12px] text-white/70">
-                            {`(${selectedProduct.dose.toUpperCase()}, ${language === "ES" ? "PRECIO POR VIAL INDIVIDUAL" : "SINGLE VIAL PRICING"})`}
-                          </div>
-                        </div>
-                        <div className="rounded-[1.15rem] border border-white/20 bg-white/[0.08] px-4 py-3">
-                          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white">
-                            {t("ourPrice")}
-                          </div>
-                          <div className="mt-2 text-[20px] font-semibold text-white">
-                            {`${selectedProduct.name === "BPC-157" ? formatPricePrecise(selectedProduct.price) : formatPrice(selectedProduct.price)} ${language === "ES" ? `POR ${selectedProduct.vials || 10} ${selectedProduct.vials === 1 ? "VIAL" : "VIALES"}` : `FOR ${selectedProduct.vials || 10} ${selectedProduct.vials === 1 ? "VIAL" : "VIALS"}`}`}
-                          </div>
-                          <div className="mt-1 text-[12px] text-white/70">
-                            {`(${selectedProduct.dose.toUpperCase()} ${language === "ES" ? "POR VIAL" : "PER VIAL"} × ${selectedProduct.vials || 10})`}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
 
               </div>
 
