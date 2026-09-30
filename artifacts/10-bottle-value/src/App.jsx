@@ -3717,7 +3717,56 @@ export default function App() {
 
   const [cartToast, setCartToast] = useState("");
   const [productPageJustAdded, setProductPageJustAdded] = useState(false);
-  const [coaPage, setCoaPage] = useState(0);
+  const productPrimaryActionRef = useRef(null);
+    const [productPrimaryActionVisible, setProductPrimaryActionVisible] = useState(false);
+    const stickyProductInfoRef = useRef(null);
+    const stickyProductNameRef = useRef(null);
+    const stickyProductPriceRef = useRef(null);
+    const [stickyProductInfoStacked, setStickyProductInfoStacked] = useState(false);
+    useEffect(() => {
+      setProductPrimaryActionVisible(false);
+      if (page !== "product" || !selectedProduct) return;
+      const primaryAction = productPrimaryActionRef.current;
+      if (!primaryAction || typeof IntersectionObserver === "undefined") return;
+
+      const observer = new IntersectionObserver(([entry]) => {
+        setProductPrimaryActionVisible(
+          Boolean(entry?.isIntersecting && entry.intersectionRatio >= 0.25)
+        );
+      }, {
+        rootMargin: "0px 0px -" + (showCookieBanner ? 150 : 96) + "px 0px",
+        threshold: [0, 0.25],
+      });
+      observer.observe(primaryAction);
+      return () => observer.disconnect();
+    }, [page, selectedProduct, showCookieBanner]);
+    useEffect(() => {
+      if (page !== "product" || !selectedProduct) return;
+      const info = stickyProductInfoRef.current;
+      const name = stickyProductNameRef.current;
+      const price = stickyProductPriceRef.current;
+      if (!info || !name || !price) return;
+
+      const measure = () => {
+        const availableWidth = info.clientWidth;
+        if (!availableWidth) return;
+        const requiredWidth = name.scrollWidth + price.scrollWidth + 8;
+        const shouldStack = requiredWidth > availableWidth;
+        setStickyProductInfoStacked((current) => current === shouldStack ? current : shouldStack);
+      };
+
+      measure();
+      if (typeof ResizeObserver === "undefined") {
+        window.addEventListener("resize", measure);
+        return () => window.removeEventListener("resize", measure);
+      }
+      const observer = new ResizeObserver(measure);
+      observer.observe(info);
+      observer.observe(name);
+      observer.observe(price);
+      return () => observer.disconnect();
+    }, [page, selectedProduct?.dose, selectedProduct?.name, selectedProduct?.price]);
+      const [coaPage, setCoaPage] = useState(0);
   const [coaLightbox, setCoaLightbox] = useState(false);
   const vialLabelInfoRef = useRef(null);
   useEffect(() => {
@@ -3737,7 +3786,11 @@ export default function App() {
   }, []);
   const savedShopScrollY = useRef(0);
   const productOriginPage = useRef("shop");
-  const shopSidebarScrollRef = useRef(null);
+  const selectedProductUnavailable = Boolean(
+      selectedProduct?.outOfStock &&
+      (selectedProduct?.warehouse !== "us" || page === "us-warehouse" || productOriginPage.current === "us-warehouse")
+    );
+      const shopSidebarScrollRef = useRef(null);
   const shopSidebarThumbRef = useRef(null);
   const savedSidebarScrollTop = useRef(0);
   const usWhSidebarScrollRef = useRef(null);
@@ -13719,12 +13772,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
                   <div className="mt-5 grid gap-3 sm:grid-cols-2">
                     {selectedProduct?.outOfStock && (selectedProduct?.warehouse !== "us" || page === "us-warehouse" || productOriginPage.current === "us-warehouse") ? (
-                      <div className="sm:col-span-2 inline-flex w-full justify-center rounded-full border border-white/20 px-7 py-4 text-[14px] font-black uppercase tracking-[0.22em] bg-white/10 text-white/50 cursor-not-allowed">
+                      <div ref={productPrimaryActionRef} className="sm:col-span-2 inline-flex w-full justify-center rounded-full border border-white/20 px-7 py-4 text-[14px] font-black uppercase tracking-[0.22em] bg-white/10 text-white/50 cursor-not-allowed">
                         Out of stock
                       </div>
                     ) : (
                       <>
                         <button
+                          ref={productPrimaryActionRef}
                           onClick={() => addToCart(selectedProduct, "product")}
                           className={`inline-flex w-full justify-center rounded-full px-7 py-4 text-[14px] font-black uppercase tracking-[0.22em] shadow-[0_12px_30px_rgba(0,0,0,0.22)] border border-black ${
                             productPageJustAdded
@@ -13812,6 +13866,49 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               </div>
 
             </div>
+          {!productPrimaryActionVisible && !coaLightbox && !attestationModalOpen && (
+              <div
+                className="fixed inset-x-0 z-[80] border-t border-white/20 bg-[#4b4b4b]/95 px-4 pt-2 shadow-[0_-12px_35px_rgba(0,0,0,0.3)] backdrop-blur-xl md:hidden"
+                style={{
+                  bottom: showCookieBanner ? "calc(3.25rem + env(safe-area-inset-bottom, 0px))" : "0px",
+                  paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom, 0px))",
+                }}
+              >
+                <div className="mx-auto flex max-w-7xl items-center gap-3">
+                  <div
+                    ref={stickyProductInfoRef}
+                    className={"min-w-0 flex-1 " + (stickyProductInfoStacked ? "flex flex-col items-start gap-0" : "flex items-baseline gap-2")}
+                  >
+                    <div ref={stickyProductNameRef} className="min-w-0 max-w-full truncate text-[10px] font-bold uppercase leading-4 tracking-[0.1em] text-white/60">
+                      {publicProductName(selectedProduct.name)} · {selectedProduct.dose?.replace(/ each$/i, "")}
+                    </div>
+                    <div ref={stickyProductPriceRef} className="shrink-0 whitespace-nowrap text-lg font-extrabold leading-none tracking-tight text-white">
+                      {selectedProduct.name === "BPC-157" ? formatPricePrecise(selectedProduct.price) : formatPrice(selectedProduct.price)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={selectedProductUnavailable}
+                    onClick={() => addToCart(selectedProduct, "product")}
+                    className={
+                      "inline-flex h-10 min-w-[124px] shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3 text-center text-[10px] font-black uppercase tracking-[0.07em] shadow-[0_8px_24px_rgba(0,0,0,0.2)] transition active:scale-[0.98] " +
+                      (selectedProductUnavailable
+                        ? "cursor-not-allowed bg-white/20 text-white/50"
+                        : productPageJustAdded
+                        ? "bg-black text-white"
+                        : "bg-white text-black")
+                    }
+                  >
+                    {selectedProductUnavailable
+                      ? tx("Out of stock", "Нет в наличии", "Немає в наявності", "Nicht auf Lager", "Agotado")
+                      : productPageJustAdded
+                      ? t("added")
+                      : t("addToCart")}
+                  </button>
+                </div>
+              </div>
+            )}
+    
           </main>
         )}
 
