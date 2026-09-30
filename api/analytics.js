@@ -289,7 +289,7 @@ async function handleGet(req, res, config) {
   }
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   const config = getSupabaseConfig();
   if (!config) {
     res.status(503).json({ error: "Analytics storage is not configured" });
