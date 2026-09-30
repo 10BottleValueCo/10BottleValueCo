@@ -217,7 +217,7 @@ export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLab
             <button type="button" className="flex items-center justify-center bg-black px-3 py-2 hover:bg-black/80 transition-colors md:px-5" onClick={() => onDecrementCart(selection)} aria-label={`− 1 ${name} ${dose}, ${selectedVials} ${labels.vials}`}>
               <span className="select-none text-[10px] font-black leading-[1.5] text-white md:text-[13px]">−</span>
             </button>
-            <button type="button" className="bpc-catalog-card__cart-primary flex flex-1 items-center justify-center gap-1 bg-white px-2 py-2 text-[11px] font-black uppercase tracking-[0.06em] text-black hover:bg-white/90 transition-colors md:px-5 md:text-[14px] md:tracking-[0.16em]" onClick={add}>
+            <button type="button" className="bpc-catalog-card__cart-primary flex flex-1 items-center justify-center gap-1 bg-white px-2 py-2 text-[11px] font-black uppercase tracking-[0.06em] text-black hover:bg-white/90 transition-none md:px-5 md:text-[14px] md:tracking-[0.16em]" onClick={add}>
               <span className="bpc-catalog-card__cart-label whitespace-nowrap">
                 {labels.add}
                 {cartQuantity > 1 && <span className="bpc-catalog-card__cart-count ml-1 tracking-normal">×{cartQuantity}</span>}

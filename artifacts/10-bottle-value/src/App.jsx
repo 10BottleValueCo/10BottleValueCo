@@ -13787,7 +13787,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         <button
                           ref={productPrimaryActionRef}
                           onClick={() => addToCart(selectedProduct, "product")}
-                          className={`inline-flex w-full justify-center rounded-full px-7 py-4 text-[14px] font-black uppercase tracking-[0.22em] shadow-[0_12px_30px_rgba(0,0,0,0.22)] border border-black ${
+                          className={`inline-flex w-full justify-center rounded-full px-7 py-4 text-[14px] font-black uppercase tracking-[0.22em] shadow-[0_12px_30px_rgba(0,0,0,0.22)] border border-black transition-none ${
                             productPageJustAdded
                               ? "bg-black text-white"
                               : "bg-white text-black hover:bg-white/90"
@@ -13901,7 +13901,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     type="button"
                     disabled={selectedProductUnavailable}
                     onClick={() => addToCart(selectedProduct, "product")}
-                    className={`inline-flex h-10 min-w-[124px] shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3 text-center text-[10px] font-black uppercase tracking-[0.07em] shadow-[0_8px_24px_rgba(0,0,0,0.2)] transition active:scale-[0.98] ${
+                    className={`inline-flex h-10 min-w-[124px] shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3 text-center text-[10px] font-black uppercase tracking-[0.07em] shadow-[0_8px_24px_rgba(0,0,0,0.2)] transition-none active:scale-[0.98] ${
                       selectedProductUnavailable
                         ? "cursor-not-allowed bg-white/20 text-white/50"
                         : productPageJustAdded
