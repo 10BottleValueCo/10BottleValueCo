@@ -5,7 +5,7 @@ import { Fragment, startTransition, useEffect, useLayoutEffect, useMemo, useRef,
 import { Info, X } from "lucide-react";
 import confetti from "canvas-confetti";
 import { supabase, userFromSupabase } from "./supabase.js";
-import { track, trackPageView, setAnalyticsUser } from "./analytics.js";
+import { track, trackPageView } from "./analytics.js";
 import { useSEO } from "./useSEO.js";
 import { catalogProductName, matchesProductSearch, productSlug as productSlugFor, publicProductName } from "./productNames.js";
 import { buildSupportTimeline } from "./support-timeline.js";
@@ -2675,6 +2675,7 @@ const PRODUCTS_BASE = [
 function FunnelTab({ supabase }) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [range, setRange] = useState("7d");
   const [sessions, setSessions] = useState([]);
   const [activeSession, setActiveSession] = useState(null);
@@ -2685,51 +2686,71 @@ function FunnelTab({ supabase }) {
 
   async function loadEvents() {
     setLoading(true);
+    setLoadError("");
     const days = range === "1d" ? 1 : range === "7d" ? 7 : range === "30d" ? 30 : 90;
-    const since = new Date(Date.now() - days * 86400000).toISOString();
-    const { data, error } = await supabase
-      .from("analytics_events")
-      .select("*")
-      .gte("created_at", since)
-      .order("created_at", { ascending: false })
-      .limit(5000);
-    if (!error && data) {
-      setEvents(data);
-      // Build sessions list
-      const sessionMap = {};
-      for (const e of [...data].reverse()) {
-        if (!sessionMap[e.session_id]) {
-          sessionMap[e.session_id] = { session_id: e.session_id, user_id: e.user_id, events: [], first_seen: e.created_at, last_seen: e.created_at };
-        }
-        sessionMap[e.session_id].events.push(e);
-        sessionMap[e.session_id].last_seen = e.created_at;
+    try {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data?.session?.access_token;
+      if (!accessToken) throw new Error("Sign in to the admin account to view visitor activity.");
+
+      const response = await fetch(`/api/analytics?days=${days}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result?.error || "Funnel events could not be loaded.");
       }
-      setSessions(Object.values(sessionMap).sort((a, b) => new Date(b.last_seen) - new Date(a.last_seen)));
+
+      const rows = Array.isArray(result?.events) ? result.events : [];
+      setEvents(rows);
+      const sessionMap = new Map();
+      for (const e of [...rows].reverse()) {
+        if (!e.session_id) continue;
+        if (!sessionMap.has(e.session_id)) {
+          sessionMap.set(e.session_id, {
+            session_id: e.session_id,
+            events: [],
+            first_seen: e.created_at,
+            last_seen: e.created_at,
+          });
+        }
+        const session = sessionMap.get(e.session_id);
+        session.events.push(e);
+        session.last_seen = e.created_at;
+      }
+      setSessions([...sessionMap.values()].sort((a, b) => new Date(b.last_seen) - new Date(a.last_seen)));
+    } catch (error) {
+      setEvents([]);
+      setSessions([]);
+      setLoadError(error instanceof Error ? error.message : "Funnel events could not be loaded.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   // Funnel steps — count unique sessions that hit each step
   const funnelSteps = [
-    { key: "visit",       label: "Visited site",      events: ["page_view"], icon: "👁" },
-    { key: "shop",        label: "Opened shop",        events: ["page_view"], page: "shop", icon: "🏪" },
-    { key: "product",     label: "Viewed product",     events: ["product_view"], icon: "🔬" },
-    { key: "cart",        label: "Added to cart",      events: ["add_to_cart"], icon: "🛒" },
-    { key: "checkout",    label: "Started checkout",   events: ["page_view"], page: "cart", icon: "📋" },
-    { key: "order",       label: "Placed order",       events: ["order_placed"], icon: "✅" },
+    { key: "visit", label: "Visited site", match: (e) => e.event_type === "page_view", icon: "👁" },
+    { key: "shop", label: "Opened shop", match: (e) => e.event_type === "page_view" && e.page === "shop", icon: "🏪" },
+    { key: "product", label: "Viewed product", match: (e) => e.event_type === "product_view", icon: "🔬" },
+    { key: "cart", label: "Added to cart", match: (e) => e.event_type === "add_to_cart", icon: "🛒" },
+    {
+      key: "checkout",
+      label: "Started checkout",
+      match: (e) => e.event_type === "checkout_started" || (e.event_type === "page_view" && e.page === "cart"),
+      icon: "📋",
+    },
+    {
+      key: "payment",
+      label: "Reached payment",
+      match: (e) => e.event_type === "checkout_step" && e.properties?.step === "payment",
+      icon: "💳",
+    },
+    { key: "order", label: "Placed order", match: (e) => e.event_type === "order_placed", icon: "✅" },
   ];
 
   const funnelData = funnelSteps.map(step => {
-    let matchingSessions;
-    if (step.page) {
-      matchingSessions = new Set(
-        events.filter(e => step.events.includes(e.event_type) && e.page === step.page).map(e => e.session_id)
-      );
-    } else {
-      matchingSessions = new Set(
-        events.filter(e => step.events.includes(e.event_type)).map(e => e.session_id)
-      );
-    }
+    const matchingSessions = new Set(events.filter(step.match).map(e => e.session_id));
     return { ...step, count: matchingSessions.size };
   });
 
@@ -2765,6 +2786,17 @@ function FunnelTab({ supabase }) {
   const avgEventsPerSession = totalSessions > 0 ? (totalEvents / totalSessions).toFixed(1) : "—";
   const ordersPlaced = new Set(events.filter(e => e.event_type === "order_placed").map(e => e.session_id)).size;
   const overallCvr = totalSessions > 0 ? ((ordersPlaced / totalSessions) * 100).toFixed(1) : "0.0";
+  const deviceCounts = { phone: 0, tablet: 0, desktop: 0, unknown: 0 };
+  for (const session of sessions) {
+    const device = session.events.find((event) => event.properties?.device_type)?.properties?.device_type;
+    deviceCounts[Object.hasOwn(deviceCounts, device) ? device : "unknown"] += 1;
+  }
+  const deviceLabel = (device) => ({
+    phone: "Phone",
+    tablet: "Tablet",
+    desktop: "Computer",
+    unknown: "Unknown",
+  }[device] || "Unknown");
 
   const card = "rounded-xl border border-white/10 bg-black/15 px-4 py-3";
   const pill = "rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.15em] border cursor-pointer transition-all";
@@ -2808,10 +2840,11 @@ function FunnelTab({ supabase }) {
         {/* Funnel */}
         {loading ? (
           <div className="text-center text-white/30 py-12 text-sm">Loading…</div>
+        ) : loadError ? (
+          <div role="alert" className="text-center text-red-300/80 py-12 text-sm">{loadError}</div>
         ) : totalSessions === 0 ? (
           <div className="text-center text-white/30 py-12 text-sm">
-            No data yet. Events will appear here once visitors load the site.<br/>
-            <span className="text-[11px] text-white/20 mt-2 block">Make sure the SQL migration has been run in Supabase.</span>
+            No visitor activity in this date range yet.
           </div>
         ) : (
           <div className="space-y-3">
@@ -2845,7 +2878,7 @@ function FunnelTab({ supabase }) {
 
       {/* 3-column breakdown */}
       {!loading && totalSessions > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           {[
             { title: "Top Pages", data: topPages, color: "#6bff8a" },
             { title: "Top Products Viewed", data: topProducts, color: "#22d3ee" },
@@ -2875,6 +2908,34 @@ function FunnelTab({ supabase }) {
               )}
             </div>
           ))}
+          <div className="rounded-[1.4rem] border border-white/15 bg-black/20 p-4">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-3">Devices</div>
+            <div className="space-y-3">
+              {[
+                ["phone", "Phone"],
+                ["computer", "Computer"],
+                ["tablet", "Tablet"],
+                ["unknown", "Unknown"],
+              ].map(([key, label]) => {
+                const count = key === "computer" ? deviceCounts.desktop : deviceCounts[key];
+                const share = sessions.length ? (count / sessions.length) * 100 : 0;
+                return (
+                  <div key={key}>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-white/70">{label}</span>
+                      <span className="text-white font-bold">{count}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-white/5">
+                      <div
+                        className="h-1.5 rounded-full bg-cyan-300/80"
+                        style={{ width: `${share}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
 
@@ -2887,7 +2948,7 @@ function FunnelTab({ supabase }) {
               <thead>
                 <tr className="border-b border-white/10 text-[10px] uppercase tracking-[0.15em] text-white/30">
                   <th className="pb-2 text-left">Session</th>
-                  <th className="pb-2 text-left">User</th>
+                  <th className="pb-2 text-left">Device</th>
                   <th className="pb-2 text-center">Events</th>
                   <th className="pb-2 text-left">Path</th>
                   <th className="pb-2 text-right">Last seen</th>
@@ -2898,6 +2959,7 @@ function FunnelTab({ supabase }) {
                   const pages = [...new Set(sess.events.filter(e => e.event_type === "page_view").map(e => e.page))];
                   const ordered = sess.events.some(e => e.event_type === "order_placed");
                   const added = sess.events.some(e => e.event_type === "add_to_cart");
+                  const device = sess.events.find((e) => e.properties?.device_type)?.properties?.device_type || "unknown";
                   const isActive = activeSession === sess.session_id;
                   return (
                     <>
@@ -2905,7 +2967,7 @@ function FunnelTab({ supabase }) {
                         className={`border-b border-white/5 cursor-pointer hover:bg-white/5 transition ${isActive ? "bg-white/5" : ""}`}
                         onClick={() => setActiveSession(isActive ? null : sess.session_id)}>
                         <td className="py-2 pr-3 font-mono text-white/40">{sess.session_id.slice(0, 8)}…</td>
-                        <td className="py-2 pr-3 text-white/40">{sess.user_id ? "✓ auth" : "anon"}</td>
+                        <td className="py-2 pr-3 text-white/60">{deviceLabel(device)}</td>
                         <td className="py-2 text-center">
                           <span className={`inline-flex items-center gap-1 ${ordered ? "text-green-400" : added ? "text-yellow-400" : "text-white/50"}`}>
                             {ordered ? "✅" : added ? "🛒" : ""} {sess.events.length}
@@ -2934,8 +2996,12 @@ function FunnelTab({ supabase }) {
                                   </span>
                                   <span className="text-white/40 truncate">
                                     {e.page ? `page: ${e.page}` : ""}
+                                    {e.properties?.action ? ` · ${e.properties.action}` : ""}
+                                    {e.properties?.form ? ` · ${e.properties.form} form` : ""}
+                                    {e.properties?.step ? ` · ${e.properties.step}` : ""}
                                     {e.properties?.product_name ? ` · ${e.properties.product_name} ${e.properties.product_dose || ""}` : ""}
                                     {e.properties?.total ? ` · $${e.properties.total}` : ""}
+                                    {e.properties?.duration_ms ? ` · ${Math.round(e.properties.duration_ms / 1000)}s on page` : ""}
                                   </span>
                                 </div>
                               ))}
@@ -9122,17 +9188,108 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     }
   }, [page, adminActiveTab, currentUser?.email]);
 
-  // ── Analytics: sync authenticated user ID ─────────────────────────────
+  // ── Analytics: track page journeys and product views ────────────────────
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      setAnalyticsUser(data?.user?.id || null);
-    });
-  }, [currentUser?.email]);
+    if (page === "admin" || isAdminUser()) return;
+    const pageDetails = page === "product" && selectedProduct
+      ? { product_name: selectedProduct.name, product_dose: selectedProduct.dose }
+      : {};
+    trackPageView(page, pageDetails);
+  }, [page, selectedProduct?.name, selectedProduct?.dose, currentUser?.email]);
 
-  // ── Analytics: track every page change ────────────────────────────────
+  const lastProductAnalyticsKey = useRef("");
   useEffect(() => {
-    trackPageView(page);
-  }, [page]);
+    if (page !== "product" || !selectedProduct || isAdminUser()) {
+      if (page !== "product") lastProductAnalyticsKey.current = "";
+      return;
+    }
+    const key = `${selectedProduct.name}|${selectedProduct.dose}`;
+    if (lastProductAnalyticsKey.current === key) return;
+    lastProductAnalyticsKey.current = key;
+    track("product_view", {
+      page: "product",
+      product_name: selectedProduct.name,
+      product_dose: selectedProduct.dose,
+      product_price: Number(selectedProduct.price) || 0,
+    });
+  }, [page, selectedProduct?.name, selectedProduct?.dose, selectedProduct?.price, currentUser?.email]);
+
+  // Keep a useful click/form trail without recording input values or form contents.
+  useEffect(() => {
+    if (page === "admin" || isAdminUser()) return;
+
+    const cleanActionLabel = (value) => String(value || "")
+      .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[email]")
+      .replace(/\+?\d[\d().\-\s]{7,}\d/g, "[number]")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 100);
+
+    const handleClick = (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const control = target.closest("button, a, [role='button']");
+      if (!control || control.closest("[data-analytics-ignore], [data-analytics-private]")) return;
+      if (control instanceof HTMLButtonElement && control.disabled) return;
+
+      const action = cleanActionLabel(
+        control.getAttribute("aria-label") ||
+        control.getAttribute("title") ||
+        control.dataset.analyticsAction ||
+        control.textContent,
+      );
+      if (!action) return;
+
+      let destination;
+      if (control instanceof HTMLAnchorElement) {
+        try {
+          const url = new URL(control.href);
+          if (url.protocol === "http:" || url.protocol === "https:") {
+            destination = `${url.origin}${url.pathname}`.slice(0, 240);
+          }
+        } catch {
+          // Ignore malformed or non-web links such as mailto: and tel:.
+        }
+      }
+
+      track("ui_click", {
+        page,
+        action,
+        element_type: control.tagName.toLowerCase(),
+        ...(destination ? { destination } : {}),
+      });
+    };
+
+    const handleSubmit = (event) => {
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement) || form.closest("[data-analytics-ignore], [data-analytics-private]")) return;
+      track("form_submit", {
+        page,
+        form: cleanActionLabel(form.dataset.analyticsForm || form.id || "form") || "form",
+      });
+    };
+
+    document.addEventListener("click", handleClick, true);
+    document.addEventListener("submit", handleSubmit, true);
+    return () => {
+      document.removeEventListener("click", handleClick, true);
+      document.removeEventListener("submit", handleSubmit, true);
+    };
+  }, [page, currentUser?.email]);
+
+  const checkoutStartedForPage = useRef(false);
+  useEffect(() => {
+    if (page !== "cart") {
+      checkoutStartedForPage.current = false;
+      return;
+    }
+    if (!cart.length || isAdminUser()) return;
+    if (!checkoutStartedForPage.current) {
+      track("checkout_started", { page: "cart", items_count: cart.length });
+      checkoutStartedForPage.current = true;
+    }
+    track("checkout_step", { page: "cart", step: checkoutStep, items_count: cart.length });
+  }, [page, cart.length, checkoutStep, currentUser?.email]);
 
   async function loadAdminAffiliates() {
     setAdminAffiliatesLoading(true);
@@ -11439,7 +11596,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     setCoaLightbox(false);
     setPage("product");
     window.scrollTo({ top: 0, behavior: "auto" });
-    track("product_view", { page: "product", product_name: product.name, product_dose: product.dose, product_price: product.price });
     const affCode = currentAffiliateProfile?.code;
     const newPath = "/" + makeProductSlug(product) + (affCode ? "?c=" + affCode.toLowerCase() : "");
     window.history.replaceState({}, "", newPath);
