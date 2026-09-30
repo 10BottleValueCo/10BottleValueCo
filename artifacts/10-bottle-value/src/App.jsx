@@ -5224,9 +5224,11 @@ export default function App() {
   async function sendTrackingEmail({ email, orderId, trackingNumber, firstName }) {
     console.log("[sendTrackingEmail] called", { email, orderId, trackingNumber });
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Sign in as administrator to send tracking emails.");
       const res = await fetch("/api/supabase/send-tracking-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({ email, orderId, trackingNumber, firstName }),
       });
       const data = await res.json().catch(() => ({}));
@@ -6091,9 +6093,11 @@ export default function App() {
     if (hasServerWebhookEmail) return;
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Sign in to request a payment confirmation email.");
       const res = await fetch("/api/send-payment-confirmed-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({
           orderId: order.id,
           email: order.email,
@@ -10326,37 +10330,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         throw new Error(friendly);
       }
       const captureId = capture?.purchase_units?.[0]?.payments?.captures?.[0]?.id ?? data.orderID;
-      // Use actual captured amount from PayPal response as the source of truth
-      const actualTotal = Number(capture?.purchase_units?.[0]?.payments?.captures?.[0]?.amount?.value ?? snapTotal);
-      try {
-        await supabase.from("orders").upsert({
-          id: orderNumber,
-          email,
-          status: "paid",
-          total: actualTotal,
-          metadata: {
-            id: orderNumber, email, status: "paid",
-            paymentProvider: "PayPal", paypalOrderId: data.orderID,
-            paypalCaptureId: captureId, paidAt: new Date().toISOString(),
-            total: actualTotal, subtotal: snapSubtotal, shipping: snapShipping,
-            shippingType: snapShippingType,
-            automaticDiscount: snap?.automaticDiscount ?? Number(automaticDiscount.toFixed(2)),
-            promoDiscount: snap?.promoDiscount ?? Number(promoDiscount.toFixed(2)),
-            promoCode: snap?.promoCode ?? appliedPromo?.code ?? "",
-            affiliateDiscount: snap?.affiliateDiscount ?? Number(affiliateDiscount.toFixed(2)),
-            affiliateCode: snap?.affiliateCode ?? affiliateTrackingCode,
-            affiliateOwnerEmail: snap?.affiliateOwnerEmail ?? affiliateTrackingOwnerEmail,
-            affiliateCommission: snap?.affiliateCommission ?? Number(affiliateCommission.toFixed(2)),
-            storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-            paypalFee: Number(paypalFee.toFixed(2)),
-            firstName: checkoutForm.firstName || "", lastName: checkoutForm.lastName || "",
-            country: checkoutForm.country || "", address: checkoutForm.address || "",
-            address2: checkoutForm.address2 || "",
-            city: checkoutForm.city || "", postalCode: checkoutForm.postalCode || "",
-            phone: checkoutForm.phone || "", items: snapItems,
-          },
-        });
-      } catch (e) { console.error("Supabase paid upsert threw:", e); }
+      // The capture endpoint verifies the provider response and marks the order
+      // paid server-side; the browser must not overwrite that verified record.
       const nextOrders = markOrderPaidById(orderNumber, "PayPal", captureId);
       if (currentUser?.email) setUserOrders(getPaidOrdersForEmail(currentUser.email, nextOrders));
       setCart([]);
@@ -11481,11 +11456,16 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
   async function sendRegistrationEmail(email) {
     try {
-      await fetch("/api/send-registration-email", {
+      const { data: { session } } = await supabase.auth.getSession();
+      // With email-confirmation enabled there is no signed-in session yet;
+      // Supabase sends its own verification email instead.
+      if (!session?.access_token) return;
+      const response = await fetch("/api/send-registration-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({ email }),
       });
+      if (!response.ok) throw new Error(`Registration email failed (${response.status})`);
     } catch (error) {
       console.error("Failed to send registration email", error);
     }

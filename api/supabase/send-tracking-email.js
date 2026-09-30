@@ -1,16 +1,79 @@
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const SUPABASE_PUBLIC_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+const ADMIN_EMAIL = "support@10bottlevalue.co";
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[char]);
+}
+
+function validEmail(value) {
+  return typeof value === "string" && value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+async function authenticateAdmin(req) {
+  const token = String(req.headers?.authorization || "").match(/^Bearer\s+(\S+)$/i)?.[1];
+  if (!token) return { error: "Administrator Supabase bearer token is required", status: 401 };
+  if (!SUPABASE_URL || !SUPABASE_PUBLIC_KEY || !SUPABASE_SERVICE_KEY) {
+    return { error: "Supabase URL, public key, and service-role key are required", status: 500 };
+  }
+  const response = await fetch(`${SUPABASE_URL.replace(/\/+$/, "")}/auth/v1/user`, {
+    headers: { apikey: SUPABASE_PUBLIC_KEY, Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) return { error: "Invalid Supabase bearer token", status: 401 };
+  const user = await response.json();
+  const email = String(user?.email || "").trim().toLowerCase();
+  if (email !== ADMIN_EMAIL) return { error: "Administrator access required", status: 403 };
+  return {};
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { email, orderId, trackingNumber } = req.body || {};
+  let auth;
+  try {
+    auth = await authenticateAdmin(req);
+  } catch {
+    return res.status(502).json({ error: "Unable to verify administrator session" });
+  }
+  if (auth.error) return res.status(auth.status).json({ error: auth.error });
 
-  if (!email || !orderId || !trackingNumber) {
-    return res.status(400).json({ error: "Missing required fields: email, orderId, trackingNumber" });
+  const { orderId, trackingNumber: requestedTrackingNumber } = req.body || {};
+
+  if (!orderId || typeof orderId !== "string" || orderId.length > 160 || !requestedTrackingNumber) {
+    return res.status(400).json({ error: "A valid orderId and trackingNumber are required" });
   }
 
   if (!process.env.RESEND_API_KEY) {
     return res.status(500).json({ error: "Missing RESEND_API_KEY" });
+  }
+
+  const orderResponse = await fetch(
+    `${SUPABASE_URL.replace(/\/+$/, "")}/rest/v1/orders?id=eq.${encodeURIComponent(orderId)}&select=id,email,tracking_number,tracking_number_2,metadata&limit=1`,
+    { headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` } }
+  );
+  if (!orderResponse.ok) return res.status(502).json({ error: "Could not verify order tracking details" });
+  const rows = await orderResponse.json();
+  const order = Array.isArray(rows) && rows.length === 1 ? rows[0] : null;
+  if (!order) return res.status(404).json({ error: "Order not found" });
+  const email = String(order.email || "").trim().toLowerCase();
+  if (!validEmail(email)) return res.status(409).json({ error: "Order has no valid trusted recipient" });
+  const metadata = order.metadata && typeof order.metadata === "object" && !Array.isArray(order.metadata) ? order.metadata : {};
+  const storedTrackingNumbers = [
+    order.tracking_number,
+    order.tracking_number_2,
+    metadata.trackingNumber,
+    metadata.tracking_number,
+    metadata.trackingNumber2,
+    metadata.tracking_number_2,
+  ].map((value) => String(value || "").trim()).filter(Boolean);
+  const trackingNumber = String(requestedTrackingNumber).trim();
+  if (!storedTrackingNumbers.includes(trackingNumber) || trackingNumber.length > 200 || /[\r\n<>]/.test(trackingNumber)) {
+    return res.status(403).json({ error: "Tracking number does not match the verified order record" });
   }
 
   const html = `<!DOCTYPE html>
@@ -41,7 +104,7 @@ export default async function handler(req, res) {
           <tr>
             <td style="padding:32px 48px 24px;">
               <p style="margin:0 0 28px;font-size:15px;color:#3f3f46;line-height:1.65;">
-                Great news — your order <strong style="color:#09090b;">${orderId}</strong> is on its way. Here is your tracking number:
+                Great news — your order <strong style="color:#09090b;">${escapeHtml(order.id)}</strong> is on its way. Here is your tracking number:
               </p>
 
               <!-- Tracking number box -->
@@ -49,7 +112,7 @@ export default async function handler(req, res) {
                 <tr>
                   <td style="background:#f4f4f5;border:1px solid #e4e4e7;border-radius:10px;padding:20px 24px;text-align:center;">
                     <div style="font-size:11px;font-weight:700;letter-spacing:0.14em;color:#71717a;text-transform:uppercase;margin-bottom:8px;">Tracking Number</div>
-                    <div style="font-size:20px;font-weight:800;color:#09090b;letter-spacing:0.06em;font-family:monospace;">${trackingNumber}</div>
+                    <div style="font-size:20px;font-weight:800;color:#09090b;letter-spacing:0.06em;font-family:monospace;">${escapeHtml(trackingNumber)}</div>
                   </td>
                 </tr>
               </table>
@@ -108,7 +171,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         from: "10 Bottle Value Co <noreply@10bottlevalue.co>",
         to: email,
-        subject: `Your order ${orderId} has shipped — tracking inside`,
+        subject: `Your order ${String(order.id).replace(/[\r\n]/g, "")} has shipped — tracking inside`,
         html,
       }),
     });

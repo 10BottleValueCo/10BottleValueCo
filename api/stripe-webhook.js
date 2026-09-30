@@ -1,7 +1,13 @@
 import Stripe from "stripe";
 import { publicProductName } from "./_public-product-name.js";
+import {
+  getAutomaticDiscountRate,
+  getShippingPrice,
+  validateAndPriceItems,
+} from "./_catalog.js";
+import { verifyPromoCode } from "./_promo.js";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
 // Use plain REST fetch calls instead of the @supabase/supabase-js and resend
 // SDKs (like nowpayments-webhook.js and paylio-callback.js already do). This
@@ -12,12 +18,23 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 // even reaches our own try/catch. Avoiding the SDKs removes that failure mode
 // entirely and matches the proven-working pattern used everywhere else.
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
-const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
-const sbH = () => ({ apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" });
+const getServiceKey = () => {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
+  if (!SB_URL) throw new Error("SUPABASE_URL is not set");
+  return key;
+};
+const sbH = () => {
+  const key = getServiceKey();
+  return { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" };
+};
 
 async function sbSelectOne(table, params) {
   const r = await fetch(`${SB_URL}/rest/v1/${table}?${params}`, { headers: sbH() });
-  if (!r.ok) return null;
+  if (!r.ok) {
+    const text = await r.text().catch(() => "");
+    throw new Error(`Supabase select from ${table} failed: ${r.status} ${text}`);
+  }
   const rows = await r.json();
   return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
 }
@@ -33,6 +50,89 @@ async function sbUpsert(table, body, onConflict) {
     const text = await r.text().catch(() => "");
     throw new Error(`Supabase upsert into ${table} failed: ${r.status} ${text}`);
   }
+}
+
+function cents(value, label) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount < 0) throw new Error(`Order has invalid ${label}`);
+  return Math.round(amount * 100);
+}
+
+async function getExpectedStripeAmount(order) {
+  const metadata = order.metadata && typeof order.metadata === "object" && !Array.isArray(order.metadata)
+    ? order.metadata
+    : {};
+  if (metadata.id != null && String(metadata.id) !== String(order.id)) {
+    throw new Error("Order record does not match its internal order ID");
+  }
+  const rowEmail = String(order.email || "").trim().toLowerCase();
+  const metadataEmail = String(metadata.email || "").trim().toLowerCase();
+  if (rowEmail && metadataEmail && rowEmail !== metadataEmail) {
+    throw new Error("Order record customer association is inconsistent");
+  }
+  const items = Array.isArray(metadata.items) ? metadata.items : order.items;
+  const priced = validateAndPriceItems(items);
+  const subtotal = priced.subtotal;
+  const email = rowEmail || metadataEmail;
+
+  let promoDiscount = 0;
+  let promoFreeShipping = false;
+  const promoCode = String(metadata.promoCode || "").trim();
+  if (promoCode) {
+    const promo = await verifyPromoCode({
+      code: promoCode,
+      email,
+      sbUrl: SB_URL,
+      sbKey: getServiceKey(),
+    });
+    if (!promo) throw new Error("Order promo code cannot be verified");
+    promoDiscount = Math.round(subtotal * promo.rate * 100) / 100;
+    promoFreeShipping = !!promo.freeShipping;
+  }
+
+  let affiliateDiscount = 0;
+  const affiliateCode = String(metadata.affiliateCode || "").trim();
+  const storedAffiliateDiscount = Number(metadata.affiliateDiscount || 0);
+  if (!Number.isFinite(storedAffiliateDiscount) || storedAffiliateDiscount < 0) {
+    throw new Error("Order has invalid affiliate discount");
+  }
+  if (!promoDiscount && affiliateCode && storedAffiliateDiscount > 0) {
+    const impliedRate = storedAffiliateDiscount / (subtotal || 1);
+    affiliateDiscount = impliedRate <= 0.05
+      ? Math.min(storedAffiliateDiscount, subtotal)
+      : Math.round(subtotal * 0.05 * 100) / 100;
+  }
+
+  const automaticDiscount = Math.round(subtotal * getAutomaticDiscountRate(subtotal) * 100) / 100;
+  const finalAutomaticDiscount = promoDiscount > 0 || affiliateDiscount > 0 ? 0 : automaticDiscount;
+  const shippingType = String(metadata.shippingType || "standard");
+  const shipping = priced.pricedItems.length === 0
+    ? 0
+    : promoFreeShipping || priced.regularSubtotal === 0
+      ? 0
+      : getShippingPrice(priced.regularSubtotal, shippingType === "express" ? "express" : "standard");
+  const preCreditTotal = Math.max(
+    0,
+    subtotal - finalAutomaticDiscount - promoDiscount - affiliateDiscount + shipping,
+  );
+  const storedCredit = Number(metadata.storeCreditUsed || 0);
+  if (!Number.isFinite(storedCredit) || storedCredit < 0) throw new Error("Order has invalid store credit");
+  const storeCreditUsed = Math.min(storedCredit, preCreditTotal);
+  if (storeCreditUsed > 0) {
+    if (!email) throw new Error("Order store credit cannot be verified without a customer email");
+    const creditRow = await sbSelectOne(
+      "user_credits",
+      `email=eq.${encodeURIComponent(email)}&select=amount`
+    );
+    const availableCredit = Number(creditRow?.amount || 0);
+    if (!Number.isFinite(availableCredit) || availableCredit < storeCreditUsed) {
+      throw new Error("Order store credit exceeds the server-recorded customer balance");
+    }
+  }
+  const stripeFee = Math.round(preCreditTotal * 0.0295 * 100) / 100;
+  const expectedCents = Math.round((preCreditTotal + stripeFee - storeCreditUsed) * 100);
+  if (expectedCents <= 0) throw new Error("Order has no positive server-verified payable total");
+  return { expectedCents, subtotal };
 }
 
 export const config = { api: { bodyParser: false } };
@@ -202,6 +302,7 @@ async function sendConfirmationEmail({ email, orderId, meta, items, paymentId, s
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end("Method Not Allowed");
+  if (!stripe) return res.status(500).json({ error: "STRIPE_SECRET_KEY is not set" });
 
   const sig = req.headers["stripe-signature"];
   const rawBody = await getRawBody(req);
@@ -440,25 +541,49 @@ export default async function handler(req, res) {
   if (event.type === "payment_intent.succeeded") {
     try {
       const intent = event.data.object;
-      const orderId = intent.metadata?.orderId || null;
-      if (!orderId) {
+      const orderId = intent.metadata?.orderId;
+      if (!orderId || String(orderId).trim() === "") {
         console.warn("Stripe PI webhook: no orderId in metadata", intent.id);
-        return res.status(200).json({ received: true, warning: "orderId missing" });
+        return res.status(400).json({ error: "Payment intent orderId metadata is required" });
+      }
+      if (intent.status !== "succeeded") {
+        return res.status(400).json({ error: "Payment intent is not succeeded" });
+      }
+      if (String(intent.currency || "").toLowerCase() !== "usd") {
+        return res.status(400).json({ error: "Payment intent currency does not match the order" });
       }
 
-      const email = intent.metadata?.email || intent.receipt_email || "";
       const paymentId = intent.id;
-      const paidAt = new Date().toISOString();
+      const paidAt = intent.created ? new Date(intent.created * 1000).toISOString() : new Date().toISOString();
 
       const existingRow = await sbSelectOne(
         "orders",
-        `id=eq.${encodeURIComponent(orderId)}&select=metadata,items,status,payment_id`
+        `id=eq.${encodeURIComponent(orderId)}&select=id,email,total,metadata,items,status,payment_id`
       );
+      if (!existingRow || String(existingRow.id) !== String(orderId)) {
+        return res.status(404).json({ error: "Order not found" });
+      }
 
       // Idempotency: already processed this exact payment
       if (existingRow?.status === "paid" && existingRow?.payment_id === paymentId) {
         return res.status(200).json({ received: true, note: "already processed" });
       }
+      const currentStatus = String(existingRow.status || "").toLowerCase();
+      const confirmationAlreadySetPaid = currentStatus === "paid" && !existingRow.payment_id;
+      if (!["checkout", "pending"].includes(currentStatus) && !confirmationAlreadySetPaid) {
+        return res.status(409).json({ error: "Order is not in a payable status" });
+      }
+
+      const { expectedCents, subtotal: verifiedSubtotal } = await getExpectedStripeAmount(existingRow);
+      if (intent.amount !== expectedCents || intent.amount_received !== expectedCents ||
+          cents(intent.metadata?.total, "payment intent total") !== expectedCents ||
+          cents(intent.metadata?.subtotal, "payment intent subtotal") !== Math.round(verifiedSubtotal * 100)) {
+        return res.status(400).json({ error: "Payment amount does not match the server-priced order" });
+      }
+
+      const statusGuard = confirmationAlreadySetPaid
+        ? "status=eq.paid&payment_id=is.null"
+        : "status=in.(checkout,pending)";
 
       const prevMeta =
         existingRow?.metadata && typeof existingRow.metadata === "object" && !Array.isArray(existingRow.metadata)
@@ -475,7 +600,8 @@ export default async function handler(req, res) {
         if (affRow?.email) ownerEmail = String(affRow.email).trim().toLowerCase();
       }
 
-      const subtotal = Number(intent.metadata?.subtotal || prevMeta.subtotal || intent.amount / 100 || 0);
+      const email = existingRow.email || prevMeta.email || intent.receipt_email || "";
+      const subtotal = verifiedSubtotal;
       const commission = subtotal * 0.1;
 
       const updatedMeta = {
@@ -494,17 +620,38 @@ export default async function handler(req, res) {
           ? existingRow.items
           : [];
 
-      await sbUpsert("orders", {
-        id: orderId,
-        email: (email || prevMeta.email || "").toLowerCase(),
-        status: "paid",
-        payment_provider: "Stripe",
-        payment_id: paymentId,
-        paid_at: paidAt,
-        total: Number(prevMeta.total || intent.amount / 100 || 0),
-        items: orderItems,
-        metadata: updatedMeta,
-      });
+      const claimResponse = await fetch(
+        `${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(orderId)}&${statusGuard}&select=id`,
+        {
+          method: "PATCH",
+          headers: { ...sbH(), Prefer: "return=representation" },
+          body: JSON.stringify({
+            status: "paid",
+            payment_provider: "Stripe",
+            payment_id: paymentId,
+            paid_at: paidAt,
+            email: (email || prevMeta.email || "").toLowerCase(),
+            total: Number((expectedCents / 100).toFixed(2)),
+            items: orderItems,
+            metadata: updatedMeta,
+          }),
+        },
+      );
+      if (!claimResponse.ok) {
+        const text = await claimResponse.text().catch(() => "");
+        throw new Error(`Supabase order payment update failed: ${claimResponse.status} ${text}`);
+      }
+      const claimedRows = await claimResponse.json();
+      if (!Array.isArray(claimedRows) || claimedRows.length !== 1) {
+        const current = await sbSelectOne(
+          "orders",
+          `id=eq.${encodeURIComponent(orderId)}&select=status,payment_id`
+        );
+        if (current?.status === "paid" && current?.payment_id === paymentId) {
+          return res.status(200).json({ received: true, note: "already processed" });
+        }
+        return res.status(409).json({ error: "Order status changed before payment processing" });
+      }
 
       // Affiliate commission (INSERT-only, no upsert — same pattern as checkout.session.completed)
       if (affCode) {

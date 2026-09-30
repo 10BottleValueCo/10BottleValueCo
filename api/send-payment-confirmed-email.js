@@ -1,4 +1,54 @@
 import { publicProductName } from "./_public-product-name.js";
+import crypto from "crypto";
+
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "https://danpkqqzcptamojrnrmk.supabase.co";
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[char]);
+}
+
+function validEmail(value) {
+  return typeof value === "string" && value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+async function authenticateRequest(req) {
+  const internalSecret = process.env.INTERNAL_EMAIL_API_SECRET || "";
+  const suppliedSecret = String(req.headers?.["x-internal-email-secret"] || "");
+  if (internalSecret && suppliedSecret) {
+    const expectedBytes = Buffer.from(internalSecret);
+    const suppliedBytes = Buffer.from(suppliedSecret);
+    if (expectedBytes.length === suppliedBytes.length && crypto.timingSafeEqual(expectedBytes, suppliedBytes)) {
+      return { internal: true };
+    }
+  }
+
+  const token = String(req.headers?.authorization || "").match(/^Bearer\s+(\S+)$/i)?.[1];
+  const publicKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+  if (!token) return { error: "Internal email authorization or a Supabase bearer token is required", status: 401 };
+  if (!SUPABASE_URL || !publicKey) return { error: "Supabase authentication is not configured", status: 500 };
+  const identity = await fetch(`${SUPABASE_URL.replace(/\/+$/, "")}/auth/v1/user`, {
+    headers: { apikey: publicKey, Authorization: `Bearer ${token}` },
+  });
+  if (!identity.ok) return { error: "Invalid Supabase bearer token", status: 401 };
+  const user = await identity.json();
+  const email = String(user?.email || "").trim().toLowerCase();
+  if (!validEmail(email)) return { error: "Authenticated user has no valid email address", status: 403 };
+  return { email, internal: false };
+}
+
+async function loadOrder(orderId) {
+  if (!SUPABASE_KEY) throw new Error("SUPABASE_SERVICE_ROLE_KEY is required to verify payment orders");
+  const response = await fetch(
+    `${SUPABASE_URL.replace(/\/+$/, "")}/rest/v1/orders?id=eq.${encodeURIComponent(orderId)}&select=id,email,status,total,items,metadata,payment_provider,payment_id,paid_at&limit=1`,
+    { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+  );
+  if (!response.ok) throw new Error("Could not verify order in Supabase");
+  const rows = await response.json();
+  return Array.isArray(rows) && rows.length === 1 ? rows[0] : null;
+}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -6,8 +56,9 @@ export default async function handler(req, res) {
   }
 
   try {
+    const auth = await authenticateRequest(req);
+    if (auth.error) return res.status(auth.status).json({ error: auth.error });
     const {
-      email,
       orderId,
       total,
       subtotal,
@@ -33,8 +84,19 @@ export default async function handler(req, res) {
       country = "",
     } = req.body || {};
 
-    if (!email || !orderId) {
+    if (!orderId || typeof orderId !== "string" || orderId.length > 160) {
       return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const order = await loadOrder(orderId);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    const email = String(order.email || "").trim().toLowerCase();
+    if (!validEmail(email)) return res.status(409).json({ error: "Order has no valid trusted recipient" });
+    if (!auth.internal && (auth.email !== email || String(order.status || "").toLowerCase() !== "paid")) {
+      return res.status(403).json({ error: "A paid order belonging to the authenticated user is required" });
+    }
+    if (auth.internal && !String(paymentProvider || "").trim()) {
+      return res.status(403).json({ error: "Verified payment provider is required for internal email delivery" });
     }
 
     if (!process.env.RESEND_API_KEY) {
@@ -73,7 +135,7 @@ export default async function handler(req, res) {
     const trustpilotUrl = "https://www.trustpilot.com/review/10bottlevalue.co";
     const accountUrl = "https://10bottlevalue.co";
 
-    const fullName = [firstName, lastName].filter(Boolean).join(" ");
+    const fullName = escapeHtml([firstName, lastName].filter(Boolean).join(" "));
     const zipCode = postalCode || zip;
     const hasAddress = !!(fullName || address || city || country || zipCode || state || phone);
 
@@ -84,12 +146,12 @@ export default async function handler(req, res) {
             <p style="margin:0 0 10px;font-size:14px;font-weight:800;color:#555;text-transform:uppercase;letter-spacing:0.08em;">Shipping address</p>
             <table cellpadding="0" cellspacing="0" style="width:100%;">
               <tr><td style="padding:2px 0;font-size:14px;color:#888;width:110px;">Name</td><td style="padding:2px 0;font-size:15px;color:#222;">${fullName || "—"}</td></tr>
-              <tr><td style="padding:2px 0;font-size:14px;color:#888;">Address</td><td style="padding:2px 0;font-size:15px;color:#222;">${[address, address2].filter(Boolean).join(", ") || "—"}</td></tr>
-              <tr><td style="padding:2px 0;font-size:14px;color:#888;">City</td><td style="padding:2px 0;font-size:15px;color:#222;">${city || "—"}</td></tr>
-              <tr><td style="padding:2px 0;font-size:14px;color:#888;">Postal Code</td><td style="padding:2px 0;font-size:15px;color:#222;">${zipCode || "—"}</td></tr>
-              ${state ? `<tr><td style="padding:2px 0;font-size:14px;color:#888;">State</td><td style="padding:2px 0;font-size:15px;color:#222;">${state}</td></tr>` : ""}
-              <tr><td style="padding:2px 0;font-size:14px;color:#888;">Country</td><td style="padding:2px 0;font-size:15px;color:#222;">${country || "—"}</td></tr>
-              <tr><td style="padding:2px 0;font-size:14px;color:#888;">Phone</td><td style="padding:2px 0;font-size:15px;color:#222;">${phone || "—"}</td></tr>
+              <tr><td style="padding:2px 0;font-size:14px;color:#888;">Address</td><td style="padding:2px 0;font-size:15px;color:#222;">${escapeHtml([address, address2].filter(Boolean).join(", ")) || "—"}</td></tr>
+              <tr><td style="padding:2px 0;font-size:14px;color:#888;">City</td><td style="padding:2px 0;font-size:15px;color:#222;">${escapeHtml(city) || "—"}</td></tr>
+              <tr><td style="padding:2px 0;font-size:14px;color:#888;">Postal Code</td><td style="padding:2px 0;font-size:15px;color:#222;">${escapeHtml(zipCode) || "—"}</td></tr>
+              ${state ? `<tr><td style="padding:2px 0;font-size:14px;color:#888;">State</td><td style="padding:2px 0;font-size:15px;color:#222;">${escapeHtml(state)}</td></tr>` : ""}
+              <tr><td style="padding:2px 0;font-size:14px;color:#888;">Country</td><td style="padding:2px 0;font-size:15px;color:#222;">${escapeHtml(country) || "—"}</td></tr>
+              <tr><td style="padding:2px 0;font-size:14px;color:#888;">Phone</td><td style="padding:2px 0;font-size:15px;color:#222;">${escapeHtml(phone) || "—"}</td></tr>
             </table>
           </td>
         </tr>
@@ -102,7 +164,7 @@ export default async function handler(req, res) {
               (item) => `
           <tr>
             <td style="padding:16px 0;border-bottom:1px solid #d7d7d7;color:#222;font-size:16px;">
-              ${(item.quantity || 1) * 10} vials × ${publicProductName(item.name) || "Product"} ${item.dose || ""}
+              ${escapeHtml((Number(item.quantity) || 1) * 10)} vials × ${escapeHtml(publicProductName(item.name) || "Product")} ${escapeHtml(item.dose || "")}
             </td>
             <td align="right" style="padding:16px 0;border-bottom:1px solid #d7d7d7;color:#222;font-size:16px;font-weight:700;">
               $${money(Number(item.price || 0) * Number(item.quantity || 1))}
@@ -129,7 +191,7 @@ export default async function handler(req, res) {
         ${affiliateDiscountValue > 0 ? `<tr><td style="padding:7px 0;color:#444;font-size:15px;">Affiliate discount</td><td align="right" style="padding:7px 0;color:#222;font-size:15px;font-weight:700;">-$${money(affiliateDiscountValue)}</td></tr>` : ""}
         <tr>
           <td style="padding:7px 0;color:#444;font-size:15px;">Shipping method</td>
-          <td align="right" style="padding:7px 0;color:#222;font-size:15px;font-weight:700;">${shippingLabel}</td>
+          <td align="right" style="padding:7px 0;color:#222;font-size:15px;font-weight:700;">${escapeHtml(shippingLabel)}</td>
         </tr>
         <tr>
           <td style="padding:7px 0;color:#444;font-size:15px;">Shipping</td>
@@ -164,11 +226,11 @@ export default async function handler(req, res) {
               <p style="margin:0 0 28px;font-size:16px;line-height:1.6;color:#333;">Your payment has been received successfully. Your order is now being processed.</p>
               <table width="100%" cellpadding="0" cellspacing="0" style="background:#e8e8e8;border:1px solid #d0d0d0;border-radius:14px;margin-bottom:28px;">
                 <tr><td style="padding:24px 26px;">
-                  <p style="margin:0 0 10px;font-size:15px;color:#222;"><strong>Order ID:</strong> ${orderId}</p>
+                  <p style="margin:0 0 10px;font-size:15px;color:#222;"><strong>Order ID:</strong> ${escapeHtml(orderId)}</p>
                   <p style="margin:0 0 10px;font-size:15px;color:#222;"><strong>Total:</strong> $${money(orderTotal)}</p>
-                  <p style="margin:0 0 10px;font-size:15px;color:#222;"><strong>Shipping method:</strong> ${shippingLabel}</p>
-                  <p style="margin:0 0 10px;font-size:15px;color:#222;"><strong>Payment method:</strong> ${paymentProvider || "Payment"}</p>
-                  <p style="margin:0;font-size:15px;color:#222;"><strong>Payment ID:</strong> ${paymentId || "—"}</p>
+                  <p style="margin:0 0 10px;font-size:15px;color:#222;"><strong>Shipping method:</strong> ${escapeHtml(shippingLabel)}</p>
+                  <p style="margin:0 0 10px;font-size:15px;color:#222;"><strong>Payment method:</strong> ${escapeHtml(paymentProvider || "Payment")}</p>
+                  <p style="margin:0;font-size:15px;color:#222;"><strong>Payment ID:</strong> ${escapeHtml(paymentId || "—")}</p>
                 </td></tr>
               </table>
               ${addressHtml}
@@ -216,7 +278,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         from: "10BottleValueCo <support@10bottlevalue.co>",
         to: email,
-        subject: `Order confirmed — ${orderId}`,
+        subject: `Order confirmed — ${String(orderId).replace(/[\r\n]/g, "")}`,
         html,
       }),
     });

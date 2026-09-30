@@ -3,6 +3,25 @@ const SITE_URL = "https://10bottlevalue.co";
 const TRUSTPILOT_URL = "https://www.trustpilot.com/review/10bottlevalue.co";
 const SUPPORT_EMAIL = "support@10bottlevalue.co";
 const LOGO_URL = "https://10bottlevalue.co/logo.png";
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
+const SUPABASE_PUBLIC_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+
+function validEmail(value) {
+  return typeof value === "string" && value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+async function authenticateUser(req) {
+  const token = String(req.headers?.authorization || "").match(/^Bearer\s+(\S+)$/i)?.[1];
+  if (!token) return { error: "A Supabase bearer token is required", status: 401 };
+  if (!SUPABASE_URL || !SUPABASE_PUBLIC_KEY) return { error: "Supabase authentication is not configured", status: 500 };
+  const response = await fetch(`${SUPABASE_URL.replace(/\/+$/, "")}/auth/v1/user`, {
+    headers: { apikey: SUPABASE_PUBLIC_KEY, Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) return { error: "Invalid Supabase bearer token", status: 401 };
+  const user = await response.json();
+  const email = String(user?.email || "").trim().toLowerCase();
+  return validEmail(email) ? { email } : { error: "Authenticated user has no valid email address", status: 403 };
+}
 
 function emailShell(bodyHtml) {
   return `<!doctype html>
@@ -27,10 +46,21 @@ function emailShell(bodyHtml) {
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
 
-  const { email } = req.body || {};
-  if (!email) return res.status(400).json({ ok: false, error: "email required" });
+  let auth;
+  try {
+    auth = await authenticateUser(req);
+  } catch {
+    return res.status(502).json({ ok: false, error: "Unable to verify Supabase user" });
+  }
+  if (auth.error) return res.status(auth.status).json({ ok: false, error: auth.error });
 
-  const safeEmail = String(email).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const requestedEmail = String(req.body?.email || "").trim().toLowerCase();
+  if (!validEmail(requestedEmail)) return res.status(400).json({ ok: false, error: "A valid email is required" });
+  if (requestedEmail !== auth.email) return res.status(403).json({ ok: false, error: "Email must match the authenticated account" });
+  if (!process.env.RESEND_API_KEY) return res.status(500).json({ ok: false, error: "Missing RESEND_API_KEY" });
+  const safeEmail = auth.email.replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[char]);
 
   const html = emailShell(`
     <h1 style="margin:0 0 12px;font-size:22px;text-align:center;">Account created successfully</h1>
@@ -62,7 +92,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         from: FROM_EMAIL,
-        to: [String(email)],
+        to: [auth.email],
         subject: "Your 10BottleValueCo account was created",
         html
       })

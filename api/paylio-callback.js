@@ -138,25 +138,11 @@ export default async function handler(req, res) {
       }
     }
 
-    // Send confirmation email (only once)
-    if (!alreadyEmailSent) {
-      await fetch(`${baseUrl}/api/send-payment-confirmed-email`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email, orderId,
-          total: finalTotal, subtotal: finalSubtotal, shipping: finalShipping,
-          automaticDiscount: finalAutoDiscount, promoDiscount: finalPromoDiscount,
-          affiliateDiscount: finalAffiliateDiscount, affiliateCode,
-          affiliateOwnerEmail: finalAffiliateOwnerEmail, affiliateCommission: finalAffiliateCommission,
-          shippingType: finalShippingType,
-          paymentProvider: "Paylio Card",
-          paymentId: data.transaction_id || data.id || orderId,
-          items,
-          firstName, lastName, address, address2, city, state, postalCode, phone, country,
-        }),
-      }).catch(() => {});
-    }
+    // Paylio's current callback path has no signature verification or server-side
+    // transaction lookup, so it is not authorized to trigger confirmation email.
+    // Do not mark confirmationEmailSentAt here: delivery must remain retryable
+    // once provider verification is implemented.
+    if (!alreadyEmailSent) console.error("Paylio confirmation email skipped: callback payment is not independently verified");
 
     // Affiliate commission
     // NOTE: deliberately not using on_conflict/merge-duplicates here — Postgres

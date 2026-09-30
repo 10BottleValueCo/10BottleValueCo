@@ -145,7 +145,10 @@ export async function processNowPaymentsStatus(data) {
   if (!alreadyEmailSent) {
     await fetch(`${baseUrl}/api/send-payment-confirmed-email`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(process.env.INTERNAL_EMAIL_API_SECRET ? { "x-internal-email-secret": process.env.INTERNAL_EMAIL_API_SECRET } : {}),
+      },
       body: JSON.stringify({
         email, orderId,
         total: finalTotal, subtotal: finalSubtotal, shipping: finalShipping,

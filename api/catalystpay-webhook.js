@@ -71,12 +71,15 @@ export default async function handler(req, res) {
       .createHmac("sha256", WEBHOOK_SECRET)
       .update(rawBody, "utf8")
       .digest("hex");
-    if (!sigHeader || sigHeader !== expected) {
+    const supplied = String(sigHeader || "").trim().toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(supplied) ||
+        !crypto.timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(supplied, "hex"))) {
       console.error("CatalystPay webhook: invalid signature", { sigHeader, expected: expected.slice(0, 8) + "…" });
       return res.status(401).json({ error: "Invalid webhook signature" });
     }
   } else {
-    console.error("CatalystPay webhook: CATALYSTPAY_WEBHOOK_SECRET not set — skipping signature validation");
+    console.error("CatalystPay webhook: CATALYSTPAY_WEBHOOK_SECRET not set — refusing unverified event");
+    return res.status(503).json({ error: "CatalystPay webhook verification is not configured" });
   }
 
   const eventType = String(payload.type || payload.eventType || "").toLowerCase();
@@ -147,7 +150,10 @@ export default async function handler(req, res) {
   if (!alreadyEmailSent) {
     await fetch(`${BASE_URL}/api/send-payment-confirmed-email`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(process.env.INTERNAL_EMAIL_API_SECRET ? { "x-internal-email-secret": process.env.INTERNAL_EMAIL_API_SECRET } : {}),
+      },
       body: JSON.stringify({
         email,
         orderId,
