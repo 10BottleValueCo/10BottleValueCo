@@ -2,12 +2,16 @@
 // cache-bust
 // @ts-nocheck
 import { Fragment, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Info } from "lucide-react";
 import confetti from "canvas-confetti";
 import { supabase, userFromSupabase } from "./supabase.js";
 import { track, trackPageView, setAnalyticsUser } from "./analytics.js";
 import { useSEO } from "./useSEO.js";
 import { catalogProductName, matchesProductSearch, productSlug as productSlugFor, publicProductName } from "./productNames.js";
 import { buildSupportTimeline } from "./support-timeline.js";
+import BpcCatalogCard from "./components/BpcCatalogCard.jsx";
+import UsFlag from "./components/UsFlag.jsx";
+import vialCManifest from "./data/vialCManifest.json";
 import cashAppLogo from "./assets/payment-logos/cash-app.svg";
 import bitcoinLogo from "./assets/payment-logos/bitcoin.svg";
 import paypalMark from "./assets/payment-logos/paypal-mark.svg";
@@ -21,6 +25,161 @@ import {
 const stripePromise = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
   ? loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
   : null;
+
+const topProductNames = new Set(["Retatrutide / GLP-3", "10-GH", "KLOW80"]);
+const isTopProduct = (product) =>
+  product.name !== "MOTS-C" && (topProductNames.has(product.name) || Boolean(product.isHot));
+
+const hiddenCatalogProductNames = new Set([
+  "PEG-MGF",
+  "Triptorelin",
+  "LL37",
+  "Melatonin",
+  "MGF",
+  "Hexarelin Acetate",
+  "FOXO4-DRI",
+  "GDF-8",
+  "Gonadorelin",
+  "ACE-031",
+  "PNC-27",
+]);
+
+// Keep the first vial of each product as its fixed body; variants can differ
+// slightly outside the dosage text, so only replace the lower-band lettering.
+const vialBaseImages = new Map();
+for (const [key, file] of Object.entries(vialCManifest)) {
+  const [name, , noteLabel] = JSON.parse(key);
+  const group = JSON.stringify([name, noteLabel]);
+  if (!vialBaseImages.has(group)) vialBaseImages.set(group, file);
+}
+
+const preloadedVials = new Map();
+function preloadCatalogVials() {
+  const base = import.meta.env.BASE_URL;
+  const sources = [
+    ...Object.values(vialCManifest).map((file) => `${base}vials-c/${file}`),
+    "/bottle-white.png",
+    "/bottle-blue.png",
+    "/bottle-light-blue.png",
+    "/bottle-water.png",
+  ];
+  for (const src of new Set(sources)) {
+    if (preloadedVials.has(src)) continue;
+    const image = new Image();
+    image.fetchPriority = "low";
+    image.src = src;
+    preloadedVials.set(src, image);
+  }
+}
+
+function retryVialImage(event) {
+  const image = event.currentTarget;
+  const originalSrc = image.dataset.originalSrc;
+  const attempt = Number(image.dataset.retryAttempt || 0);
+  if (!originalSrc || attempt >= 4) {
+    console.error("Vial image could not be loaded:", originalSrc);
+    return;
+  }
+  image.dataset.retryAttempt = String(attempt + 1);
+  window.setTimeout(() => {
+    if (!image.isConnected || image.dataset.originalSrc !== originalSrc) return;
+    const url = new URL(originalSrc, window.location.href);
+    url.searchParams.set("image_retry", String(attempt + 1));
+    image.src = url.toString();
+  }, 750 * 2 ** attempt);
+}
+
+function StableVialImage({ src, baseSrc, alt }) {
+  const [visible, setVisible] = useState(() => ({ base: src, url: src }));
+  const [ready, setReady] = useState(null);
+
+  useEffect(() => {
+    if (src === baseSrc || src === visible.base) return;
+    let cancelled = false;
+    let retryTimer;
+    let candidate;
+
+    const load = (attempt = 0) => {
+      candidate = new Image();
+      const url = new URL(src, window.location.href);
+      if (attempt) url.searchParams.set("image_retry", String(attempt));
+      const loadedUrl = url.toString();
+      const showWhenDecoded = async () => {
+        try {
+          await candidate.decode();
+        } catch {
+          // A loaded image can still be displayed if decoding is unsupported.
+        }
+        if (!cancelled && candidate.naturalWidth > 0) {
+          setReady({ base: src, url: loadedUrl });
+        }
+      };
+      candidate.onload = () => { void showWhenDecoded(); };
+      candidate.onerror = () => {
+        if (cancelled) return;
+        if (attempt < 3) {
+          retryTimer = window.setTimeout(() => load(attempt + 1), 750 * 2 ** attempt);
+        } else {
+          console.error("Vial image could not be loaded:", src);
+        }
+      };
+      candidate.src = loadedUrl;
+      if (candidate.complete && candidate.naturalWidth > 0) void showWhenDecoded();
+    };
+    load();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(retryTimer);
+      if (candidate) {
+        candidate.onload = null;
+        candidate.onerror = null;
+      }
+    };
+  }, [src, baseSrc, visible.base]);
+
+  useEffect(() => {
+    if (!ready || ready.base !== src || visible.base === src) return;
+    // Keep both decoded images in the DOM for a frame before removing the old one.
+    const timer = window.setTimeout(() => setVisible(ready), 80);
+    return () => window.clearTimeout(timer);
+  }, [ready, src, visible.base]);
+
+  return (
+    <div className="relative h-full w-full">
+      <img
+        src={baseSrc}
+        data-original-src={baseSrc}
+        alt={alt}
+        className="absolute inset-0 h-full w-full object-contain select-none"
+        draggable={false}
+        loading="eager"
+        onError={retryVialImage}
+      />
+      {src !== baseSrc && (
+        <img
+          src={visible.url}
+          data-original-src={visible.base}
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full object-contain select-none"
+          style={{ clipPath: "inset(74.5% 0 17% 0)" }}
+          draggable={false}
+          onError={retryVialImage}
+        />
+      )}
+      {src !== baseSrc && ready?.base === src && visible.base !== src && (
+        <img
+          src={ready.url}
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full object-contain select-none"
+          style={{ clipPath: "inset(74.5% 0 17% 0)" }}
+          draggable={false}
+        />
+      )}
+    </div>
+  );
+}
 
 // ── Stripe inline payment form (must live outside App to use hooks) ──────────
 function StripePaymentForm({ orderNumber, onCancel, onSuccess }) {
@@ -1522,7 +1681,6 @@ const PRODUCTS_BASE = [
       total: "50 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
-      isNew: true,
       outOfStock: true,
     },
     {
@@ -1532,7 +1690,6 @@ const PRODUCTS_BASE = [
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
-      isNew: true,
       outOfStock: true,
     },
     {
@@ -2115,6 +2272,38 @@ const PRODUCTS_BASE = [
       price: 187,
       dose: "10 mg",
       total: "100 mg total",
+      note: "10 vial kit (10 vials included)",
+      marketPrice: "—",
+    },
+    {
+      name: "10-GH",
+      price: 109,
+      dose: "10 IU",
+      total: "100 IU total",
+      note: "10 vial kit (10 vials included)",
+      marketPrice: "—",
+    },
+    {
+      name: "10-GH",
+      price: 159,
+      dose: "15 IU",
+      total: "150 IU total",
+      note: "10 vial kit (10 vials included)",
+      marketPrice: "—",
+    },
+    {
+      name: "10-GH",
+      price: 259,
+      dose: "24 IU",
+      total: "240 IU total",
+      note: "10 vial kit (10 vials included)",
+      marketPrice: "—",
+    },
+    {
+      name: "10-GH",
+      price: 359,
+      dose: "36 IU",
+      total: "360 IU total",
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
     },
@@ -3293,6 +3482,7 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [shopTab, setShopTab] = useState("all");
   const [inputValue, setInputValue] = useState("");
+  const [selectedShopName, setSelectedShopName] = useState("");
   const [isScrolled, setIsScrolled] = useState(false);
   const [showCookieBanner, setShowCookieBanner] = useState(false);
   useEffect(() => {
@@ -3525,10 +3715,25 @@ export default function App() {
   }, []);
 
   const [cartToast, setCartToast] = useState("");
-  const [justAddedId, setJustAddedId] = useState("");
   const [productPageJustAdded, setProductPageJustAdded] = useState(false);
   const [coaPage, setCoaPage] = useState(0);
   const [coaLightbox, setCoaLightbox] = useState(false);
+  const vialLabelInfoRef = useRef(null);
+  useEffect(() => {
+    const closeOnOtherClick = (event) => {
+      const info = vialLabelInfoRef.current;
+      if (info?.open && !info.querySelector("summary")?.contains(event.target)) info.open = false;
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape" && vialLabelInfoRef.current) vialLabelInfoRef.current.open = false;
+    };
+    document.addEventListener("click", closeOnOtherClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("click", closeOnOtherClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, []);
   const savedShopScrollY = useRef(0);
   const productOriginPage = useRef("shop");
   const shopSidebarScrollRef = useRef(null);
@@ -3538,6 +3743,7 @@ export default function App() {
   const usWhSidebarThumbRef = useRef(null);
   const [usWhInputValue, setUsWhInputValue] = useState("");
   const [usWhSearchTerm, setUsWhSearchTerm] = useState("");
+  const [selectedUsWhName, setSelectedUsWhName] = useState("");
   const [fadingOutAddedId, setFadingOutAddedId] = useState("");
   const [shopPrimed, setShopPrimed] = useState(true);
   const [cartHighlight, setCartHighlight] = useState(false);
@@ -3844,15 +4050,50 @@ export default function App() {
   const [pendingCheckoutAfterAuth, setPendingCheckoutAfterAuth] = useState(false);
   const [adminActiveTab, setAdminActiveTab] = useState("orders");
   const [revPeriod, setRevPeriod] = useState("month");
-  const [analyticsFrom, setAnalyticsFrom] = useState(() => {
-    const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`;
-  });
+  const [analyticsFrom, setAnalyticsFrom] = useState("2026-04-01");
   const [analyticsTo, setAnalyticsTo] = useState(() => {
     const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   });
   const [analyticsCopied, setAnalyticsCopied] = useState(false);
-  const [analyticsSort, setAnalyticsSort] = useState("revenue");
+  const [analyticsSort, setAnalyticsSort] = useState("units");
   const [analyticsSortDir, setAnalyticsSortDir] = useState("desc");
+  const [salesRanking, setSalesRanking] = useState(null);
+  const [usSalesRanking, setUsSalesRanking] = useState(null);
+  useEffect(() => {
+    if (page !== "shop" && page !== "us-warehouse") return;
+    const frame = window.requestAnimationFrame(preloadCatalogVials);
+    return () => window.cancelAnimationFrame(frame);
+  }, [page]);
+  useEffect(() => {
+    const controller = new AbortController();
+    const loadRanking = async () => {
+      try {
+        const response = await fetch("/api/catalog-ranking", { signal: controller.signal });
+        if (!response.ok) throw new Error(`Catalog ranking request failed (${response.status})`);
+        const data = await response.json();
+        if (!Array.isArray(data.names) || !data.names.every(name => typeof name === "string") ||
+            !Array.isArray(data.usNames) || !data.usNames.every(name => typeof name === "string")) {
+          throw new Error("Catalog ranking response is invalid");
+        }
+        if (!controller.signal.aborted) {
+          setSalesRanking(data.names);
+          setUsSalesRanking(data.usNames);
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.error(error);
+          setSalesRanking([]);
+          setUsSalesRanking([]);
+        }
+      }
+    };
+    loadRanking();
+    const interval = window.setInterval(loadRanking, 5 * 60 * 1000);
+    return () => {
+      controller.abort();
+      window.clearInterval(interval);
+    };
+  }, []);
   const [chartsExpandedOrder, setChartsExpandedOrder] = useState(null);
   const [chartsFrom, setChartsFrom] = useState("");
   const [chartsTo, setChartsTo] = useState("");
@@ -4055,7 +4296,7 @@ export default function App() {
         normD(p.dose) === normD(dose) &&
         (p.warehouse === "us") === wantsUs;
     });
-    if (catalogEntry) {
+    if (catalogEntry && !(name === "BPC-157" && !wantsUs && [1, 5].includes(Number(rest.vials)))) {
       let currentPrice;
       if (wantsUs) {
         const usOriginal = (catalogEntry.usPriceBase ?? catalogEntry.price) + 5;
@@ -8063,11 +8304,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       ),
       id: "lyophilized",
       a: tx(
-        "Yes — peptide materials are supplied in lyophilized (freeze-dried) form unless otherwise stated. BAC Water is provided as a liquid and is not lyophilized. Product format details are listed for identification and research documentation purposes only.",
-        "Да — пептидные материалы поставляются в лиофилизированной (freeze-dried) форме, если не указано иное. BAC Water поставляется как жидкость и не является лиофилизированным. Детали формата продукта указаны только для идентификации и исследовательской документации.",
-        "Так — пептидні матеріали постачаються у ліофілізованій (freeze-dried) формі, якщо не зазначено інше. BAC Water постачається як рідина і не є ліофілізованим. Деталі формату продукту вказані лише для ідентифікації та дослідницької документації.",
+        "Yes — peptide materials are supplied in lyophilized (freeze-dried) form unless otherwise stated. Reconstitution Solution is provided as a liquid and is not lyophilized. Product format details are listed for identification and research documentation purposes only.",
+        "Да — пептидные материалы поставляются в лиофилизированной (freeze-dried) форме, если не указано иное. Reconstitution Solution поставляется как жидкость и не является лиофилизированным. Детали формата продукта указаны только для идентификации и исследовательской документации.",
+        "Так — пептидні матеріали постачаються у ліофілізованій (freeze-dried) формі, якщо не зазначено інше. Reconstitution Solution постачається як рідина і не є ліофілізованим. Деталі формату продукту вказані лише для ідентифікації та дослідницької документації.",
         undefined,
-        "Sí — los materiales peptídicos se suministran en forma liofilizada (freeze-dried), salvo que se indique lo contrario. BAC Water se proporciona como líquido y no está liofilizada. Los detalles del formato del producto se indican únicamente para identificación y documentación de investigación."
+        "Sí — los materiales peptídicos se suministran en forma liofilizada (freeze-dried), salvo que se indique lo contrario. Reconstitution Solution se proporciona como líquido y no está liofilizada. Los detalles del formato del producto se indican únicamente para identificación y documentación de investigación."
       ),
     },
     {
@@ -8736,8 +8977,17 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     if (page !== "shop") {
       setSearchTerm("");
       setInputValue("");
+      setSelectedShopName("");
     }
   }, [page]);
+
+  useEffect(() => {
+    if (page !== "us-warehouse" && selectedUsWhName) {
+      setUsWhInputValue("");
+      setUsWhSearchTerm("");
+      setSelectedUsWhName("");
+    }
+  }, [page, selectedUsWhName]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -8983,17 +9233,16 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   const filteredProducts = useMemo(() => {
     return products.filter((product) =>
       product.warehouse !== "us" &&
+      !hiddenCatalogProductNames.has(product.name) &&
+      (!selectedShopName || publicProductName(product.name).toLowerCase() === selectedShopName.toLowerCase()) &&
       matchesProductSearch(product, searchTerm)
     );
-  }, [searchTerm]);
+  }, [products, searchTerm, selectedShopName]);
 
-  const usWarehouseProducts = useMemo(() =>
-    [...products.filter(p => p.warehouse === "us")].sort((a, b) => {
-      const nameCompare = a.name.localeCompare(b.name);
-      if (nameCompare !== 0) return nameCompare;
-      return (parseFloat(a.dose) || 0) - (parseFloat(b.dose) || 0);
-    }),
-  []);
+  const usWarehouseProducts = useMemo(
+    () => products.filter(p => p.warehouse === "us" && !hiddenCatalogProductNames.has(p.name)),
+    [products]
+  );
 
   const sortedUsWhSearchProducts = useMemo(() => {
     const term = usWhSearchTerm.trim().toLowerCase();
@@ -9001,72 +9250,114 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     const filtered = term
       ? base.filter(p => matchesProductSearch(p, term))
       : base;
-    return filtered.sort((a, b) => {
-      const nc = a.name.localeCompare(b.name);
-      if (nc !== 0) return nc;
-      return (parseFloat(a.dose) || 0) - (parseFloat(b.dose) || 0);
-    });
-  }, [usWarehouseProducts, usWhSearchTerm]);
+    const byName = new Map();
+    for (const product of filtered) {
+      const key = publicProductName(product.name).toLowerCase();
+      if (selectedUsWhName && key !== selectedUsWhName.toLowerCase()) continue;
+      const current = byName.get(key);
+      if (current) current.isHot ||= isTopProduct(product);
+      else byName.set(key, { ...product, isHot: isTopProduct(product) });
+    }
+    return [...byName.values()].sort((a, b) =>
+      publicProductName(a.name).localeCompare(publicProductName(b.name))
+    );
+  }, [usWarehouseProducts, usWhSearchTerm, selectedUsWhName]);
 
   const filteredUsWhProducts = useMemo(() => {
     const term = usWhSearchTerm.trim().toLowerCase();
-    if (!term) return usWarehouseProducts;
-    return usWarehouseProducts.filter(p => matchesProductSearch(p, term));
-  }, [usWarehouseProducts, usWhSearchTerm]);
+    return usWarehouseProducts.filter(p =>
+      (!selectedUsWhName || publicProductName(p.name).toLowerCase() === selectedUsWhName.toLowerCase()) &&
+      (!term || matchesProductSearch(p, term))
+    );
+  }, [usWarehouseProducts, usWhSearchTerm, selectedUsWhName]);
 
   const shopSortedProducts = useMemo(() => {
-    const priority = [
-      "BPC-157",
-      "TB-500",
-      "TB-500 + BPC-157",
-      "CJC-1295",
-      "CJC-1295 + Ipamorelin",
-      "Ipamorelin",
-      "Tirzepatide / GLP-2",
-      "Semaglutide",
-      "Sermorelin",
-      "Tesamorelin",
-      "IGF-1 LR3",
-      "Retatrutide / GLP-3",
-    ];
+    const priority = new Map((salesRanking || []).map((name, index) => [name.toLowerCase(), index]));
     return [...filteredProducts].sort((a, b) => {
-      const pa = priority.indexOf(a.name);
-      const pb = priority.indexOf(b.name);
+      const pa = priority.get(publicProductName(a.name).toLowerCase()) ?? -1;
+      const pb = priority.get(publicProductName(b.name).toLowerCase()) ?? -1;
       if (pa !== pb) {
         if (pa === -1) return 1;
         if (pb === -1) return -1;
         return pa - pb;
       }
-      const nameCompare = a.name.localeCompare(b.name);
+      const nameCompare = publicProductName(a.name).localeCompare(publicProductName(b.name));
       if (nameCompare !== 0) return nameCompare;
       return (parseFloat(a.dose) || 0) - (parseFloat(b.dose) || 0);
     });
-  }, [filteredProducts]);
+  }, [filteredProducts, salesRanking]);
+
+  const shopProductGroups = useMemo(() => {
+    const groups = new Map();
+    for (const item of shopSortedProducts) {
+      const key = JSON.stringify([item.name, item.noteLabel ?? ""]);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(item);
+    }
+    return [...groups.values()];
+  }, [shopSortedProducts]);
+
+  useEffect(() => {
+    if (page !== "shop" || !selectedShopName || !shopProductGroups.length) return;
+    const id = getCatalogCardId(shopProductGroups[0][0]);
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [page, selectedShopName, shopProductGroups]);
+
+  const usWarehouseProductGroups = useMemo(() => {
+    const priority = new Map((usSalesRanking || []).map((name, index) => [name.toLowerCase(), index]));
+    const ordered = [...filteredUsWhProducts].sort((a, b) => {
+      const pa = priority.get(publicProductName(a.name).toLowerCase()) ?? -1;
+      const pb = priority.get(publicProductName(b.name).toLowerCase()) ?? -1;
+      if (pa !== pb) {
+        if (pa === -1) return 1;
+        if (pb === -1) return -1;
+        return pa - pb;
+      }
+      const nameCompare = publicProductName(a.name).localeCompare(publicProductName(b.name));
+      if (nameCompare !== 0) return nameCompare;
+      return (parseFloat(a.dose) || 0) - (parseFloat(b.dose) || 0);
+    });
+    const groups = new Map();
+    for (const item of ordered) {
+      const key = JSON.stringify([item.name, item.noteLabel ?? ""]);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(item);
+    }
+    return [...groups.values()];
+  }, [filteredUsWhProducts, usSalesRanking]);
+
+  useEffect(() => {
+    if (page !== "us-warehouse" || !selectedUsWhName || !usWarehouseProductGroups.length) return;
+    const id = getCatalogCardId(usWarehouseProductGroups[0][0], true);
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [page, selectedUsWhName, usWarehouseProductGroups]);
 
 
 
   const sortedSearchProducts = useMemo(() => {
-    function parseDose(dose) {
-      if (!dose) return { value: 0, unit: "" };
-      const parts = dose.split(" ");
-      const value = parseFloat(parts[0]) || 0;
-      const unit = (parts[1] || "").toLowerCase();
-      return { value, unit };
-    }
-
-    return [...filteredProducts].sort((a, b) => {
-      const nameCompare = a.name.localeCompare(b.name);
-      if (nameCompare !== 0) return nameCompare;
-
-      const da = parseDose(a.dose);
-      const db = parseDose(b.dose);
-
-      if (da.unit !== db.unit) {
-        return da.unit.localeCompare(db.unit);
+    const byName = new Map();
+    for (const product of filteredProducts) {
+      const name = publicProductName(product.name).toLowerCase();
+      const hot = Boolean(isTopProduct(product) ||
+        (product.name === "BPC-157" && product.dose === "10 mg") ||
+        (product.name === "Tesamorelin" && product.dose === "10 mg") ||
+        (product.name === "Tirzepatide / GLP-2" && product.dose === "20 mg"));
+      const current = byName.get(name);
+      if (current) {
+        current.isHot ||= hot;
+      } else {
+        byName.set(name, { ...product, isHot: hot });
       }
-
-      return da.value - db.value;
-    });
+    }
+    return [...byName.values()].sort((a, b) =>
+      publicProductName(a.name).localeCompare(publicProductName(b.name))
+    );
   }, [filteredProducts]);
 
   const cartCount = useMemo(
@@ -9238,7 +9529,66 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   ];
 
   function getProductId(product) {
-    return `${product.name}-${product.noteLabel ?? ""}-${product.dose}${product.fromWarehouse ? `-${product.fromWarehouse}` : ""}`;
+    const packId = product.name === "BPC-157" && product.vials && product.vials !== 10
+      ? `-${product.vials}v`
+      : "";
+    return `${product.name}-${product.noteLabel ?? ""}-${product.dose}${packId}${product.fromWarehouse ? `-${product.fromWarehouse}` : ""}`;
+  }
+
+  function getCatalogCardId(product, isUsWarehouse = false) {
+    return `${isUsWarehouse ? "us" : "shop"}-product-${encodeURIComponent(JSON.stringify([product.name, product.noteLabel ?? ""]))}`;
+  }
+
+  function renderCatalogGroup(variants, isUsWarehouse = false) {
+    const first = variants[0];
+    const normalized = variants.map((item) => isUsWarehouse
+      ? { ...item, price: (item.usPriceBase ?? item.price) + 5, originalPrice: (item.usPriceBase ?? item.price) + 5, fromWarehouse: "us" }
+      : item);
+    const byDose = Object.fromEntries(normalized.map((item) => [item.dose, item]));
+    const pricesByDose = Object.fromEntries(normalized.map((item) => [item.dose, { 10: item.price }]));
+    const selectedVariant = ({ dose, vials }) => vials === 10 ? byDose[dose] : null;
+    const badgesFor = ({ dose }) => {
+      const item = byDose[dose] || normalized[0];
+      return {
+        hot: Boolean(isTopProduct(item) || (isUsWarehouse && item.name === "HGH") ||
+          (!isUsWarehouse && (
+            (item.name === "BPC-157" && item.dose === "10 mg") ||
+            (item.name === "Tesamorelin" && item.dose === "10 mg") ||
+            (item.name === "Tirzepatide / GLP-2" && item.dose === "20 mg")
+          ))),
+        sale: isUsWarehouse && Boolean(item.usStrikePrice),
+        us: isUsWarehouse,
+      };
+    };
+    return (
+      <BpcCatalogCard
+        key={`${isUsWarehouse ? "us" : "ww"}-${first.name}-${first.noteLabel ?? ""}`}
+        id={getCatalogCardId(first, isUsWarehouse)}
+        name={publicProductName(first.name)}
+        noteLabel={first.noteLabel}
+        language={language}
+        pricesByDose={pricesByDose}
+        renderVial={(dose) => renderProductVialImage({ product: byDose[dose] || normalized[0] })}
+        getBadges={badgesFor}
+        onAddToCart={(selection) => {
+          const variant = selectedVariant(selection);
+          if (variant) addToCart(variant);
+        }}
+        onDecrementCart={(selection) => {
+          const variant = selectedVariant(selection);
+          if (variant) decrementCartItem(getProductId(variant));
+        }}
+        getCartQuantity={(selection) => {
+          const variant = selectedVariant(selection);
+          return variant ? cart.find((item) => getProductId(item) === getProductId(variant))?.quantity ?? 0 : 0;
+        }}
+        isOutOfStock={(selection) => Boolean(selectedVariant(selection)?.outOfStock)}
+        onOpenProduct={(selection) => {
+          const variant = selectedVariant(selection);
+          if (variant) openProduct(variant);
+        }}
+      />
+    );
   }
 
   function addToCart(product, source = "catalog") {
@@ -11798,6 +12148,18 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     // Убираем "EACH" из дозировки
     let dose = (product?.dose || "").toUpperCase().replace(" EACH", "").trim();
 
+    const vialKey = JSON.stringify([product.name, product.dose, product.noteLabel ?? ""]);
+    const vialImage = vialCManifest[vialKey];
+    if (vialImage) {
+      const baseImage = vialBaseImages.get(JSON.stringify([product.name, product.noteLabel ?? ""])) || vialImage;
+      return {
+        imgUrl: `${import.meta.env.BASE_URL}vials-c/${vialImage}`,
+        baseImgUrl: `${import.meta.env.BASE_URL}vials-c/${baseImage}`,
+        isOptionC: true,
+      };
+    }
+    console.warn("Option C vial missing for product:", vialKey);
+
     const IMG_WHITE = "/bottle-white.png"; // Для BPC, TB-500, Tirzepatide и всех остальных
     const IMG_BLUE = "/bottle-blue.png"; // Только для GHK-Cu
     const IMG_LIGHT_BLUE = "/bottle-light-blue.png"; // Для GLOW50, GLOW70, KLOW80
@@ -11849,9 +12211,24 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     return { title: name, subtitle: dose, isCombo: false, imgUrl: selectedImg };
   }
 
-  // 2. Компонент отрисовки баночки
-  function ProductVialImage({ product, large = false }) {
+  // Keep the rendered vial tree stable across dose changes. Defining and using
+  // a nested React component here remounts StableVialImage on every App render.
+  function renderProductVialImage({ product, large = false }) {
     const visual = getProductVisual(product);
+
+    if (visual.isOptionC) {
+      return (
+        <div className={`relative inline-flex items-center justify-center ${
+          large ? "h-[260px] w-[160px] md:h-[420px] md:w-[260px]" : "h-[140px] w-[86px] md:h-[260px] md:w-[160px]"
+        }`}>
+          <StableVialImage
+            src={visual.imgUrl}
+            baseSrc={visual.baseImgUrl}
+            alt={`${publicProductName(product.name)} ${String(product.dose).replace(/\s+each$/i, "")}`}
+          />
+        </div>
+      );
+    }
 
     // БЕРЕМ КАРТИНКУ, КОТОРУЮ НАЗНАЧИЛА ФУНКЦИЯ ВЫШЕ
     const imgUrl = visual.imgUrl;
@@ -12854,18 +13231,22 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     <span className="text-white/60 text-sm lg:text-base">⌕</span>
                     <input
                       value={inputValue}
-                      onChange={(e) => setInputValue(e.target.value)}
+                      onChange={(e) => {
+                        setSelectedShopName("");
+                        setInputValue(e.target.value);
+                      }}
                       placeholder={t("searchPeptides")}
                       className="min-w-0 flex-1 bg-transparent text-xs lg:text-sm text-white placeholder:text-white outline-none pr-5"
                     />
-                    {searchTerm && (
+                    {(searchTerm || selectedShopName) && (
                       <button
                         type="button"
                         onClick={() => {
                           setInputValue("");
                           setSearchTerm("");
+                          setSelectedShopName("");
                         }}
-                        aria-label="Clear search"
+                        aria-label={selectedShopName ? "Show all peptides" : "Clear search"}
                         className="absolute right-3 lg:right-4 z-50 text-xl text-white/60 transition hover:text-white"
                       >
                         ×
@@ -12878,30 +13259,27 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   <div className="space-y-1 pb-2">
                     {sortedSearchProducts.map((product) => (
                       <button
-                        key={`${product.name}-${product.noteLabel ?? ""}-${product.dose}`}
-                        onClick={() => openProduct(product)}
-                        className="flex items-center justify-between w-full rounded-xl px-4 py-2 text-left text-base font-semibold text-white hover:bg-white/5 gap-2"
+                        key={publicProductName(product.name).toLowerCase()}
+                        type="button"
+                        onClick={() => {
+                          const name = publicProductName(product.name);
+                          setInputValue(name);
+                          setSearchTerm(name);
+                          setSelectedShopName(name);
+                          if (selectedShopName === name) {
+                            document.getElementById(getCatalogCardId(product))
+                              ?.scrollIntoView({ behavior: "smooth", block: "center" });
+                          }
+                        }}
+                        disabled={salesRanking === null}
+                        aria-pressed={selectedShopName === publicProductName(product.name)}
+                        className={`flex items-center justify-between w-full rounded-xl px-4 py-2 text-left text-base font-semibold text-white gap-2 ${selectedShopName === publicProductName(product.name) ? "bg-white/15 ring-1 ring-white/20" : "hover:bg-white/5"}`}
                       >
                         <span className="flex flex-col leading-tight min-w-0">
                           <span className="whitespace-nowrap overflow-hidden text-ellipsis">
                             {publicProductName(product.name)}
-                            {product.noteLabel ? (
-                              <span className="ml-1.5 text-[10px] font-normal opacity-50 tracking-[0.12em]">{product.noteLabel}</span>
-                            ) : null}
                           </span>
-                          <span className="text-[13px] text-white font-normal whitespace-nowrap">{product.dose.replace(/ each$/i, "")}</span>
                         </span>
-                        {(product.isHot || (product.name === "BPC-157" && product.dose === "10 mg") || (product.name === "Tesamorelin" && product.dose === "10 mg") || (product.name === "MOTS-C" && product.dose === "10 mg") || (product.name === "Tirzepatide / GLP-2" && product.dose === "20 mg") ) && (
-                          <span className="shrink-0 flex items-center gap-1 rounded-full bg-orange-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-orange-400" style={{animation:"hotPulse 1.8s ease-in-out infinite"}}>
-                            <span style={{display:"inline-block",animation:"fireBounce 1s ease-in-out infinite"}}>🔥</span>
-                            Hot
-                          </span>
-                        )}
-                        {product.isNew && (
-                          <span className="shrink-0 rounded-full bg-sky-500/25 border border-sky-400/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-sky-300">
-                            New
-                          </span>
-                        )}
                       </button>
                     ))}
                   </div>
@@ -13000,163 +13378,15 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-5 md:gap-4 xl:gap-2">
-                  {shopSortedProducts.map((product) => {
-                      const isCombo = product.name === "TB-500 + BPC-157";
-                      const doseValue = parseFloat(product.dose) || 0;
-                      const displayBadge = isCombo
-                        ? `${doseValue} MG EACH`
-                        : `${product.dose
-                            .toUpperCase()
-                            .replace(" EACH", "")} EACH`;
-                      const displayPerVial = isCombo
-                        ? `${doseValue} mg`
-                        : product.dose.replace(/ each$/i, "");
-                      const displayTotal = isCombo
-                        ? `${doseValue * 10} mg`
-                        : (product.total || "").replace(/\s*total\s*$/i, "").trim();
-                      const productId = getProductId(product);
-                      const wasJustAdded = justAddedId === productId;
-                      const cartQty = cart.find(i => getProductId(i) === productId)?.quantity ?? 0;
-
-                      return (
-                        <div
-                          key={`${product.name}-${product.noteLabel ?? ""}-${product.dose}`}
-                          onClick={() => openProduct(product)}
-                          className="relative flex flex-col rounded-[1.2rem] border border-white/20 bg-black/10 p-2.5 text-left hover:bg-black/20 cursor-pointer md:rounded-[2rem] md:p-5"
-                        >
-                          {(product.isHot || (product.name === "BPC-157" && product.dose === "10 mg") || (product.name === "Tesamorelin" && product.dose === "10 mg") || (product.name === "MOTS-C" && product.dose === "10 mg") || (product.name === "Tirzepatide / GLP-2" && product.dose === "20 mg") ) && (
-                            <span className="absolute top-2 left-2 z-10 flex items-center gap-1 rounded-full bg-orange-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-orange-400 md:top-3 md:left-3 md:text-[10px]" style={{animation:"hotPulse 1.8s ease-in-out infinite"}}>
-                              <span style={{display:"inline-block",animation:"fireBounce 1s ease-in-out infinite"}}>🔥</span>
-                              Hot
-                            </span>
-                          )}
-                          {product.isNew && (
-                            <span className="absolute top-2 right-2 z-10 rounded-full bg-sky-500/25 border border-sky-400/40 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-sky-300 md:top-3 md:right-3 md:text-[10px]">
-                              New
-                            </span>
-                          )}
-                          <div className="flex h-[150px] items-center justify-center rounded-[1rem] bg-white/[0.04] overflow-hidden md:h-[260px] md:rounded-[1.4rem]">
-                            <ProductVialImage product={product} />
-                          </div>
-
-                          <div className="mt-2 text-center md:mt-3 min-h-[58px] md:min-h-[84px]">
-                            <div className={`font-semibold tracking-[-0.03em] leading-tight whitespace-nowrap ${publicProductName(product.name).length > 20 ? "text-xs md:text-base" : publicProductName(product.name).length > 14 ? "text-sm md:text-lg" : "text-base md:text-xl"}`}>
-                              {publicProductName(product.name)}
-                              {product.noteLabel ? (
-                                <span className="text-[10px] opacity-60 ml-2 align-middle tracking-[0.2em] md:ml-4 md:text-xs">
-                                  {product.noteLabel}
-                                </span>
-                              ) : null}
-                            </div>
-                            <div className="mt-1.5 inline-flex justify-center whitespace-nowrap rounded-full border border-white/20 bg-black/30 px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-white md:mt-2 md:px-3 md:py-1.5 md:text-[12px] md:tracking-[0.18em]">
-                              {`${product.vials || 10} VIALS x ${displayBadge}`}
-                            </div>
-                          </div>
-
-                          <div className="mt-auto rounded-xl border border-white/20 bg-black/10 p-2 pt-2 md:rounded-2xl md:p-3 md:pt-3">
-                            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-1.5 text-[9px] md:gap-x-3 md:gap-y-2.5 md:text-[13px] xl:text-[11px] 2xl:text-[13px]">
-                              <div className="min-w-0 font-bold leading-tight text-white">{t("kit")}</div>
-                              <div className="flex justify-end">
-                                <span className="rounded-full bg-black/30 border border-white/20 px-1.5 py-0.5 md:px-3.5 md:py-1 text-[9px] md:text-[13px] font-extrabold text-white whitespace-nowrap tracking-[0.04em]">
-                                  {language === "RU"
-                                    ? `${product.vials || 10} фл.`
-                                    : language === "UA"
-                                    ? `${product.vials || 10} фл.`
-                                    : language === "DE"
-                                    ? `${product.vials || 10}-Fl.-Kit`
-                                    : language === "ES"
-                                    ? `Kit ${product.vials || 10}v`
-                                    : `${product.vials || 10}-vial kit`}
-                                </span>
-                              </div>
-
-                              <div className="col-span-2 h-px bg-white/10" />
-                              <div className="min-w-0 font-bold leading-tight text-white">{t("perVial")}</div>
-                              <div className="flex justify-end">
-                                <span className="rounded-full bg-black/30 border border-white/20 px-1.5 py-0.5 md:px-3.5 md:py-1 text-[9px] md:text-[13px] font-extrabold text-white whitespace-nowrap tracking-[0.04em]">
-                                  {displayPerVial}
-                                </span>
-                              </div>
-
-                              <div className="col-span-2 h-px bg-white/10" />
-                              <div className="min-w-0 font-bold leading-tight text-white">{t("kitTotal")}</div>
-                              <div className="flex justify-end">
-                                <span className="rounded-full bg-black/30 border border-white/20 px-1.5 py-0.5 md:px-3.5 md:py-1 text-[9px] md:text-[13px] font-extrabold text-white whitespace-nowrap tracking-[0.04em]">
-                                  {displayTotal}
-                                </span>
-                              </div>
-                              <div className="col-span-2 h-px bg-white/10" />
-
-                              <div className="min-w-0 font-bold leading-tight text-white">{t("pricePerVial")}</div>
-                              <div className="flex justify-end">
-                                <span className="rounded-full bg-black/30 border border-white/20 px-1.5 py-0.5 md:px-3.5 md:py-1 text-[9px] md:text-[13px] font-extrabold text-white whitespace-nowrap tracking-[0.04em]">
-                                  {formatPricePrecise(product.price / (product.vials || 10)).replace(/^\$/, "") + "$"}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="mt-3 flex flex-col items-start gap-1 md:mt-4 md:flex-row md:items-end md:justify-between md:gap-3">
-                            <div className="flex items-baseline gap-2">
-                              <div className="text-xl font-semibold tracking-[-0.03em] md:text-3xl" style={{ transform: "scale(1.1)", transformOrigin: "left" }}>
-                                  {formatPrice(product.price)}
-                                </div>
-                            </div>
-                            <div className="text-[9px] uppercase tracking-[0.14em] text-white md:text-[11px] md:tracking-[0.18em]">
-                              {language === "RU"
-                                ? "10 флаконов включено"
-                                : language === "UA"
-                                ? "10 флаконів включено"
-                                : "10 vials included"}
-                            </div>
-                          </div>
-
-                          <div className="mt-3 md:mt-5 h-[34px] md:h-[42px]">
-                            {product.outOfStock && (product.warehouse !== "us" || page === "us-warehouse") ? (
-                              <div className="flex h-full w-full items-center justify-center rounded-full border border-white/20 px-3 text-[10px] font-black uppercase tracking-[0.18em] md:px-5 md:text-[13px] md:tracking-[0.26em] bg-white/10 text-white/50 cursor-not-allowed">
-                                Out of stock
-                              </div>
-                            ) : cartQty > 0 ? (
-                              <div className="flex h-full w-full overflow-hidden rounded-full border border-black shadow-[0_6px_20px_rgba(0,0,0,0.15)]">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    decrementCartItem(productId);
-                                  }}
-                                  className="flex items-center justify-center bg-black px-3 py-2 hover:bg-black/80 transition-colors md:px-5"
-                                >
-                                  <span className="select-none text-[10px] font-black leading-[1.5] text-white md:text-[13px]">−</span>
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    addToCart(product);
-                                  }}
-                                  className="flex flex-1 items-center justify-center gap-1 px-2 py-2 text-[11px] font-black uppercase tracking-[0.06em] bg-white text-black hover:bg-white/90 transition-colors md:px-5 md:text-[14px] md:tracking-[0.16em]"
-                                >
-                                  <span className="whitespace-nowrap">{t("addToCart")}</span>
-                                  {cartQty > 1 && (
-                                    <span className="shrink-0 tracking-normal">×{cartQty}</span>
-                                  )}
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  addToCart(product);
-                                }}
-                                className="flex h-full w-full items-center justify-center rounded-full border border-black px-3 text-[11px] font-black uppercase tracking-[0.06em] whitespace-nowrap shadow-[0_6px_20px_rgba(0,0,0,0.15)] md:px-5 md:text-[14px] md:tracking-[0.16em] bg-white text-black hover:bg-white/90"
-                              >
-                                {t("addToCart")}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
+                {salesRanking === null ? (
+                  <div className="py-10 text-center text-sm text-white/70">
+                    {language === "RU" ? "Загружаем порядок товаров…" : "Loading products…"}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-5 md:gap-4 xl:gap-2">
+                    {shopProductGroups.map((group) => renderCatalogGroup(group))}
+                  </div>
+                )}
 
                 {filteredProducts.length === 0 && (
                   <div className="mt-8 rounded-[2rem] border border-white/20 bg-black/10 p-6 text-white">
@@ -13207,7 +13437,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               </span>
             </button>
 
-            <div className="grid gap-8 lg:grid-cols-[0.95fr_1.05fr] lg:grid-rows-[auto_auto]">
+            <div className="grid gap-8 lg:grid-cols-[0.95fr_1.05fr] lg:grid-rows-[max-content_1fr]">
               <div className="rounded-[1.5rem] border border-white/20 bg-black/20 p-4 shadow-[0_26px_80px_rgba(0,0,0,0.16)] md:rounded-[2.25rem] md:p-8 lg:col-start-1 lg:row-start-1">
                 {/* Image carousel: slide 0 = vial, slide 1..N = COA pages */}
                 {/* Preload COA images so they're ready instantly on arrow click */}
@@ -13216,7 +13446,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 ))}
                 <div className="relative flex h-[300px] items-center justify-center rounded-[1.4rem] border border-white/10 bg-white/[0.035] overflow-hidden shadow-inner md:h-[460px] md:rounded-[1.8rem]">
                   {coaPage === 0 ? (
-                    <ProductVialImage product={selectedProduct} large />
+                    renderProductVialImage({ product: selectedProduct, large: true })
                   ) : (
                     <img
                       src={"/" + selectedProduct.coaImages[coaPage - 1]}
@@ -13225,9 +13455,28 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       onClick={() => setCoaLightbox(true)}
                     />
                   )}
+                  {coaPage === 0 && (
+                    <details ref={vialLabelInfoRef} key={`${selectedProduct.name}|${selectedProduct.dose}`} className="absolute left-1 top-1 z-20 text-left">
+                      <summary
+                        aria-label={tx("Label information", "Информация об этикетках", "Інформація про етикетки", "Information zu Etiketten", "Información sobre etiquetas")}
+                        className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-full text-black/65 transition-colors hover:bg-black/10 hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-black/70 [&::-webkit-details-marker]:hidden"
+                      >
+                        <Info size={19} strokeWidth={1.8} aria-hidden="true" />
+                      </summary>
+                      <div role="note" className="absolute left-0 top-11 w-56 rounded-xl border border-white/20 bg-[#1f1f1f]/95 p-3 text-xs font-semibold leading-relaxed text-white shadow-xl sm:w-64">
+                        {tx(
+                          "Orders of 10 vials are supplied without labels.",
+                          "Заказы по 10 флаконов поставляются без этикеток.",
+                          "Замовлення на 10 флаконів постачаються без етикеток.",
+                          "Bestellungen mit 10 Fläschchen werden ohne Etiketten geliefert.",
+                          "Los pedidos de 10 viales se envían sin etiquetas."
+                        )}
+                      </div>
+                    </details>
+                  )}
                   {/* US warehouse badge */}
                   {productOriginPage.current === "us-warehouse" && coaPage === 0 && (
-                    <span className="absolute top-3 right-3 z-10 inline-flex items-center rounded-md border border-blue-400 bg-blue-500/25 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.18em] text-blue-200 shadow-[0_0_12px_rgba(96,165,250,0.4)] backdrop-blur-sm">US</span>
+                     <span className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 rounded-md border border-white/60 bg-[#a32133] px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-white shadow-[0_0_12px_rgba(163,33,51,0.35)]"><UsFlag />US</span>
                   )}
                   {/* COA badge when on COA slide */}
                   {coaPage > 0 && (
@@ -13300,15 +13549,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       {selectedProduct.noteLabel}
                     </span>
                   ) : null}
-                  {selectedProduct.isHot ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/20 px-2.5 py-0.5 text-[10px] md:text-xs font-bold uppercase tracking-[0.12em] text-orange-400 ml-3 align-middle" style={{animation:"hotPulse 1.8s ease-in-out infinite"}}>
-                      <span style={{display:"inline-block",animation:"fireBounce 1s ease-in-out infinite"}}>🔥</span>
-                      Hot
-                    </span>
-                  ) : null}
                 </h1>
                 {(() => {
-                  const parts = selectedProduct.name.split(" + ");
+                  const parts = publicProductName(selectedProduct.name).split(" + ");
                   if (parts.length < 2) return null;
                   const doseStr = selectedProduct.dose || "";
                   const doseNum = parseFloat(doseStr);
@@ -13413,7 +13656,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
                     <div className="flex items-baseline gap-3 flex-wrap">
                       <div className="text-[40px] font-bold leading-none tracking-[-0.06em] text-white md:text-[52px]">
-                          {formatPrice(selectedProduct.price)}
+                          {selectedProduct.name === "BPC-157" ? formatPricePrecise(selectedProduct.price) : formatPrice(selectedProduct.price)}
                         </div>
                       <div className="self-center text-[12px] font-semibold uppercase tracking-[0.18em] text-white/60">
                         {selectedProduct.fromWarehouse === "us" ? (
@@ -13450,13 +13693,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           )
                         ) : language === "RU" ? (
                           <>
-                            <span>10 ФЛАКОНОВ ВКЛЮЧЕНО</span>
+                            <span>{selectedProduct.vials === 1 ? "1 ФЛАКОН ВКЛЮЧЁН" : `${selectedProduct.vials || 10} ФЛАКОНОВ ВКЛЮЧЕНО`}</span>
                             <br />
                             <span>ДОСТАВКА ПО ВСЕМУ МИРУ</span>
                           </>
                         ) : language === "UA" ? (
                           <>
-                            <span>10 ФЛАКОНІВ ВКЛЮЧЕНО</span>
+                            <span>{selectedProduct.vials === 1 ? "1 ФЛАКОН ВКЛЮЧЕНО" : `${selectedProduct.vials || 10} ФЛАКОНІВ ВКЛЮЧЕНО`}</span>
                             <br />
                             <span>ДОСТАВКА ПО ВСЬОМУ СВІТУ</span>
                           </>
@@ -13464,13 +13707,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           <>
                             {language === "ES" ? (
                               <>
-                                <span>10 VIALES INCLUIDOS</span>
+                                <span>{`${selectedProduct.vials || 10} ${selectedProduct.vials === 1 ? "VIAL INCLUIDO" : "VIALES INCLUIDOS"}`}</span>
                                 <br />
                                 <span>ENVÍO A TODO EL MUNDO</span>
                               </>
                             ) : (
                               <>
-                                <span>10 VIALS INCLUDED</span>
+                                <span>{`${selectedProduct.vials || 10} ${selectedProduct.vials === 1 ? "VIAL" : "VIALS"} INCLUDED`}</span>
                                 <br />
                                 <span>WORLDWIDE SHIPPING</span>
                               </>
@@ -13542,10 +13785,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             {t("ourPrice")}
                           </div>
                           <div className="mt-2 text-[20px] font-semibold text-white">
-                            {`${formatPrice(selectedProduct.price)} ${language === "ES" ? "POR 10 VIALES" : "FOR 10 VIALS"}`}
+                            {`${selectedProduct.name === "BPC-157" ? formatPricePrecise(selectedProduct.price) : formatPrice(selectedProduct.price)} ${language === "ES" ? `POR ${selectedProduct.vials || 10} ${selectedProduct.vials === 1 ? "VIAL" : "VIALES"}` : `FOR ${selectedProduct.vials || 10} ${selectedProduct.vials === 1 ? "VIAL" : "VIALS"}`}`}
                           </div>
                           <div className="mt-1 text-[12px] text-white/70">
-                            {`(${selectedProduct.dose.toUpperCase()} ${language === "ES" ? "POR VIAL × 10" : "PER VIAL × 10"})`}
+                            {`(${selectedProduct.dose.toUpperCase()} ${language === "ES" ? "POR VIAL" : "PER VIAL"} × ${selectedProduct.vials || 10})`}
                           </div>
                         </div>
                       </div>
@@ -17854,7 +18097,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 // Normalize product name variants to canonical form for grouping
                 const normalizePeptideName = (name) => {
                   // "Retatrutide / GLP-3" → "Retatrutide", "Tirzepatide / GLP-2" → "Tirzepatide"
-                  return publicProductName(name).replace(/\s*\/\s*GLP-\d+/i, "").trim();
+                  const displayName = publicProductName(name).replace(/\s*\/\s*GLP-\d+/i, "").trim();
+                  return displayName.toLowerCase() === "hgh" ? "10-GH" : displayName;
                 };
 
                 // Aggregate by peptide name only (all doses combined)
@@ -17896,7 +18140,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   if (va > vb) return analyticsSortDir === "desc" ? -1 : 1;
                   return 0;
                 });
-                const top = rows.slice(0, 20);
+                const top = rows.slice(0, 40);
 
                 const copyAnalytics = () => {
                   const lines = [
@@ -17991,11 +18235,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               );
                             })}
                           </tbody>
-                          {rows.length > 20 && (
+                           {rows.length > 40 && (
                             <tfoot>
                               <tr className="border-t border-white/10">
                                 <td colSpan={7} className="px-4 py-3 text-[10px] text-white/30 text-center">
-                                  Showing top 20 of {rows.length} products
+                                   Showing top 40 of {rows.length} products
                                 </td>
                               </tr>
                             </tfoot>
@@ -19403,15 +19647,23 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   <span className="text-white/60 text-sm lg:text-base">⌕</span>
                   <input
                     value={usWhInputValue}
-                    onChange={(e) => { setUsWhInputValue(e.target.value); setUsWhSearchTerm(e.target.value); }}
+                    onChange={(e) => {
+                      setSelectedUsWhName("");
+                      setUsWhInputValue(e.target.value);
+                      setUsWhSearchTerm(e.target.value);
+                    }}
                     placeholder={t("searchPeptides") + " (US)"}
                     className="min-w-0 flex-1 bg-transparent text-xs lg:text-sm text-white placeholder:text-white outline-none pr-5"
                   />
-                  {usWhSearchTerm && (
+                  {(usWhSearchTerm || selectedUsWhName) && (
                     <button
                       type="button"
-                      onClick={() => { setUsWhInputValue(""); setUsWhSearchTerm(""); }}
-                      aria-label="Clear search"
+                      onClick={() => {
+                        setSelectedUsWhName("");
+                        setUsWhInputValue("");
+                        setUsWhSearchTerm("");
+                      }}
+                      aria-label={selectedUsWhName ? "Show all peptides" : "Clear search"}
                       className="absolute right-3 lg:right-4 z-50 text-xl text-white/60 transition hover:text-white"
                     >
                       ×
@@ -19422,28 +19674,29 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 <div ref={usWhSidebarScrollRef} className="mt-4 hidden lg:block h-[calc(72vh-106px)] overflow-y-auto overflow-x-hidden overscroll-contain pr-1 rounded-[1.5rem] no-native-scrollbar">
                   <div className="space-y-1 pb-2">
                     {sortedUsWhSearchProducts.map((product) => {
-                      const usPrice = (product.usPriceBase ?? product.price) + 5;
                       return (
                         <button
-                          key={`${product.name}-${product.noteLabel ?? ""}-${product.dose}`}
-                          onClick={() => openProduct(product)}
-                          className="flex items-center justify-between w-full rounded-xl px-4 py-2 text-left text-base font-semibold text-white hover:bg-white/5 gap-2"
+                          key={publicProductName(product.name).toLowerCase()}
+                          type="button"
+                          onClick={() => {
+                            const name = publicProductName(product.name);
+                            setUsWhInputValue(name);
+                            setUsWhSearchTerm(name);
+                            setSelectedUsWhName(name);
+                            if (selectedUsWhName === name) {
+                              document.getElementById(getCatalogCardId(product, true))
+                                ?.scrollIntoView({ behavior: "smooth", block: "center" });
+                            }
+                          }}
+                          disabled={usSalesRanking === null}
+                          aria-pressed={selectedUsWhName === publicProductName(product.name)}
+                          className={`flex items-center justify-between w-full rounded-xl px-4 py-2 text-left text-base font-semibold text-white gap-2 ${selectedUsWhName === publicProductName(product.name) ? "bg-white/15 ring-1 ring-white/20" : "hover:bg-white/5"}`}
                         >
                           <span className="flex flex-col leading-tight min-w-0">
                             <span className="whitespace-nowrap overflow-hidden text-ellipsis">
                               {publicProductName(product.name)}
-                              {product.noteLabel ? (
-                                <span className="ml-1.5 text-[10px] font-normal opacity-50 tracking-[0.12em]">{product.noteLabel}</span>
-                              ) : null}
                             </span>
-                            <span className="text-[13px] text-white font-normal whitespace-nowrap">{product.dose.replace(/ each$/i, "")}</span>
                           </span>
-                          {product.isHot && (
-                            <span className="shrink-0 flex items-center gap-1 rounded-full bg-orange-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-orange-400" style={{animation:"hotPulse 1.8s ease-in-out infinite"}}>
-                              <span style={{display:"inline-block",animation:"fireBounce 1s ease-in-out infinite"}}>🔥</span>
-                              Hot
-                            </span>
-                          )}
                         </button>
                       );
                     })}
@@ -19458,10 +19711,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               {/* Main content */}
               <section className="lg:ml-[296px] xl:ml-[316px] mt-3 lg:mt-0">
             <div className="mt-4 mb-6 md:mt-5 rounded-2xl border border-white/20 bg-black/25 px-3 py-2.5 md:px-4 md:py-3">
-              <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-x-3">
+              <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:gap-x-3">
                 {/* Row 1 on mobile: same products + ships from + speed */}
                 {/* Mobile: 2×2 grid of info chips, desktop: inline row */}
-                <div className="grid grid-cols-2 gap-2 md:hidden">
+                <div className="grid grid-cols-2 gap-2 xl:hidden">
                   {/* Free shipping */}
                   <div className="flex items-start gap-2 rounded-xl bg-white/5 border border-white/10 px-3 py-2.5">
                     <span className="text-base leading-none shrink-0 mt-0.5">🚚</span>
@@ -19469,7 +19722,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       <span className="text-[10px] font-black uppercase tracking-[0.12em] text-white leading-[1.3]">
                         {language === "RU" ? "Бесплатная доставка" : language === "UA" ? "Безкоштовна доставка" : language === "DE" ? "Kostenloser Versand" : language === "ES" ? "Envío gratis" : "Free Shipping"}
                       </span>
-                      <span className="text-[9px] text-white uppercase tracking-[0.08em] leading-[1.3]">
+                      <span className="text-[10px] font-black uppercase tracking-[0.12em] text-white leading-[1.3]">
                         {language === "RU" ? "на все заказы США" : language === "UA" ? "на всі замовлення США" : language === "DE" ? "für alle US-Bestellungen" : language === "ES" ? "en todos los pedidos de EE. UU." : "on all US orders"}
                       </span>
                     </div>
@@ -19481,8 +19734,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       <span className="text-[10px] font-black uppercase tracking-[0.12em] text-white leading-[1.3]">
                         {language === "RU" ? "Склад США" : language === "UA" ? "Склад США" : language === "DE" ? "US-Lager" : language === "ES" ? "Almacén USA" : "US Warehouse"}
                       </span>
-                      <span className="text-[9px] text-white uppercase tracking-[0.08em] leading-[1.3]">
-                        {language === "RU" ? "только для США" : language === "UA" ? "лише для США" : language === "DE" ? "nur für USA" : language === "ES" ? "solo EE.UU." : "US orders only"}
+                      <span className="text-[10px] font-black uppercase tracking-[0.12em] text-white leading-[1.3]">
+                        {language === "RU" ? "только для США" : language === "UA" ? "лише для США" : language === "DE" ? "nur für USA" : language === "ES" ? "solo EE.UU." : "Ships within US only"}
                       </span>
                     </div>
                   </div>
@@ -19491,7 +19744,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     <span className="text-base leading-none shrink-0 mt-0.5">⚡</span>
                     <div className="flex flex-col leading-tight">
                       <span className="text-[10px] font-black uppercase tracking-[0.12em] text-white leading-[1.3]">2–5 {language === "RU" ? "раб. дней" : language === "UA" ? "роб. днів" : language === "DE" ? "Werktage" : language === "ES" ? "días háb." : "bsn. days"}</span>
-                      <span className="text-[9px] text-white uppercase tracking-[0.08em] leading-[1.3]">
+                      <span className="text-[10px] font-black uppercase tracking-[0.12em] text-white leading-[1.3]">
                         {language === "RU" ? "быстрее worldwide" : language === "UA" ? "швидше worldwide" : language === "DE" ? "schneller" : language === "ES" ? "más rápido" : "faster than worldwide"}
                       </span>
                     </div>
@@ -19504,7 +19757,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         <span className="text-[10px] font-black uppercase tracking-[0.12em] text-white leading-[1.3]">
                           {language === "RU" ? "Worldwide" : language === "UA" ? "Worldwide" : language === "DE" ? "Worldwide" : language === "ES" ? "Mundial" : "Worldwide"}
                         </span>
-                        <span className="text-[9px] text-white uppercase tracking-[0.08em] leading-[1.3]">
+                        <span className="text-[10px] font-black uppercase tracking-[0.12em] text-white leading-[1.3]">
                           {language === "RU" ? "весь мир" : language === "UA" ? "весь світ" : language === "DE" ? "weltweit" : language === "ES" ? "mundial" : "ships everywhere"}
                         </span>
                       </div>
@@ -19514,14 +19767,14 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 </div>
 
                 {/* Desktop: inline row (hidden on mobile) */}
-                <div className="hidden md:contents">
+                <div className="hidden xl:contents">
                   <div className="flex items-center gap-2">
                     <span className="text-base leading-none">🚚</span>
                     <div className="flex flex-col leading-tight">
                       <span className="text-[11px] font-black uppercase tracking-[0.14em] text-white">
                         {language === "RU" ? "Бесплатная доставка" : language === "UA" ? "Безкоштовна доставка" : language === "DE" ? "Kostenloser Versand" : language === "ES" ? "Envío gratis" : "Free Shipping"}
                       </span>
-                      <span className="text-[10px] text-white uppercase tracking-[0.1em]">
+                      <span className="text-[11px] font-black uppercase tracking-[0.14em] text-white">
                         {language === "RU" ? "на все заказы США" : language === "UA" ? "на всі замовлення США" : language === "DE" ? "für alle US-Bestellungen" : language === "ES" ? "en todos los pedidos de EE. UU." : "on all US orders"}
                       </span>
                     </div>
@@ -19533,8 +19786,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       <span className="text-[11px] font-black uppercase tracking-[0.14em] text-white">
                         {language === "RU" ? "Склад США" : language === "UA" ? "Склад США" : language === "DE" ? "US-Lager" : language === "ES" ? "Almacén USA" : "US Warehouse"}
                       </span>
-                      <span className="text-[10px] text-white uppercase tracking-[0.1em]">
-                        {language === "RU" ? "только для США" : language === "UA" ? "лише для США" : language === "DE" ? "nur für USA" : language === "ES" ? "solo EE.UU." : "US orders only"}
+                      <span className="text-[11px] font-black uppercase tracking-[0.14em] text-white">
+                        {language === "RU" ? "только для США" : language === "UA" ? "лише для США" : language === "DE" ? "nur für USA" : language === "ES" ? "solo EE.UU." : "Ships within US only"}
                       </span>
                     </div>
                   </div>
@@ -19543,7 +19796,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     <span className="text-base leading-none">⚡</span>
                     <div className="flex flex-col leading-tight">
                       <span className="text-[11px] font-black uppercase tracking-[0.14em] text-white">2–5 {language === "RU" ? "раб. дней" : language === "UA" ? "роб. днів" : language === "DE" ? "Werktage" : language === "ES" ? "días háb." : "business days"}</span>
-                      <span className="text-[10px] text-white uppercase tracking-[0.1em]">
+                      <span className="text-[11px] font-black uppercase tracking-[0.14em] text-white">
                         {language === "RU" ? "быстрее чем worldwide" : language === "UA" ? "швидше ніж worldwide" : language === "DE" ? "schneller als worldwide" : language === "ES" ? "más rápido que worldwide" : "faster than worldwide"}
                       </span>
                     </div>
@@ -19555,7 +19808,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       <span className="text-[11px] font-black uppercase tracking-[0.14em] text-white">
                         {language === "RU" ? "Каталог Worldwide" : language === "UA" ? "Каталог Worldwide" : language === "DE" ? "Worldwide-Katalog" : language === "ES" ? "Catálogo mundial" : "Worldwide Catalog"}
                       </span>
-                      <span className="text-[10px] text-white uppercase tracking-[0.1em]">
+                      <span className="text-[11px] font-black uppercase tracking-[0.14em] text-white">
                         {language === "RU" ? "доставка по всему миру" : language === "UA" ? "доставка по всьому світу" : language === "DE" ? "weltweiter Versand" : language === "ES" ? "envío mundial" : "ships everywhere"}
                       </span>
                     </div>
@@ -19564,90 +19817,15 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 </div>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-3 xl:grid-cols-4">
-                {filteredUsWhProducts.map((rawProduct) => {
-                  const usOriginalPrice = (rawProduct.usPriceBase ?? rawProduct.price) + 5;
-                  const product = { ...rawProduct, price: usOriginalPrice, originalPrice: usOriginalPrice, fromWarehouse: "us" };
-                  const isCombo = product.name === "TB-500 + BPC-157";
-                  const doseValue = parseFloat(product.dose) || 0;
-                  const displayBadge = isCombo ? `${doseValue} MG EACH` : `${product.dose.toUpperCase().replace(" EACH", "")} EACH`;
-                  const displayPerVial = isCombo ? `${doseValue} mg` : product.dose.replace(/ each$/i, "");
-                  const displayTotal = isCombo ? `${doseValue * 10} mg` : (product.total || "").replace(/\s*total\s*$/i, "").trim();
-                  const productId = getProductId(product);
-                  const cartQty = cart.find(i => getProductId(i) === productId)?.quantity ?? 0;
-                  return (
-                    <div
-                      key={`${product.name}-${product.noteLabel ?? ""}-${product.dose}`}
-                      onClick={() => openProduct(product)}
-                      className="relative flex flex-col rounded-[1.2rem] border border-white/20 bg-black/10 p-2.5 text-left hover:bg-black/20 cursor-pointer md:rounded-[2rem] md:p-5"
-                    >
-                      {(product.name === "HGH" || product.isHot) && (
-                        <div className="absolute top-2 left-2 z-10 flex items-center gap-1 rounded-full bg-orange-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-orange-400 md:top-3 md:left-3 md:px-2.5 md:text-[11px]" style={{animation:"hotPulse 1.8s ease-in-out infinite"}}>
-                          <span style={{display:"inline-block",animation:"fireBounce 1s ease-in-out infinite"}}>🔥</span>
-                          Hot
-                        </div>
-                      )}
-                      <div className="relative flex h-[150px] items-center justify-center rounded-[1rem] bg-white/[0.04] overflow-hidden md:h-[260px] md:rounded-[1.4rem]">
-                        <ProductVialImage product={product} />
-                        {rawProduct.usStrikePrice && (
-                          <span className="absolute top-2 left-2 z-10 inline-flex items-center rounded-md bg-red-500 px-1 py-0.5 text-[7px] font-black uppercase tracking-[0.12em] text-black md:top-3 md:left-3 md:px-2 md:text-[10px] md:tracking-[0.18em]">SALE</span>
-                        )}
-                        <span className="absolute top-2 right-2 z-10 inline-flex items-center rounded-md border border-blue-400 bg-blue-500/25 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.18em] text-blue-200 shadow-[0_0_12px_rgba(96,165,250,0.4)] backdrop-blur-sm md:top-3 md:right-3 md:px-2 md:text-[10px]">US</span>
-                      </div>
-                      <div className="mt-2 text-center md:mt-3 min-h-[58px] md:min-h-[84px] w-full overflow-hidden">
-                        <div className="flex items-center justify-center gap-1 flex-wrap">
-                          <span className={`font-semibold tracking-[-0.03em] leading-tight whitespace-nowrap ${publicProductName(product.name).length > 20 ? "text-xs md:text-base" : publicProductName(product.name).length > 14 ? "text-sm md:text-lg" : "text-base md:text-xl"}`}>
-                            {publicProductName(product.name)}
-                            {product.noteLabel ? <span className="text-[10px] opacity-60 ml-2 align-middle tracking-[0.2em] md:ml-4 md:text-xs">{product.noteLabel}</span> : null}
-                          </span>
-                        </div>
-                        <div className="mt-1.5 inline-flex justify-center whitespace-nowrap rounded-full border border-white/20 bg-black/30 px-1.5 py-1 text-[9px] font-semibold uppercase tracking-[0.06em] text-white md:mt-2 md:px-3 md:py-1.5 md:text-[12px] md:tracking-[0.18em]">
-                          {`${product.vials || 10} VIALS x ${displayBadge}`}
-                        </div>
-                      </div>
-                      <div className="mt-auto pt-2 rounded-xl border border-white/20 bg-black/10 p-2 md:pt-3 md:rounded-2xl md:p-3">
-                        <div className="grid grid-cols-[1fr_auto] gap-x-2 gap-y-1.5 text-[9px] md:gap-x-4 md:gap-y-2.5 md:text-[15px] items-center">
-                          <div className="text-white font-bold">{t("kit")}</div>
-                          <div className="flex justify-end"><span className="rounded-full bg-black/30 border border-white/20 px-1.5 py-0.5 md:px-3.5 md:py-1 text-[9px] md:text-[13px] font-extrabold text-white whitespace-nowrap tracking-[0.04em]">{language === "RU" || language === "UA" ? `${product.vials || 10} фл.` : language === "DE" ? `${product.vials || 10}-Fl.-Kit` : language === "ES" ? `Kit ${product.vials || 10}v` : `${product.vials || 10}-vial kit`}</span></div>
-                          <div className="col-span-2 h-px bg-white/10" />
-                          <div className="text-white font-bold">{t("perVial")}</div>
-                          <div className="flex justify-end"><span className="rounded-full bg-black/30 border border-white/20 px-1.5 py-0.5 md:px-3.5 md:py-1 text-[9px] md:text-[13px] font-extrabold text-white whitespace-nowrap tracking-[0.04em]">{displayPerVial}</span></div>
-                          <div className="col-span-2 h-px bg-white/10" />
-                          <div className="text-white font-bold">{t("kitTotal")}</div>
-                          <div className="flex justify-end"><span className="rounded-full bg-black/30 border border-white/20 px-1.5 py-0.5 md:px-3.5 md:py-1 text-[9px] md:text-[13px] font-extrabold text-white whitespace-nowrap tracking-[0.04em]">{displayTotal}</span></div>
-                          <div className="col-span-2 h-px bg-white/10" />
-                          <div className="text-white font-bold">{t("pricePerVial")}</div>
-                          <div className="flex justify-end"><span className="rounded-full bg-black/30 border border-white/20 px-1.5 py-0.5 md:px-3.5 md:py-1 text-[9px] md:text-[13px] font-extrabold text-white whitespace-nowrap tracking-[0.04em]">{formatPricePrecise(product.price / (product.vials || 10)).replace(/^\$/, "") + "$"}</span></div>
-                        </div>
-                      </div>
-                      <div className="mt-3 flex flex-col items-start gap-1 md:mt-4 md:flex-row md:items-end md:justify-between md:gap-3">
-                        <div className="flex items-baseline gap-2">
-                          <div className="text-xl font-semibold tracking-[-0.03em] md:text-3xl" style={{ transform: "scale(1.1)", transformOrigin: "left" }}>{formatPrice(product.price)}</div>
-                          {rawProduct.usStrikePrice && (
-                            <div className="text-sm md:text-xl font-semibold tracking-[-0.03em] text-white/40 line-through">${rawProduct.usStrikePrice}</div>
-                          )}
-                        </div>
-                        <div className="text-[9px] uppercase tracking-[0.14em] text-white md:text-[11px] md:tracking-[0.18em]">{language === "RU" ? "10 флаконов включено" : language === "UA" ? "10 флаконів включено" : "10 vials included"}</div>
-                      </div>
-                      <div className="mt-3 md:mt-5">
-                        {product.outOfStock ? (
-                          <div className="inline-flex w-full justify-center rounded-full border border-white/20 px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] md:px-5 md:text-[13px] md:tracking-[0.26em] bg-white/10 text-white/50 cursor-not-allowed">Out of stock</div>
-                        ) : cartQty > 0 ? (
-                          <div className="flex w-full overflow-hidden rounded-full border border-black shadow-[0_6px_20px_rgba(0,0,0,0.15)]">
-                            <button onClick={(e) => { e.stopPropagation(); decrementCartItem(productId); }} className="flex items-center justify-center bg-black px-3 py-2 hover:bg-black/80 transition-colors md:px-5"><span className="select-none text-[10px] font-black leading-[1.5] text-white md:text-[13px]">−</span></button>
-                            <button onClick={(e) => { e.stopPropagation(); addToCart(product); }} className="flex flex-1 items-center justify-center gap-1 px-2 py-2 text-[9px] font-black uppercase tracking-[0.08em] bg-white text-black hover:bg-white/90 transition-colors md:px-5 md:text-[12px] md:tracking-[0.16em]">
-                              <span className="whitespace-nowrap">{t("addToCart")}</span>
-                              {cartQty > 1 && <span className="shrink-0 tracking-normal">×{cartQty}</span>}
-                            </button>
-                          </div>
-                        ) : (
-                          <button onClick={(e) => { e.stopPropagation(); addToCart(product); }} className="inline-flex w-full justify-center rounded-full border border-black px-3 py-2 text-[10px] font-black uppercase tracking-[0.10em] shadow-[0_6px_20px_rgba(0,0,0,0.15)] whitespace-nowrap md:px-5 md:text-[13px] md:tracking-[0.20em] bg-white text-black hover:bg-white/90">{t("addToCart")}</button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
+            {usSalesRanking === null ? (
+              <div className="py-10 text-center text-sm text-white/70">
+                {language === "RU" ? "Загружаем порядок товаров…" : "Loading products…"}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4 xl:grid-cols-5">
+                {usWarehouseProductGroups.map((group) => renderCatalogGroup(group, true))}
+              </div>
+            )}
               </section>
             </div>
           </main>
@@ -20054,17 +20232,17 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           return (
                             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-4">
                               <div className="min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <div className={`text-[15px] font-semibold leading-tight md:text-xl ${isOOS ? "text-red-300" : "text-white"}`}>
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <div className={`min-w-0 truncate text-[15px] font-semibold leading-tight md:text-xl ${isOOS ? "text-red-300" : "text-white"}`}>
                                     {publicProductName(item.name)}
                                   </div>
                                   {item.fromWarehouse === "us" && (
-                                    <span className="inline-flex items-center rounded-md border border-blue-400 bg-blue-500/25 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.18em] text-blue-200 shadow-[0_0_10px_rgba(96,165,250,0.4)]">US</span>
+                                     <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/60 bg-[#a32133] px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.1em] text-white shadow-[0_0_10px_rgba(163,33,51,0.35)]"><UsFlag />US</span>
                                   )}
                                 </div>
                                 <div className="mt-0.5 text-[12px] text-white/60 md:mt-1 md:text-sm whitespace-nowrap overflow-hidden">
-                                  {`10 VIALS × ${item.dose.toUpperCase().replace(" EACH", "")}`}{" "}
-                                  • {formatPrice(item.price)}
+                                  {`${item.vials || 10} VIAL${(item.vials || 10) === 1 ? "" : "S"} × ${item.dose.toUpperCase().replace(" EACH", "")}`}{" "}
+                                  • {item.name === "BPC-157" ? formatPricePrecise(item.price) : formatPrice(item.price)}
                                   {isOOS && <span className="ml-2 font-bold text-red-400 uppercase tracking-[0.08em]">· Out of stock</span>}
                                 </div>
                               </div>
@@ -20510,7 +20688,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               <div className="mt-1 text-[15px] leading-6 text-white/90">
                                 {tx("Free", "Бесплатный", "Безкоштовний")}{" "}
                                 <span className="font-semibold text-white">
-                                  BAC Water
+                                  Reconstitution Solution
                                 </span>{" "}
                                 {tx(
                                   "(10 vials × 3 ml each) bonus added for orders above",
@@ -21974,7 +22152,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                 <div className="min-w-0">
                                   <>
                                     <div className={`font-semibold ${isOOS ? "text-red-600" : "text-black"}`}>
-                                      {publicProductName(item.name)}
+                                      {publicProductName(item.name)}{item.fromWarehouse === "us" ? " (US)" : ""}
                                       {isOOS && <span className="ml-2 text-[10px] font-bold uppercase tracking-[0.1em] text-red-500">Out of stock</span>}
                                     </div>
                                     <div className="text-black/50">{`10 VIALS x ${item.dose.toUpperCase().replace(" EACH", "")} EACH`}</div>
