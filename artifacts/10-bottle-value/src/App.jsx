@@ -13784,7 +13784,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       <>
                         <div
                           ref={productPrimaryActionRef}
-                          className={`flex w-full min-w-0 overflow-hidden ${
+                          className={`flex h-14 w-full min-w-0 overflow-hidden ${
                             selectedProductCartQuantity > 0
                               ? "rounded-full border border-black shadow-[0_12px_30px_rgba(0,0,0,0.22)]"
                               : ""
@@ -13803,15 +13803,15 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           <button
                             type="button"
                             onClick={() => addToCart(selectedProduct, "product")}
-                            className={`inline-flex min-w-0 flex-1 items-center justify-center px-7 py-4 text-[14px] font-black uppercase tracking-[0.22em] transition-none ${
+                            className={`inline-flex h-full min-w-0 flex-1 flex-nowrap items-center justify-center whitespace-nowrap px-7 text-[14px] font-black uppercase tracking-[0.22em] transition-none ${
                               selectedProductCartQuantity > 0
                                 ? "bg-white text-black hover:bg-white/90"
                                 : "w-full rounded-full border border-black bg-white text-black shadow-[0_12px_30px_rgba(0,0,0,0.22)] hover:bg-white/90"
                             }`}
                           >
-                            <span>{t("addToCart")}</span>
+                            <span className="shrink-0 whitespace-nowrap">{t("addToCart")}</span>
                             {selectedProductCartQuantity > 1 && (
-                              <span className="ml-1 tracking-normal">×{selectedProductCartQuantity}</span>
+                              <span className="ml-1 shrink-0 whitespace-nowrap tracking-normal">×{selectedProductCartQuantity}</span>
                             )}
                           </button>
                         </div>
@@ -13926,7 +13926,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       {tx("Out of stock", "Нет в наличии", "Немає в наявності", "Nicht auf Lager", "Agotado")}
                     </button>
                   ) : selectedProductCartQuantity > 0 ? (
-                    <div className="flex h-10 min-w-[154px] shrink-0 overflow-hidden rounded-full border border-black shadow-[0_8px_24px_rgba(0,0,0,0.2)]">
+                    <div className="flex h-10 w-[154px] shrink-0 overflow-hidden rounded-full border border-black shadow-[0_8px_24px_rgba(0,0,0,0.2)]">
                       <button
                         type="button"
                         onClick={() => decrementCartItem(getProductId(selectedProduct))}
@@ -13938,11 +13938,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       <button
                         type="button"
                         onClick={() => addToCart(selectedProduct, "product")}
-                        className="flex min-w-0 flex-1 items-center justify-center gap-1 whitespace-nowrap bg-white px-2 text-[9px] font-black uppercase tracking-[0.03em] text-black transition-none hover:bg-white/90"
+                        className="flex min-w-0 flex-1 flex-nowrap items-center justify-center gap-1 whitespace-nowrap bg-white px-2 text-[9px] font-black uppercase tracking-[0.03em] text-black transition-none hover:bg-white/90"
                       >
-                        <span>{t("addToCart")}</span>
+                        <span className="shrink-0 whitespace-nowrap">{t("addToCart")}</span>
                         {selectedProductCartQuantity > 1 && (
-                          <span className="shrink-0 tracking-normal">×{selectedProductCartQuantity}</span>
+                          <span className="shrink-0 whitespace-nowrap tracking-normal">×{selectedProductCartQuantity}</span>
                         )}
                       </button>
                     </div>
