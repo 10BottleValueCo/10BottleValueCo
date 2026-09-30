@@ -3,8 +3,6 @@
  * browser never needs database write permissions or the Supabase service key.
  */
 
-import { supabase } from "./supabase.js";
-
 const SESSION_KEY = "tbv-sid";
 
 function createSessionId() {
@@ -69,20 +67,10 @@ function getSafeReferrer() {
 }
 
 async function sendEvent(payload, keepalive = false) {
-  const headers = { "Content-Type": "application/json" };
-  try {
-    const { data } = await supabase.auth.getSession();
-    if (data?.session?.access_token) {
-      headers.Authorization = `Bearer ${data.session.access_token}`;
-    }
-  } catch {
-    // Anonymous event tracking still works if the visitor has no auth session.
-  }
-
   try {
     const response = await fetch("/api/analytics", {
       method: "POST",
-      headers,
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       keepalive,
     });
