@@ -216,7 +216,10 @@
 }
 
 .bpc-catalog-card__option {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   width: 100%;
   min-height: 40px;
   padding: 0 10px;
@@ -232,9 +235,22 @@
   text-align: left;
 }
 
+.bpc-catalog-card__option-status {
+  flex-shrink: 0;
+  color: #b42318;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
 .bpc-catalog-card__option.is-selected {
   background: #000;
   color: #fff;
+}
+
+.bpc-catalog-card__option.is-selected .bpc-catalog-card__option-status {
+  color: #fca5a5;
 }
 
 .bpc-catalog-card__option:hover,

@@ -164,20 +164,27 @@ export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLab
           </button>
           {doseMenuOpen && (
             <div id={`${idPrefix}-card-dosage-options`} className="bpc-catalog-card__menu" role="listbox" aria-labelledby={`${idPrefix}-card-dosage-label`}>
-              {doses.map((value, index) => (
-                <button
-                  key={value}
-                  ref={(element) => { doseOptionRefs.current[index] = element; }}
-                  type="button"
-                  role="option"
-                  aria-selected={dose === value}
-                  className={`bpc-catalog-card__option${dose === value ? " is-selected" : ""}`}
-                  onClick={() => selectDose(value)}
-                  onKeyDown={(event) => handleDoseKeyDown(event, index)}
-                >
-                  {displayDose(value)}
-                </button>
-              ))}
+              {doses.map((value, index) => {
+                const doseUnavailable = isOutOfStock({ dose: value, vials: 10 });
+                return (
+                  <button
+                    key={value}
+                    ref={(element) => { doseOptionRefs.current[index] = element; }}
+                    type="button"
+                    role="option"
+                    aria-selected={dose === value}
+                    aria-label={`${displayDose(value)}${doseUnavailable ? ", OUT OF STOCK" : ""}`}
+                    className={`bpc-catalog-card__option${dose === value ? " is-selected" : ""}`}
+                    onClick={() => selectDose(value)}
+                    onKeyDown={(event) => handleDoseKeyDown(event, index)}
+                  >
+                    <span>{displayDose(value)}</span>
+                    {doseUnavailable && (
+                      <span className="bpc-catalog-card__option-status">OUT OF STOCK</span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>

@@ -2291,6 +2291,7 @@ const PRODUCTS_BASE = [
       total: "150 IU total",
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
+      outOfStock: true,
     },
     {
       name: "10-GH",
@@ -2299,6 +2300,7 @@ const PRODUCTS_BASE = [
       total: "240 IU total",
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
+      outOfStock: true,
     },
     {
       name: "10-GH",
@@ -2307,6 +2309,7 @@ const PRODUCTS_BASE = [
       total: "360 IU total",
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
+      outOfStock: true,
     },
     {
       name: "HCG",
@@ -13791,6 +13794,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             <button
                               type="button"
                               onClick={() => { if (!isActive) { setSelectedProduct(isUs ? { ...v, fromWarehouse: "us" } : v); setCoaPage(0); setCoaLightbox(false); } }}
+                              aria-label={`${v.dose.toUpperCase()}
+                              {v.outOfStock && (
+                                <span className={`ml-1 text-[8px] font-black tracking-[0.06em] ${isActive ? "text-red-700" : "text-red-300"}`}>
+                                  OUT OF STOCK
+                                </span>
+                              )}${v.outOfStock ? ", OUT OF STOCK" : ""}`}
                               className={`rounded-full px-4 py-1.5 text-[12px] font-bold uppercase tracking-[0.14em] border transition-none ${
                                 isActive
                                   ? "bg-white text-black border-white"
