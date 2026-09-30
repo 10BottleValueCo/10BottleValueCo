@@ -13802,11 +13802,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               }`}
                             >
                               {v.dose.toUpperCase()}
-                              {v.outOfStock && (
-                                <span className={isActive ? "ml-1 text-[8px] font-black tracking-[0.06em] text-red-700" : "ml-1 text-[8px] font-black tracking-[0.06em] text-red-300"}>
-                                  OUT OF STOCK
-                                </span>
-                              )}
+                              
                             </button>
                           </div>
                         );
