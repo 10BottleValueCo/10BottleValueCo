@@ -22,7 +22,7 @@
   display: block;
   width: calc(100% + 20px);
   margin: -10px -10px -10px;
-  padding: 10px 10px 10px;
+  padding: 10px 10px 6px;
   border: 0;
   background: none;
   color: inherit;
@@ -41,12 +41,12 @@
 
 .bpc-catalog-card__title {
   position: relative;
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   font-size: 18px;
   font-weight: 800;
   line-height: 1.08;
   letter-spacing: -0.025em;
-  min-height: 43px;
+  min-height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -105,7 +105,7 @@
 
 .bpc-catalog-card__dosages {
   container-type: inline-size;
-  margin-top: 10px;
+  margin-top: 8px;
   text-align: left;
 }
 
@@ -408,7 +408,7 @@
   .bpc-catalog-card__product-link {
     width: calc(100% + 32px);
     margin: -16px -16px -10px;
-    padding: 16px 16px 10px;
+    padding: 16px 16px 6px;
   }
 
   .bpc-catalog-card--quantity-list .bpc-catalog-card__packs {
@@ -424,13 +424,13 @@
   }
 
   .bpc-catalog-card__vial {
-    height: 240px;
+    height: 260px;
   }
 
   .bpc-catalog-card__title {
-    margin-top: 8px;
+    margin-top: 4px;
     font-size: 23px;
-    min-height: 50px;
+    min-height: 42px;
   }
 
   .bpc-catalog-card__pack {
@@ -539,7 +539,7 @@
   .bpc-catalog-card__vial:has(.bpc-catalog-card__badge--top) { overflow: visible; }
   .bpc-catalog-card__badge--top { transform: translateX(-1.5mm); }
   .bpc-catalog-card--quantity-list .bpc-catalog-card__title { margin-top: 0; }
-  .bpc-catalog-card--quantity-list .bpc-catalog-card__dosages { margin-top: 4px; }
+  .bpc-catalog-card--quantity-list .bpc-catalog-card__dosages { margin-top: 3px; }
   .bpc-catalog-card--long-name .bpc-catalog-card__title { font-size: clamp(11px, 3.8vw, 18px); }
   .bpc-catalog-card__select { padding: 0 8px; }
   .bpc-catalog-card__pack strong { font-size: 12px; }

@@ -2,7 +2,7 @@
 // cache-bust
 // @ts-nocheck
 import { Fragment, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Info } from "lucide-react";
+import { Info, X } from "lucide-react";
 import confetti from "canvas-confetti";
 import { supabase, userFromSupabase } from "./supabase.js";
 import { track, trackPageView, setAnalyticsUser } from "./analytics.js";
@@ -3718,55 +3718,55 @@ export default function App() {
   const [cartToast, setCartToast] = useState("");
   const [productPageJustAdded, setProductPageJustAdded] = useState(false);
   const productPrimaryActionRef = useRef(null);
-    const [productPrimaryActionVisible, setProductPrimaryActionVisible] = useState(false);
-    const stickyProductInfoRef = useRef(null);
-    const stickyProductNameRef = useRef(null);
-    const stickyProductPriceRef = useRef(null);
-    const [stickyProductInfoStacked, setStickyProductInfoStacked] = useState(false);
-    useEffect(() => {
-      setProductPrimaryActionVisible(false);
-      if (page !== "product" || !selectedProduct) return;
-      const primaryAction = productPrimaryActionRef.current;
-      if (!primaryAction || typeof IntersectionObserver === "undefined") return;
+  const [productPrimaryActionVisible, setProductPrimaryActionVisible] = useState(false);
+  const stickyProductInfoRef = useRef(null);
+  const stickyProductNameRef = useRef(null);
+  const stickyProductPriceRef = useRef(null);
+  const [stickyProductInfoStacked, setStickyProductInfoStacked] = useState(false);
+  useEffect(() => {
+    setProductPrimaryActionVisible(false);
+    if (page !== "product" || !selectedProduct) return;
+    const primaryAction = productPrimaryActionRef.current;
+    if (!primaryAction || typeof IntersectionObserver === "undefined") return;
 
-      const observer = new IntersectionObserver(([entry]) => {
-        setProductPrimaryActionVisible(
-          Boolean(entry?.isIntersecting && entry.intersectionRatio >= 0.25)
-        );
-      }, {
-        rootMargin: "0px 0px -" + (showCookieBanner ? 150 : 96) + "px 0px",
-        threshold: [0, 0.25],
-      });
-      observer.observe(primaryAction);
-      return () => observer.disconnect();
-    }, [page, selectedProduct, showCookieBanner]);
-    useEffect(() => {
-      if (page !== "product" || !selectedProduct) return;
-      const info = stickyProductInfoRef.current;
-      const name = stickyProductNameRef.current;
-      const price = stickyProductPriceRef.current;
-      if (!info || !name || !price) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      setProductPrimaryActionVisible(
+        Boolean(entry?.isIntersecting && entry.intersectionRatio >= 0.25)
+      );
+    }, {
+      rootMargin: `0px 0px -${showCookieBanner ? 150 : 96}px 0px`,
+      threshold: [0, 0.25],
+    });
+    observer.observe(primaryAction);
+    return () => observer.disconnect();
+  }, [page, selectedProduct, showCookieBanner]);
+  useEffect(() => {
+    if (page !== "product" || !selectedProduct) return;
+    const info = stickyProductInfoRef.current;
+    const name = stickyProductNameRef.current;
+    const price = stickyProductPriceRef.current;
+    if (!info || !name || !price) return;
 
-      const measure = () => {
-        const availableWidth = info.clientWidth;
-        if (!availableWidth) return;
-        const requiredWidth = name.scrollWidth + price.scrollWidth + 8;
-        const shouldStack = requiredWidth > availableWidth;
-        setStickyProductInfoStacked((current) => current === shouldStack ? current : shouldStack);
-      };
+    const measure = () => {
+      const availableWidth = info.clientWidth;
+      if (!availableWidth) return;
+      const requiredWidth = name.scrollWidth + price.scrollWidth + 8;
+      const shouldStack = requiredWidth > availableWidth;
+      setStickyProductInfoStacked((current) => current === shouldStack ? current : shouldStack);
+    };
 
-      measure();
-      if (typeof ResizeObserver === "undefined") {
-        window.addEventListener("resize", measure);
-        return () => window.removeEventListener("resize", measure);
-      }
-      const observer = new ResizeObserver(measure);
-      observer.observe(info);
-      observer.observe(name);
-      observer.observe(price);
-      return () => observer.disconnect();
-    }, [page, selectedProduct?.dose, selectedProduct?.name, selectedProduct?.price]);
-      const [coaPage, setCoaPage] = useState(0);
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(info);
+    observer.observe(name);
+    observer.observe(price);
+    return () => observer.disconnect();
+  }, [page, selectedProduct?.dose, selectedProduct?.name, selectedProduct?.price]);
+  const [coaPage, setCoaPage] = useState(0);
   const [coaLightbox, setCoaLightbox] = useState(false);
   const vialLabelInfoRef = useRef(null);
   useEffect(() => {
@@ -3787,10 +3787,10 @@ export default function App() {
   const savedShopScrollY = useRef(0);
   const productOriginPage = useRef("shop");
   const selectedProductUnavailable = Boolean(
-      selectedProduct?.outOfStock &&
-      (selectedProduct?.warehouse !== "us" || page === "us-warehouse" || productOriginPage.current === "us-warehouse")
-    );
-      const shopSidebarScrollRef = useRef(null);
+    selectedProduct?.outOfStock &&
+    (selectedProduct?.warehouse !== "us" || page === "us-warehouse" || productOriginPage.current === "us-warehouse")
+  );
+  const shopSidebarScrollRef = useRef(null);
   const shopSidebarThumbRef = useRef(null);
   const savedSidebarScrollTop = useRef(0);
   const usWhSidebarScrollRef = useRef(null);
@@ -13469,7 +13469,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         )}
 
         {page === "product" && selectedProduct && (
-          <main className="mx-auto max-w-7xl px-4 pt-1 pb-12 md:px-10 md:pt-2 md:pb-14">
+          <main className="mx-auto max-w-7xl px-4 pt-1 pb-36 md:px-10 md:pt-2 md:pb-14">
             <button
               onClick={() => {
                     setAccountPromoCodeInput("");
@@ -13492,13 +13492,32 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
             </button>
 
             <div className="grid gap-8 lg:grid-cols-[0.95fr_1.05fr] lg:grid-rows-[max-content_1fr]">
-              <div className="rounded-[1.5rem] border border-white/20 bg-black/20 p-4 shadow-[0_26px_80px_rgba(0,0,0,0.16)] md:rounded-[2.25rem] md:p-8 lg:col-start-1 lg:row-start-1">
+              <div className="relative rounded-[1.5rem] border border-white/20 bg-[#6a6a6a] p-4 shadow-[0_26px_80px_rgba(0,0,0,0.16)] md:rounded-[2.25rem] md:p-8 lg:col-start-1 lg:row-start-1">
                 {/* Image carousel: slide 0 = vial, slide 1..N = COA pages */}
                 {/* Preload COA images so they're ready instantly on arrow click */}
                 {selectedProduct?.coaImages?.map((img, i) => (
                   <img key={i} src={"/" + img} alt="" aria-hidden="true" style={{ position: "absolute", width: 0, height: 0, opacity: 0, pointerEvents: "none" }} />
                 ))}
-                <div className="relative flex h-[300px] items-center justify-center rounded-[1.4rem] border border-white/10 bg-white/[0.035] overflow-hidden shadow-inner md:h-[460px] md:rounded-[1.8rem]">
+                {coaPage === 0 && (
+                  <details ref={vialLabelInfoRef} key={`${selectedProduct.name}|${selectedProduct.dose}`} className="absolute left-2 top-2 z-20 text-left">
+                    <summary
+                      aria-label={tx("Label information", "Информация об этикетках", "Інформація про етикетки", "Information zu Etiketten", "Información sobre etiquetas")}
+                      className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-full text-black/65 transition-colors hover:bg-black/10 hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-black/70 [&::-webkit-details-marker]:hidden"
+                    >
+                      <Info size={19} strokeWidth={1.8} aria-hidden="true" />
+                    </summary>
+                    <div role="note" className="absolute left-0 top-11 w-56 rounded-xl border border-white/20 bg-[#1f1f1f]/95 p-3 text-xs font-semibold leading-relaxed text-white shadow-xl sm:w-64">
+                      {tx(
+                        "Orders of 10 vials are supplied without labels.",
+                        "Заказы по 10 флаконов поставляются без этикеток.",
+                        "Замовлення на 10 флаконів постачаються без етикеток.",
+                        "Bestellungen mit 10 Fläschchen werden ohne Etiketten geliefert.",
+                        "Los pedidos de 10 viales se envían sin etiquetas."
+                      )}
+                    </div>
+                  </details>
+                )}
+                <div className="relative flex h-[300px] items-center justify-center overflow-hidden md:h-[460px]">
                   {coaPage === 0 ? (
                     renderProductVialImage({ product: selectedProduct, large: true })
                   ) : (
@@ -13508,25 +13527,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       className="w-full h-full object-contain bg-white cursor-zoom-in"
                       onClick={() => setCoaLightbox(true)}
                     />
-                  )}
-                  {coaPage === 0 && (
-                    <details ref={vialLabelInfoRef} key={`${selectedProduct.name}|${selectedProduct.dose}`} className="absolute left-1 top-1 z-20 text-left">
-                      <summary
-                        aria-label={tx("Label information", "Информация об этикетках", "Інформація про етикетки", "Information zu Etiketten", "Información sobre etiquetas")}
-                        className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-full text-black/65 transition-colors hover:bg-black/10 hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-black/70 [&::-webkit-details-marker]:hidden"
-                      >
-                        <Info size={19} strokeWidth={1.8} aria-hidden="true" />
-                      </summary>
-                      <div role="note" className="absolute left-0 top-11 w-56 rounded-xl border border-white/20 bg-[#1f1f1f]/95 p-3 text-xs font-semibold leading-relaxed text-white shadow-xl sm:w-64">
-                        {tx(
-                          "Orders of 10 vials are supplied without labels.",
-                          "Заказы по 10 флаконов поставляются без этикеток.",
-                          "Замовлення на 10 флаконів постачаються без етикеток.",
-                          "Bestellungen mit 10 Fläschchen werden ohne Etiketten geliefert.",
-                          "Los pedidos de 10 viales se envían sin etiquetas."
-                        )}
-                      </div>
-                    </details>
                   )}
                   {/* US warehouse badge */}
                   {productOriginPage.current === "us-warehouse" && coaPage === 0 && (
@@ -13592,7 +13592,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               </div>
 
 
-              <div className="rounded-[1.6rem] md:rounded-[2.25rem] border border-white/20 bg-gradient-to-b from-white/[0.09] via-black/[0.12] to-black/25 p-5 shadow-[0_26px_80px_rgba(0,0,0,0.16)] md:p-10 lg:col-start-2 lg:row-start-1 lg:row-span-2 order-2 lg:order-none">
+              <div className="rounded-[1.6rem] md:rounded-[2.25rem] border border-white/20 bg-[#6a6a6a] p-5 shadow-[0_26px_80px_rgba(0,0,0,0.16)] md:p-10 lg:col-start-2 lg:row-start-1 lg:row-span-2 order-2 lg:order-none">
                 <div className="text-[10.5px] md:text-[11px] uppercase tracking-[0.2em] md:tracking-[0.24em] text-white">
                   {t("product")}
                 </div>
@@ -13654,11 +13654,19 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
                 <ProductPackSelector language={language} price={selectedProduct.price} />
 
-                <div className="mt-5 rounded-[1.3rem] md:rounded-[1.6rem] border border-white/20 bg-white/[0.06] p-4 md:p-5 shadow-[0_14px_42px_rgba(0,0,0,0.10)]">
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 md:gap-y-3 text-[13px] md:text-sm items-center">
-                    <div className="text-white font-bold">{t("format")}</div>
-                    <div className="flex justify-end">
-                      <span className="rounded-full bg-black/30 border border-white/20 px-3 py-0.5 text-[13px] font-extrabold text-white tracking-[0.06em] whitespace-nowrap">
+                <div className="mt-5 rounded-[1.3rem] md:rounded-[1.6rem] border border-white/20 bg-black/20 shadow-[0_14px_42px_rgba(0,0,0,0.10)]">
+                  <div className="relative grid w-full grid-cols-2 grid-rows-2 text-center text-white">
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute top-0 bottom-0 left-1/2 w-px -translate-x-1/2 bg-white/20"
+                    />
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute left-0 right-0 top-1/2 h-px -translate-y-1/2 bg-white/20"
+                    />
+                    <div className="min-w-0 flex flex-col justify-center px-3 py-4 md:px-4 md:py-5">
+                      <div className="mb-1 text-xs font-extrabold uppercase tracking-[0.08em] text-white/90 md:text-sm">{t("format")}</div>
+                      <div className="break-words text-base font-bold leading-snug md:text-lg">
                         {language === "RU"
                           ? `${selectedProduct.vials || 10} флаконов`
                           : language === "UA"
@@ -13668,37 +13676,36 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           : language === "ES"
                           ? `Kit de ${selectedProduct.vials || 10} viales`
                           : `${selectedProduct.vials || 10}-vial kit`}
-                      </span>
+                      </div>
                     </div>
-                    <div className="col-span-2 h-px bg-white/10" />
-                    <div className="text-white font-bold">{t("perVial")}</div>
-                    <div className="flex justify-end">
-                      <span className="rounded-full bg-black/30 border border-white/20 px-3 py-0.5 text-[13px] font-extrabold text-white tracking-[0.06em] whitespace-nowrap">
+                    <div className="min-w-0 flex flex-col justify-center px-3 py-4 md:px-4 md:py-5">
+                      <div className="mb-1 text-xs font-extrabold uppercase tracking-[0.08em] text-white/90 md:text-sm">{t("perVial")}</div>
+                      <div className="break-words text-base font-bold leading-snug md:text-lg">
                         {selectedProduct.name === "TB-500 + BPC-157"
                           ? `${parseFloat(selectedProduct.dose)} mg`
                           : selectedProduct.dose.replace(/ each$/i, "")}
-                      </span>
+                      </div>
                     </div>
-                    <div className="col-span-2 h-px bg-white/10" />
-                    <div className="text-white font-bold">{t("kitTotal")}</div>
-                    <div className="flex justify-end">
-                      <span className="rounded-full bg-black/30 border border-white/20 px-3 py-0.5 text-[13px] font-extrabold text-white tracking-[0.06em] whitespace-nowrap">
+                    <div className="min-w-0 flex flex-col justify-center px-3 py-4 md:px-4 md:py-5">
+                      <div className="mb-1 text-xs font-extrabold uppercase tracking-[0.08em] text-white/90 md:text-sm">{t("kitTotal")}</div>
+                      <div className="break-words text-base font-bold leading-snug md:text-lg">
                         {selectedProduct.name === "TB-500 + BPC-157"
                           ? `${parseFloat(selectedProduct.dose) * 10} mg total`
                           : selectedProduct.total}
-                      </span>
+                      </div>
                     </div>
-                    <div className="col-span-2 h-px bg-white/10" />
-                    <div className="text-white font-bold">{t("pricePerVial")}</div>
-                    <div className="flex justify-end">
-                      <span className="rounded-full bg-black/30 border border-white/20 px-3 py-0.5 text-[13px] font-extrabold text-white tracking-[0.06em] whitespace-nowrap">
-                        {formatPricePrecise(selectedProduct.price / (selectedProduct.vials || 10)).replace(/^\$/, "") + "$"}
-                      </span>
+                    <div className="min-w-0 flex flex-col justify-center px-3 py-4 md:px-4 md:py-5">
+                      <div className="mb-1 text-xs font-extrabold uppercase tracking-[0.08em] text-white/90 md:text-sm">
+                        {language === "EN" ? "Price/vial" : t("pricePerVial")}
+                      </div>
+                      <div className="break-words text-base font-bold leading-snug md:text-lg">
+                        {formatPricePrecise(selectedProduct.price / (selectedProduct.vials || 10))}
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-5 rounded-[1.4rem] md:rounded-[1.9rem] border border-white/20 bg-[#242424]/55 p-5 md:p-6 shadow-[0_24px_70px_rgba(0,0,0,0.20)]">
+                <div className="mt-5 rounded-[1.4rem] md:rounded-[1.9rem] border border-white/20 bg-black/20 p-5 md:p-6 shadow-[0_24px_70px_rgba(0,0,0,0.20)]">
                   <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
                     <div className="flex items-baseline gap-3 flex-wrap">
                       <div className="text-[40px] font-bold leading-none tracking-[-0.06em] text-white md:text-[52px]">
@@ -13771,7 +13778,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
 
                   <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                    {selectedProduct?.outOfStock && (selectedProduct?.warehouse !== "us" || page === "us-warehouse" || productOriginPage.current === "us-warehouse") ? (
+                    {selectedProductUnavailable ? (
                       <div ref={productPrimaryActionRef} className="sm:col-span-2 inline-flex w-full justify-center rounded-full border border-white/20 px-7 py-4 text-[14px] font-black uppercase tracking-[0.22em] bg-white/10 text-white/50 cursor-not-allowed">
                         Out of stock
                       </div>
@@ -13805,7 +13812,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               </div>
 
               {/* Purity Guarantee — below image on desktop, last on mobile */}
-              <div className="order-last lg:order-none lg:col-start-1 lg:row-start-2 lg:self-start rounded-[1.6rem] border border-white/20 bg-black/25 px-6 py-5 text-center">
+              <div className="order-last lg:order-none lg:col-start-1 lg:row-start-2 lg:self-start rounded-[1.6rem] border border-white/20 bg-[#6a6a6a] px-6 py-5 text-center">
                 <div className="flex items-center justify-center gap-2 mb-1">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" className="text-white/70 shrink-0">
                     <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7L12 2z" fill="currentColor" fillOpacity="0.2" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
@@ -13866,7 +13873,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               </div>
 
             </div>
-          {!productPrimaryActionVisible && !coaLightbox && !attestationModalOpen && (
+            {!productPrimaryActionVisible && !coaLightbox && !attestationModalOpen && (
               <div
                 className="fixed inset-x-0 z-[80] border-t border-white/20 bg-[#4b4b4b]/95 px-4 pt-2 shadow-[0_-12px_35px_rgba(0,0,0,0.3)] backdrop-blur-xl md:hidden"
                 style={{
@@ -13877,7 +13884,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 <div className="mx-auto flex max-w-7xl items-center gap-3">
                   <div
                     ref={stickyProductInfoRef}
-                    className={"min-w-0 flex-1 " + (stickyProductInfoStacked ? "flex flex-col items-start gap-0" : "flex items-baseline gap-2")}
+                    className={`min-w-0 flex-1 ${
+                      stickyProductInfoStacked
+                        ? "flex flex-col items-start gap-0"
+                        : "flex items-baseline gap-2"
+                    }`}
                   >
                     <div ref={stickyProductNameRef} className="min-w-0 max-w-full truncate text-[10px] font-bold uppercase leading-4 tracking-[0.1em] text-white/60">
                       {publicProductName(selectedProduct.name)} · {selectedProduct.dose?.replace(/ each$/i, "")}
@@ -13890,14 +13901,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     type="button"
                     disabled={selectedProductUnavailable}
                     onClick={() => addToCart(selectedProduct, "product")}
-                    className={
-                      "inline-flex h-10 min-w-[124px] shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3 text-center text-[10px] font-black uppercase tracking-[0.07em] shadow-[0_8px_24px_rgba(0,0,0,0.2)] transition active:scale-[0.98] " +
-                      (selectedProductUnavailable
+                    className={`inline-flex h-10 min-w-[124px] shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3 text-center text-[10px] font-black uppercase tracking-[0.07em] shadow-[0_8px_24px_rgba(0,0,0,0.2)] transition active:scale-[0.98] ${
+                      selectedProductUnavailable
                         ? "cursor-not-allowed bg-white/20 text-white/50"
                         : productPageJustAdded
                         ? "bg-black text-white"
-                        : "bg-white text-black")
-                    }
+                        : "bg-white text-black"
+                    }`}
                   >
                     {selectedProductUnavailable
                       ? tx("Out of stock", "Нет в наличии", "Немає в наявності", "Nicht auf Lager", "Agotado")
@@ -13908,7 +13918,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 </div>
               </div>
             )}
-    
           </main>
         )}
 
@@ -22407,27 +22416,29 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-t-[2rem] border border-white/20 bg-[#858585] p-5 shadow-[0_28px_90px_rgba(0,0,0,0.45)] sm:rounded-[2rem] sm:p-8"
                 >
                   <div className="mb-6 flex items-start justify-between gap-4">
-                    <div>
-                      <h2 id="purchaser-attestation-title" className="text-xl font-bold uppercase tracking-[0.16em] text-white sm:text-2xl">
-                        {tx("Purchaser attestation", "Подтверждение покупателя", "Підтвердження покупця", "Käuferbestätigung", "Declaración del comprador")}
-                      </h2>
-                      <p className="mt-2 text-[11px] uppercase leading-5 tracking-[0.14em] text-white/70">
-                        {tx(
-                          "All confirmations are required before checkout.",
-                          "Для перехода к оплате необходимы все подтверждения.",
-                          "Для переходу до оплати потрібні всі підтвердження.",
-                          "Vor dem Checkout sind alle Bestätigungen erforderlich.",
-                          "Todas las confirmaciones son obligatorias antes del pago."
-                        )}
-                      </p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex w-fit max-w-full flex-col rounded-full border border-white/15 bg-black/10 px-5 py-3">
+                        <h2 id="purchaser-attestation-title" className="text-[15px] font-bold uppercase leading-tight tracking-[0.12em] text-white sm:text-2xl sm:tracking-[0.16em]">
+                          {tx("Purchaser attestation", "Подтверждение покупателя", "Підтвердження покупця", "Käuferbestätigung", "Declaración del comprador")}
+                        </h2>
+                        <p className="mt-1.5 text-[10px] uppercase leading-4 tracking-[0.12em] text-white/75 sm:text-[11px] sm:leading-5 sm:tracking-[0.14em]">
+                          {tx(
+                            "All confirmations are required before checkout.",
+                            "Для перехода к оплате необходимы все подтверждения.",
+                            "Для переходу до оплати потрібні всі підтвердження.",
+                            "Vor dem Checkout sind alle Bestätigungen erforderlich.",
+                            "Todas las confirmaciones son obligatorias antes del pago."
+                          )}
+                        </p>
+                      </div>
                     </div>
                     <button
                       type="button"
                       onClick={() => setAttestationModalOpen(false)}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/25 text-xl text-white"
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
                       aria-label="Close"
                     >
-                      ×
+                      <X size={20} strokeWidth={2.5} aria-hidden="true" />
                     </button>
                   </div>
 

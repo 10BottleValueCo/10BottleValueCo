@@ -11,9 +11,6 @@ export default function ProductPackSelector({ language, price }) {
 
   return (
     <section className="mt-6" aria-label={labels.title}>
-      <h2 className="mb-3 text-xs font-extrabold uppercase tracking-[0.17em] text-white/80">
-        {labels.title}
-      </h2>
       <div className="grid gap-2">
         {[1, 5, 10].map((count) => {
           const available = count === 10;
