@@ -343,7 +343,11 @@ function StripeImportButton({ order, onImport }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/stripe-session/${order.paymentId}`);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Sign in as administrator to import Stripe items.");
+      const res = await fetch(`/api/stripe-session/${encodeURIComponent(order.paymentId)}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
       const data = await res.json();
       if (!data.ok) { setError(data.error || "Ошибка Stripe"); setLoading(false); return; }
       if (!data.items || data.items.length === 0) { setError("Stripe вернул пустой список товаров"); setLoading(false); return; }
@@ -4742,8 +4746,12 @@ export default function App() {
 
   async function loadReactions() {
     try {
-      const resp = await fetch("/api/reactions");
-      if (!resp.ok) return;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      const resp = await fetch("/api/reactions", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!resp.ok) throw new Error(`Could not load reactions (${resp.status})`);
       const data = await resp.json();
       const flat = {};
       for (const [msgId, sides] of Object.entries(data)) {
@@ -4753,7 +4761,7 @@ export default function App() {
         flat[`usr_rcvd_${msgId}`] = sides.reply || {};
       }
       setMsgReactions(flat);
-    } catch {}
+    } catch (error) { console.error("Could not load reactions:", error); }
   }
 
   async function toggleReaction(rKey, emoji) {
@@ -4764,17 +4772,21 @@ export default function App() {
     else if (rKey.startsWith("usr_rcvd_")) { msgId = rKey.slice(9); side = "reply"; }
     else return;
 
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) return;
     setMsgReactions(prev => {
       const curMsg = { ...(prev[`in_${msgId}`] || {}) };
       const curReply = { ...(prev[`out_${msgId}`] || {}) };
       if (side === "msg") curMsg[emoji] = !curMsg[emoji];
       else curReply[emoji] = !curReply[emoji];
 
-      fetch(`/api/reactions/${msgId}`, {
+      fetch(`/api/reactions/${encodeURIComponent(msgId)}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({ reactions: { msg: curMsg, reply: curReply } }),
-      }).catch(() => {});
+      }).then((response) => {
+        if (!response.ok) throw new Error(`Could not save reaction (${response.status})`);
+      }).catch((error) => { console.error(error); loadReactions(); });
 
       return {
         ...prev,
@@ -5153,11 +5165,17 @@ export default function App() {
         setIssuePromoEmail("");
         setIssuePromoCode("");
         setIssuePromoRate("");
-        fetch("/api/send-promo-code-email", {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error("Sign in as administrator to send a promo email.");
+        const mailResponse = await fetch("/api/send-promo-code-email", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
           body: JSON.stringify({ email, code, rate: rateDecimal }),
-        }).catch((e) => console.error("Failed to send promo code email:", e));
+        });
+        if (!mailResponse.ok) {
+          const result = await mailResponse.json().catch(() => ({}));
+          setIssuePromoMessage(`Promo saved, but email failed: ${result.error || mailResponse.status}`);
+        }
       }
     } catch (e) {
       setIssuePromoMessage(`Error: ${String(e)}`);
@@ -10231,11 +10249,15 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
       };
       await supabase.from("orders").upsert({ id: orderNumber, email, status: "wire_pending", total: Number(finalTotal.toFixed(2)), metadata: meta });
-      await fetch("/api/send-wire-confirmation", {
+      const mailResponse = await fetch("/api/send-wire-confirmation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderNumber, email, total: Number(finalTotal.toFixed(2)), firstName: checkoutForm.firstName || "", lastName: checkoutForm.lastName || "" }),
-      }).catch(() => {});
+      });
+      if (!mailResponse.ok) {
+        const result = await mailResponse.json().catch(() => ({}));
+        throw new Error(result.error || "Wire confirmation email could not be sent.");
+      }
       setWireConfirmed(true);
     } catch (e) {
       setWireError("Something went wrong. Please email us with your order number.");
