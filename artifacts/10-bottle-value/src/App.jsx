@@ -2945,11 +2945,11 @@ function FunnelTab({ supabase }) {
       {/* Sessions list */}
       {!loading && sessions.length > 0 && (
         <div className="rounded-[1.4rem] border border-white/15 bg-black/20 p-4">
-          <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-3">Recent Sessions</div>
+          <div className="text-[10px] uppercase tracking-[0.2em] text-white mb-3">Recent Sessions</div>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-white/10 text-[10px] uppercase tracking-[0.15em] text-white/30">
+                <tr className="border-b border-white/10 text-[10px] uppercase tracking-[0.15em] text-white">
                   <th className="pb-2 text-left">Session</th>
                   <th className="pb-2 text-left">Device</th>
                   <th className="pb-2 text-center">Events</th>
@@ -2969,35 +2969,33 @@ function FunnelTab({ supabase }) {
                       <tr key={sess.session_id}
                         className={`border-b border-white/5 cursor-pointer hover:bg-white/5 transition ${isActive ? "bg-white/5" : ""}`}
                         onClick={() => setActiveSession(isActive ? null : sess.session_id)}>
-                        <td className="py-2 pr-3 font-mono text-white/40">{sess.session_id.slice(0, 8)}…</td>
-                        <td className="py-2 pr-3 text-white/60">{deviceLabel(device)}</td>
+                        <td className="py-2 pr-3 font-mono text-white">{sess.session_id.slice(0, 8)}…</td>
+                        <td className="py-2 pr-3 text-white">{deviceLabel(device)}</td>
                         <td className="py-2 text-center">
-                          <span className={`inline-flex items-center gap-1 ${ordered ? "text-green-400" : added ? "text-yellow-400" : "text-white/50"}`}>
-                            {ordered ? "✅" : added ? "🛒" : ""} {sess.events.length}
+                          <span className={`inline-flex items-center gap-1 ${ordered ? "text-green-400" : added ? "text-yellow-400" : ""}`}>
+                            {ordered ? "✅" : added ? "🛒" : ""}
+                            <span className="font-semibold text-white">{sess.events.length}</span>
                           </span>
                         </td>
-                        <td className="py-2 pr-3 text-white/50">{pages.join(" → ")}</td>
-                        <td className="py-2 text-right text-white/30">
+                        <td className="py-2 pr-3 text-white">{pages.join(" → ")}</td>
+                        <td className="py-2 text-right text-white">
                           {new Date(sess.last_seen).toLocaleString("en-GB", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                         </td>
                       </tr>
                       {isActive && (
                         <tr key={sess.session_id + "-detail"} className="bg-black/20">
                           <td colSpan={5} className="px-3 py-3">
-                            <div className="text-[10px] uppercase tracking-widest text-white/30 mb-2">Event timeline</div>
+                            <div className="text-[10px] uppercase tracking-widest text-white mb-2">Event timeline</div>
                             <div className="space-y-1">
                               {sess.events.slice().reverse().map((e, i) => (
                                 <div key={i} className="flex gap-3 text-xs">
-                                  <span className="text-white/25 font-mono w-40 shrink-0">
+                                  <span className="text-white font-mono w-40 shrink-0">
                                     {new Date(e.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
                                   </span>
-                                  <span className={`font-semibold w-32 shrink-0 ${
-                                    e.event_type === "order_placed" ? "text-green-400" :
-                                    e.event_type === "add_to_cart" ? "text-yellow-400" :
-                                    e.event_type === "product_view" ? "text-cyan-400" : "text-white/50"}`}>
+                                  <span className="font-semibold text-white w-32 shrink-0">
                                     {e.event_type}
                                   </span>
-                                  <span className="text-white/40 truncate">
+                                  <span className="text-white truncate">
                                     {e.page ? `page: ${e.page}` : ""}
                                     {e.properties?.action ? ` · ${e.properties.action}` : ""}
                                     {e.properties?.form ? ` · ${e.properties.form} form` : ""}
@@ -3018,7 +3016,7 @@ function FunnelTab({ supabase }) {
               </tbody>
             </table>
             {sessions.length > 30 && (
-              <div className="text-center text-white/25 text-xs pt-3">Showing 30 of {sessions.length} sessions</div>
+              <div className="text-center text-white text-xs pt-3">Showing 30 of {sessions.length} sessions</div>
             )}
           </div>
         </div>
