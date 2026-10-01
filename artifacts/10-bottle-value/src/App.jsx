@@ -9300,6 +9300,30 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     const DAY_MS = 24 * 60 * 60 * 1000;
     const now = Date.now();
 
+    async function fetchAdminPayoutRows() {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) return { data: [], error };
+        const accessToken = data?.session?.access_token;
+        if (!accessToken) {
+          return { data: [], error: new Error("Sign in with the admin account to load payout history.") };
+        }
+        const response = await fetch("/api/affiliate-payouts", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          return { data: [], error: new Error(result?.error || "Payout history could not be loaded.") };
+        }
+        if (!Array.isArray(result?.payouts)) {
+          return { data: [], error: new Error("Payout history returned an invalid response.") };
+        }
+        return { data: result.payouts, error: null };
+      } catch (error) {
+        return { data: [], error };
+      }
+    }
+
     // Fetch affiliates table + orders in parallel
     // Fetch orders directly (service role not available on client, use anon key with admin RLS)
     // If allOrders already has data use it; otherwise fetch from Supabase
@@ -9308,13 +9332,14 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       allOrders.length > 0
         ? Promise.resolve({ data: allOrders })
         : supabase.from("orders").select("id,status,created_at,metadata,affiliate_code,affiliate_owner_email").order("created_at", { ascending: false }),
-      supabase.from("affiliate_payouts").select("affiliate_code,amount"),
+      fetchAdminPayoutRows(),
     ]);
 
     setAdminAffiliatesLoading(false);
     if (payoutsResult?.error) {
-      console.error("Failed to load affiliate payout history", payoutsResult.error);
-      setAffPayoutLoadError("Payout history could not be loaded. Check before relying on the paid totals.");
+      const errorMessage = payoutsResult.error?.message;
+      console.error("Failed to load affiliate payout history", errorMessage || payoutsResult.error);
+      setAffPayoutLoadError(errorMessage || "Payout history could not be loaded. Check before relying on the paid totals.");
     }
 
     // Normalize orders — handle both reconstructed (from state) and raw Supabase rows
@@ -13802,7 +13827,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             <button
                               type="button"
                               onClick={() => { if (!isActive) { setSelectedProduct(isUs ? { ...v, fromWarehouse: "us" } : v); setCoaPage(0); setCoaLightbox(false); } }}
-                              aria-label={v.dose.toUpperCase() + (v.outOfStock ? ", OUT OF STOCK" : "")}
+                              aria-label={`${v.dose.toUpperCase()}${v.outOfStock ? ", OUT OF STOCK" : ""}`}
                               className={`rounded-full px-4 py-1.5 text-[12px] font-bold uppercase tracking-[0.14em] border transition-none ${
                                 isActive
                                   ? "bg-white text-black border-white"
@@ -13810,7 +13835,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               }`}
                             >
                               {v.dose.toUpperCase()}
-                              
                             </button>
                           </div>
                         );
@@ -16736,7 +16760,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               )}
 
               {adminActiveTab === "inbox" && isAdminUser() && (
-                <div className="rounded-[1.6rem] border border-white/15 bg-black/20 p-6">
+                <div className="rounded-[1.1rem] border border-white/20 bg-[#626262] p-5 shadow-lg shadow-black/10">
                   <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
                       <div className="relative inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-white/60">
@@ -18176,77 +18200,130 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
               {adminActiveTab === "affiliates" && isAdminUser() && (
                 <div className="rounded-[1.6rem] border border-white/15 bg-black/20 p-6">
-                  <div className="text-[11px] uppercase tracking-[0.24em] text-white/80">AFFILIATES</div>
+                  <style>{`
+                    @media (max-width: 767px) {
+                      .affiliate-payout-ledger,
+                      .affiliate-payout-ledger tbody { display: block; width: 100%; }
+                      .affiliate-payout-ledger colgroup { display: none; }
+                      .affiliate-payout-ledger tbody { display: grid; gap: 10px; padding: 10px; }
+                      .affiliate-payout-ledger tbody tr {
+                        display: grid;
+                        grid-template-columns: repeat(2, minmax(0, 1fr));
+                        gap: 12px;
+                        padding: 12px;
+                        border: 1px solid rgba(255, 255, 255, .16);
+                        border-radius: 12px;
+                        background: rgba(255, 255, 255, .035);
+                      }
+                      .affiliate-payout-ledger tbody td {
+                        display: flex;
+                        min-width: 0;
+                        flex-direction: column;
+                        align-items: flex-start;
+                        gap: 3px;
+                        padding: 0;
+                        text-align: left;
+                        white-space: normal;
+                      }
+                      .affiliate-payout-ledger tbody td:nth-child(1),
+                      .affiliate-payout-ledger tbody td:nth-child(6),
+                      .affiliate-payout-ledger tbody td:nth-child(7) { grid-column: 1 / -1; }
+                    }
+                  `}</style>
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/75">Affiliates</div>
                   <div className="mt-2 flex items-end justify-between gap-4 flex-wrap">
-                    <h2 className="text-2xl font-semibold text-white">Affiliate Overview</h2>
+                    <h2 className="text-3xl font-bold uppercase tracking-tight text-white">Affiliate Overview</h2>
                     <button
                       type="button"
                       onClick={loadAdminAffiliates}
                       disabled={adminAffiliatesLoading}
-                      className="rounded-full border border-white/20 bg-black/10 px-5 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-white hover:text-white transition disabled:opacity-40"
+                      className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-white/25 bg-white/[0.04] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white transition hover:bg-white/10 disabled:opacity-40"
                     >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`h-4 w-4 ${adminAffiliatesLoading ? "animate-spin" : ""}`} aria-hidden="true"><path d="M20 7v5h-5"/><path d="M4 17v-5h5"/><path d="M5.64 9A7 7 0 0 1 18.3 6.7L20 12M4 12l1.7 5.3A7 7 0 0 0 18.36 15"/></svg>
                       {adminAffiliatesLoading ? "Loading…" : "Refresh"}
                     </button>
                   </div>
 
                   {affPayoutLoadError && (
-                    <div className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
-                      {affPayoutLoadError}
+                    <div role="alert" className="mt-3 flex items-center gap-3 rounded-lg border border-white/15 bg-[#484848] px-3 py-2.5 text-xs text-white">
+                      <span aria-hidden="true" className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-amber-300 text-xs font-black text-[#343434]">!</span>
+                      <div className="font-medium">{affPayoutLoadError}</div>
                     </div>
                   )}
                   {adminAffiliatesLoading ? (
                     <div className="mt-6 text-center text-white/70 text-sm py-8">Loading affiliates…</div>
                   ) : adminAffiliates.length === 0 ? (
-                    <div className="mt-6 rounded-2xl border border-white/10 bg-black/10 py-10 text-center text-white/70 text-sm">
+                      <div className="mt-6 rounded-xl border border-white/15 bg-white/[0.04] py-10 text-center text-white/80 text-sm">
                       No affiliate orders yet.
                     </div>
                   ) : (
                     <>
                       {/* Summary strip */}
-                      <div className="mt-5 flex gap-4 flex-wrap">
-                        <div className="rounded-2xl border border-white/15 bg-black/10 px-5 py-3">
-                          <div className="text-[10px] uppercase tracking-[0.2em] text-white/80">Total affiliates</div>
-                          <div className="mt-0.5 text-2xl font-bold text-white">{adminAffiliates.length}</div>
-                        </div>
-                        <div className="rounded-2xl border border-white/15 bg-black/10 px-5 py-3">
-                          <div className="text-[10px] uppercase tracking-[0.2em] text-white/80">Orders tracked</div>
-                          <div className="mt-0.5 text-2xl font-bold text-white">{adminAffiliates.reduce((s, a) => s + a.orders, 0)}</div>
-                        </div>
-                        <div className="rounded-2xl border border-emerald-400/25 bg-emerald-400/8 px-5 py-3">
-                          <div className="text-[10px] uppercase tracking-[0.2em] text-emerald-200">Available to pay out</div>
-                          <div className="mt-0.5 text-2xl font-bold text-emerald-300">
-                            ${adminAffiliates.reduce((s, a) => s + Math.max(0, a.available - (Number(affPaidMap[a.code]) || 0)), 0).toFixed(2)}
+                      <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+                        <div className="flex min-w-0 items-center gap-3 rounded-lg border border-white/15 bg-white/[0.06] px-3.5 py-3">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6 shrink-0 text-white/90" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M20 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                          <div className="min-w-0">
+                            <div className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/75">Total affiliates</div>
+                            <div className="mt-1 font-mono text-xl font-bold tabular-nums text-white">{adminAffiliates.length}</div>
                           </div>
                         </div>
-                        <div className="rounded-2xl border border-amber-400/25 bg-amber-400/8 px-5 py-3">
-                          <div className="text-[10px] uppercase tracking-[0.2em] text-amber-200">Pending (on hold)</div>
-                          <div className="mt-0.5 text-2xl font-bold text-amber-300">
-                            ${adminAffiliates.reduce((s, a) => s + a.pending, 0).toFixed(2)}
+                        <div className="flex min-w-0 items-center gap-3 rounded-lg border border-white/15 bg-white/[0.06] px-3.5 py-3">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6 shrink-0 text-white/90" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+                          <div className="min-w-0">
+                            <div className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/75">Orders tracked</div>
+                            <div className="mt-1 font-mono text-xl font-bold tabular-nums text-white">{adminAffiliates.reduce((s, a) => s + a.orders, 0)}</div>
                           </div>
                         </div>
-                        <div className="rounded-2xl border border-sky-400/25 bg-sky-400/8 px-5 py-3">
-                          <div className="text-[10px] uppercase tracking-[0.2em] text-sky-200">Total paid to date</div>
-                          <div className="mt-0.5 text-2xl font-bold text-sky-300">
-                            ${adminAffiliates.reduce((s, a) => s + (Number(affPaidMap[a.code]) || 0), 0).toFixed(2)}
+                        <div className="flex min-w-0 items-center gap-3 rounded-lg border border-white/15 bg-white/[0.06] px-3.5 py-3">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6 shrink-0 text-white/90" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18M16 15h2"/><path d="M7 6V4h11"/></svg>
+                          <div className="min-w-0">
+                            <div className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/75">Available to pay out</div>
+                            <div className="mt-1 font-mono text-xl font-bold tabular-nums text-white">
+                              ${adminAffiliates.reduce((s, a) => s + Math.max(0, a.available - (Number(affPaidMap[a.code]) || 0)), 0).toFixed(2)}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex min-w-0 items-center gap-3 rounded-lg border border-white/15 bg-white/[0.06] px-3.5 py-3">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6 shrink-0 text-white/90" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                          <div className="min-w-0">
+                            <div className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/75">Pending (on hold)</div>
+                            <div className="mt-1 font-mono text-xl font-bold tabular-nums text-white">
+                              ${adminAffiliates.reduce((s, a) => s + a.pending, 0).toFixed(2)}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex min-w-0 items-center gap-3 rounded-lg border border-white/15 bg-white/[0.06] px-3.5 py-3">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6 shrink-0 text-white/90" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20V7"/></svg>
+                          <div className="min-w-0">
+                            <div className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/75">Total paid to date</div>
+                            <div className="mt-1 font-mono text-xl font-bold tabular-nums text-white">
+                              ${adminAffiliates.reduce((s, a) => s + (Number(affPaidMap[a.code]) || 0), 0).toFixed(2)}
+                            </div>
                           </div>
                         </div>
                       </div>
 
                       {/* Affiliate table */}
-                      <div className="mt-5 overflow-x-auto rounded-2xl border border-white/10">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="border-b border-white/10 text-left text-[10px] uppercase tracking-[0.18em] text-white/80">
-                              <th className="px-4 py-3">#</th>
-                              <th className="px-4 py-3">Code</th>
-                              <th className="px-4 py-3">Email</th>
-                              <th className="px-4 py-3">Link</th>
-                              <th className="px-4 py-3 text-right">Orders</th>
-                              <th className="px-4 py-3 text-right">Unpaid balance</th>
-                              <th className="px-4 py-3 text-right">Pending</th>
-                              <th className="px-4 py-3 text-right">Paid to date</th>
-                              <th className="px-4 py-3">Payout status</th>
-                              <th className="px-4 py-3"></th>
+                      <div className="mt-4 overflow-hidden rounded-xl border border-white/15 bg-[#575757]">
+                        <table className="affiliate-payout-ledger w-full table-fixed text-sm" aria-label="Affiliate payout overview">
+                          <colgroup>
+                            <col className="w-[20%]" />
+                            <col className="w-[8%]" />
+                            <col className="w-[13%]" />
+                            <col className="w-[10%]" />
+                            <col className="w-[11%]" />
+                            <col className="w-[14%]" />
+                            <col className="w-[24%]" />
+                          </colgroup>
+                          <thead className="sr-only md:not-sr-only">
+                            <tr className="border-b border-white/15 bg-white/[0.06] text-left text-[9px] font-semibold uppercase tracking-[0.1em] text-white/85">
+                              <th scope="col" className="px-3 py-3">Affiliate</th>
+                              <th scope="col" className="px-3 py-3 text-right">Orders</th>
+                              <th scope="col" className="px-3 py-3 text-right">Unpaid balance</th>
+                              <th scope="col" className="px-3 py-3 text-right">Pending</th>
+                              <th scope="col" className="px-3 py-3 text-right">Paid to date</th>
+                              <th scope="col" className="px-3 py-3">Payout status</th>
+                              <th scope="col" className="px-3 py-3">Actions</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -18260,133 +18337,166 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                   : aff.pending > 0 ? "On hold" : "No payout due";
                               const payoutStatusTone = remaining > 0
                                 ? paid > 0
-                                  ? "border-orange-400/30 bg-orange-400/10 text-orange-200"
-                                  : "border-amber-400/30 bg-amber-400/10 text-amber-200"
+                                  ? "border-orange-300/50 bg-orange-300/10"
+                                  : "border-amber-300/50 bg-amber-300/10"
                                 : paid > 0
                                   ? aff.pending > 0
-                                    ? "border-sky-400/30 bg-sky-400/10 text-sky-200"
-                                    : "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+                                    ? "border-sky-300/50 bg-sky-300/10"
+                                    : "border-emerald-300/50 bg-emerald-300/10"
                                   : aff.pending > 0
-                                    ? "border-amber-400/25 bg-amber-400/5 text-amber-100"
-                                    : "border-white/10 bg-white/5 text-white/70";
+                                    ? "border-amber-300/40 bg-amber-300/8"
+                                    : "border-white/20 bg-white/5";
+                              const payoutStatusDot = remaining > 0
+                                ? paid > 0 ? "bg-orange-300" : "bg-amber-300"
+                                : paid > 0
+                                  ? aff.pending > 0 ? "bg-sky-300" : "bg-emerald-300"
+                                  : aff.pending > 0 ? "bg-amber-300" : "bg-white/50";
                               return (
-                                <tr key={aff.code} className={`border-b border-white/5 transition-colors hover:bg-white/5 ${i % 2 === 0 ? "bg-black/10" : ""}`}>
-                                  <td className="px-4 py-3 text-white/70 text-xs">{i + 1}</td>
-                                  <td className="px-4 py-3">
-                                    <div className="flex items-center gap-2">
-                                      <span className="font-mono font-semibold text-white">{aff.code}</span>
-                                      {!aff.active && <span className="rounded-full border border-red-400/40 bg-red-400/10 px-2 py-0.5 text-[9px] uppercase tracking-[0.15em] text-red-300">inactive</span>}
+                                <tr key={aff.code} className={`border-b border-white/10 transition-colors hover:bg-white/[0.06] ${i % 2 === 0 ? "bg-white/[0.025]" : ""}`}>
+                                  <td data-label="Affiliate" className="px-3 py-3">
+                                    <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/70 md:hidden">Affiliate</span>
+                                    <div className="min-w-0">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span className="font-mono font-semibold text-white">{aff.code}</span>
+                                        {!aff.active && <span className="rounded-full border border-red-300/50 bg-red-300/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/90">inactive</span>}
+                                      </div>
+                                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                                        <span className="break-all text-xs text-white/80">{aff.email || "—"}</span>
+                                      </div>
                                     </div>
                                   </td>
-                                  <td className="px-4 py-3 text-white/90 text-xs">{aff.email || "—"}</td>
-                                  <td className="px-4 py-3">
-                                    <button
-                                      onClick={() => {
-                                        navigator.clipboard.writeText(`https://10bottlevalue.co/?c=${aff.code.toLowerCase()}`);
-                                        setCopiedAffCode(aff.code);
-                                        setTimeout(() => setCopiedAffCode(""), 1500);
-                                      }}
-                                       className="flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-white/90 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white"
-                                    >
-                                      {copiedAffCode === aff.code ? (
-                                        <><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3 text-emerald-400"><polyline points="20 6 9 17 4 12"/></svg><span className="text-emerald-400">Copied!</span></>
-                                      ) : (
-                                        <><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy link</>
-                                      )}
-                                    </button>
+                                  <td data-label="Orders" className="whitespace-nowrap px-3 py-3 text-right font-mono tabular-nums text-white">
+                                    <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/70 md:hidden">Orders</span>{aff.orders}
                                   </td>
-                                  <td className="px-4 py-3 text-right text-white">{aff.orders}</td>
-                                  <td className="px-4 py-3 text-right font-bold text-emerald-300">{remaining > 0 ? `$${remaining.toFixed(2)}` : <span className="text-white/60">—</span>}</td>
-                                  <td className="px-4 py-3 text-right font-semibold text-amber-300">{aff.pending > 0 ? `$${aff.pending.toFixed(2)}` : <span className="text-white/60">—</span>}</td>
-                                  <td className="px-4 py-3 text-right font-bold text-sky-300">{paid > 0 ? `$${paid.toFixed(2)}` : <span className="text-white/60">—</span>}</td>
-                                  <td className="px-4 py-3">
-                                    <span className={`inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 text-[10px] font-semibold ${payoutStatusTone}`}>
-                                      {payoutStatus}
+                                  <td data-label="Unpaid balance" className="whitespace-nowrap px-3 py-3 text-right font-mono font-semibold tabular-nums text-white">
+                                    <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/70 md:hidden">Unpaid balance</span>{remaining > 0 ? `$${remaining.toFixed(2)}` : <span className="text-white/55">—</span>}
+                                  </td>
+                                  <td data-label="Pending" className="whitespace-nowrap px-3 py-3 text-right font-mono font-semibold tabular-nums text-white">
+                                    <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/70 md:hidden">Pending</span>{aff.pending > 0 ? `$${aff.pending.toFixed(2)}` : <span className="text-white/55">—</span>}
+                                  </td>
+                                  <td data-label="Paid to date" className="whitespace-nowrap px-3 py-3 text-right font-mono font-semibold tabular-nums text-white">
+                                    <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/70 md:hidden">Paid to date</span>{paid > 0 ? `$${paid.toFixed(2)}` : <span className="text-white/55">—</span>}
+                                  </td>
+                                  <td data-label="Payout status" className="px-3 py-3">
+                                    <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/70 md:hidden">Payout status</span>
+                                    <span className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] text-white ${payoutStatusTone}`}>
+                                      <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${payoutStatusDot}`} />
+                                      <span className="truncate">{payoutStatus}</span>
                                     </span>
                                   </td>
-                                  <td className="px-4 py-3">
-                                    {affPayInput[aff.code] !== undefined ? (
-                                      <div className="flex items-center gap-1">
-                                        <span className="text-white/40 text-xs">$</span>
-                                        <input
-                                          type="number" min="0" step="0.01"
-                                          value={affPayInput[aff.code]}
-                                          onChange={e => setAffPayInput(p => ({ ...p, [aff.code]: e.target.value }))}
-                                          className="w-20 rounded-lg border border-sky-400/40 bg-sky-400/10 px-2 py-1 text-xs text-white outline-none [appearance:textfield]"
-                                          placeholder="0.00" autoFocus
-                                        />
-                                        <button
-                                          onClick={async () => {
-                                            const amount = Number(affPayInput[aff.code]) || 0;
-                                            if (!Number.isFinite(amount) || amount <= 0) {
-                                              setAffPayErrors(p => ({ ...p, [aff.code]: "Enter an amount greater than $0." }));
-                                              return;
-                                            }
-                                            setAffPaySaving(p => ({ ...p, [aff.code]: true }));
-                                            try {
-                                              const { error } = await supabase.from("affiliate_payouts").insert({
-                                                affiliate_code: aff.code,
-                                                amount,
-                                                note: `Admin payout ${new Date().toISOString().slice(0, 10)}`,
-                                              });
-                                              if (error) throw error;
-                                              const next = { ...affPaidMap, [aff.code]: (Number(affPaidMap[aff.code]) || 0) + amount };
-                                              setAffPaidMap(next);
-                                              try { localStorage.setItem("tbv-aff-paid", JSON.stringify(next)); } catch {}
+                                  <td data-label="Actions" className="px-3 py-3">
+                                    <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/70 md:hidden">Actions</span>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(`https://10bottlevalue.co/?c=${aff.code.toLowerCase()}`);
+                                          setCopiedAffCode(aff.code);
+                                          setTimeout(() => setCopiedAffCode(""), 1500);
+                                        }}
+                                        className="inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border border-white/25 bg-white/[0.03] px-2.5 py-1.5 text-[8px] font-semibold uppercase tracking-[0.08em] text-white transition-colors hover:bg-white/10"
+                                      >
+                                        {copiedAffCode === aff.code ? (
+                                          <><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3"><polyline points="20 6 9 17 4 12"/></svg><span>Copied!</span></>
+                                        ) : (
+                                          <><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span>Copy link</span></>
+                                        )}
+                                      </button>
+                                      {affPayInput[aff.code] !== undefined ? (
+                                        <div className="flex min-w-0 flex-wrap items-center gap-1">
+                                          <div className="flex min-w-0 items-center gap-1">
+                                            <span className="text-xs text-white/75">$</span>
+                                            <input
+                                              type="number" min="0" step="0.01"
+                                              value={affPayInput[aff.code]}
+                                              onChange={e => setAffPayInput(p => ({ ...p, [aff.code]: e.target.value }))}
+                                              className="w-[68px] rounded-md border border-white/30 bg-white/10 px-2 py-1.5 text-xs text-white outline-none focus:border-white/70 focus:ring-2 focus:ring-white/20 [appearance:textfield]"
+                                              placeholder="0.00" autoFocus
+                                            />
+                                          </div>
+                                          <button
+                                            onClick={async () => {
+                                              const amount = Number(affPayInput[aff.code]) || 0;
+                                              if (!Number.isFinite(amount) || amount <= 0) {
+                                                setAffPayErrors(p => ({ ...p, [aff.code]: "Enter an amount greater than $0." }));
+                                                return;
+                                              }
+                                              setAffPaySaving(p => ({ ...p, [aff.code]: true }));
+                                              try {
+                                                const { data, error: sessionError } = await supabase.auth.getSession();
+                                                if (sessionError) throw new Error("Could not verify your admin session. Sign in again.");
+                                                const accessToken = data?.session?.access_token;
+                                                if (!accessToken) throw new Error("Sign in with the admin account to record payouts.");
+                                                const response = await fetch("/api/affiliate-payouts", {
+                                                  method: "POST",
+                                                  headers: {
+                                                    Authorization: `Bearer ${accessToken}`,
+                                                    "Content-Type": "application/json",
+                                                  },
+                                                  body: JSON.stringify({
+                                                    affiliate_code: String(aff.code).trim().toUpperCase(),
+                                                    amount,
+                                                  }),
+                                                });
+                                                const result = await response.json().catch(() => ({}));
+                                                if (!response.ok) {
+                                                  throw new Error(result?.error || "The payout could not be saved.");
+                                                }
+                                                if (result?.ok !== true) {
+                                                  throw new Error("The payout service returned an invalid response.");
+                                                }
+                                                const next = { ...affPaidMap, [aff.code]: (Number(affPaidMap[aff.code]) || 0) + amount };
+                                                setAffPaidMap(next);
+                                                try { localStorage.setItem("tbv-aff-paid", JSON.stringify(next)); } catch {}
+                                                setAffPayErrors(p => { const n = { ...p }; delete n[aff.code]; return n; });
+                                                setAffPayInput(p => { const n = { ...p }; delete n[aff.code]; return n; });
+                                              } catch (e) {
+                                                const errorMessage = typeof e?.message === "string"
+                                                  ? e.message
+                                                  : "The payout could not be saved. No paid total was changed.";
+                                                console.error("Payout save failed", errorMessage);
+                                                setAffPayErrors(p => ({ ...p, [aff.code]: errorMessage }));
+                                              } finally {
+                                                setAffPaySaving(p => { const n = { ...p }; delete n[aff.code]; return n; });
+                                              }
+                                            }}
+                                            disabled={!!affPaySaving[aff.code]}
+                                            className="min-h-8 rounded-md border border-white/30 bg-white px-2.5 py-1.5 text-[8px] font-bold uppercase tracking-[0.08em] text-[#454545] transition hover:bg-white/90 disabled:opacity-50"
+                                          >{affPaySaving[aff.code] ? "Saving…" : "Save"}</button>
+                                          <button
+                                            onClick={() => {
                                               setAffPayErrors(p => { const n = { ...p }; delete n[aff.code]; return n; });
                                               setAffPayInput(p => { const n = { ...p }; delete n[aff.code]; return n; });
-                                            } catch (e) {
-                                              console.error("Payout save failed", e);
-                                              setAffPayErrors(p => ({ ...p, [aff.code]: "Could not save. Paid total was not changed." }));
-                                            } finally {
-                                              setAffPaySaving(p => { const n = { ...p }; delete n[aff.code]; return n; });
-                                            }
-                                          }}
-                                          disabled={!!affPaySaving[aff.code]}
-                                          className="rounded-lg bg-sky-500 px-2 py-1 text-[10px] font-bold text-white hover:bg-sky-400 transition disabled:opacity-50"
-                                        >{affPaySaving[aff.code] ? "…" : "✓"}</button>
+                                            }}
+                                            className="min-h-8 rounded-md border border-white/25 bg-white/[0.03] px-2.5 py-1.5 text-[8px] font-semibold uppercase tracking-[0.08em] text-white transition hover:bg-white/10"
+                                          >Cancel</button>
+                                        </div>
+                                      ) : (
                                         <button
+                                          type="button"
                                           onClick={() => {
                                             setAffPayErrors(p => { const n = { ...p }; delete n[aff.code]; return n; });
-                                            setAffPayInput(p => { const n = { ...p }; delete n[aff.code]; return n; });
+                                            setAffPayInput(p => ({ ...p, [aff.code]: "" }));
                                           }}
-                                          className="rounded-lg border border-white/15 bg-white/5 px-2 py-1 text-[10px] text-white/40 hover:text-white transition"
-                                        >✕</button>
-                                      </div>
-                                    ) : (
-                                      <button
-                                       onClick={() => {
-                                         setAffPayErrors(p => { const n = { ...p }; delete n[aff.code]; return n; });
-                                         setAffPayInput(p => ({ ...p, [aff.code]: "" }));
-                                       }}
-                                        className="rounded-lg border border-sky-400/30 bg-sky-400/8 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-sky-300 hover:bg-sky-400/15 transition"
-                                      >+ Pay</button>
-                                    )}
+                                          className="inline-flex min-h-8 items-center justify-center rounded-md border border-white/35 bg-white px-2.5 py-1.5 text-[8px] font-bold uppercase tracking-[0.08em] text-[#454545] transition hover:bg-white/90"
+                                        >Record payout</button>
+                                      )}
+                                    </div>
                                     {affPayErrors[aff.code] && (
-                                      <div className="mt-1 max-w-40 text-left text-[10px] text-red-300">{affPayErrors[aff.code]}</div>
+                                      <div className="mt-1 max-w-full text-left text-[10px] font-medium text-red-100">{affPayErrors[aff.code]}</div>
                                     )}
                                   </td>
                                 </tr>
                               );
                             })}
                           </tbody>
-                          <tfoot>
-                            <tr className="border-t border-white/15 bg-black/20">
-                              <td colSpan={4} className="px-4 py-3 text-[10px] uppercase tracking-[0.18em] text-white/80">Total</td>
-                              <td className="px-4 py-3 text-right font-bold text-white">{adminAffiliates.reduce((s, a) => s + a.orders, 0)}</td>
-                              <td className="px-4 py-3 text-right font-bold text-emerald-300">${adminAffiliates.reduce((s, a) => s + Math.max(0, a.available - (Number(affPaidMap[a.code]) || 0)), 0).toFixed(2)}</td>
-                              <td className="px-4 py-3 text-right font-bold text-amber-300">${adminAffiliates.reduce((s, a) => s + a.pending, 0).toFixed(2)}</td>
-                              <td className="px-4 py-3 text-right font-bold text-sky-300">${adminAffiliates.reduce((s, a) => s + (Number(affPaidMap[a.code]) || 0), 0).toFixed(2)}</td>
-                              <td></td>
-                              <td></td>
-                            </tr>
-                          </tfoot>
                         </table>
                       </div>
                     </>
                   )}
                 </div>
               )}
+
               {adminActiveTab === "funnel" && isAdminUser() && <FunnelTab supabase={supabase} />}
 
               {adminActiveTab === "analytics" && isAdminUser() && (() => {
