@@ -9339,7 +9339,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     if (payoutsResult?.error) {
       const errorMessage = payoutsResult.error?.message;
       console.error("Failed to load affiliate payout history", errorMessage || payoutsResult.error);
-      setAffPayoutLoadError(errorMessage || "Payout history could not be loaded. Check before relying on the paid totals.");
+      const isNetworkError = typeof errorMessage === "string"
+        && /^(failed to fetch|networkerror|network request failed)$/i.test(errorMessage.trim());
+      setAffPayoutLoadError(
+        isNetworkError
+          ? "Could not reach payout history. Paid totals may be outdated; click Refresh to retry."
+          : errorMessage || "Payout history could not be loaded. Check before relying on the paid totals."
+      );
     }
 
     // Normalize orders — handle both reconstructed (from state) and raw Supabase rows
