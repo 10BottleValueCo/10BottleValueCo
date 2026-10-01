@@ -1676,6 +1676,18 @@ const PRODUCTS_BASE = [
       coaPdf: "coa-reta-5mg.pdf",
     },
     {
+      name: "Retatrutide / GLP-3",
+      price: 579,
+      usPriceBase: 544,
+      dose: "60 mg",
+      total: "600 mg total",
+      note: "10 vial kit (10 vials included)",
+      marketPrice: 215,
+      warehouse: "us",
+      coaImages: ["coa-reta-5mg-p1.png"],
+      coaPdf: "coa-reta-5mg.pdf",
+    },
+    {
       name: "Eloralintide",
       price: 329,
       dose: "5 mg",
@@ -13089,7 +13101,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
             <main className="relative mx-auto flex w-full max-w-[1700px] items-start pt-8 px-4 pb-10 md:min-h-[calc(100vh-73px)] md:pt-20 md:pr-10 md:pl-0 md:pb-16">
 
 
-              <div className="relative z-10 w-full max-w-none md:-ml-9">
+              <div className="relative z-10 w-full max-w-none md:pl-4">
                 <h1
                   className="leading-[1.05]"
                   style={{"--hero-fs": `min(5.5vw, ${(88 / (Math.max(t("hero1").length, t("hero2").length) * 0.58)).toFixed(2)}vw)`}}
