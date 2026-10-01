@@ -45,6 +45,7 @@ const PRODUCTS = [
   { "name": "Retatrutide / GLP-3", "dose": "50 mg", "price": 509 },
   { "name": "Retatrutide / GLP-3", "dose": "50 mg", "price": 509, "usPriceBase": 514, "warehouse": "us" },
   { "name": "Retatrutide / GLP-3", "dose": "60 mg", "price": 579 },
+  { "name": "Retatrutide / GLP-3", "dose": "60 mg", "price": 579, "usPriceBase": 544, "warehouse": "us" },
   { "name": "Mazdutide", "dose": "10 mg", "price": 389 },
   { "name": "Tirzepatide / GLP-2", "dose": "30 mg", "price": 189 },
   { "name": "Tirzepatide / GLP-2", "dose": "30 mg", "price": 189, "usPriceBase": 224, "warehouse": "us" },
