@@ -86,6 +86,12 @@ export default defineConfig({
   },
   root: path.resolve(import.meta.dirname),
   build: {
+    rollupOptions: {
+      input: {
+        storefront: path.resolve(import.meta.dirname, 'index.html'),
+        meritReview: path.resolve(import.meta.dirname, 'merit-review.html'),
+      },
+    },
     outDir: path.resolve(import.meta.dirname, 'dist/public'),
     emptyOutDir: true,
   },

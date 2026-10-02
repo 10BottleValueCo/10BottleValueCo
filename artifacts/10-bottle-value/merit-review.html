@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Merit verification review — 10 Bottle Value Co</title>
+    <meta name="description" content="Review Merit buyer verification without creating an order or charging a card." />
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 32px 20px; background: #f3f4f6; color: #171717; font: 16px/1.55 system-ui, sans-serif; }
+      main { max-width: 720px; margin: auto; }
+      section { padding: 24px; margin: 20px 0; border: 1px solid #d4d4d4; border-radius: 16px; background: white; }
+      h1 { font-size: 30px; line-height: 1.2; }
+      h2 { font-size: 20px; }
+      label { display: block; font-weight: 600; margin-bottom: 8px; }
+      input { width: 100%; padding: 12px; border: 1px solid #737373; border-radius: 8px; font: inherit; }
+      button { margin-top: 18px; padding: 12px 20px; background: #171717; color: white; border: 0; border-radius: 8px; font: 600 16px system-ui; cursor: pointer; }
+      button:disabled { opacity: .5; cursor: not-allowed; }
+      button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
+      .notice { padding: 16px; border: 1px solid #fed7aa; border-radius: 10px; background: #fff7ed; }
+      .muted { color: #525252; font-size: 14px; }
+      #result { overflow-wrap: anywhere; }
+      #result[data-state="error"] { color: #b91c1c; }
+      #result[data-state="success"] { color: #166534; }
+      @media (max-width: 480px) { body { padding: 20px 12px; } section { padding: 18px; } button { width: 100%; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="muted">10 BOTTLE VALUE CO / MERIT REVIEW</p>
+      <h1>Buyer verification review</h1>
+      <p class="notice"><strong>No payment or order is created.</strong> This page runs Merit's official gate and email/SMS verification only. It does not collect card details, create payment intents, or confirm charges.</p>
+      <section>
+        <h2>Merit configuration</h2>
+        <p id="configuration" role="status">Loading Merit's official scripts and configuration…</p>
+      </section>
+      <section>
+        <h2>Verify an email you control</h2>
+        <form id="review-form">
+          <label for="email">Email address</label>
+          <input id="email" type="email" required autocomplete="email" maxlength="254" />
+          <p class="muted">Merit will send a verification code to this address. Complete the verification in Merit's window.</p>
+          <button id="verify" type="submit" disabled>Start Merit verification</button>
+        </form>
+        <p id="result" role="status" aria-live="polite"></p>
+      </section>
+      <p class="muted">Verification on this page does not confirm payment approval, server-side payment processing, or a compliance score. Existing store payment methods are unchanged.</p>
+      <a href="./">Return to store</a>
+    </main>
+    <script type="module" src="./src/merit/review-page.js"></script>
+  </body>
+</html>
