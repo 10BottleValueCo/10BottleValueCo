@@ -2234,6 +2234,7 @@ const PRODUCTS_BASE = [
       warehouse: "us",
       coaImages: ["coa-ipamorelin-5mg-p1.png"],
       coaPdf: "coa-ipamorelin-5mg.pdf",
+      outOfStock: true,
     },
     {
       name: "AOD",
@@ -2252,6 +2253,7 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 40,
       warehouse: "us",
+      outOfStock: true,
     },
     {
       name: "IGF-DES",
