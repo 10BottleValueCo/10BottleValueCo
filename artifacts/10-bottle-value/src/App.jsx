@@ -1542,6 +1542,7 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 40,
       warehouse: "us",
+      outOfStock: true,
       coaImages: ["coa-reta-5mg-p1.png"],
       coaPdf: "coa-reta-5mg.pdf",
     },
@@ -1789,6 +1790,7 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
       warehouse: "us",
+      outOfStock: true,
     },
     {
       name: "Semax",
