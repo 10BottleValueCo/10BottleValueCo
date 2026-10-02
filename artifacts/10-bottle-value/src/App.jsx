@@ -11,6 +11,7 @@ import { catalogProductName, matchesProductSearch, productSlug as productSlugFor
 import { buildSupportTimeline } from "./support-timeline.js";
 import BpcCatalogCard from "./components/BpcCatalogCard.jsx";
 import ProductPackSelector from "./components/ProductPackSelector.jsx";
+import ShippingPricesPage from "./components/ShippingPricesPage.jsx";
 import UsFlag from "./components/UsFlag.jsx";
 import vialCManifest from "./data/vialCManifest.json";
 import cashAppLogo from "./assets/payment-logos/cash-app.svg";
@@ -1640,6 +1641,7 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 155,
       warehouse: "us",
+      outOfStock: true,
       coaImages: ["coa-reta-5mg-p1.png"],
       coaPdf: "coa-reta-5mg.pdf",
     },
@@ -1662,6 +1664,7 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 190,
       warehouse: "us",
+      outOfStock: true,
       coaImages: ["coa-reta-5mg-p1.png"],
       coaPdf: "coa-reta-5mg.pdf",
     },
@@ -1684,6 +1687,7 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 215,
       warehouse: "us",
+      outOfStock: true,
       coaImages: ["coa-reta-5mg-p1.png"],
       coaPdf: "coa-reta-5mg.pdf",
     },
@@ -7185,8 +7189,10 @@ export default function App() {
 
     "AFFILIATE PROGRAM": "PROGRAMA DE AFILIADOS",
     "HIGH-PAYOUT AFFILIATE PROGRAM": "PROGRAMA DE AFILIADOS",
-    "EARN FROM EVERY ORDER.": "GANA CON CADA PEDIDO.",
-    "NO LIMITS ON YOUR EARNINGS.": "SIN LÍMITES EN TUS GANANCIAS.",
+    "EARN 10% COMMISSION ON ORDERS FROM CUSTOMERS YOU REFER.":
+      "GANA UN 10% DE COMISIÓN EN LOS PEDIDOS DE LOS CLIENTES QUE REFIERAS.",
+    "YOUR REFERRED CUSTOMERS GET 5% OFF THEIR FIRST PURCHASE.":
+      "LOS CLIENTES QUE REFIERAS RECIBEN UN 5% DE DESCUENTO EN SU PRIMERA COMPRA.",
     "LIFETIME EARNINGS": "GANANCIAS DE POR VIDA",
     "ONCE A CUSTOMER IS REFERRED, THEIR ORDERS REMAIN ATTRIBUTED TO YOUR CODE.":
       "UNA VEZ REFERIDO UN CLIENTE, SUS PEDIDOS PERMANECEN ATRIBUIDOS A TU CÓDIGO.",
@@ -7406,8 +7412,10 @@ export default function App() {
     "Affiliate Program": "Affiliate-Programm",
     Commission: "Provision",
     "HIGH-PAYOUT AFFILIATE PROGRAM": "AFFILIATE-PROGRAMM",
-    "EARN FROM EVERY ORDER.": "VERDIENEN SIE AN JEDER BESTELLUNG.",
-    "NO LIMITS ON YOUR EARNINGS.": "KEINE BEGRENZUNG IHRER EINNAHMEN.",
+    "EARN 10% COMMISSION ON ORDERS FROM CUSTOMERS YOU REFER.":
+      "SIE ERHALTEN 10% PROVISION AUF BESTELLUNGEN VON KUNDEN, DIE SIE VERMITTELT HABEN.",
+    "YOUR REFERRED CUSTOMERS GET 5% OFF THEIR FIRST PURCHASE.":
+      "IHRE VERMITTELTEN KUNDEN ERHALTEN 5% RABATT AUF IHREN ERSTEN EINKAUF.",
     "Lifetime earnings": "Lebenslange Einnahmen",
     "ONCE A CUSTOMER IS REFERRED, THEIR ORDERS REMAIN ATTRIBUTED TO YOUR CODE.":
       "SOBALD EIN KUNDE GEWORBEN WURDE, BLEIBEN SEINE BESTELLUNGEN IHREM CODE ZUGEORDNET.",
@@ -7430,8 +7438,8 @@ export default function App() {
       "PROVISION GILT FÜR QUALIFIZIERENDE BESTELLUNGEN.",
     "CREATORS ON YOUTUBE, TIKTOK, INSTAGRAM, TWITTER, REDDIT AND MORE.":
       "CREATOR AUF YOUTUBE, TIKTOK, INSTAGRAM UND WEITEREN PLATTFORMEN.",
-    "ANYONE WITH AN AUDIENCE - BIG OR SMALL - CAN APPLY. APPLY VIA EMAIL WITH YOUR SOCIAL LINKS - WE’LL REVIEW AND GET BACK TO YOU.":
-      "JEDER MIT EINER ZIELGRUPPE — GROSS ODER KLEIN — KANN SICH BEWERBEN. BEWERBEN SIE SICH PER E-MAIL MIT IHREN SOCIAL-LINKS — WIR PRÜFEN DIE ANFRAGE UND MELDEN UNS.",
+    "ANYONE WITH AN AUDIENCE - BIG OR SMALL - CAN APPLY. EMAIL US A SHORT INTRO ABOUT WHAT YOU DO, AND WE'LL REVIEW YOUR APPLICATION.":
+      "JEDER MIT EINER ZIELGRUPPE — GROSS ODER KLEIN — KANN SICH BEWERBEN. SCHREIBEN SIE UNS PER E-MAIL, ERZÄHLEN SIE KURZ, WAS SIE MACHEN, UND WIR PRÜFEN IHRE BEWERBUNG.",
     "The problem": "Das Problem",
     "The idea": "Die Idee",
     "MOST BRANDS SELL PEPTIDES AT HEAVILY INFLATED PRICES. CONFUSING WEBSITES, UNNECESSARY BRANDING, AND POOR ACCESSIBILITY MAKE THE EXPERIENCE WORSE.":
@@ -9789,7 +9797,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     { key: "us-warehouse", label: <span className="flex flex-col items-center leading-[1.15]"><span>SHOP</span><span className="font-normal">(US WAREHOUSE)</span></span> },
     { key: "bonuses", label: <span className="flex flex-col items-center leading-[1.15]"><span>SHIPPING</span><span>PRICES</span></span> },
     { key: "affiliate", label: t("affiliate") },
-    { key: "about", label: t("about") },
     { key: "faq", label: t("faq") },
     { key: "contact", label: t("contact") },
     { key: "track", label: <span className="flex flex-col items-center leading-[1.15]"><span>TRACK</span><span>ORDER</span></span> },
@@ -14349,330 +14356,17 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           </main>
         )}
 
-        {page === "bonuses" && (
-          <main className="mx-auto w-full px-4 pt-8 pb-10 md:px-6 md:pt-12 md:pb-12">
-            <h1 className="text-3xl md:text-5xl font-semibold tracking-[0.06em] text-white mb-6 md:mb-8 text-center">
-              {tx(
-                "SHIPPING & DISCOUNTS",
-                "ДОСТАВКА И СКИДКИ",
-                "ДОСТАВКА ТА ЗНИЖКИ"
-              )}
-            </h1>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-10">
-              {/* US Warehouse card — first */}
-              <div className="relative rounded-[2rem] border border-white/20 bg-black/20 pt-5 pb-5 px-5 shadow-[0_10px_30px_rgba(0,0,0,0.06)] flex flex-col justify-between gap-6 md:pt-6 md:px-6 md:pb-6">
-                {/* Icon + title */}
-                <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full cursor-pointer" style={{background:"rgba(127,29,29,0.55)",boxShadow:"0 0 0 1.5px rgba(248,113,113,0.35)"}} onClick={e=>{const el=e.currentTarget;el.classList.remove('tbv-anim-truck');void el.offsetHeight;el.classList.add('tbv-anim-truck');setTimeout(()=>el.classList.remove('tbv-anim-truck'),800);}}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(252,165,165,0.75)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
-                  </div>
-                  <div>
-                    <div className="text-white font-bold tracking-[-0.01em] text-base md:text-lg leading-tight">
-                      {tx("US Warehouse", "Склад в США", "Склад у США", "US-Lager", "Almacén en EE. UU.")}
-                    </div>
-                    <div className="text-[11px] uppercase tracking-[0.18em] text-white mt-0.5">
-                      {tx("SHOP (US WAREHOUSE) tab", "Вкладка SHOP (US WAREHOUSE)", "Вкладка SHOP (US WAREHOUSE)", "Tab SHOP (US WAREHOUSE)", "Pestaña SHOP (US WAREHOUSE)")}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Stats */}
-                <div className="flex items-center flex-wrap gap-6 md:gap-8 justify-center">
-                  <div>
-                    <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-white mb-1">{tx("Delivery", "Доставка", "Доставка", "Lieferung", "Entrega")}</div>
-                    <div className="text-[18px] font-bold text-white leading-tight">2–5 {tx("business days", "рабочих дней", "робочих днів", "Werktage", "días hábiles")}</div>
-                  </div>
-                  <div className="hidden md:block w-px self-stretch bg-white/15 shrink-0" />
-                  <div>
-                    <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-white mb-1">{tx("Ships from", "Отправка из", "Відправлення з", "Versand aus", "Envío desde")}</div>
-                    <div className="text-[18px] font-bold text-white leading-tight">USA</div>
-                  </div>
-                  <div className="hidden md:block w-px self-stretch bg-white/15 shrink-0" />
-                  <div>
-                    <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-white mb-1">{tx("Shipping cost", "Стоимость доставки", "Вартість доставки", "Versandkosten", "Coste de envío")}</div>
-                    <div className="text-[22px] font-black text-white leading-tight">FREE</div>
-                  </div>
-                </div>
-
-                {/* Note */}
-                <div className="rounded-xl border border-white/20 bg-black/10 px-4 py-3 text-[13px] md:text-[14px] leading-[1.6] text-white font-medium text-center uppercase tracking-wide">
-                  {tx(
-                    <>Delivery from the US warehouse via the <strong className="text-white">"SHOP (US WAREHOUSE)"</strong> tab is free and takes 2–5 business days.</>,
-                    <>Доставка со склада в США через вкладку <strong className="text-white">«SHOP (US WAREHOUSE)»</strong> бесплатна и занимает 2–5 рабочих дней.</>,
-                    <>Доставка зі складу в США через вкладку <strong className="text-white">«SHOP (US WAREHOUSE)»</strong> безкоштовна та займає 2–5 робочих днів.</>,
-                    <>Lieferung aus dem US-Lager über den Tab <strong className="text-white">„SHOP (US WAREHOUSE)"</strong> ist kostenlos und dauert 2–5 Werktage.</>,
-                    <>La entrega desde el almacén en EE. UU. a través de la pestaña <strong className="text-white">"SHOP (US WAREHOUSE)"</strong> es gratuita y tarda 2–5 días hábiles.</>
-                  )}
-                </div>
-              </div>
-
-              {/* Standard Shipping card */}
-              <div className="flex flex-col rounded-[2rem] border border-white/20 bg-black/20 pt-5 pb-4 px-5 shadow-[0_10px_30px_rgba(0,0,0,0.06)] md:pt-6 md:px-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full cursor-pointer" style={{background:"rgba(12,74,110,0.55)",boxShadow:"0 0 0 1.5px rgba(34,211,238,0.35)"}} onClick={e=>{const el=e.currentTarget;el.classList.remove('tbv-anim-globe');void el.offsetHeight;el.classList.add('tbv-anim-globe');setTimeout(()=>el.classList.remove('tbv-anim-globe'),800);}}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(103,232,249,0.75)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-                  </div>
-                  <div className="text-[18px] md:text-[20px] font-bold text-white tracking-wide uppercase">
-                    {tx("Standard Shipping", "Стандартная доставка", "Стандартна доставка")} <span className="text-white/40 font-normal normal-case">(worldwide)</span>
-                  </div>
-                </div>
-                <div className="flex flex-wrap justify-between gap-y-1 text-[11px] uppercase tracking-[0.18em] text-white/60 mb-4 md:text-[11px] md:tracking-[0.22em]">
-                  <span>{tx("ORDER VALUE", "СУММА ЗАКАЗА", "СУМА ЗАМОВЛЕННЯ")}</span>
-                  <span>{tx("PRICE", "ЦЕНА", "ЦІНА")}</span>
-                </div>
-
-                <div className="space-y-5 text-[15px] text-white">
-                  <div className="flex justify-between">
-                    <span>$0 – $99</span>
-                    <span>$59.99</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>$100 – $299</span>
-                    <span>$39.99</span>
-                  </div>
-                  <div className="flex justify-between font-semibold text-white">
-                    <span>$300+</span>
-                    <span className="text-[18px]">FREE</span>
-                  </div>
-                </div>
-
-                <div className="mt-auto pt-4 text-center">
-                  <div className="inline-block mx-auto rounded-xl border border-white/20 bg-black/10 px-5 py-3 text-[16px] leading-[1.6] text-white font-medium max-w-[620px] normal-case text-center">
-                    {tx(
-                      <>STANDARD WORLDWIDE SHIPPING TAKES APPROXIMATELY<br />8–12 BUSINESS DAYS DEPENDING ON LOCATION.</>,
-                      <>СТАНДАРТНАЯ ДОСТАВКА ПО ВСЕМУ МИРУ ЗАНИМАЕТ ПРИМЕРНО<br />8–12 РАБОЧИХ ДНЕЙ В ЗАВИСИМОСТИ ОТ МЕСТОПОЛОЖЕНИЯ.</>,
-                      <>СТАНДАРТНА ДОСТАВКА ПО ВСЬОМУ СВІТУ ЗАЙМАЄ ПРИБЛИЗНО<br />8–12 РОБОЧИХ ДНІВ ЗАЛЕЖНО ВІД МІСЦЯ.</>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Express Shipping card */}
-              <div className="flex flex-col rounded-[2rem] border border-white/20 bg-black/20 pt-5 pb-4 px-5 shadow-[0_10px_30px_rgba(0,0,0,0.06)] md:pt-6 md:px-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full cursor-pointer" style={{background:"rgba(120,53,15,0.55)",boxShadow:"0 0 0 1.5px rgba(251,191,36,0.35)"}} onClick={e=>{const el=e.currentTarget;el.classList.remove('tbv-anim-zap');void el.offsetHeight;el.classList.add('tbv-anim-zap');setTimeout(()=>el.classList.remove('tbv-anim-zap'),650);}}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(253,230,138,0.75)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                  </div>
-                  <div className="text-[18px] md:text-[20px] font-bold text-white tracking-wide uppercase">
-                    {tx("Express Shipping", "Экспресс доставка", "Експрес доставка")} <span className="text-white/40 font-normal normal-case">(worldwide)</span>
-                  </div>
-                </div>
-                <div className="flex flex-wrap justify-between gap-y-1 text-[11px] uppercase tracking-[0.18em] text-white/60 mb-4 md:text-[11px] md:tracking-[0.22em]">
-                  <span>{tx("ORDER VALUE", "СУММА ЗАКАЗА", "СУМА ЗАМОВЛЕННЯ")}</span>
-                  <span>{tx("PRICE", "ЦЕНА", "ЦІНА")}</span>
-                </div>
-
-                <div className="space-y-5 text-[15px] text-white">
-                  <div className="flex justify-between">
-                    <span>$0 – $299</span>
-                    <span>$99.99</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>$300 – $549</span>
-                    <span>$19.99</span>
-                  </div>
-                  <div className="flex justify-between font-semibold text-white">
-                    <span>$550+</span>
-                    <span className="text-[18px]">FREE</span>
-                  </div>
-                </div>
-
-                <div className="mt-auto pt-4 text-center">
-                  <div className="inline-block mx-auto rounded-xl border border-white/20 bg-black/10 px-5 py-3 text-[16px] leading-[1.6] text-white font-medium max-w-[620px] normal-case text-center">
-                    {tx(
-                      <>EXPRESS WORLDWIDE SHIPPING TAKES APPROXIMATELY<br />5–7 BUSINESS DAYS DEPENDING ON LOCATION.</>,
-                      <>ЭКСПРЕСС ДОСТАВКА ПО ВСЕМУ МИРУ ЗАНИМАЕТ ПРИМЕРНО<br />5–7 РАБОЧИХ ДНЕЙ В ЗАВИСИМОСТИ ОТ МЕСТОПОЛОЖЕНИЯ.</>,
-                      <>ЕКСПРЕС ДОСТАВКА ПО ВСЬОМУ СВІТУ ЗАЙМАЄ ПРИБЛИЗНО<br />5–7 РОБОЧИХ ДНІВ ЗАЛЕЖНО ВІД МІСЦЯ.</>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="max-w-7xl mx-auto w-full">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="rounded-[2rem] border border-white/20 bg-black/20 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.06)] md:p-8 flex flex-col">
-                <div className="text-[12px] uppercase tracking-[0.28em] text-white mb-6 text-center">
-                  {tx("COMMUNITY BONUS", "БОНУС СООБЩЕСТВА", "БОНУС СПІЛЬНОТИ")}
-                </div>
-
-                {/* Reward badge */}
-                <div className="flex justify-center mb-6">
-                  <div className="flex items-center gap-3 rounded-2xl border border-white/15 bg-black/10 px-6 py-3">
-                    <img src="https://api.iconify.design/simple-icons:trustpilot.svg?color=%2300b67a" alt="Trustpilot" className="w-7 h-7 shrink-0" draggable={false} />
-                    <div className="text-left">
-                      <div className="text-[10px] uppercase tracking-[0.18em] text-white">{tx("Leave a review on","Оставьте отзыв на","Залиште відгук на","Bewertung auf","Reseña en")}</div>
-                      <div className="text-[16px] font-bold text-white leading-tight uppercase">Trustpilot</div>
-                    </div>
-                    <div className="ml-2 h-8 w-px bg-white/15" />
-                    <div className="text-left">
-                      <div className="text-[10px] uppercase tracking-[0.18em] text-white">{tx("and get","и получите","і отримайте","und erhalte","y obtén")}</div>
-                      <div className="text-[22px] font-black text-white leading-tight uppercase">10% <span className="text-[14px] font-bold">{tx("off","скидку","знижку","Rabatt","dto.")}</span></div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Steps */}
-                <div className="space-y-2 mb-6">
-                  {[
-                    [tx("Receive your order","Получите заказ","Отримайте замовлення","Bestellung erhalten","Recibe tu pedido"), "1"],
-                    [tx("Leave an honest review on Trustpilot","Оставьте честный отзыв на Trustpilot","Залиште чесний відгук на Trustpilot","Hinterlasse eine ehrliche Bewertung auf Trustpilot","Deja una reseña honesta en Trustpilot"), "2"],
-                    [tx("Email us — get your 10% promo code within 24h","Напишите нам — получите промокод 10% в течение 24ч","Напишіть нам — отримайте промокод 10% протягом 24г","Schreib uns — erhalte deinen 10%-Promo-Code innerhalb 24h","Escríbenos — recibe tu código promo 10% en 24h"), "3"],
-                  ].map(([label, n]) => (
-                    <div key={n} className="flex items-center justify-center gap-3 rounded-xl border border-white/10 bg-black/10 px-4 py-3">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-[10px] font-bold text-white">{n}</span>
-                      <span className="text-[13px] text-white leading-snug text-center uppercase">{label}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Gift box teaser */}
-                <div className="relative flex justify-center items-end mb-3" style={{ height: 48 }}>
-                  <div className="tbv-giftbox-wrap relative" style={{ width: 64, height: 56 }}>
-                    <svg
-                      className="tbv-giftbox-glow absolute"
-                      style={{ left: 8, top: 22, width: 48, height: 14, filter: "blur(6px)" }}
-                      viewBox="0 0 48 14"
-                    >
-                      <rect x="0" y="0" width="48" height="14" rx="3" fill="#22c55e" />
-                    </svg>
-                    <svg viewBox="0 0 64 56" className="absolute inset-0 w-full h-full" style={{ overflow: "visible" }}>
-                      <rect x="8" y="26" width="48" height="26" rx="4" fill="rgba(255,255,255,0.10)" stroke="rgba(255,255,255,0.25)" strokeWidth="1.5" />
-                      <rect x="28" y="26" width="8" height="26" fill="#22c55e" opacity="0.85" />
-                      <g className="tbv-giftbox-lid">
-                        <rect x="5" y="18" width="54" height="10" rx="3" fill="rgba(255,255,255,0.16)" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5" />
-                        <rect x="28" y="18" width="8" height="10" fill="#22c55e" opacity="0.9" />
-                        <path d="M32 18 C 24 8, 16 10, 20 16 C 23 19, 29 19, 32 18 Z" fill="#22c55e" opacity="0.9" />
-                        <path d="M32 18 C 40 8, 48 10, 44 16 C 41 19, 35 19, 32 18 Z" fill="#22c55e" opacity="0.9" />
-                      </g>
-                    </svg>
-                  </div>
-                </div>
-
-                {/* CTA */}
-                <a
-                  href="https://www.trustpilot.com/review/10bottlevalue.co"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-auto flex items-center justify-center gap-2 rounded-2xl border border-white/15 bg-black/10 px-5 py-3 text-[14px] font-semibold text-white uppercase transition-all hover:bg-black/20 hover:border-white/25"
-                >
-                  <img src="https://api.iconify.design/simple-icons:trustpilot.svg?color=%2300b67a" alt="" className="w-5 h-5" draggable={false} />
-                  {tx("Write a Review on Trustpilot →","Написать отзыв на Trustpilot →","Написати відгук на Trustpilot →","Bewertung auf Trustpilot →","Escribir reseña en Trustpilot →")}
-                </a>
-              </div>
-
-              <div className="rounded-[2rem] border border-white/20 bg-black/20 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.06)] md:p-8">
-                <div className="text-[12px] uppercase tracking-[0.28em] text-white mb-6 text-center">
-                  {tx("ORDER BONUS", "БОНУС ЗА ЗАКАЗ", "БОНУС ЗА ЗАМОВЛЕННЯ")}
-                </div>
-
-                <div className="space-y-4 text-white text-[15px] leading-[1.8] normal-case max-w-[680px] mx-auto">
-                  <div className="rounded-xl border border-white/10 bg-black/10 px-5 py-5 text-center">
-                    <div className="text-[11px] uppercase tracking-[0.22em] text-white mb-4">
-                      {tx(
-                        "Checkout discounts",
-                        "Скидки на checkout",
-                        "Знижки на checkout"
-                      )}
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 mb-3">
-                      {[["$1000+","10%"],["$2000+","15%"],["$4000+","20%"]].map(([amount, pct]) => (
-                        <div key={amount} className="flex flex-col items-center rounded-lg border border-white/10 bg-white/5 px-2 py-2 gap-0">
-                          <span className="text-[9px] uppercase tracking-[0.12em] text-white leading-tight">{tx("order from","заказ от","замовлення від","ab","desde")}</span>
-                          <span className="text-[14px] font-bold text-white leading-snug">{amount}</span>
-                          <div className="my-0.5 w-3 h-px bg-white/15" />
-                          <span className="text-[9px] uppercase tracking-[0.12em] text-white leading-tight">{tx("discount","скидка","знижка","Rabatt","descuento")}</span>
-                          <span className="text-[18px] font-black text-white leading-snug">{pct}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <span className="block text-[11px] text-white leading-[1.5] max-w-[520px] mx-auto uppercase tracking-wide">
-                      {tx(
-                        "Discounts do not stack. If multiple discounts apply, the highest one will be used.",
-                        "Скидки не складываются. Если применяются несколько скидок, будет использована самая высокая.",
-                        "Знижки не складаються. Якщо застосовується кілька знижок, буде використана найвища.",
-                        "Rabatte stapeln sich nicht. Wenn mehrere Rabatte gelten, wird der höchste verwendet.",
-                        "Los descuentos no se acumulan. Si se aplican varios descuentos, se usará el más alto."
-                      )}
-                    </span>
-                  </div>
-
-                  <div className="rounded-xl border border-white/10 bg-black/10 px-4 py-3 text-center">
-                    <div className="text-[11px] uppercase tracking-[0.22em] text-white">
-                      {tx(
-                        "Free bonus",
-                        "Бесплатный бонус",
-                        "Безкоштовний бонус",
-                        undefined,
-                        "Bono gratis"
-                      )}
-                    </div>
-                    <div className="mt-1 text-white/90">
-                      <span className="text-[18px] leading-8 font-normal text-white">
-                        {tx(
-                          "ORDERS ABOVE",
-                          "ЗАКАЗЫ ОТ",
-                          "ЗАМОВЛЕННЯ ВІД",
-                          undefined,
-                          "LOS PEDIDOS SUPERIORES A"
-                        )}{" "}
-                        <span className="font-normal text-white">$350</span>{" "}
-                        {tx(
-                          "RECEIVE A",
-                          "ПОЛУЧАЮТ",
-                          "ОТРИМУЮТЬ",
-                          undefined,
-                          "RECIBEN UN"
-                        )}
-                        <br />
-                        <span className="font-bold text-white">
-                          {tx(
-                            "FREE BAC WATER",
-                            "БЕСПЛАТНЫЙ BAC WATER",
-                            "БЕЗКОШТОВНИЙ BAC WATER",
-                            undefined,
-                            "BAC WATER GRATIS"
-                          )}
-                        </span>{" "}
-                        {tx("BONUS", "БОНУС", "БОНУС", undefined, "BONO")}
-                      </span>
-                      <br />
-                      <span className="text-white">
-                        {tx(
-                          "(10 VIALS × 3 ML EACH)",
-                          "(10 ФЛАКОНОВ × 3 ML КАЖДЫЙ)",
-                          "(10 ФЛАКОНІВ × 3 ML КОЖЕН)",
-                          undefined,
-                          "(10 VIALES × 3 ML CADA UNO)"
-                        )}
-                      </span>
-                      .
-                      <br />
-                      <span className="mt-1 block text-[11px] font-normal tracking-[0.06em] text-white/50">
-                        {tx(
-                          "Applies to Shop Worldwide tab only",
-                          "Только для вкладки Shop Worldwide",
-                          "Лише для вкладки Shop Worldwide",
-                          undefined,
-                          "Solo aplica en la pestaña Shop Worldwide"
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            </div>
-          </main>
-        )}
+        {page === "bonuses" && <ShippingPricesPage tx={tx} />}
 
         {page === "affiliate" && (
-          <main className="mx-auto max-w-[1200px] px-4 pt-6 pb-14 md:px-10 md:pt-8 md:pb-20">
+          <main className="mx-auto w-full max-w-[1700px] px-3 pt-4 pb-10 sm:px-5 md:px-7 md:pt-5 md:pb-16">
 
             {/* Hero */}
-            <div className="mb-7 text-center md:mb-10">
-              <h1 className="text-[28px] font-semibold uppercase leading-none tracking-[0.06em] text-white md:text-[50px]">
+            <div className="mb-5 text-center md:mb-7">
+              <p className="mb-2 text-[9px] font-semibold uppercase tracking-[0.34em] text-white/60 sm:text-[10px]">
+                {tx("A PARTNERSHIP BUILT ON TRUST", "ПАРТНЁРСТВО, ОСНОВАННОЕ НА ДОВЕРИИ", "ПАРТНЕРСТВО, ЗАСНОВАНЕ НА ДОВІРІ", undefined, "UNA COLABORACIÓN BASADA EN LA CONFIANZA")}
+              </p>
+              <h1 className="text-[27px] font-extrabold uppercase leading-[0.98] tracking-[0.055em] text-white drop-shadow-[0_2px_8px_rgba(0,0,0,.5)] sm:text-4xl md:text-5xl">
                 {tx(
                   "AFFILIATE PROGRAM",
                   "ПАРТНЁРСКАЯ ПРОГРАММА",
@@ -14684,69 +14378,78 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
             </div>
 
             {/* 3 stat cards */}
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-5 mb-5">
+            <div className="mb-3 grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-3">
 
-              <div className="rounded-[1.8rem] border border-white/10 bg-black/20 px-6 py-7 text-center md:px-8 md:py-9">
-                <div className="mb-5 mx-auto flex h-[52px] w-[52px] items-center justify-center rounded-full cursor-pointer" style={{background:"rgba(22,101,52,0.55)",boxShadow:"0 0 0 1.5px rgba(34,197,94,0.35)"}} onClick={e=>{const el=e.currentTarget;el.classList.remove('tbv-anim-pct');void el.offsetHeight;el.classList.add('tbv-anim-pct');setTimeout(()=>el.classList.remove('tbv-anim-pct'),750);}}>
+              <div className="relative overflow-hidden rounded-2xl border border-white/15 bg-cover bg-center px-5 py-6 text-left shadow-[0_12px_30px_rgba(0,0,0,.3)] sm:min-h-[245px] sm:px-6 sm:py-7 xl:min-h-[280px] 2xl:min-h-[300px] xl:px-7 xl:py-8" style={{backgroundImage:`linear-gradient(90deg,rgba(5,8,12,.95) 0%,rgba(5,8,12,.86) 42%,rgba(5,8,12,.38) 72%,rgba(5,8,12,.05) 100%),url("${import.meta.env.BASE_URL}affiliate/commission-photo.jpg")`,backgroundSize:"100% 100%, cover",backgroundPosition:"center, center"}}>
+                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl cursor-pointer" style={{background:"rgba(22,101,52,0.72)",boxShadow:"0 0 0 1px rgba(34,197,94,0.35)"}} onClick={e=>{const el=e.currentTarget;el.classList.remove('tbv-anim-pct');void el.offsetHeight;el.classList.add('tbv-anim-pct');setTimeout(()=>el.classList.remove('tbv-anim-pct'),750);}}>
                   <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="rgba(74,222,128,0.75)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>
                 </div>
-                <p className="text-[16px] font-semibold uppercase leading-snug text-white mb-4 md:text-[18px]">
+                <p className="mb-3 text-[15px] font-extrabold uppercase leading-snug text-white sm:text-[17px]">
                   {tx("AFFILIATE COMMISSION", "ПАРТНЁРСКАЯ КОМИССИЯ", "ПАРТНЕРСЬКА КОМІСІЯ", "AFFILIATE-PROVISION", "COMISIÓN DE AFILIADO")}
                 </p>
-                <div className="space-y-2 text-[13px] leading-[1.55] text-white md:text-[14px]">
-                  <p>{tx("EARN FROM EVERY ORDER.", "ЗАРАБАТЫВАЙТЕ С КАЖДОГО ЗАКАЗА.", "ЗАРОБЛЯЙТЕ З КОЖНОГО ЗАМОВЛЕННЯ.", undefined, "GANA CON CADA PEDIDO.")}</p>
-                  <p>{tx("NO LIMITS ON YOUR EARNINGS.", "БЕЗ ЛИМИТОВ НА ВАШ ЗАРАБОТОК.", "БЕЗ ЛІМІТІВ НА ВАШ ЗАРОБІТОК.", undefined, "SIN LÍMITES EN TUS GANANCIAS.")}</p>
+                <div className="max-w-[50%] space-y-2 text-[11px] leading-[1.55] text-white/90 sm:text-xs md:text-[13px]">
+                  <p>{tx("EARN 10% COMMISSION ON ORDERS FROM CUSTOMERS YOU REFER.", "ПОЛУЧАЙТЕ 10% С ЗАКАЗОВ ПРИВЕДЁННЫХ ВАМИ КЛИЕНТОВ.", "ОТРИМУЙТЕ 10% КОМІСІЇ ІЗ ЗАМОВЛЕНЬ ЗАЛУЧЕНИХ ВАМИ КЛІЄНТІВ.", "SIE ERHALTEN 10% PROVISION AUF BESTELLUNGEN VON KUNDEN, DIE SIE VERMITTELT HABEN.", "GANA UN 10% DE COMISIÓN EN LOS PEDIDOS DE LOS CLIENTES QUE REFIERAS.")}</p>
+                  <p>{tx("YOUR REFERRED CUSTOMERS GET 5% OFF THEIR FIRST PURCHASE.", "ПРИВЕДЁННЫЕ ВАМИ КЛИЕНТЫ ПОЛУЧАЮТ СКИДКУ 5% НА ПЕРВУЮ ПОКУПКУ.", "ЗАЛУЧЕНІ ВАМИ КЛІЄНТИ ОТРИМУЮТЬ ЗНИЖКУ 5% НА ПЕРШУ ПОКУПКУ.", "IHRE VERMITTELTEN KUNDEN ERHALTEN 5% RABATT AUF IHREN ERSTEN EINKAUF.", "LOS CLIENTES QUE REFIERAS RECIBEN UN 5% DE DESCUENTO EN SU PRIMERA COMPRA.")}</p>
                 </div>
               </div>
 
-              <div className="rounded-[1.8rem] border border-white/10 bg-black/20 px-6 py-7 text-center md:px-8 md:py-9">
-                <div className="mb-5 mx-auto flex h-[52px] w-[52px] items-center justify-center rounded-full cursor-pointer" style={{background:"rgba(88,28,135,0.55)",boxShadow:"0 0 0 1.5px rgba(168,85,247,0.35)"}} onClick={e=>{const el=e.currentTarget;el.classList.remove('tbv-anim-inf');void el.offsetHeight;el.classList.add('tbv-anim-inf');setTimeout(()=>el.classList.remove('tbv-anim-inf'),1300);}}>
+              <div className="relative overflow-hidden rounded-2xl border border-white/15 bg-cover bg-center px-5 py-6 text-left shadow-[0_12px_30px_rgba(0,0,0,.3)] sm:min-h-[245px] sm:px-6 sm:py-7 xl:min-h-[280px] 2xl:min-h-[300px] xl:px-7 xl:py-8" style={{backgroundImage:`linear-gradient(90deg,rgba(5,8,12,.96) 0%,rgba(5,8,12,.88) 42%,rgba(5,8,12,.38) 72%,rgba(5,8,12,.08) 100%),url("${import.meta.env.BASE_URL}affiliate/lifetime-earnings-photo.jpg")`,backgroundSize:"100% 100%, cover",backgroundPosition:"center, center"}}>
+                <div className="relative z-10 max-w-[62%]">
+                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl cursor-pointer" style={{background:"rgba(88,28,135,0.72)",boxShadow:"0 0 0 1px rgba(168,85,247,0.35)"}} onClick={e=>{const el=e.currentTarget;el.classList.remove('tbv-anim-inf');void el.offsetHeight;el.classList.add('tbv-anim-inf');setTimeout(()=>el.classList.remove('tbv-anim-inf'),1300);}}>
                   <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(192,132,252,0.75)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 12c-2-2.5-4-4-6-4a4 4 0 0 0 0 8c2 0 4-1.5 6-4z"/><path d="M12 12c2 2.5 4 4 6 4a4 4 0 0 0 0-8c-2 0-4 1.5-6 4z"/></svg>
                 </div>
-                <p className="text-[16px] font-semibold uppercase leading-snug text-white mb-4 md:text-[18px]">
+                <p className="mb-3 text-[15px] font-extrabold uppercase leading-snug text-white sm:text-[17px]">
                   {tx("LIFETIME EARNINGS", "ПОЖИЗНЕННЫЙ ЗАРАБОТОК", "ДОВІЧНИЙ ЗАРОБІТОК", "LEBENSLANGE VERGÜTUNG", "GANANCIAS DE POR VIDA")}
                 </p>
-                <div className="space-y-2 text-[13px] leading-[1.55] text-white md:text-[14px]">
+                <div className="space-y-2 text-[11px] leading-[1.55] text-white/90 sm:text-xs md:text-[13px]">
                   <p>{tx("ONCE A CUSTOMER IS REFERRED, THEIR ORDERS REMAIN ATTRIBUTED TO YOUR CODE.", "КОГДА КЛИЕНТ ПРИВЛЕЧЁН, ЕГО ЗАКАЗЫ ОСТАЮТСЯ ПРИВЯЗАНЫ К ВАШЕМУ КОДУ.", "КОЛИ КЛІЄНТ ЗАЛУЧЕНИЙ, ЙОГО ЗАМОВЛЕННЯ ЗАЛИШАЮТЬСЯ ПРИВʼЯЗАНИМИ ДО ВАШОГО КОДУ.", undefined, "UNA VEZ REFERIDO UN CLIENTE, SUS PEDIDOS PERMANECEN ATRIBUIDOS A TU CÓDIGO.")}</p>
                   <p>{tx("YOU EARN COMMISSION FROM ELIGIBLE TRACKED ORDERS.", "ВЫ ПОЛУЧАЕТЕ КОМИССИЮ С ПОДХОДЯЩИХ ОТСЛЕЖИВАЕМЫХ ЗАКАЗОВ.", "ВИ ОТРИМУЄТЕ КОМІСІЮ З ВІДПОВІДНИХ ВІДСТЕЖУВАНИХ ЗАМОВЛЕНЬ.", undefined, "GANAS COMISIÓN DE PEDIDOS ELEGIBLES RASTREADOS.")}</p>
                 </div>
+                </div>
               </div>
 
-              <div className="rounded-[1.8rem] border border-white/10 bg-black/20 px-6 py-7 text-center md:px-8 md:py-9">
-                <div className="mb-5 mx-auto flex h-[52px] w-[52px] items-center justify-center rounded-full cursor-pointer" style={{background:"rgba(30,58,138,0.55)",boxShadow:"0 0 0 1.5px rgba(59,130,246,0.35)"}} onClick={e=>{const el=e.currentTarget;el.classList.remove('tbv-anim-check');void el.offsetHeight;el.classList.add('tbv-anim-check');setTimeout(()=>el.classList.remove('tbv-anim-check'),700);}}>
+              <div className="relative overflow-hidden rounded-2xl border border-white/15 bg-cover bg-center px-5 py-6 text-left shadow-[0_12px_30px_rgba(0,0,0,.3)] sm:min-h-[245px] sm:px-6 sm:py-7 xl:min-h-[280px] 2xl:min-h-[300px] xl:px-7 xl:py-8" style={{backgroundImage:"radial-gradient(ellipse at 82% 82%,rgba(42,90,170,.34),transparent 52%),linear-gradient(135deg,#070c14 0%,#101a2a 100%)"}}>
+                <div className="pointer-events-none absolute inset-0 z-0" style={{backgroundImage:"linear-gradient(90deg,rgba(7,12,20,.96) 0%,rgba(7,12,20,.78) 48%,rgba(7,12,20,.08) 100%)"}} />
+                <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-2 z-[1] flex w-[44%] items-end justify-center opacity-95">
+                  <img src={`${import.meta.env.BASE_URL}vials-c/bpc-157-4a596acd979f.webp`} alt="" className="h-[68%] w-auto max-w-[49%] object-contain drop-shadow-[0_8px_22px_rgba(0,0,0,.75)]" />
+                  <img src={`${import.meta.env.BASE_URL}vials-c/nad-48d0c75f913c.webp`} alt="" className="h-[82%] w-auto max-w-[55%] object-contain drop-shadow-[0_8px_22px_rgba(0,0,0,.75)]" />
+                </div>
+                <div className="relative z-10 w-[58%]">
+                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl cursor-pointer" style={{background:"rgba(30,58,138,0.72)",boxShadow:"0 0 0 1px rgba(59,130,246,0.35)"}} onClick={e=>{const el=e.currentTarget;el.classList.remove('tbv-anim-check');void el.offsetHeight;el.classList.add('tbv-anim-check');setTimeout(()=>el.classList.remove('tbv-anim-check'),700);}}>
                   <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="rgba(96,165,250,0.75)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                 </div>
-                <p className="text-[16px] font-semibold uppercase leading-snug text-white mb-4 md:text-[18px]">
+                <p className="mb-3 text-[15px] font-extrabold uppercase leading-snug text-white sm:text-[17px]">
                   {tx("WHY IT WORKS", "ПОЧЕМУ ЭТО РАБОТАЕТ", "ЧОМУ ЦЕ ПРАЦЮЄ", "WARUM ES FUNKTIONIERT", "POR QUÉ FUNCIONA")}
                 </p>
-                <div className="space-y-2 text-[13px] leading-[1.55] text-white md:text-[14px]">
+                <div className="space-y-2 text-[11px] leading-[1.55] text-white/90 sm:text-xs md:text-[13px]">
                   <p>{tx("LOWER PRICES. SAME QUALITY.", "НИЖЕ ЦЕНЫ. ТО ЖЕ КАЧЕСТВО.", "НИЖЧІ ЦІНИ. ТА САМА ЯКІСТЬ.", undefined, "PRECIOS MÁS BAJOS. MISMA CALIDAD.")}</p>
                   <p>{tx("PAY FOR PRODUCT - NOT BRAND.", "ПЛАТИТЕ ЗА ПРОДУКТ — НЕ ЗА БРЕНД.", "ПЛАТІТЬ ЗА ПРОДУКТ — НЕ ЗА БРЕНД.", undefined, "PAGA POR EL PRODUCTO, NO POR LA MARCA.")}</p>
+                </div>
                 </div>
               </div>
             </div>
 
             {/* How it works — numbered steps */}
-            <div className="rounded-[1.8rem] border border-white/10 bg-black/20 px-6 py-8 mb-5 md:px-10 md:py-10">
-              <p className="mb-8 text-center text-[11px] uppercase tracking-[0.36em] text-white/60">
+            <div className="mb-3 overflow-hidden rounded-2xl border border-white/10 bg-[#080b0e]/95 px-5 py-6 shadow-[0_12px_30px_rgba(0,0,0,.28)] sm:mb-4 sm:px-6 sm:py-7">
+              <p className="mb-5 text-center text-[10px] font-semibold uppercase tracking-[0.3em] text-white/60 sm:text-[11px]">
                 {tx("How it works", "Как это работает", "Як це працює", undefined, "Cómo funciona")}
               </p>
-              <div className="grid grid-cols-1 gap-7 md:grid-cols-3 md:gap-0 md:divide-x md:divide-white/10">
-                <div className="flex flex-col items-center text-center gap-3 md:px-8">
-                  <div className="flex h-[38px] w-[38px] items-center justify-center rounded-full text-[13px] font-bold text-white" style={{background:"rgba(185,28,28,0.55)",boxShadow:"0 0 0 1.5px rgba(239,68,68,0.35)"}}>1</div>
-                  <p className="text-[13px] font-semibold uppercase leading-[1.55] text-white/90 md:text-[14px]">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-0 md:divide-x md:divide-white/10">
+                <div className="flex items-start gap-3 md:px-5 md:first:pl-0">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[13px] font-bold text-white" style={{background:"rgba(127,29,29,0.76)",boxShadow:"0 0 0 1px rgba(239,68,68,0.35)"}}>1</div>
+                  <p className="pt-0.5 text-[11px] font-semibold uppercase leading-[1.55] text-white/90 sm:text-xs md:text-[13px]">
                     {tx("YOU GET A PERSONAL LINK OR PROMO CODE.", "ВЫ ПОЛУЧАЕТЕ ЛИЧНУЮ ССЫЛКУ ИЛИ ПРОМОКОД.", "ВИ ОТРИМУЄТЕ ОСОБИСТЕ ПОСИЛАННЯ АБО ПРОМОКОД.", undefined, "RECIBES UN ENLACE PERSONAL O CÓDIGO PROMOCIONAL.")}
                   </p>
                 </div>
-                <div className="flex flex-col items-center text-center gap-3 md:px-8">
-                  <div className="flex h-[38px] w-[38px] items-center justify-center rounded-full text-[13px] font-bold text-white" style={{background:"rgba(133,77,14,0.55)",boxShadow:"0 0 0 1.5px rgba(234,179,8,0.35)"}}>2</div>
-                  <p className="text-[13px] font-semibold uppercase leading-[1.55] text-white/90 md:text-[14px]">
+                <div className="flex items-start gap-3 md:px-5">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[13px] font-bold text-white" style={{background:"rgba(120,73,10,0.76)",boxShadow:"0 0 0 1px rgba(234,179,8,0.35)"}}>2</div>
+                  <p className="pt-0.5 text-[11px] font-semibold uppercase leading-[1.55] text-white/90 sm:text-xs md:text-[13px]">
                     {tx("ELIGIBLE REFERRALS ARE TRACKED AUTOMATICALLY.", "ПОДХОДЯЩИЕ РЕФЕРАЛЫ ОТСЛЕЖИВАЮТСЯ АВТОМАТИЧЕСКИ.", "ВІДПОВІДНІ РЕФЕРАЛИ ВІДСТЕЖУЮТЬСЯ АВТОМАТИЧНО.", undefined, "LOS REFERIDOS ELEGIBLES SE RASTREAN AUTOMÁTICAMENTE.")}
                   </p>
                 </div>
-                <div className="flex flex-col items-center text-center gap-3 md:px-8">
-                  <div className="flex h-[38px] w-[38px] items-center justify-center rounded-full text-[13px] font-bold text-white" style={{background:"rgba(22,101,52,0.55)",boxShadow:"0 0 0 1.5px rgba(34,197,94,0.35)"}}>3</div>
-                  <p className="text-[13px] font-semibold uppercase leading-[1.55] text-white/90 md:text-[14px]">
+                <div className="flex items-start gap-3 md:px-5 md:last:pr-0">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[13px] font-bold text-white" style={{background:"rgba(22,101,52,0.76)",boxShadow:"0 0 0 1px rgba(34,197,94,0.35)"}}>3</div>
+                  <p className="pt-0.5 text-[11px] font-semibold uppercase leading-[1.55] text-white/90 sm:text-xs md:text-[13px]">
                     {tx("COMMISSION APPLIES TO QUALIFYING ORDERS.", "КОМИССИЯ ПРИМЕНЯЕТСЯ К ПОДХОДЯЩИМ ЗАКАЗАМ.", "КОМІСІЯ ЗАСТОСОВУЄТЬСЯ ДО ВІДПОВІДНИХ ЗАМОВЛЕНЬ.", undefined, "LA COMISIÓN SE APLICA A PEDIDOS CALIFICADOS.")}
                   </p>
                 </div>
@@ -14754,25 +14457,28 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
             </div>
 
             {/* Who can join */}
-            <div className="rounded-[1.8rem] border border-white/10 bg-black/20 px-6 py-8 mb-10 text-center md:px-10 md:py-10">
-              <div className="mb-5 mx-auto flex h-[52px] w-[52px] items-center justify-center rounded-full cursor-pointer" style={{background:"rgba(124,45,18,0.55)",boxShadow:"0 0 0 1.5px rgba(249,115,22,0.35)"}} onClick={e=>{const el=e.currentTarget;el.classList.remove('tbv-anim-users');void el.offsetHeight;el.classList.add('tbv-anim-users');setTimeout(()=>el.classList.remove('tbv-anim-users'),700);}}>
+            <div className="mb-4 grid gap-3 sm:mb-5 lg:grid-cols-[1.45fr_1fr]">
+            <div className="relative overflow-hidden rounded-2xl border border-white/15 bg-cover bg-center px-5 py-6 text-left shadow-[0_12px_30px_rgba(0,0,0,.3)] sm:min-h-[250px] sm:px-6 sm:py-7" style={{backgroundImage:`linear-gradient(90deg,rgba(5,8,12,.97) 0%,rgba(5,8,12,.87) 54%,rgba(5,8,12,.24) 100%),url("${import.meta.env.BASE_URL}affiliate/creators.jpg")`}}>
+              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl cursor-pointer" style={{background:"rgba(124,45,18,0.76)",boxShadow:"0 0 0 1px rgba(249,115,22,0.35)"}} onClick={e=>{const el=e.currentTarget;el.classList.remove('tbv-anim-users');void el.offsetHeight;el.classList.add('tbv-anim-users');setTimeout(()=>el.classList.remove('tbv-anim-users'),700);}}>
                 <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="rgba(251,146,60,0.75)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
               </div>
-              <p className="text-[16px] font-semibold uppercase leading-snug text-white mb-4 md:text-[18px]">
+              <p className="mb-3 text-xl font-extrabold uppercase leading-snug text-white sm:text-2xl">
                 {tx("WHO CAN APPLY", "КТО МОЖЕТ ПОДАТЬ ЗАЯВКУ", "ХТО МОЖЕ ПОДАТИ ЗАЯВКУ", "WER KANN SICH BEWERBEN", "QUIÉN PUEDE POSTULARSE")}
               </p>
-              <div className="space-y-2 text-[13px] leading-[1.65] text-white md:text-[14px]">
+              <div className="max-w-[680px] space-y-2 text-[11px] leading-[1.65] text-white/90 sm:text-xs md:text-[13px]">
                 <p>{tx("CREATORS ON YOUTUBE, TIKTOK, INSTAGRAM, TWITTER, REDDIT AND MORE.", "КРЕАТОРЫ В YOUTUBE, TIKTOK, INSTAGRAM, TWITTER, REDDIT И ДРУГИХ ПЛАТФОРМАХ.", "КРЕАТОРИ В YOUTUBE, TIKTOK, INSTAGRAM, TWITTER, REDDIT ТА НА ІНШИХ ПЛАТФОРМАХ.", undefined, "CREADORES EN YOUTUBE, TIKTOK, INSTAGRAM, TWITTER, REDDIT Y MÁS.")}</p>
-                <p>{tx("ANYONE WITH AN AUDIENCE - BIG OR SMALL - CAN APPLY. APPLY VIA EMAIL WITH YOUR SOCIAL LINKS - WE'LL REVIEW AND GET BACK TO YOU.", "ЛЮБОЙ С АУДИТОРИЕЙ — БОЛЬШОЙ ИЛИ МАЛЕНЬКОЙ — МОЖЕТ ПОДАТЬ ЗАЯВКУ. ОТПРАВЬТЕ ЗАЯВКУ НА EMAIL С ВАШИМИ СОЦИАЛЬНЫМИ ССЫЛКАМИ — МЫ ПРОВЕРИМ И ОТВЕТИМ.", "БУДЬ-ХТО З АУДИТОРІЄЮ — ВЕЛИКОЮ АБО МАЛОЮ — МОЖЕ ПОДАТИ ЗАЯВКУ. НАДІШЛІТЬ ЗАЯВКУ НА EMAIL ІЗ ВАШИМИ СОЦІАЛЬНИМИ ПОСИЛАННЯМИ — МИ ПЕРЕГЛЯНЕМО І ВІДПОВІМО.", undefined, "CUALQUIER PERSONA CON AUDIENCIA, GRANDE O PEQUEÑA, PUEDE POSTULARSE. ENVÍA TU SOLICITUD POR EMAIL CON TUS ENLACES SOCIALES; LA REVISAREMOS Y TE RESPONDEREMOS.")}</p>
+                <p>{tx("ANYONE WITH AN AUDIENCE - BIG OR SMALL - CAN APPLY. EMAIL US A SHORT INTRO ABOUT WHAT YOU DO, AND WE'LL REVIEW YOUR APPLICATION.", "ЛЮБОЙ С АУДИТОРИЕЙ — БОЛЬШОЙ ИЛИ МАЛЕНЬКОЙ — МОЖЕТ ПОДАТЬ ЗАЯВКУ. НАПИШИТЕ НАМ НА ПОЧТУ, КРАТКО РАССКАЖИТЕ, ЧЕМ ЗАНИМАЕТЕСЬ, И МЫ РАССМОТРИМ ВАШУ ЗАЯВКУ.", "БУДЬ-ХТО З АУДИТОРІЄЮ — ВЕЛИКОЮ АБО МАЛОЮ — МОЖЕ ПОДАТИ ЗАЯВКУ. НАПИШІТЬ НАМ НА ПОШТУ, КОРОТКО РОЗКАЖІТЬ, ЧИМ ЗАЙМАЄТЕСЯ, І МИ РОЗГЛЯНЕМО ВАШУ ЗАЯВКУ.", "JEDER MIT EINER ZIELGRUPPE — GROSS ODER KLEIN — KANN SICH BEWERBEN. SCHREIBEN SIE UNS PER E-MAIL, ERZÄHLEN SIE KURZ, WAS SIE MACHEN, UND WIR PRÜFEN IHRE BEWERBUNG.", "CUALQUIER PERSONA CON AUDIENCIA, GRANDE O PEQUEÑA, PUEDE POSTULARSE. ESCRÍBENOS POR CORREO, CUÉNTANOS BREVEMENTE A QUÉ TE DEDICAS Y REVISAREMOS TU SOLICITUD.")}</p>
               </div>
             </div>
-
-            {/* CTA */}
-            <div className="flex justify-center">
+            <div className="flex flex-col justify-center gap-3 rounded-2xl border border-white/10 bg-[#090d12] p-4 shadow-[0_12px_30px_rgba(0,0,0,.25)] sm:p-5">
+              <div className="rounded-xl border border-white/10 bg-black/35 p-4">
+                <p className="text-sm font-extrabold uppercase text-white">{tx("APPLY VIA EMAIL", "ПОДАЙТЕ ЗАЯВКУ ПО EMAIL", "ПОДАЙТЕ ЗАЯВКУ ЕЛЕКТРОННОЮ ПОШТОЮ", undefined, "SOLICITA POR EMAIL")}</p>
+                <p className="mt-1 text-[10px] leading-relaxed text-white/65 sm:text-[11px]">{tx("EMAIL US A SHORT INTRO ABOUT WHAT YOU DO. WE'LL REVIEW YOUR APPLICATION.", "НАПИШИТЕ НАМ НА ПОЧТУ, КРАТКО РАССКАЖИТЕ, ЧЕМ ЗАНИМАЕТЕСЬ, И МЫ РАССМОТРИМ ВАШУ ЗАЯВКУ.", "НАПИШІТЬ НАМ НА ПОШТУ, КОРОТКО РОЗКАЖІТЬ, ЧИМ ЗАЙМАЄТЕСЯ, І МИ РОЗГЛЯНЕМО ВАШУ ЗАЯВКУ.", "SCHREIBEN SIE UNS PER E-MAIL, ERZÄHLEN SIE KURZ, WAS SIE MACHEN, UND WIR PRÜFEN IHRE BEWERBUNG.", "ESCRÍBENOS POR CORREO, CUÉNTANOS BREVEMENTE A QUÉ TE DEDICAS Y REVISAREMOS TU SOLICITUD.")}</p>
+              </div>
               <button
                 type="button"
                 onClick={copySupportEmail}
-                className="rounded-full bg-white px-10 py-4 text-[14px] uppercase tracking-[0.26em] text-black font-semibold shadow-[0_10px_30px_rgba(0,0,0,0.2)] transition hover:bg-white/90 active:scale-95"
+                className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-left text-[11px] font-bold tracking-wide text-white transition hover:bg-white/15 active:scale-[.99] sm:text-xs"
               >
                 {copiedEmail
                   ? language === "RU"
@@ -14781,7 +14487,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     ? "EMAIL СКОПІЙОВАНО"
                     : "EMAIL COPIED"
                   : "support@10bottlevalue.co"}
+                <span aria-hidden="true">→</span>
               </button>
+            </div>
             </div>
           </main>
         )}
@@ -18217,21 +17925,21 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               })()}
 
               {adminActiveTab === "affiliates" && isAdminUser() && (
-                <div className="rounded-[1.6rem] border border-white/15 bg-black/20 p-6">
+                <div className="rounded-2xl border border-white/15 bg-[#505050] p-4 sm:p-5">
                   <style>{`
                     @media (max-width: 767px) {
                       .affiliate-payout-ledger,
                       .affiliate-payout-ledger tbody { display: block; width: 100%; }
                       .affiliate-payout-ledger colgroup { display: none; }
-                      .affiliate-payout-ledger tbody { display: grid; gap: 10px; padding: 10px; }
+                      .affiliate-payout-ledger tbody { display: grid; gap: 8px; padding: 8px; }
                       .affiliate-payout-ledger tbody tr {
                         display: grid;
                         grid-template-columns: repeat(2, minmax(0, 1fr));
-                        gap: 12px;
-                        padding: 12px;
-                        border: 1px solid rgba(255, 255, 255, .16);
-                        border-radius: 12px;
-                        background: rgba(255, 255, 255, .035);
+                        gap: 10px 12px;
+                        padding: 11px;
+                        border: 1px solid rgba(255, 255, 255, .13);
+                        border-radius: 10px;
+                        background: #414141;
                       }
                       .affiliate-payout-ledger tbody td {
                         display: flex;
@@ -18243,19 +17951,27 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         text-align: left;
                         white-space: normal;
                       }
-                      .affiliate-payout-ledger tbody td:nth-child(1),
-                      .affiliate-payout-ledger tbody td:nth-child(6),
-                      .affiliate-payout-ledger tbody td:nth-child(7) { grid-column: 1 / -1; }
+                      .affiliate-payout-ledger tbody td:nth-child(1) { grid-column: 1 / 2; }
+                      .affiliate-payout-ledger tbody td:nth-child(2) { grid-column: 2 / 3; }
+                      .affiliate-payout-ledger tbody td:nth-child(3) { grid-column: 1 / -1; }
+                      .affiliate-payout-ledger tbody td:nth-child(4) { grid-column: 1 / 2; }
+                      .affiliate-payout-ledger tbody td:nth-child(5) { grid-column: 2 / 3; }
+                      .affiliate-payout-ledger tbody td:nth-child(6) { grid-column: 1 / 2; }
+                      .affiliate-payout-ledger tbody td:nth-child(7) { grid-column: 2 / 3; }
+                      .affiliate-payout-ledger tbody td:nth-child(8) { grid-column: 1 / 2; }
+                      .affiliate-payout-ledger tbody td:nth-child(9) { grid-column: 2 / 3; }
+                      .affiliate-payout-ledger tbody td:nth-child(10) { grid-column: 1 / -1; }
+                      .affiliate-payout-ledger tfoot { display: none; }
                     }
                   `}</style>
                   <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/75">Affiliates</div>
                   <div className="mt-2 flex items-end justify-between gap-4 flex-wrap">
-                    <h2 className="text-3xl font-bold uppercase tracking-tight text-white">Affiliate Overview</h2>
+                    <h2 className="text-2xl font-semibold tracking-tight text-white">Affiliate Overview</h2>
                     <button
                       type="button"
                       onClick={loadAdminAffiliates}
                       disabled={adminAffiliatesLoading}
-                      className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-white/25 bg-white/[0.04] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white transition hover:bg-white/10 disabled:opacity-40"
+                      className="inline-flex min-h-8 items-center gap-2 rounded-full border border-white/20 bg-black/10 px-4 py-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-white transition hover:bg-white/10 disabled:opacity-40"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`h-4 w-4 ${adminAffiliatesLoading ? "animate-spin" : ""}`} aria-hidden="true"><path d="M20 7v5h-5"/><path d="M4 17v-5h5"/><path d="M5.64 9A7 7 0 0 1 18.3 6.7L20 12M4 12l1.7 5.3A7 7 0 0 0 18.36 15"/></svg>
                       {adminAffiliatesLoading ? "Loading…" : "Refresh"}
@@ -18263,7 +17979,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
 
                   {affPayoutLoadError && (
-                    <div role="alert" className="mt-3 flex items-center gap-3 rounded-lg border border-white/15 bg-[#484848] px-3 py-2.5 text-xs text-white">
+                    <div role="alert" className="mt-3 flex items-center gap-3 rounded-lg border border-amber-200/20 bg-[#625c46] px-3 py-2 text-[11px] text-amber-50">
                       <span aria-hidden="true" className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-amber-300 text-xs font-black text-[#343434]">!</span>
                       <div className="font-medium">{affPayoutLoadError}</div>
                     </div>
@@ -18277,44 +17993,44 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   ) : (
                     <>
                       {/* Summary strip */}
-                      <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
-                        <div className="flex min-w-0 items-center gap-3 rounded-lg border border-white/15 bg-white/[0.06] px-3.5 py-3">
+                      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                        <div className="flex min-w-0 items-center gap-2.5 rounded-lg border border-white/10 bg-[#454545] px-3 py-2">
                           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6 shrink-0 text-white/90" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M20 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                           <div className="min-w-0">
                             <div className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/75">Total affiliates</div>
-                            <div className="mt-1 font-mono text-xl font-bold tabular-nums text-white">{adminAffiliates.length}</div>
+                            <div className="mt-0.5 font-mono text-lg font-bold tabular-nums text-white">{adminAffiliates.length}</div>
                           </div>
                         </div>
-                        <div className="flex min-w-0 items-center gap-3 rounded-lg border border-white/15 bg-white/[0.06] px-3.5 py-3">
+                        <div className="flex min-w-0 items-center gap-2.5 rounded-lg border border-white/10 bg-[#454545] px-3 py-2">
                           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6 shrink-0 text-white/90" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
                           <div className="min-w-0">
                             <div className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/75">Orders tracked</div>
-                            <div className="mt-1 font-mono text-xl font-bold tabular-nums text-white">{adminAffiliates.reduce((s, a) => s + a.orders, 0)}</div>
+                            <div className="mt-0.5 font-mono text-lg font-bold tabular-nums text-white">{adminAffiliates.reduce((s, a) => s + a.orders, 0)}</div>
                           </div>
                         </div>
-                        <div className="flex min-w-0 items-center gap-3 rounded-lg border border-white/15 bg-white/[0.06] px-3.5 py-3">
+                        <div className="flex min-w-0 items-center gap-2.5 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.08] px-3 py-2">
                           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6 shrink-0 text-white/90" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18M16 15h2"/><path d="M7 6V4h11"/></svg>
                           <div className="min-w-0">
                             <div className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/75">Available to pay out</div>
-                            <div className="mt-1 font-mono text-xl font-bold tabular-nums text-white">
+                            <div className="mt-0.5 font-mono text-lg font-bold tabular-nums text-emerald-200">
                               ${adminAffiliates.reduce((s, a) => s + Math.max(0, a.available - (Number(affPaidMap[a.code]) || 0)), 0).toFixed(2)}
                             </div>
                           </div>
                         </div>
-                        <div className="flex min-w-0 items-center gap-3 rounded-lg border border-white/15 bg-white/[0.06] px-3.5 py-3">
+                        <div className="flex min-w-0 items-center gap-2.5 rounded-lg border border-amber-300/20 bg-amber-300/[0.08] px-3 py-2">
                           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6 shrink-0 text-white/90" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
                           <div className="min-w-0">
                             <div className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/75">Pending (on hold)</div>
-                            <div className="mt-1 font-mono text-xl font-bold tabular-nums text-white">
+                            <div className="mt-0.5 font-mono text-lg font-bold tabular-nums text-amber-200">
                               ${adminAffiliates.reduce((s, a) => s + a.pending, 0).toFixed(2)}
                             </div>
                           </div>
                         </div>
-                        <div className="flex min-w-0 items-center gap-3 rounded-lg border border-white/15 bg-white/[0.06] px-3.5 py-3">
+                        <div className="flex min-w-0 items-center gap-2.5 rounded-lg border border-sky-300/20 bg-sky-300/[0.08] px-3 py-2">
                           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6 shrink-0 text-white/90" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20V7"/></svg>
                           <div className="min-w-0">
                             <div className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/75">Total paid to date</div>
-                            <div className="mt-1 font-mono text-xl font-bold tabular-nums text-white">
+                            <div className="mt-0.5 font-mono text-lg font-bold tabular-nums text-sky-200">
                               ${adminAffiliates.reduce((s, a) => s + (Number(affPaidMap[a.code]) || 0), 0).toFixed(2)}
                             </div>
                           </div>
@@ -18322,26 +18038,32 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       </div>
 
                       {/* Affiliate table */}
-                      <div className="mt-4 overflow-hidden rounded-xl border border-white/15 bg-[#575757]">
-                        <table className="affiliate-payout-ledger w-full table-fixed text-sm" aria-label="Affiliate payout overview">
+                      <div className="mt-4 overflow-x-auto rounded-xl border border-white/10 bg-[#3e3e3e]">
+                        <table className="affiliate-payout-ledger w-full table-fixed text-[11px] md:min-w-[920px]" aria-label="Affiliate payout overview">
                           <colgroup>
-                            <col className="w-[20%]" />
+                            <col className="w-[4%]" />
                             <col className="w-[8%]" />
-                            <col className="w-[13%]" />
+                            <col className="w-[15%]" />
+                            <col className="w-[8%]" />
+                            <col className="w-[6%]" />
                             <col className="w-[10%]" />
-                            <col className="w-[11%]" />
-                            <col className="w-[14%]" />
-                            <col className="w-[24%]" />
+                            <col className="w-[8%]" />
+                            <col className="w-[10%]" />
+                            <col className="w-[13%]" />
+                            <col className="w-[18%]" />
                           </colgroup>
-                          <thead className="sr-only md:not-sr-only">
-                            <tr className="border-b border-white/15 bg-white/[0.06] text-left text-[9px] font-semibold uppercase tracking-[0.1em] text-white/85">
-                              <th scope="col" className="px-3 py-3">Affiliate</th>
-                              <th scope="col" className="px-3 py-3 text-right">Orders</th>
-                              <th scope="col" className="px-3 py-3 text-right">Unpaid balance</th>
-                              <th scope="col" className="px-3 py-3 text-right">Pending</th>
-                              <th scope="col" className="px-3 py-3 text-right">Paid to date</th>
-                              <th scope="col" className="px-3 py-3">Payout status</th>
-                              <th scope="col" className="px-3 py-3">Actions</th>
+                          <thead className="hidden md:table-header-group">
+                            <tr className="border-b border-white/10 bg-[#494949] text-left text-[8px] font-semibold uppercase tracking-[0.12em] text-white/80">
+                              <th scope="col" className="px-2.5 py-2.5">#</th>
+                              <th scope="col" className="px-2.5 py-2.5">Code</th>
+                              <th scope="col" className="px-2.5 py-2.5">Email</th>
+                              <th scope="col" className="px-2.5 py-2.5">Link</th>
+                              <th scope="col" className="px-2.5 py-2.5 text-right">Orders</th>
+                              <th scope="col" className="px-2.5 py-2.5 text-right">Unpaid balance</th>
+                              <th scope="col" className="px-2.5 py-2.5 text-right">Pending</th>
+                              <th scope="col" className="px-2.5 py-2.5 text-right">Paid to date</th>
+                              <th scope="col" className="px-2.5 py-2.5">Payout status</th>
+                              <th scope="col" className="px-2.5 py-2.5">Actions</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -18369,57 +18091,65 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                 : paid > 0
                                   ? aff.pending > 0 ? "bg-sky-300" : "bg-emerald-300"
                                   : aff.pending > 0 ? "bg-amber-300" : "bg-white/50";
+                              const payoutStatusText = remaining > 0
+                                ? paid > 0 ? "text-orange-100" : "text-amber-100"
+                                : paid > 0
+                                  ? aff.pending > 0 ? "text-sky-100" : "text-emerald-100"
+                                  : aff.pending > 0 ? "text-amber-100" : "text-white/75";
                               return (
-                                <tr key={aff.code} className={`border-b border-white/10 transition-colors hover:bg-white/[0.06] ${i % 2 === 0 ? "bg-white/[0.025]" : ""}`}>
-                                  <td data-label="Affiliate" className="px-3 py-3">
-                                    <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/70 md:hidden">Affiliate</span>
+                                <tr key={aff.code} className={`border-b border-white/5 transition-colors hover:bg-white/[0.07] ${i % 2 === 0 ? "bg-[#474747]" : "bg-[#414141]"}`}>
+                                  <td data-label="#" className="whitespace-nowrap px-2.5 py-2.5 text-white/55">
+                                    <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/60 md:hidden">#</span>{i + 1}
+                                  </td>
+                                  <td data-label="Code" className="px-2.5 py-2.5">
+                                    <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/70 md:hidden">Code</span>
                                     <div className="min-w-0">
                                       <div className="flex flex-wrap items-center gap-2">
                                         <span className="font-mono font-semibold text-white">{aff.code}</span>
                                         {!aff.active && <span className="rounded-full border border-red-300/50 bg-red-300/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/90">inactive</span>}
                                       </div>
-                                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-                                        <span className="break-all text-xs text-white/80">{aff.email || "—"}</span>
-                                      </div>
                                     </div>
                                   </td>
-                                  <td data-label="Orders" className="whitespace-nowrap px-3 py-3 text-right font-mono tabular-nums text-white">
+                                  <td data-label="Email" className="min-w-0 px-2.5 py-2.5">
+                                    <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/70 md:hidden">Email</span>
+                                    <span className="break-all text-[10px] text-white/80">{aff.email || "—"}</span>
+                                  </td>
+                                  <td data-label="Link" className="px-2.5 py-2.5">
+                                    <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/70 md:hidden">Link</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(`https://10bottlevalue.co/?c=${aff.code.toLowerCase()}`);
+                                        setCopiedAffCode(aff.code);
+                                        setTimeout(() => setCopiedAffCode(""), 1500);
+                                      }}
+                                      className="inline-flex min-h-7 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] px-2.5 py-1 text-[8px] font-semibold uppercase tracking-[0.1em] text-white/85 transition-colors hover:bg-white/10"
+                                    >
+                                      {copiedAffCode === aff.code ? "Copied!" : "Copy link"}
+                                    </button>
+                                  </td>
+                                  <td data-label="Orders" className="whitespace-nowrap px-2.5 py-2.5 text-right font-mono tabular-nums text-white">
                                     <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/70 md:hidden">Orders</span>{aff.orders}
                                   </td>
-                                  <td data-label="Unpaid balance" className="whitespace-nowrap px-3 py-3 text-right font-mono font-semibold tabular-nums text-white">
+                                  <td data-label="Unpaid balance" className="whitespace-nowrap px-2.5 py-2.5 text-right font-mono font-semibold tabular-nums text-emerald-200">
                                     <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/70 md:hidden">Unpaid balance</span>{remaining > 0 ? `$${remaining.toFixed(2)}` : <span className="text-white/55">—</span>}
                                   </td>
-                                  <td data-label="Pending" className="whitespace-nowrap px-3 py-3 text-right font-mono font-semibold tabular-nums text-white">
+                                  <td data-label="Pending" className="whitespace-nowrap px-2.5 py-2.5 text-right font-mono font-semibold tabular-nums text-amber-200">
                                     <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/70 md:hidden">Pending</span>{aff.pending > 0 ? `$${aff.pending.toFixed(2)}` : <span className="text-white/55">—</span>}
                                   </td>
-                                  <td data-label="Paid to date" className="whitespace-nowrap px-3 py-3 text-right font-mono font-semibold tabular-nums text-white">
+                                  <td data-label="Paid to date" className="whitespace-nowrap px-2.5 py-2.5 text-right font-mono font-semibold tabular-nums text-sky-200">
                                     <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/70 md:hidden">Paid to date</span>{paid > 0 ? `$${paid.toFixed(2)}` : <span className="text-white/55">—</span>}
                                   </td>
-                                  <td data-label="Payout status" className="px-3 py-3">
+                                  <td data-label="Payout status" className="px-2.5 py-2.5">
                                     <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/70 md:hidden">Payout status</span>
-                                    <span className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] text-white ${payoutStatusTone}`}>
+                                    <span className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-1 text-[8px] font-semibold uppercase tracking-[0.06em] ${payoutStatusTone} ${payoutStatusText}`}>
                                       <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${payoutStatusDot}`} />
                                       <span className="truncate">{payoutStatus}</span>
                                     </span>
                                   </td>
-                                  <td data-label="Actions" className="px-3 py-3">
+                                  <td data-label="Actions" className="px-2.5 py-2.5">
                                     <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/70 md:hidden">Actions</span>
                                     <div className="flex flex-wrap items-center gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          navigator.clipboard.writeText(`https://10bottlevalue.co/?c=${aff.code.toLowerCase()}`);
-                                          setCopiedAffCode(aff.code);
-                                          setTimeout(() => setCopiedAffCode(""), 1500);
-                                        }}
-                                        className="inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border border-white/25 bg-white/[0.03] px-2.5 py-1.5 text-[8px] font-semibold uppercase tracking-[0.08em] text-white transition-colors hover:bg-white/10"
-                                      >
-                                        {copiedAffCode === aff.code ? (
-                                          <><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3"><polyline points="20 6 9 17 4 12"/></svg><span>Copied!</span></>
-                                        ) : (
-                                          <><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span>Copy link</span></>
-                                        )}
-                                      </button>
                                       {affPayInput[aff.code] !== undefined ? (
                                         <div className="flex min-w-0 flex-wrap items-center gap-1">
                                           <div className="flex min-w-0 items-center gap-1">
@@ -18496,7 +18226,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                             setAffPayErrors(p => { const n = { ...p }; delete n[aff.code]; return n; });
                                             setAffPayInput(p => ({ ...p, [aff.code]: "" }));
                                           }}
-                                          className="inline-flex min-h-8 items-center justify-center rounded-md border border-white/35 bg-white px-2.5 py-1.5 text-[8px] font-bold uppercase tracking-[0.08em] text-[#454545] transition hover:bg-white/90"
+                                              className="inline-flex min-h-8 items-center justify-center rounded-full border border-sky-300/30 bg-sky-300/10 px-3 py-1.5 text-[8px] font-bold uppercase tracking-[0.1em] text-sky-100 transition hover:bg-sky-300/20"
                                         >Record payout</button>
                                       )}
                                     </div>
@@ -18508,6 +18238,19 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               );
                             })}
                           </tbody>
+                          <tfoot className="hidden border-t border-white/10 bg-[#393939] text-[10px] font-bold text-white md:table-footer-group">
+                            <tr>
+                              <th scope="row" colSpan={4} className="px-2.5 py-2.5 text-left uppercase tracking-[0.14em]">Total</th>
+                              <td className="px-2.5 py-2.5 text-right font-mono tabular-nums">{adminAffiliates.reduce((sum, affiliate) => sum + affiliate.orders, 0)}</td>
+                              <td className="px-2.5 py-2.5 text-right font-mono tabular-nums text-emerald-200">
+                                ${adminAffiliates.reduce((sum, affiliate) => sum + Math.max(0, affiliate.available - (Number(affPaidMap[affiliate.code]) || 0)), 0).toFixed(2)}
+                              </td>
+                              <td className="px-2.5 py-2.5 text-right font-mono tabular-nums text-amber-200">${adminAffiliates.reduce((sum, affiliate) => sum + affiliate.pending, 0).toFixed(2)}</td>
+                              <td className="px-2.5 py-2.5 text-right font-mono tabular-nums text-sky-200">${adminAffiliates.reduce((sum, affiliate) => sum + (Number(affPaidMap[affiliate.code]) || 0), 0).toFixed(2)}</td>
+                              <td />
+                              <td />
+                            </tr>
+                          </tfoot>
                         </table>
                       </div>
                     </>

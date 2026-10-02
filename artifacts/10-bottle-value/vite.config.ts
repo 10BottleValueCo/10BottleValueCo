@@ -1,6 +1,7 @@
 import path from 'path';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
+import { darkenNeutralColorsInSource } from './neutral-color-transform.js';
 
 import runtimeErrorOverlay from '@replit/vite-plugin-runtime-error-modal';
 
@@ -22,9 +23,28 @@ if (!basePath && !isBuild) {
   throw new Error('BASE_PATH environment variable is required but was not provided.');
 }
 
+function darkenInlineNeutralColors() {
+  return {
+    name: 'darken-inline-neutral-colors',
+    enforce: 'pre',
+    transform(code, id) {
+      if (
+        !id.includes('/src/') ||
+        !/\.(?:[jt]sx?|css)(?:\?|$)/.test(id) ||
+        id.includes('/node_modules/')
+      ) {
+        return null;
+      }
+      const transformed = darkenNeutralColorsInSource(code);
+      return transformed === code ? null : { code: transformed, map: null };
+    },
+  };
+}
+
 export default defineConfig({
   base: basePath || '/',
   plugins: [
+    darkenInlineNeutralColors(),
     react(),
     runtimeErrorOverlay(),
     ...(process.env.NODE_ENV !== 'production' &&
