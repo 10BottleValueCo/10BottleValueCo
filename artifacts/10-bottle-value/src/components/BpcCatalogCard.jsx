@@ -16,7 +16,12 @@ const LABELS = {
 
 export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLabel, pricesByDose, renderVial, onAddToCart, onDecrementCart, getCartQuantity, isOutOfStock, onOpenProduct, getBadges }) {
   const doses = Object.keys(pricesByDose);
-  const [dose, setDose] = useState(doses[0]);
+  const [storedDose, setStoredDose] = useState(doses[0]);
+  const [hasManuallySelectedDose, setHasManuallySelectedDose] = useState(false);
+  const firstAvailableDose = doses.find((value) => !isOutOfStock?.({ dose: value, vials: 10 }));
+  const dose = !hasManuallySelectedDose && isOutOfStock?.({ dose: storedDose, vials: 10 })
+    ? firstAvailableDose ?? storedDose
+    : storedDose;
   const [doseMenuOpen, setDoseMenuOpen] = useState(false);
   const [selectedVials, setSelectedVials] = useState(10);
   const doseMenuRef = useRef(null);
@@ -35,8 +40,11 @@ export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLab
   const badges = getBadges?.(selection) || {};
 
   useEffect(() => {
-    if (!doses.includes(dose)) setDose(doses[0]);
-  }, [dose, doses.join("|")]);
+    if (!doses.includes(storedDose)) {
+      setStoredDose(firstAvailableDose ?? doses[0]);
+      setHasManuallySelectedDose(false);
+    }
+  }, [storedDose, firstAvailableDose, doses.join("|")]);
 
   useLayoutEffect(() => {
     const title = titleRef.current;
@@ -78,7 +86,8 @@ export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLab
   }, [doseMenuOpen]);
 
   function selectDose(value) {
-    setDose(value);
+    setStoredDose(value);
+    setHasManuallySelectedDose(true);
     setSelectedVials(10);
     setDoseMenuOpen(false);
     doseTriggerRef.current?.focus();
