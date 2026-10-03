@@ -43,6 +43,7 @@ export default function HomePage({
   const heroReferenceImage = `${import.meta.env.BASE_URL}images/homepage-hero-background.png`;
   const heroMobileImage = `${import.meta.env.BASE_URL}images/homepage-hero-mobile.png`;
   const socialBackdrop = `${import.meta.env.BASE_URL}home-social-studio.jpg`;
+  const socialPhoneImage = `${import.meta.env.BASE_URL}images/homepage-social-phone.png`;
   const useExactEnglishHero = String(language ?? "EN").toUpperCase() === "EN";
 
   return (
@@ -222,9 +223,10 @@ export default function HomePage({
           </div>
         </div>
         <div className="tbv-home__social-phone" aria-hidden="true">
-          <div className="tbv-home__social-phone-screen">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.9 2h3.1l-6.8 7.8L23 22h-6.1l-4.8-8.4L4.8 22H1.6l7.3-8.4L1 2h6.3l4.3 7.8L18.9 2Zm-1.1 18h1.7L6.1 3.9H4.3L17.8 20Z" /></svg>
-          </div>
+          <div
+            className="tbv-home__social-phone-screen"
+            style={{ backgroundImage: `url("${socialPhoneImage}")` }}
+          />
         </div>
       </section>
     </main>

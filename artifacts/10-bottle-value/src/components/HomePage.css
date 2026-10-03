@@ -416,11 +416,16 @@
     margin: 0;
   }
   .tbv-home__hero--reference {
-    aspect-ratio: 1024 / 1536;
+    aspect-ratio: auto;
+    min-height: 460px;
     overflow: hidden;
+    background:
+      radial-gradient(ellipse at 78% 40%, rgba(94, 108, 124, .3), transparent 54%),
+      linear-gradient(145deg, #0b1016 0%, #2b323a 56%, #12171d 100%);
   }
+  .tbv-home__hero-reference-picture { display: none; }
   .tbv-home__hero-reference-copy {
-    top: 20%;
+    top: 37%;
     left: 3.8%;
     width: 36%;
   }
@@ -726,8 +731,16 @@
   border-radius: 17px;
   color: #fff;
   background: linear-gradient(160deg, #080909, #1c1d1f);
+  background-position: center;
+  background-size: cover;
 }
-.tbv-home__social-phone-screen svg { width: 46%; height: auto; }
+.tbv-home__social-phone-screen img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
 
 @keyframes tbv-home-arrive {
   from { opacity: 0; transform: translateY(16px) scale(.97); }
@@ -786,7 +799,7 @@
   .tbv-home__section-head h2 { font-size: 24px; }
   .tbv-home__section-head p { font-size: 11px; }
   .tbv-home__products { grid-auto-columns: minmax(206px, 70vw); }
-   .tbv-home__social { min-height: 0; background-position: center 52%; }
+   .tbv-home__social { min-height: 0; padding-bottom: 176px; background-position: center 52%; }
    .tbv-home__social-content { width: min(100% - 28px, 520px); padding-block: 30px; }
    .tbv-home__social-content h2 { margin-bottom: 20px; font-size: 16px; letter-spacing: .17em; }
    .tbv-home__social-links { grid-template-columns: 1fr; gap: 12px; }
@@ -814,7 +827,7 @@
    .tbv-home__social-link:last-child .tbv-home__social-meta { grid-row: 2; }
    .tbv-home__social-link:last-child .tbv-home__social-button { grid-row: 3; }
    .tbv-home__social-vials { left: -38px; bottom: -20px; width: 125px; height: 170px; opacity: .12; }
-   .tbv-home__social-phone { right: -24px; bottom: -23px; width: 78px; opacity: .12; }
+   .tbv-home__social-phone { z-index: 3; right: 16px; bottom: 14px; width: 72px; opacity: 1; }
 }
 @media (max-width: 390px) {
   .tbv-home__container { width: min(100% - 24px, 1480px); }
@@ -823,8 +836,8 @@
   .tbv-home__hero-actions { flex-direction: column; align-items: stretch; }
   .tbv-home__hero-actions .tbv-home__button { width: 100%; }
   .tbv-home__proofline { gap: 10px; }
-  .tbv-home__social-vials,
-  .tbv-home__social-phone { display: none; }
+  .tbv-home__social-vials { display: none; }
+   .tbv-home__social-phone { right: 14px; bottom: 14px; width: 62px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .tbv-home *,
