@@ -24,7 +24,7 @@ body,
 
 body {
   font-family: Arial, sans-serif;
-  background: #5A5A5A;
+  background: #8f8f8f;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -61,18 +61,6 @@ img {
   50% { transform: translateY(-2px); }
 }
 
-@keyframes ticker-scroll {
-  0%   { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
-}
-
-.banner-ticker {
-  display: flex;
-  flex-wrap: nowrap;
-  width: max-content;
-  animation: ticker-scroll 22s linear infinite;
-  will-change: transform;
-}
 
 @keyframes wave-hand {
   0%   { transform: rotate(0deg); }
@@ -132,6 +120,47 @@ img {
 @media (max-width: 639px) {
   .badge-marquee-inner {
     animation: badge-marquee 6s linear infinite;
+  }
+}
+
+@keyframes shipping-announcement-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.shipping-announcement-viewport {
+  overflow: hidden;
+}
+
+.shipping-announcement-track {
+  display: flex;
+  width: max-content;
+  animation: shipping-announcement-scroll 32s linear infinite;
+  will-change: transform;
+}
+
+.shipping-announcement-group {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 1.25rem;
+  padding-right: 1.25rem;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shipping-announcement-viewport {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .shipping-announcement-viewport::-webkit-scrollbar {
+    display: none;
+  }
+
+  .shipping-announcement-track {
+    animation: none;
   }
 }
 

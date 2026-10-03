@@ -181,7 +181,7 @@ export default function ShippingPricesPage({ tx }) {
             </div>
           </div>
 
-          <div className="relative z-10 grid grid-cols-3 divide-x divide-white/20 py-4 xl:max-w-[78%] 2xl:max-w-[74%]">
+          <div className="relative z-10 grid max-w-[72%] grid-cols-3 divide-x divide-white/20 py-4 sm:max-w-[64%] xl:max-w-[70%] 2xl:max-w-[68%]">
             <div className="px-2 first:pl-0">
               <p className="text-[8px] font-bold uppercase tracking-[0.16em] text-white/65">{tx("Delivery", "Доставка", "Доставка", "Lieferung", "Entrega")}</p>
               <p className="mt-1 text-lg font-black leading-none text-white">2–5</p>
@@ -240,9 +240,13 @@ export default function ShippingPricesPage({ tx }) {
         </article>
 
         <article
-          className="relative flex min-h-[238px] flex-col overflow-hidden rounded-2xl border border-white/15 bg-slate-950 bg-cover bg-center p-4 shadow-[0_12px_30px_rgba(0,0,0,.28)] transition-colors duration-300 hover:border-white/30 sm:min-h-[224px] sm:p-4 xl:min-h-[248px] xl:p-5 2xl:min-h-[280px] 2xl:p-6"
-          style={shippingBackground("shipping-express")}
+          className="relative flex min-h-[238px] flex-col overflow-hidden rounded-2xl border border-[#202024] bg-slate-950 p-4 shadow-[0_12px_30px_rgba(0,0,0,.28)] transition-colors duration-300 hover:border-white/30 sm:min-h-[224px] sm:p-4 xl:min-h-[248px] xl:p-5 2xl:min-h-[280px] 2xl:p-6"
         >
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-[2px] z-0 rounded-[14px] bg-cover bg-center"
+            style={shippingBackground("shipping-express")}
+          />
           <div className="relative z-10 flex items-center gap-3">
             <IconBadge tone="amber"><Zap size={21} strokeWidth={2.2} /></IconBadge>
             <div>
@@ -385,7 +389,7 @@ export default function ShippingPricesPage({ tx }) {
             <p className="mt-2 text-[9px] uppercase leading-snug tracking-wide text-white/75 sm:text-[10px]">
               {tx("Discounts do not stack. The highest eligible discount applies.", "Скидки не складываются. Применяется максимальная доступная скидка.", "Знижки не додаються. Застосовується найбільша доступна знижка.", "Rabatte sind nicht kombinierbar. Es gilt der höchste berechtigte Rabatt.", "Los descuentos no se acumulan. Se aplica el descuento más alto que corresponda.")}
             </p>
-            <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-300/25 bg-black/55 px-2.5 py-2 backdrop-blur-sm">
+            <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-300/25 bg-black/55 px-2.5 py-2 backdrop-blur-sm max-sm:w-[155%]">
               <Gift size={17} className="mt-0.5 shrink-0 text-amber-300" />
               <p className="text-[11px] leading-snug text-white/95 sm:text-xs 2xl:text-[13px]">
                 <strong className="block text-white">{tx("Orders above $350 receive a FREE BAC WATER bonus", "Заказы от $350 получают БЕСПЛАТНЫЙ BAC WATER", "Замовлення від $350 отримують БЕЗКОШТОВНИЙ BAC WATER", "Bestellungen über $350 erhalten einen KOSTENLOSEN BAC-WATER-Bonus", "Los pedidos superiores a $350 reciben BAC WATER GRATIS")}</strong>

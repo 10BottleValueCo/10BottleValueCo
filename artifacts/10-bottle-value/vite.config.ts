@@ -89,6 +89,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         storefront: path.resolve(import.meta.dirname, 'index.html'),
+        meritTest: path.resolve(import.meta.dirname, 'merit-test.html'),
         meritReview: path.resolve(import.meta.dirname, 'merit-review.html'),
       },
     },

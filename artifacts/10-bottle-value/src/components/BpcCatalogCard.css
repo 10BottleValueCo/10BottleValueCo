@@ -415,6 +415,12 @@
   min-width: 0;
 }
 
+.bpc-catalog-card__cart-action > button,
+.bpc-catalog-card__cart-primary {
+  font-weight: 900 !important;
+  -webkit-text-stroke: .4px currentColor;
+}
+
 @media (min-width: 768px) {
   .bpc-catalog-card {
     padding: 16px;

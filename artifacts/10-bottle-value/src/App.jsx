@@ -2,7 +2,7 @@
 // cache-bust
 // @ts-nocheck
 import { Fragment, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Info, X } from "lucide-react";
+import { Info, UserRound, X } from "lucide-react";
 import confetti from "canvas-confetti";
 import { supabase, userFromSupabase } from "./supabase.js";
 import { track, trackPageView } from "./analytics.js";
@@ -10,8 +10,11 @@ import { useSEO } from "./useSEO.js";
 import { catalogProductName, matchesProductSearch, productSlug as productSlugFor, publicProductName } from "./productNames.js";
 import { buildSupportTimeline } from "./support-timeline.js";
 import BpcCatalogCard from "./components/BpcCatalogCard.jsx";
+import HomePage from "./components/HomePage.jsx";
 import ProductPackSelector from "./components/ProductPackSelector.jsx";
 import ShippingPricesPage from "./components/ShippingPricesPage.jsx";
+import AffiliateProgramPage from "./components/AffiliateProgramPage.jsx";
+import { preloadInfoPageImages } from "./preloadInfoPageImages.js";
 import UsFlag from "./components/UsFlag.jsx";
 import vialCManifest from "./data/vialCManifest.json";
 import cashAppLogo from "./assets/payment-logos/cash-app.svg";
@@ -1749,6 +1752,7 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 110,
       warehouse: "us",
+      outOfStock: true,
       coaImages: ["coa-tirz-30mg-p1.png"],
       coaPdf: "coa-tirz-30mg.pdf",
     },
@@ -3552,6 +3556,24 @@ export default function App() {
     }
     return "home";
   });
+  const [infoPageImagesState, setInfoPageImagesState] = useState("loading");
+  const [infoPageImageRetry, setInfoPageImageRetry] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setInfoPageImagesState("loading");
+    preloadInfoPageImages()
+      .then(() => {
+        if (active) setInfoPageImagesState("ready");
+      })
+      .catch((error) => {
+        console.error("Could not preload information-page images.", error);
+        if (active) setInfoPageImagesState("error");
+      });
+    return () => {
+      active = false;
+    };
+  }, [infoPageImageRetry]);
+
   // Keep every public section on a stable, crawlable URL.
   useEffect(() => {
     const publicPath = publicPageToPath[page];
@@ -9873,6 +9895,30 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     );
   }
 
+  const homeFeaturedGroups = ["BPC-157", "TB-500 + BPC-157", "Retatrutide / GLP-3", "GHK-CU", "MOTS-C"]
+    .map((name) => shopProductGroups.find((group) => group[0]?.name === name))
+    .filter(Boolean);
+  const homeFeaturedProducts = homeFeaturedGroups.map((group) => {
+    const product = group.find((item) => !item.outOfStock) || group[0];
+    return {
+      id: group[0].name,
+      name: publicProductName(group[0].name),
+      dose: product.dose,
+      image: renderProductVialImage({ product, large: true }),
+      tileImage: renderProductVialImage({ product }),
+      card: renderCatalogGroup(group),
+    };
+  });
+
+  function openHomeShop(productName = "") {
+    setAccountPromoCodeInput("");
+    const name = productName ? publicProductName(productName) : "";
+    setInputValue(name);
+    setSearchTerm(name);
+    setSelectedShopName(name);
+    setPage("shop");
+  }
+
   function addToCart(product, source = "catalog") {
     const addedId = getProductId(product);
     const effectivePrice = product.price;
@@ -12856,24 +12902,28 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       )}
       <div className="relative md:sticky md:top-0 z-[100]">
         {/* Mobile: thin ticker */}
-        <div data-nosnippet className="md:hidden w-full bg-black overflow-hidden py-[5px] text-[8px] font-semibold uppercase tracking-[0.10em] text-white">
-          <div className="banner-ticker">
-            {[0,1].map(i => (
-              <span key={i} className="flex items-center shrink-0">
-                <span className="whitespace-nowrap px-4">{i18n(legal.ruoStrict)}</span>
-                <span className="text-white/30 px-1">|</span>
-                <span className="whitespace-nowrap px-4">US WAREHOUSE FREE SHIPPING</span>
-                <span className="text-white/30 px-1">|</span>
-                <span className="whitespace-nowrap px-4">FREE STANDARD SHIPPING $300+</span>
-                <span className="text-white/30 px-1">|</span>
-                <span className="whitespace-nowrap px-4">FREE EXPRESS SHIPPING $550+</span>
-                <span className="text-white/30 px-1">|</span>
-              </span>
-            ))}
+        <div data-nosnippet className="lg:hidden w-full overflow-hidden bg-black px-3 py-1.5 text-[8px] font-semibold uppercase leading-[1.35] tracking-[0.06em] text-white">
+          <div className="mx-auto max-w-[720px]">
+            <div className="shipping-announcement-viewport w-full overflow-hidden">
+              <div className="shipping-announcement-track">
+                <div className="shipping-announcement-group">
+                  <span className="text-[7px] text-white/65">{i18n(legal.ruoStrict)}</span>
+                  <span>US WAREHOUSE FREE SHIPPING</span>
+                  <span>FREE STANDARD SHIPPING $300+</span>
+                  <span>FREE EXPRESS SHIPPING $550+</span>
+                </div>
+                <div className="shipping-announcement-group" aria-hidden="true">
+                  <span className="text-[7px] text-white/65">{i18n(legal.ruoStrict)}</span>
+                  <span>US WAREHOUSE FREE SHIPPING</span>
+                  <span>FREE STANDARD SHIPPING $300+</span>
+                  <span>FREE EXPRESS SHIPPING $550+</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         {/* Desktop: static row */}
-        <div data-nosnippet className="hidden md:flex relative z-[100] w-full bg-black px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white items-center justify-center gap-4">
+        <div data-nosnippet className="hidden lg:flex relative z-[100] w-full bg-black px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white items-center justify-center gap-4">
           <span className="text-center leading-tight">{i18n(legal.ruoStrict)}</span>
           <span className="text-white/30 font-light shrink-0">|</span>
           <span className="whitespace-nowrap shrink-0">US WAREHOUSE FREE SHIPPING</span>
@@ -12943,9 +12993,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           </div>
         </div>
       )}
-      <div className="min-h-screen bg-[#8f8f8f] text-white">
+      <div className={`tbv-app-shell min-h-screen bg-[#8f8f8f] text-white ${page === "home" ? "tbv-app-shell--home" : ""}`}>
         <header
           data-nosnippet
+          data-home-header={page === "home" ? "true" : undefined}
           className="sticky top-0 md:top-[32px] z-[200] border-b border-white/20 bg-[#8f8f8f] pb-0 md:pb-[3px]"
         >
           <div className="mx-auto flex min-h-[44px] w-full items-center justify-between px-4 py-1 pt-[19px] md:min-h-0 md:px-10 md:py-0 md:pt-[19px]">
@@ -12963,20 +13014,20 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
             >
               <img
                 ref={logoImgRef}
-                src="/logo.png"
+                src="/images/header-vial.png"
                 alt="10BottleValueCo — Research Peptides"
                 className="h-[46px] w-auto -translate-y-[2px] object-contain brightness-110 md:h-[66px] md:-translate-y-[1px]"
                 style={{ display: "inline-block" }}
               />
 
               {/* Текст */}
-              <span className="text-lg font-semibold tracking-[0.08em] text-white md:text-2xl" style={{ textShadow: "1px 1px 0 rgba(0,0,0,0.4), 2px 2px 0 rgba(0,0,0,0.4), 3px 3px 0 rgba(0,0,0,0.4), 4px 4px 0 rgba(0,0,0,0.4), 6px 6px 10px rgba(0,0,0,0.4)" }}>
-                BottleValueCo
+              <span className="text-base font-semibold tracking-[0.02em] text-white md:text-2xl md:tracking-[0.08em]" style={{ textShadow: "1px 1px 0 rgba(0,0,0,0.4), 2px 2px 0 rgba(0,0,0,0.4), 3px 3px 0 rgba(0,0,0,0.4), 4px 4px 0 rgba(0,0,0,0.4), 6px 6px 10px rgba(0,0,0,0.4)" }}>
+                10BottleValueCo
               </span>
             </a>
 
             {/* Desktop nav */}
-            <nav className="ml-auto hidden flex-1 items-center justify-end gap-1 xl:flex">
+            <nav className="ml-auto hidden flex-1 items-center justify-end gap-1 2xl:flex">
               {showScrollTop && page === "shop" && (
                 <button
                   onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
@@ -12990,6 +13041,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 <a
                   key={item.key}
                   href={publicPageToPath[item.key] || "/"}
+                  aria-label={item.key === "account" ? String(item.label) : undefined}
+                  title={item.key === "account" ? String(item.label) : undefined}
                   onClick={(event) => {
                     handlePublicPageLink(event, item.key);
                     if (item.key === "account" && currentUser?.email && !isAdminUser()) {
@@ -12997,7 +13050,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     }
                   }}
                   style={{ textShadow: page === item.key || item.key === "cart" ? "none" : "1px 1px 0 rgba(0,0,0,0.2), 2px 2px 0 rgba(0,0,0,0.2), 3px 3px 0 rgba(0,0,0,0.2), 4px 4px 0 rgba(0,0,0,0.2), 6px 6px 10px rgba(0,0,0,0.2)" }}
-                  className={`px-3 py-2 rounded-full text-[14px] font-bold uppercase tracking-[0.2em]
+                  className={`${
+                    item.key === "account"
+                      ? "flex h-10 w-10 items-center justify-center rounded-full transition"
+                      : "px-3 py-2 rounded-full text-[14px] font-bold uppercase tracking-[0.2em]"
+                  }
                     ${item.key === "cart" && cartHighlight ? "cart-pop" : ""}
                     ${
                       item.key === "cart"
@@ -13009,20 +13066,15 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         : "text-white hover:bg-black/20"
                     }`}
                 >
-                  {item.key === "account" ? (
-                    <span className="relative">
-                      {page !== "account" && !(page === "cart" && !currentUser) && (
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 h-3.5 w-3.5"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
-                      )}
-                      {item.label}
-                    </span>
-                  ) : item.label}
+                  {item.key === "account"
+                    ? <UserRound aria-hidden="true" className="h-5 w-5" strokeWidth={2} />
+                    : item.label}
                 </a>
               ))}
             </nav>
 
             {/* Mobile: cart pill + hamburger */}
-            <div className="ml-auto flex items-center gap-2 xl:hidden">
+            <div className="ml-auto flex items-center gap-2 2xl:hidden">
               <a
                 href="/cart"
                 onClick={(event) => handlePublicPageLink(event, "cart")}
@@ -13034,7 +13086,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               <button
                 type="button"
                 onClick={() => setIsMobileMenuOpen(true)}
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/10 text-white"
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black text-white"
                 aria-label="Open menu"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
@@ -13048,12 +13100,36 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           </div>
         </header>
 
+        {showCookieBanner && (
+          <div
+            data-home-cookie={page === "home" ? "true" : undefined}
+            className="mx-auto my-2 flex w-[calc(100%-1.5rem)] max-w-[420px] items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/95 px-3 py-2.5 shadow-[0_8px_32px_rgba(0,0,0,.35)] md:my-3 md:w-max md:rounded-full md:px-5"
+          >
+            <span className="min-w-0 flex-1 text-[10px] leading-snug text-white/60 sm:text-[11px] md:flex-none md:whitespace-nowrap">We use cookies to improve your experience.</span>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                onClick={() => { localStorage.setItem("cookieAccepted", "1"); setShowCookieBanner(false); }}
+                className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold text-black hover:bg-white/90"
+              >
+                Accept
+              </button>
+              <button
+                onClick={() => setShowCookieBanner(false)}
+                aria-label="Dismiss cookie notice"
+                className="text-[11px] text-white/40 hover:text-white/70"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Mobile scroll-to-top fixed button */}
         {showScrollTop && page === "shop" && (
           <button
             onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
             aria-label="Scroll to top"
-            className="fixed bottom-6 right-4 z-[150] flex h-11 w-11 items-center justify-center rounded-full bg-black/70 text-white shadow-[0_4px_20px_rgba(0,0,0,0.3)] backdrop-blur-sm transition-all duration-200 active:scale-95 xl:hidden"
+            className="fixed bottom-6 right-4 z-[150] flex h-11 w-11 items-center justify-center rounded-full bg-black/70 text-white shadow-[0_4px_20px_rgba(0,0,0,0.3)] backdrop-blur-sm transition-all duration-200 active:scale-95 2xl:hidden"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><polyline points="18 15 12 9 6 15"/></svg>
           </button>
@@ -13061,7 +13137,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
         {/* Mobile menu drawer */}
         {isMobileMenuOpen && (
-          <div className="fixed inset-0 z-[200] md:hidden" role="dialog" aria-modal="true">
+          <div className="fixed inset-0 z-[200] 2xl:hidden" role="dialog" aria-modal="true">
             <div
               className="absolute inset-0 bg-black/60"
               onClick={() => setIsMobileMenuOpen(false)}
@@ -13085,6 +13161,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   <a
                     key={item.key}
                     href={publicPageToPath[item.key] || "/"}
+                    aria-label={item.key === "account" ? String(item.label) : undefined}
+                    title={item.key === "account" ? String(item.label) : undefined}
                     onClick={(event) => {
                       handlePublicPageLink(event, item.key);
                       setIsMobileMenuOpen(false);
@@ -13092,7 +13170,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         refreshUserOrdersFromSupabase(currentUser.email);
                       }
                     }}
-                    className={`w-full rounded-full px-4 py-3 text-center text-[13px] font-bold uppercase tracking-[0.2em] transition ${
+                    className={`${
+                      item.key === "account"
+                        ? "mx-auto flex h-11 w-11 items-center justify-center rounded-full transition"
+                        : "w-full rounded-full px-4 py-3 text-center text-[13px] font-bold uppercase tracking-[0.2em] transition"
+                    } ${
                       page === item.key
                         ? "bg-white text-black"
                         : item.key === "account" && page === "cart" && !currentUser
@@ -13100,7 +13182,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         : "bg-black/20 text-white"
                     }`}
                   >
-                    {item.label}
+                    {item.key === "account"
+                      ? <UserRound aria-hidden="true" className="h-5 w-5" strokeWidth={2} />
+                      : item.label}
                   </a>
                 ))}
               </nav>
@@ -13110,233 +13194,24 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
         {page === "home" && (
           <>
-            <main className="relative mx-auto flex w-full max-w-[1700px] items-start pt-8 px-4 pb-10 md:min-h-[calc(100vh-73px)] md:pt-20 md:pr-10 md:pl-0 md:pb-16">
-
-
-              <div className="relative z-10 w-full max-w-none md:pl-4">
-                <h1
-                  className="leading-[1.05]"
-                  style={{"--hero-fs": `min(5.5vw, ${(88 / (Math.max(t("hero1").length, t("hero2").length) * 0.58)).toFixed(2)}vw)`}}
-                >
-                  <span className="flex flex-nowrap items-center gap-x-3 whitespace-nowrap font-extrabold md:font-normal [font-size:var(--hero-fs)] md:text-[clamp(16px,4.5vw,128px)]">
-                    <span className="hero-3d-text">{t("hero1")}</span>
-                    <span className="!hidden md:!inline-flex items-end hero-dollar-break-wrap font-black text-red-500 [font-size:22px] md:[font-size:36px]">
-                      <span className="hero-dollar-break" style={{ animationDelay: "0s", "--peak": 1.15 }}>$</span>
-                      <span className="hero-dollar-break" style={{ animationDelay: "0.35s", "--peak": 1.55 }}>$</span>
-                      <span className="hero-dollar-break" style={{ animationDelay: "0.7s", "--peak": 2.05 }}>$</span>
-                    </span>
-                  </span>
-                  <span className="flex flex-nowrap items-center gap-x-3 whitespace-nowrap font-extrabold md:font-normal [font-size:var(--hero-fs)] md:text-[clamp(16px,4.5vw,128px)] mt-[3px] md:mt-[4px]">
-                    <span className="hero-3d-text">{t("hero2")}</span>
-                    <HeroSavingsTicker className="hidden md:inline-flex [font-size:15px] md:[font-size:22px]" />
-                  </span>
-                </h1>
-
-
-                <div data-nosnippet className="mt-8 md:mt-11 space-y-3 text-[13px] min-[360px]:text-[15px] md:space-y-5 md:text-xl font-semibold leading-relaxed text-white uppercase">
-                  {[
-                    { key: "heroBullet1", icon: heroIcons.vials, iconName: "vials", color: "#7dd3fc" },
-                    { key: "heroBullet2", icon: heroIcons.tag, iconName: "tag", color: "#fbbf24" },
-                    { key: "heroBulletPayment", icon: heroIcons.card, iconName: "card", color: "#34d399" },
-                    { key: "heroBullet4", icon: heroIcons.truck, iconName: "truck", color: "#fb923c" },
-                    { key: "heroBulletWarehouse", icon: heroIcons.warehouse, iconName: "warehouse", color: "#d8b4fe" },
-                    { key: "heroBulletDesign", icon: heroIcons.sparkle, iconName: "sparkle", color: "#f472b6" },
-                    { key: "heroBullet3", icon: heroIcons.shield, iconName: "shield", color: "#2dd4bf" },
-                  ].map((row, i) => (
-                    <p
-                      key={row.key}
-                      className="hero-bullet-row group relative flex w-fit items-center gap-2 rounded-xl py-1 md:-mx-3 md:gap-3 md:px-3"
-                      style={{ "--row-color": row.color }}
-                    >
-                      <span
-                        data-icon={row.iconName}
-                        className="hero-bullet-icon inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center md:h-7 md:w-7"
-                        style={{ animationDelay: `${i * 0.09}s` }}
-                        onClick={(e) => {
-                          const el = e.currentTarget;
-                          el.classList.remove("hero-bullet-icon-pop");
-                          void el.offsetWidth;
-                          el.classList.add("hero-bullet-icon-pop");
-                          setTimeout(() => el.classList.remove("hero-bullet-icon-pop"), 550);
-                        }}
-                      >
-                        {row.icon}
-                      </span>
-                      <span className="transition-transform duration-300 group-hover:translate-x-1.5" style={{textShadow: "1px 1px 0 rgba(0,0,0,0.1), 2px 2px 0 rgba(0,0,0,0.1), 3px 3px 0 rgba(0,0,0,0.1), 4px 4px 0 rgba(0,0,0,0.1), 6px 6px 10px rgba(0,0,0,0.1)"}}>
-                        {row.key === "heroBulletPayment" ? (
-                          <span className="inline-flex flex-wrap items-center gap-x-[0.34em] gap-y-1">
-                            <span>CARDS</span>
-                            <span>&amp;</span>
-                            <span
-                              aria-label="Cash App"
-                              title="Cash App"
-                              className="inline-flex h-[1.35em] w-[1.35em] shrink-0 items-center justify-center overflow-hidden rounded-[0.28em] bg-[#00d64f] align-middle shadow-[0_3px_7px_rgba(0,0,0,0.22)]"
-                            >
-                              <svg aria-hidden="true" viewBox="0 0 24 24" className="h-[1.08em] w-[1.08em]">
-                                <path d="M15.9 5.1c-1-.6-2.2-.9-3.6-.9-3 0-5.1 1.5-5.1 3.8 0 2.1 1.6 3.1 4.3 3.9 1.8.5 2.4.9 2.4 1.7 0 .9-.8 1.5-2.1 1.5-1.5 0-2.9-.5-4.1-1.4l-1.8 2.5c1.2.9 2.6 1.5 4.1 1.7v2h3.1v-2c2.8-.4 4.5-2.1 4.5-4.5 0-2.2-1.5-3.3-4.4-4.1-1.7-.5-2.3-.8-2.3-1.6 0-.7.6-1.2 1.7-1.2 1.2 0 2.4.4 3.5 1.1l1.5-2.6c-.7-.5-1.5-.8-2.4-1.1V2h-3.1v1.9c-2.8.2-4.7 1.9-4.7 4.2" fill="white"/>
-                              </svg>
-                            </span>
-                            <span>&amp;</span>
-                            <span
-                              aria-label="PayPal"
-                              title="PayPal"
-                              className="inline-flex h-[1.35em] shrink-0 items-center justify-center rounded-[0.28em] bg-white px-[0.34em] align-middle shadow-[0_3px_7px_rgba(0,0,0,0.18)]"
-                            >
-                              <img
-                                src="/paypal-logo-horizontal.svg"
-                                alt=""
-                                aria-hidden="true"
-                                className="h-[0.82em] w-auto max-w-[3.3em] object-contain"
-                              />
-                            </span>
-                            <span>&amp; CRYPTO.</span>
-                          </span>
-                        ) : (
-                          t(row.key)
-                        )}
-                      </span>
-                    </p>
-                  ))}
-                </div>
-
-                <div className="mt-8 flex flex-col gap-3 md:mt-10 md:flex-row md:flex-wrap md:gap-4">
-                  <div className="flex flex-col items-center gap-2">
-                    <button
-                      onClick={() => { setAccountPromoCodeInput(""); setPage("shop"); }}
-                      className="hero-cta-btn w-full rounded-full px-8 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition active:scale-[0.98] md:w-auto whitespace-nowrap"
-                      style={{background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.28)", backdropFilter: "blur(4px)", boxShadow: "0 0 0 0 transparent", transition: "box-shadow 0.25s"}}
-                      onMouseEnter={e => e.currentTarget.style.boxShadow = "0 0 18px 2px rgba(255,255,255,0.12)"}
-                      onMouseLeave={e => e.currentTarget.style.boxShadow = "0 0 0 0 transparent"}
-                    >
-                      <span className="font-bold">{t("enterShop")}</span><span className="uppercase font-semibold opacity-55"> (Worldwide)</span>
-                    </button>
-                    <div className="flex items-center gap-2">
-                      <img src="/globe.png" alt="Worldwide" width="34" height="34" className="md:w-[44px] md:h-[44px]" style={{filter:"drop-shadow(0 3px 8px rgba(0,0,0,0.55))",objectFit:"contain"}}/>
-                      <span style={{color:"#111",fontSize:"13px",fontWeight:900,letterSpacing:"0.05em",lineHeight:1}}>(USA INCLUDED)</span>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-center gap-2">
-                    <button
-                      onClick={() => { setAccountPromoCodeInput(""); setPage("us-warehouse"); }}
-                      className="hero-cta-btn w-full rounded-full px-8 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition active:scale-[0.98] md:w-auto whitespace-nowrap"
-                      style={{background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.28)", backdropFilter: "blur(4px)", boxShadow: "0 0 0 0 transparent", transition: "box-shadow 0.25s"}}
-                      onMouseEnter={e => e.currentTarget.style.boxShadow = "0 0 18px 2px rgba(255,255,255,0.12)"}
-                      onMouseLeave={e => e.currentTarget.style.boxShadow = "0 0 0 0 transparent"}
-                    >
-                      <span className="font-bold">{t("enterShop")}</span><span className="font-semibold opacity-55" style={{textTransform:"uppercase"}}> (US Warehouse)</span>
-                    </button>
-                    <div className="flex items-center gap-2">
-                      <svg width="44" height="29" className="md:w-[54px] md:h-[36px]" viewBox="0 0 52 36" xmlns="http://www.w3.org/2000/svg" style={{borderRadius:"4px",boxShadow:"0 2px 8px rgba(0,0,0,0.55)"}}>
-                        {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(i => (
-                          <rect key={i} x="0" y={i*(36/13)} width="52" height={36/13} fill={i%2===0?"#C8102E":"#FFFFFF"}/>
-                        ))}
-                        <rect width="22" height={36*7/13} fill="#002868"/>
-                        {Array.from({length:9}, (_,row) => {
-                          const even = row%2===0;
-                          const count = even ? 6 : 5;
-                          const xStart = even ? 1.8 : 4.0;
-                          return Array.from({length:count}, (_,col) => (
-                            <text key={`${row}-${col}`} x={xStart+col*3.4} y={2.2+row*2.15} fontSize="2.2" fill="white" textAnchor="middle" dominantBaseline="middle">★</text>
-                          ));
-                        })}
-                      </svg>
-                      <span style={{color:"#111",fontSize:"16.5px",fontWeight:800,letterSpacing:"0.15em",lineHeight:1}}>FASTER</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </main>
-
-            <section className="mx-auto mt-20 w-full max-w-[1700px] px-4 md:mt-20 md:pl-10 md:pr-0">
-              <div className="rounded-[2rem] bg-black/10 px-5 py-14 text-center shadow-[0_10px_30px_rgba(0,0,0,0.06)] md:rounded-[2.5rem] md:px-12 md:py-16">
-                <h2 className="text-[18px] uppercase tracking-[0.28em] text-white/80 md:text-[28px]">
-                  {language === "RU"
-                    ? "НАШИ СОЦИАЛЬНЫЕ КАНАЛЫ"
-                    : language === "UA"
-                    ? "НАШІ СОЦІАЛЬНІ КАНАЛИ"
-                    : language === "DE"
-                    ? "Unsere Social-Media-Kanäle"
-                    : language === "ES"
-                    ? "Nuestros canales sociales"
-                    : "Our Social Channels"}
-                </h2>
-
-                <div className="mt-8 flex flex-wrap items-start justify-center gap-x-4 gap-y-5 md:mt-14 md:gap-x-16 md:gap-y-10">
-                  {[
-                    {
-                      name: "Trustpilot",
-                      icon: SOCIAL_ICONS.Trustpilot,
-                      url: "https://www.trustpilot.com/review/10bottlevalue.co",
-                      rating: { score: 4.6, count: 21 },
-                    },
-                    {
-                      name: "X",
-                      icon: SOCIAL_ICONS.X,
-                      url: "https://x.com/10BottleValueCo",
-                      sub: "1200+ followers",
-                    },
-                  ].map((item) => {
-                    const inner = (
-                      <>
-                        <div className={`flex h-16 w-16 items-center justify-center rounded-full bg-white/10 shadow-[0_14px_30px_rgba(0,0,0,0.12)] transition-all duration-300 md:h-24 md:w-24 ${item.disabled ? "opacity-40" : "group-hover:bg-white/20 group-hover:scale-110"}`}>
-                          {SOCIAL_ICONS[item.name] || item.icon}
-                        </div>
-                        <div className={`mt-3 text-[13px] uppercase tracking-widest transition md:mt-5 md:text-[16px] ${item.disabled ? "text-white/40" : "text-white/80 group-hover:text-white"}`}>
-                          {item.name}
-                        </div>
-                        {item.rating && (
-                          <div className="mt-3 flex flex-col items-center gap-[6px]">
-                            {/* Trustpilot-style: green tiles with white stars */}
-                            <div className="flex items-center gap-[2px] md:gap-[3px]">
-                              {[1,2,3,4].map(i => (
-                                <div key={i} className="flex h-[18px] w-[18px] md:h-[26px] md:w-[26px] items-center justify-center rounded-[2px] md:rounded-[3px]" style={{background:"#00b67a"}}>
-                                  <svg width="10" height="10" className="md:hidden" viewBox="0 0 24 24" fill="white">
-                                    <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z"/>
-                                  </svg>
-                                  <svg width="15" height="15" className="hidden md:block" viewBox="0 0 24 24" fill="white">
-                                    <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z"/>
-                                  </svg>
-                                </div>
-                              ))}
-                              {/* half tile */}
-                              <div className="relative flex h-[18px] w-[18px] md:h-[26px] md:w-[26px] items-center justify-center overflow-hidden rounded-[2px] md:rounded-[3px]">
-                                <div className="absolute inset-0 flex">
-                                  <div className="h-full w-1/2" style={{background:"#00b67a"}}/>
-                                  <div className="h-full w-1/2" style={{background:"#dcdce6"}}/>
-                                </div>
-                                <svg className="relative z-10 md:hidden" width="10" height="10" viewBox="0 0 24 24" fill="white">
-                                  <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z"/>
-                                </svg>
-                                <svg className="relative z-10 hidden md:block" width="15" height="15" viewBox="0 0 24 24" fill="white">
-                                  <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z"/>
-                                </svg>
-                              </div>
-                            </div>
-                            <div className="text-[9px] md:text-[11px] font-semibold text-white tracking-wide">{item.rating.score} <span className="text-white font-normal">· {item.rating.count} {tx("reviews","отзывов","відгуків","Bewertungen","reseñas")}</span></div>
-                          </div>
-                        )}
-                        {(item.sub || item.disabled) && (
-                          <div className="mt-1 text-[10px] text-white tracking-wide md:text-[11px]">{item.sub || "Soon"}</div>
-                        )}
-                      </>
-                    );
-                    return item.disabled ? (
-                      <div key={item.name} className="group relative z-20 flex w-[100px] cursor-not-allowed flex-col items-center md:w-[140px]" aria-label={item.name}>
-                        {inner}
-                      </div>
-                    ) : (
-                      <a key={item.name} href={item.url} target="_blank" rel="noopener noreferrer" className="group relative z-20 flex w-[100px] cursor-pointer flex-col items-center md:w-[140px]" aria-label={item.name}>
-                        {inner}
-                      </a>
-                    );
-                  })}
-                </div>
-              </div>
-            </section>
-
-            <div className="h-[80px] md:h-[460px]" />
-
-            <section className="w-full bg-black/10 px-6 py-8 md:px-10 md:py-10">
+            <HomePage
+              language={language}
+              tx={tx}
+              featuredProducts={homeFeaturedProducts}
+              onOpenShop={openHomeShop}
+              onOpenUsWarehouse={() => {
+                setAccountPromoCodeInput("");
+                setPage("us-warehouse");
+              }}
+              onOpenShipping={() => setPage("bonuses")}
+              onScrollToProducts={() => {
+                document.getElementById("tbv-home-products")?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "start",
+                });
+              }}
+            />
+            <section className="tbv-home__legal w-full px-6 py-8 md:px-10 md:py-10">
               <div className="mx-auto max-w-6xl text-center">
                 <div className="text-[10px] uppercase tracking-[0.28em] text-white">
                   {language === "RU"
@@ -13656,7 +13531,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     {language === "RU" ? "Загружаем порядок товаров…" : "Loading products…"}
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-5 md:gap-4 xl:gap-2">
+                  <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-3 xl:grid-cols-4 xl:gap-3 2xl:grid-cols-5 2xl:gap-2">
                     {shopProductGroups.map((group) => renderCatalogGroup(group))}
                   </div>
                 )}
@@ -14361,142 +14236,41 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           </main>
         )}
 
-        {page === "bonuses" && <ShippingPricesPage tx={tx} />}
-
-        {page === "affiliate" && (
-          <main className="mx-auto w-full max-w-[1700px] px-3 pt-4 pb-10 sm:px-5 md:px-7 md:pt-5 md:pb-16">
-
-            {/* Hero */}
-            <div className="mb-5 text-center md:mb-7">
-              <p className="mb-2 text-[9px] font-semibold uppercase tracking-[0.34em] text-white/60 sm:text-[10px]">
-                {tx("A PARTNERSHIP BUILT ON TRUST", "ПАРТНЁРСТВО, ОСНОВАННОЕ НА ДОВЕРИИ", "ПАРТНЕРСТВО, ЗАСНОВАНЕ НА ДОВІРІ", undefined, "UNA COLABORACIÓN BASADA EN LA CONFIANZA")}
-              </p>
-              <h1 className="text-[27px] font-extrabold uppercase leading-[0.98] tracking-[0.055em] text-white drop-shadow-[0_2px_8px_rgba(0,0,0,.5)] sm:text-4xl md:text-5xl">
-                {tx(
-                  "AFFILIATE PROGRAM",
-                  "ПАРТНЁРСКАЯ ПРОГРАММА",
-                  "ПАРТНЕРСЬКА ПРОГРАМА",
-                  "AFFILIATE-PROGRAMM",
-                  "PROGRAMA DE AFILIADOS"
-                )}
-              </h1>
-            </div>
-
-            {/* 3 stat cards */}
-            <div className="mb-3 grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-3">
-
-              <div className="relative overflow-hidden rounded-2xl border border-white/15 bg-cover bg-center px-5 py-6 text-left shadow-[0_12px_30px_rgba(0,0,0,.3)] sm:min-h-[245px] sm:px-6 sm:py-7 xl:min-h-[280px] 2xl:min-h-[300px] xl:px-7 xl:py-8" style={{backgroundImage:`linear-gradient(90deg,rgba(5,8,12,.95) 0%,rgba(5,8,12,.86) 42%,rgba(5,8,12,.38) 72%,rgba(5,8,12,.05) 100%),url("${import.meta.env.BASE_URL}affiliate/commission-photo.jpg")`,backgroundSize:"100% 100%, cover",backgroundPosition:"center, center"}}>
-                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl cursor-pointer" style={{background:"rgba(22,101,52,0.72)",boxShadow:"0 0 0 1px rgba(34,197,94,0.35)"}} onClick={e=>{const el=e.currentTarget;el.classList.remove('tbv-anim-pct');void el.offsetHeight;el.classList.add('tbv-anim-pct');setTimeout(()=>el.classList.remove('tbv-anim-pct'),750);}}>
-                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="rgba(74,222,128,0.75)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>
-                </div>
-                <p className="mb-3 text-[15px] font-extrabold uppercase leading-snug text-white sm:text-[17px]">
-                  {tx("AFFILIATE COMMISSION", "ПАРТНЁРСКАЯ КОМИССИЯ", "ПАРТНЕРСЬКА КОМІСІЯ", "AFFILIATE-PROVISION", "COMISIÓN DE AFILIADO")}
-                </p>
-                <div className="max-w-[50%] space-y-2 text-[11px] leading-[1.55] text-white/90 sm:text-xs md:text-[13px]">
-                  <p>{tx("EARN 10% COMMISSION ON ORDERS FROM CUSTOMERS YOU REFER.", "ПОЛУЧАЙТЕ 10% С ЗАКАЗОВ ПРИВЕДЁННЫХ ВАМИ КЛИЕНТОВ.", "ОТРИМУЙТЕ 10% КОМІСІЇ ІЗ ЗАМОВЛЕНЬ ЗАЛУЧЕНИХ ВАМИ КЛІЄНТІВ.", "SIE ERHALTEN 10% PROVISION AUF BESTELLUNGEN VON KUNDEN, DIE SIE VERMITTELT HABEN.", "GANA UN 10% DE COMISIÓN EN LOS PEDIDOS DE LOS CLIENTES QUE REFIERAS.")}</p>
-                  <p>{tx("YOUR REFERRED CUSTOMERS GET 5% OFF THEIR FIRST PURCHASE.", "ПРИВЕДЁННЫЕ ВАМИ КЛИЕНТЫ ПОЛУЧАЮТ СКИДКУ 5% НА ПЕРВУЮ ПОКУПКУ.", "ЗАЛУЧЕНІ ВАМИ КЛІЄНТИ ОТРИМУЮТЬ ЗНИЖКУ 5% НА ПЕРШУ ПОКУПКУ.", "IHRE VERMITTELTEN KUNDEN ERHALTEN 5% RABATT AUF IHREN ERSTEN EINKAUF.", "LOS CLIENTES QUE REFIERAS RECIBEN UN 5% DE DESCUENTO EN SU PRIMERA COMPRA.")}</p>
-                </div>
-              </div>
-
-              <div className="relative overflow-hidden rounded-2xl border border-white/15 bg-cover bg-center px-5 py-6 text-left shadow-[0_12px_30px_rgba(0,0,0,.3)] sm:min-h-[245px] sm:px-6 sm:py-7 xl:min-h-[280px] 2xl:min-h-[300px] xl:px-7 xl:py-8" style={{backgroundImage:`linear-gradient(90deg,rgba(5,8,12,.96) 0%,rgba(5,8,12,.88) 42%,rgba(5,8,12,.38) 72%,rgba(5,8,12,.08) 100%),url("${import.meta.env.BASE_URL}affiliate/lifetime-earnings-photo.jpg")`,backgroundSize:"100% 100%, cover",backgroundPosition:"center, center"}}>
-                <div className="relative z-10 max-w-[62%]">
-                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl cursor-pointer" style={{background:"rgba(88,28,135,0.72)",boxShadow:"0 0 0 1px rgba(168,85,247,0.35)"}} onClick={e=>{const el=e.currentTarget;el.classList.remove('tbv-anim-inf');void el.offsetHeight;el.classList.add('tbv-anim-inf');setTimeout(()=>el.classList.remove('tbv-anim-inf'),1300);}}>
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(192,132,252,0.75)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 12c-2-2.5-4-4-6-4a4 4 0 0 0 0 8c2 0 4-1.5 6-4z"/><path d="M12 12c2 2.5 4 4 6 4a4 4 0 0 0 0-8c-2 0-4 1.5-6 4z"/></svg>
-                </div>
-                <p className="mb-3 text-[15px] font-extrabold uppercase leading-snug text-white sm:text-[17px]">
-                  {tx("LIFETIME EARNINGS", "ПОЖИЗНЕННЫЙ ЗАРАБОТОК", "ДОВІЧНИЙ ЗАРОБІТОК", "LEBENSLANGE VERGÜTUNG", "GANANCIAS DE POR VIDA")}
-                </p>
-                <div className="space-y-2 text-[11px] leading-[1.55] text-white/90 sm:text-xs md:text-[13px]">
-                  <p>{tx("ONCE A CUSTOMER IS REFERRED, THEIR ORDERS REMAIN ATTRIBUTED TO YOUR CODE.", "КОГДА КЛИЕНТ ПРИВЛЕЧЁН, ЕГО ЗАКАЗЫ ОСТАЮТСЯ ПРИВЯЗАНЫ К ВАШЕМУ КОДУ.", "КОЛИ КЛІЄНТ ЗАЛУЧЕНИЙ, ЙОГО ЗАМОВЛЕННЯ ЗАЛИШАЮТЬСЯ ПРИВʼЯЗАНИМИ ДО ВАШОГО КОДУ.", undefined, "UNA VEZ REFERIDO UN CLIENTE, SUS PEDIDOS PERMANECEN ATRIBUIDOS A TU CÓDIGO.")}</p>
-                  <p>{tx("YOU EARN COMMISSION FROM ELIGIBLE TRACKED ORDERS.", "ВЫ ПОЛУЧАЕТЕ КОМИССИЮ С ПОДХОДЯЩИХ ОТСЛЕЖИВАЕМЫХ ЗАКАЗОВ.", "ВИ ОТРИМУЄТЕ КОМІСІЮ З ВІДПОВІДНИХ ВІДСТЕЖУВАНИХ ЗАМОВЛЕНЬ.", undefined, "GANAS COMISIÓN DE PEDIDOS ELEGIBLES RASTREADOS.")}</p>
-                </div>
-                </div>
-              </div>
-
-              <div className="relative overflow-hidden rounded-2xl border border-white/15 bg-cover bg-center px-5 py-6 text-left shadow-[0_12px_30px_rgba(0,0,0,.3)] sm:min-h-[245px] sm:px-6 sm:py-7 xl:min-h-[280px] 2xl:min-h-[300px] xl:px-7 xl:py-8" style={{backgroundImage:"radial-gradient(ellipse at 82% 82%,rgba(42,90,170,.34),transparent 52%),linear-gradient(135deg,#070c14 0%,#101a2a 100%)"}}>
-                <div className="pointer-events-none absolute inset-0 z-0" style={{backgroundImage:"linear-gradient(90deg,rgba(7,12,20,.96) 0%,rgba(7,12,20,.78) 48%,rgba(7,12,20,.08) 100%)"}} />
-                <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-2 z-[1] flex w-[44%] items-end justify-center opacity-95">
-                  <img src={`${import.meta.env.BASE_URL}vials-c/bpc-157-4a596acd979f.webp`} alt="" className="h-[68%] w-auto max-w-[49%] object-contain drop-shadow-[0_8px_22px_rgba(0,0,0,.75)]" />
-                  <img src={`${import.meta.env.BASE_URL}vials-c/nad-48d0c75f913c.webp`} alt="" className="h-[82%] w-auto max-w-[55%] object-contain drop-shadow-[0_8px_22px_rgba(0,0,0,.75)]" />
-                </div>
-                <div className="relative z-10 w-[58%]">
-                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl cursor-pointer" style={{background:"rgba(30,58,138,0.72)",boxShadow:"0 0 0 1px rgba(59,130,246,0.35)"}} onClick={e=>{const el=e.currentTarget;el.classList.remove('tbv-anim-check');void el.offsetHeight;el.classList.add('tbv-anim-check');setTimeout(()=>el.classList.remove('tbv-anim-check'),700);}}>
-                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="rgba(96,165,250,0.75)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                </div>
-                <p className="mb-3 text-[15px] font-extrabold uppercase leading-snug text-white sm:text-[17px]">
-                  {tx("WHY IT WORKS", "ПОЧЕМУ ЭТО РАБОТАЕТ", "ЧОМУ ЦЕ ПРАЦЮЄ", "WARUM ES FUNKTIONIERT", "POR QUÉ FUNCIONA")}
-                </p>
-                <div className="space-y-2 text-[11px] leading-[1.55] text-white/90 sm:text-xs md:text-[13px]">
-                  <p>{tx("LOWER PRICES. SAME QUALITY.", "НИЖЕ ЦЕНЫ. ТО ЖЕ КАЧЕСТВО.", "НИЖЧІ ЦІНИ. ТА САМА ЯКІСТЬ.", undefined, "PRECIOS MÁS BAJOS. MISMA CALIDAD.")}</p>
-                  <p>{tx("PAY FOR PRODUCT - NOT BRAND.", "ПЛАТИТЕ ЗА ПРОДУКТ — НЕ ЗА БРЕНД.", "ПЛАТІТЬ ЗА ПРОДУКТ — НЕ ЗА БРЕНД.", undefined, "PAGA POR EL PRODUCTO, NO POR LA MARCA.")}</p>
-                </div>
-                </div>
-              </div>
-            </div>
-
-            {/* How it works — numbered steps */}
-            <div className="mb-3 overflow-hidden rounded-2xl border border-white/10 bg-[#080b0e]/95 px-5 py-6 shadow-[0_12px_30px_rgba(0,0,0,.28)] sm:mb-4 sm:px-6 sm:py-7">
-              <p className="mb-5 text-center text-[10px] font-semibold uppercase tracking-[0.3em] text-white/60 sm:text-[11px]">
-                {tx("How it works", "Как это работает", "Як це працює", undefined, "Cómo funciona")}
-              </p>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-0 md:divide-x md:divide-white/10">
-                <div className="flex items-start gap-3 md:px-5 md:first:pl-0">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[13px] font-bold text-white" style={{background:"rgba(127,29,29,0.76)",boxShadow:"0 0 0 1px rgba(239,68,68,0.35)"}}>1</div>
-                  <p className="pt-0.5 text-[11px] font-semibold uppercase leading-[1.55] text-white/90 sm:text-xs md:text-[13px]">
-                    {tx("YOU GET A PERSONAL LINK OR PROMO CODE.", "ВЫ ПОЛУЧАЕТЕ ЛИЧНУЮ ССЫЛКУ ИЛИ ПРОМОКОД.", "ВИ ОТРИМУЄТЕ ОСОБИСТЕ ПОСИЛАННЯ АБО ПРОМОКОД.", undefined, "RECIBES UN ENLACE PERSONAL O CÓDIGO PROMOCIONAL.")}
-                  </p>
-                </div>
-                <div className="flex items-start gap-3 md:px-5">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[13px] font-bold text-white" style={{background:"rgba(120,73,10,0.76)",boxShadow:"0 0 0 1px rgba(234,179,8,0.35)"}}>2</div>
-                  <p className="pt-0.5 text-[11px] font-semibold uppercase leading-[1.55] text-white/90 sm:text-xs md:text-[13px]">
-                    {tx("ELIGIBLE REFERRALS ARE TRACKED AUTOMATICALLY.", "ПОДХОДЯЩИЕ РЕФЕРАЛЫ ОТСЛЕЖИВАЮТСЯ АВТОМАТИЧЕСКИ.", "ВІДПОВІДНІ РЕФЕРАЛИ ВІДСТЕЖУЮТЬСЯ АВТОМАТИЧНО.", undefined, "LOS REFERIDOS ELEGIBLES SE RASTREAN AUTOMÁTICAMENTE.")}
-                  </p>
-                </div>
-                <div className="flex items-start gap-3 md:px-5 md:last:pr-0">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[13px] font-bold text-white" style={{background:"rgba(22,101,52,0.76)",boxShadow:"0 0 0 1px rgba(34,197,94,0.35)"}}>3</div>
-                  <p className="pt-0.5 text-[11px] font-semibold uppercase leading-[1.55] text-white/90 sm:text-xs md:text-[13px]">
-                    {tx("COMMISSION APPLIES TO QUALIFYING ORDERS.", "КОМИССИЯ ПРИМЕНЯЕТСЯ К ПОДХОДЯЩИМ ЗАКАЗАМ.", "КОМІСІЯ ЗАСТОСОВУЄТЬСЯ ДО ВІДПОВІДНИХ ЗАМОВЛЕНЬ.", undefined, "LA COMISIÓN SE APLICA A PEDIDOS CALIFICADOS.")}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Who can join */}
-            <div className="mb-4 grid gap-3 sm:mb-5 lg:grid-cols-[1.45fr_1fr]">
-            <div className="relative overflow-hidden rounded-2xl border border-white/15 bg-cover bg-center px-5 py-6 text-left shadow-[0_12px_30px_rgba(0,0,0,.3)] sm:min-h-[250px] sm:px-6 sm:py-7" style={{backgroundImage:`linear-gradient(90deg,rgba(5,8,12,.97) 0%,rgba(5,8,12,.87) 54%,rgba(5,8,12,.24) 100%),url("${import.meta.env.BASE_URL}affiliate/creators.jpg")`}}>
-              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl cursor-pointer" style={{background:"rgba(124,45,18,0.76)",boxShadow:"0 0 0 1px rgba(249,115,22,0.35)"}} onClick={e=>{const el=e.currentTarget;el.classList.remove('tbv-anim-users');void el.offsetHeight;el.classList.add('tbv-anim-users');setTimeout(()=>el.classList.remove('tbv-anim-users'),700);}}>
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="rgba(251,146,60,0.75)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-              </div>
-              <p className="mb-3 text-xl font-extrabold uppercase leading-snug text-white sm:text-2xl">
-                {tx("WHO CAN APPLY", "КТО МОЖЕТ ПОДАТЬ ЗАЯВКУ", "ХТО МОЖЕ ПОДАТИ ЗАЯВКУ", "WER KANN SICH BEWERBEN", "QUIÉN PUEDE POSTULARSE")}
-              </p>
-              <div className="max-w-[680px] space-y-2 text-[11px] leading-[1.65] text-white/90 sm:text-xs md:text-[13px]">
-                <p>{tx("CREATORS ON YOUTUBE, TIKTOK, INSTAGRAM, TWITTER, REDDIT AND MORE.", "КРЕАТОРЫ В YOUTUBE, TIKTOK, INSTAGRAM, TWITTER, REDDIT И ДРУГИХ ПЛАТФОРМАХ.", "КРЕАТОРИ В YOUTUBE, TIKTOK, INSTAGRAM, TWITTER, REDDIT ТА НА ІНШИХ ПЛАТФОРМАХ.", undefined, "CREADORES EN YOUTUBE, TIKTOK, INSTAGRAM, TWITTER, REDDIT Y MÁS.")}</p>
-                <p>{tx("ANYONE WITH AN AUDIENCE - BIG OR SMALL - CAN APPLY. EMAIL US A SHORT INTRO ABOUT WHAT YOU DO, AND WE'LL REVIEW YOUR APPLICATION.", "ЛЮБОЙ С АУДИТОРИЕЙ — БОЛЬШОЙ ИЛИ МАЛЕНЬКОЙ — МОЖЕТ ПОДАТЬ ЗАЯВКУ. НАПИШИТЕ НАМ НА ПОЧТУ, КРАТКО РАССКАЖИТЕ, ЧЕМ ЗАНИМАЕТЕСЬ, И МЫ РАССМОТРИМ ВАШУ ЗАЯВКУ.", "БУДЬ-ХТО З АУДИТОРІЄЮ — ВЕЛИКОЮ АБО МАЛОЮ — МОЖЕ ПОДАТИ ЗАЯВКУ. НАПИШІТЬ НАМ НА ПОШТУ, КОРОТКО РОЗКАЖІТЬ, ЧИМ ЗАЙМАЄТЕСЯ, І МИ РОЗГЛЯНЕМО ВАШУ ЗАЯВКУ.", "JEDER MIT EINER ZIELGRUPPE — GROSS ODER KLEIN — KANN SICH BEWERBEN. SCHREIBEN SIE UNS PER E-MAIL, ERZÄHLEN SIE KURZ, WAS SIE MACHEN, UND WIR PRÜFEN IHRE BEWERBUNG.", "CUALQUIER PERSONA CON AUDIENCIA, GRANDE O PEQUEÑA, PUEDE POSTULARSE. ESCRÍBENOS POR CORREO, CUÉNTANOS BREVEMENTE A QUÉ TE DEDICAS Y REVISAREMOS TU SOLICITUD.")}</p>
-              </div>
-            </div>
-            <div className="flex flex-col justify-center gap-3 rounded-2xl border border-white/10 bg-[#090d12] p-4 shadow-[0_12px_30px_rgba(0,0,0,.25)] sm:p-5">
-              <div className="rounded-xl border border-white/10 bg-black/35 p-4">
-                <p className="text-sm font-extrabold uppercase text-white">{tx("APPLY VIA EMAIL", "ПОДАЙТЕ ЗАЯВКУ ПО EMAIL", "ПОДАЙТЕ ЗАЯВКУ ЕЛЕКТРОННОЮ ПОШТОЮ", undefined, "SOLICITA POR EMAIL")}</p>
-                <p className="mt-1 text-[10px] leading-relaxed text-white/65 sm:text-[11px]">{tx("EMAIL US A SHORT INTRO ABOUT WHAT YOU DO. WE'LL REVIEW YOUR APPLICATION.", "НАПИШИТЕ НАМ НА ПОЧТУ, КРАТКО РАССКАЖИТЕ, ЧЕМ ЗАНИМАЕТЕСЬ, И МЫ РАССМОТРИМ ВАШУ ЗАЯВКУ.", "НАПИШІТЬ НАМ НА ПОШТУ, КОРОТКО РОЗКАЖІТЬ, ЧИМ ЗАЙМАЄТЕСЯ, І МИ РОЗГЛЯНЕМО ВАШУ ЗАЯВКУ.", "SCHREIBEN SIE UNS PER E-MAIL, ERZÄHLEN SIE KURZ, WAS SIE MACHEN, UND WIR PRÜFEN IHRE BEWERBUNG.", "ESCRÍBENOS POR CORREO, CUÉNTANOS BREVEMENTE A QUÉ TE DEDICAS Y REVISAREMOS TU SOLICITUD.")}</p>
-              </div>
-              <button
-                type="button"
-                onClick={copySupportEmail}
-                className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-left text-[11px] font-bold tracking-wide text-white transition hover:bg-white/15 active:scale-[.99] sm:text-xs"
-              >
-                {copiedEmail
-                  ? language === "RU"
-                    ? "EMAIL СКОПИРОВАН"
-                    : language === "UA"
-                    ? "EMAIL СКОПІЙОВАНО"
-                    : "EMAIL COPIED"
-                  : "support@10bottlevalue.co"}
-                <span aria-hidden="true">→</span>
-              </button>
-            </div>
-            </div>
+        {["bonuses", "affiliate"].includes(page) && infoPageImagesState !== "ready" && (
+          <main
+            className="mx-auto flex min-h-[45vh] w-full max-w-5xl flex-col items-center justify-center gap-4 px-4 py-16 text-center text-white"
+            role={infoPageImagesState === "error" ? "alert" : "status"}
+            aria-live="polite"
+          >
+            {infoPageImagesState === "error" ? (
+              <>
+                <p>{tx("Some page images could not be loaded.", "Не удалось загрузить часть изображений страницы.", "Не вдалося завантажити частину зображень сторінки.", undefined, "No se pudieron cargar algunas imágenes de la página.")}</p>
+                <button
+                  type="button"
+                  onClick={() => setInfoPageImageRetry((attempt) => attempt + 1)}
+                  className="rounded-lg bg-white px-4 py-2 text-sm font-bold text-black transition hover:bg-white/90"
+                >
+                  {tx("Retry", "Повторить", "Повторити", undefined, "Reintentar")}
+                </button>
+              </>
+            ) : (
+              <>
+                <span aria-hidden="true" className="h-7 w-7 animate-spin rounded-full border-2 border-white/25 border-t-white" />
+                <p>{tx("Preparing page images…", "Подготавливаем изображения…", "Готуємо зображення…", undefined, "Preparando imágenes…")}</p>
+              </>
+            )}
           </main>
+        )}
+        {page === "bonuses" && infoPageImagesState === "ready" && <ShippingPricesPage tx={tx} />}
+
+        {page === "affiliate" && infoPageImagesState === "ready" && (
+          <AffiliateProgramPage
+            tx={tx}
+            copiedEmail={copiedEmail}
+            onCopyEmail={copySupportEmail}
+            onContact={() => setPage("contact")}
+            onLogin={() => setPage("account")}
+          />
         )}
         {page === "about" && (
           <main className="mx-auto max-w-5xl px-4 pt-2 pb-12 md:px-10 md:pt-4 md:pb-20">
@@ -20003,7 +19777,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 {language === "RU" ? "Загружаем порядок товаров…" : "Loading products…"}
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4 xl:grid-cols-5">
+              <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-3 xl:grid-cols-4 xl:gap-3 2xl:grid-cols-5 2xl:gap-2">
                 {usWarehouseProductGroups.map((group) => renderCatalogGroup(group, true))}
               </div>
             )}
@@ -23238,25 +23012,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         </div>
       )}
 
-      {showCookieBanner && (
-        <div className="fixed bottom-0 left-0 right-0 z-[9999] flex items-center justify-between gap-2 border-t border-white/10 bg-black/95 px-4 py-3 backdrop-blur-sm md:bottom-4 md:left-1/2 md:right-auto md:w-auto md:-translate-x-1/2 md:rounded-full md:border md:px-5 md:py-2.5">
-          <span className="text-[11px] text-white/60">We use cookies to improve your experience.</span>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              onClick={() => { localStorage.setItem("cookieAccepted", "1"); setShowCookieBanner(false); }}
-              className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-black hover:bg-white/90"
-            >
-              Accept
-            </button>
-            <button
-              onClick={() => setShowCookieBanner(false)}
-              className="text-[11px] text-white/30 hover:text-white/60"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
       {chatLightboxUrl && (
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm"

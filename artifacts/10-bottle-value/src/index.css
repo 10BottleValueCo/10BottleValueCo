@@ -1,5 +1,5 @@
 :root {
-  --background: 0 0% 35%;
+  --background: 0 0% 56%;
   --foreground: 0 0% 98%;
   --card: 0 0% 31%;
   --card-foreground: 0 0% 98%;
@@ -22,7 +22,7 @@
 }
 
 .dark {
-  --background: 0 0% 35%;
+  --background: 0 0% 56%;
   --foreground: 0 0% 98%;
   --card: 0 0% 31%;
   --card-foreground: 0 0% 98%;
@@ -52,7 +52,7 @@ html {
   scrollbar-gutter: stable;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
-  background: #5a5a5a;
+  background: #8f8f8f;
 }
 
 html,
@@ -70,7 +70,7 @@ body,
 
 body {
   font-family: ui-sans-serif, system-ui, sans-serif;
-  background: #5a5a5a;
+  background: #8f8f8f;
   color: #ffffff;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -149,18 +149,6 @@ textarea {
   50% { transform: translateY(-2px); }
 }
 
-@keyframes ticker-scroll {
-  0%   { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
-}
-
-.banner-ticker {
-  display: flex;
-  flex-wrap: nowrap;
-  width: max-content;
-  animation: ticker-scroll 22s linear infinite;
-  will-change: transform;
-}
 
 @keyframes wave-hand {
   0%   { transform: rotate(0deg); }

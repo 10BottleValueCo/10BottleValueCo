@@ -1,0 +1,22 @@
+.affiliate-program-page {
+  position: relative;
+  isolation: isolate;
+}
+
+.affiliate-program-page::before {
+  position: absolute;
+  z-index: -1;
+  inset-block: 0;
+  left: 50%;
+  width: 100vw;
+  transform: translateX(-50%);
+  pointer-events: none;
+  content: "";
+  background: #8f8f8f;
+}
+
+.affiliate-program-hero {
+  background:
+    radial-gradient(ellipse at 77% 40%, rgba(37, 99, 235, .2), transparent 43%),
+    linear-gradient(112deg, #0b1220 0%, #101b2e 55%, #09111e 100%);
+}

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>10 Bottle Value Co — тест Merit без списаний</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 32px 20px; background: #f3f4f6; color: #171717; font: 16px/1.55 system-ui, sans-serif; }
+      main { max-width: 720px; margin: auto; }
+      section { padding: 24px; margin: 18px 0; border: 1px solid #d4d4d4; border-radius: 16px; background: #fff; }
+      h1 { font-size: 30px; line-height: 1.2; margin: 12px 0; }
+      h2 { font-size: 20px; margin: 0 0 16px; }
+      label { display: block; font-weight: 600; margin: 16px 0 6px; }
+      input { width: 100%; padding: 12px; border: 1px solid #737373; border-radius: 8px; font: inherit; }
+      button { margin-top: 18px; padding: 12px 20px; background: #171717; color: #fff; border: 0; border-radius: 8px; font: 600 16px system-ui; cursor: pointer; }
+      button:disabled { opacity: .5; cursor: not-allowed; }
+      button:focus-visible, input:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
+      .notice { padding: 16px; border-radius: 10px; background: #fff7ed; border: 1px solid #fed7aa; }
+      .muted { color: #525252; font-size: 14px; }
+      #result { white-space: pre-wrap; overflow-wrap: anywhere; }
+      #result[data-state="error"] { color: #b91c1c; }
+      #result[data-state="success"] { color: #166534; }
+      ul { padding-left: 22px; }
+      @media (max-width: 480px) { body { padding: 20px 12px; } section { padding: 18px; } h1 { font-size: 26px; } button { width: 100%; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="muted">10 BOTTLE VALUE CO / ИЗОЛИРОВАННЫЙ ТЕСТ</p>
+      <h1>Подключение Merit</h1>
+      <p class="notice"><strong>Без списаний.</strong> Здесь нет полей карты и подтверждения платежа. Тест создаёт только intent на серверную сумму $1.00; секрет подтверждения не передаётся браузеру. Заказы и база магазина не изменяются.</p>
+      <section>
+        <h2>1. Готовность сервера</h2>
+        <p id="server-status" role="status">Проверяем настройки…</p>
+        <p class="muted">В Merit должен быть разрешён текущий тестовый домен. Не меняйте подключение основного магазина ради этого теста — запросите staging-доступ у Merit.</p>
+        <button id="refresh" type="button">Проверить настройки снова</button>
+      </section>
+      <section>
+        <h2>2. Подключение gate и OTP</h2>
+        <label for="site-token">Публичный site token из Merit</label>
+        <input id="site-token" type="text" autocomplete="off" spellcheck="false" placeholder="site_…" />
+        <p class="muted">Только публичный токен из тега скрипта, не private API key. Он не сохраняется на этой странице.</p>
+        <button id="load" type="button">Загрузить gate и OTP</button>
+        <p id="scripts-status" role="status">Скрипты ещё не загружены.</p>
+      </section>
+      <section>
+        <h2>3. Проверка перед платёжной сессией</h2>
+        <form id="test-form">
+          <label for="email">Email тестового покупателя</label>
+          <input id="email" type="email" required autocomplete="email" placeholder="Email для получения OTP" />
+          <button id="verify" type="submit" disabled>Пройти проверку и создать intent без списания</button>
+        </form>
+        <p id="result" role="status" aria-live="polite">Для теста нужны готовый сервер и загруженные скрипты.</p>
+        <ul class="muted">
+          <li>Отмена проверки — серверный запрос не выполняется.</li>
+          <li>Ошибка, пропуск проверки или отсутствие токена — тест останавливается.</li>
+          <li>При SMS-проверке используется итоговый токен из штатного окна Merit.</li>
+          <li>Отказ Merit показывается покупателю; можно начать проверку снова.</li>
+        </ul>
+      </section>
+      <p class="muted">Успех этого теста подтверждает только создание intent. Он не подтверждает списание, webhook, итоговый Merit score или готовность production.</p>
+    </main>
+    <script type="module" src="./src/merit/test-page.js"></script>
+  </body>
+</html>
