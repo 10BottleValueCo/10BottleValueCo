@@ -3,10 +3,10 @@ import { test } from "node:test";
 import { catalogProductName, matchesProductSearch, productSlug, publicProductName } from "./productNames.js";
 
 const renamed = [
-  ["Semaglutide", "GLP-1-S", "5 mg", "semaglutide-5mg", "glp-1-s-5mg"],
-  ["Tirzepatide / GLP-2", "GLP-2-T", "20 mg", "tirzepatide-glp-2-20mg", "glp-2-t-20mg"],
-  ["Retatrutide / GLP-3", "GLP-3-R", "10 mg", "retatrutide-glp-3-10mg", "glp-3-r-10mg"],
-  ["Cagrilintide + Semaglutide", "Cagrilintide + GLP-1-S", "10 mg each", "cagrilintide-semaglutide-10mgeach", "cagrilintide-glp-1-s-10mgeach"],
+  ["Semaglutide", "GLP SG-1", "5 mg", "semaglutide-5mg", "glp-1-s-5mg"],
+  ["Tirzepatide / GLP-2", "GLP TZ-2", "20 mg", "tirzepatide-glp-2-20mg", "glp-2-t-20mg"],
+  ["Retatrutide / GLP-3", "GLP RT-3", "10 mg", "retatrutide-glp-3-10mg", "glp-3-r-10mg"],
+  ["Cagrilintide + Semaglutide", "Cagrilintide + GLP SG-1", "10 mg each", "cagrilintide-semaglutide-10mgeach", "cagrilintide-glp-1-s-10mgeach"],
 ];
 
 for (const [catalogName, displayName, dose, oldSlug, newSlug] of renamed) {
@@ -19,10 +19,15 @@ for (const [catalogName, displayName, dose, oldSlug, newSlug] of renamed) {
 }
 
 test("legacy short names and unrelated products remain compatible", () => {
-  assert.equal(publicProductName("Retatrutide"), "GLP-3-R");
+  assert.equal(publicProductName("Retatrutide"), "GLP RT-3");
   assert.equal(catalogProductName("Retatrutide"), "Retatrutide / GLP-3");
   assert.equal(catalogProductName("Tirzepatide"), "Tirzepatide / GLP-2");
   assert.equal(publicProductName("BPC-157"), "BPC-157");
+});
+
+test("Epitalon keeps its catalog name while matching the popularity ranking spelling", () => {
+  assert.equal(publicProductName("Epitalon"), "Epithalon");
+  assert.equal(catalogProductName("Epithalon"), "Epitalon");
 });
 
 test("search matches the displayed GLP name immediately followed by the dose", () => {

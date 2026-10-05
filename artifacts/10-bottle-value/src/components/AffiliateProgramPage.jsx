@@ -95,10 +95,12 @@ export default function AffiliateProgramPage({
   copiedEmail,
   onCopyEmail,
   onContact,
-  onLogin,
+  getPublicImageUrl = (src) => src,
+  onVialImageError,
 }) {
   const [openFaq, setOpenFaq] = useState(-1);
   const base = import.meta.env.BASE_URL;
+  const publicImage = (path) => getPublicImageUrl(`${base}${path}`);
 
   const benefits = [
     {
@@ -116,11 +118,11 @@ export default function AffiliateProgramPage({
       icon: "lifetime",
       title: tx("LIFETIME ATTRIBUTION", "ПОЖИЗНЕННАЯ АТРИБУЦИЯ", "ДОВІЧНА АТРИБУЦІЯ", "DAUERHAFTE ZUORDNUNG", "ATRIBUCIÓN DE POR VIDA"),
       description: tx(
-        "Referred customers’ orders stay attributed to your code; commission applies only to eligible tracked orders.",
-        "Заказы привлечённых клиентов остаются привязаны к вашему коду; комиссия начисляется только за подходящие отслеживаемые заказы.",
-        "Замовлення залучених клієнтів залишаються прив’язаними до вашого коду; комісія нараховується лише за відповідні відстежувані замовлення.",
-        "Bestellungen geworbener Kunden bleiben Ihrem Code zugeordnet; Provision gilt nur für qualifizierte erfasste Bestellungen.",
-        "Los pedidos de clientes referidos siguen vinculados a tu código; la comisión solo aplica a pedidos aptos registrados.",
+        "Each referred customer stays linked to your code for life. Earn 10% on every completed order.",
+        "Каждый привлечённый клиент навсегда закрепляется за вашим кодом. Получайте 10% с каждого выполненного заказа.",
+        "Кожен залучений клієнт назавжди закріплюється за вашим кодом. Отримуйте 10% з кожного виконаного замовлення.",
+        "Jeder geworbene Kunde bleibt dauerhaft Ihrem Code zugeordnet. Sie erhalten 10 % auf jede abgeschlossene Bestellung.",
+        "Cada cliente referido queda vinculado a tu código para siempre. Gana un 10 % por cada pedido completado.",
       ),
     },
     {
@@ -166,11 +168,11 @@ export default function AffiliateProgramPage({
       image: "lifetime-earnings-photo.jpg",
       title: tx("LIFETIME ATTRIBUTION", "ПОЖИЗНЕННАЯ АТРИБУЦИЯ", "ДОВІЧНА АТРИБУЦІЯ", "LEBENSLANGE ZUORDNUNG", "ATRIBUCIÓN DE POR VIDA"),
       copy: tx(
-        "Orders from referred customers stay attributed to your code. Commission applies only to eligible tracked orders.",
-        "Заказы привлечённых клиентов остаются привязаны к вашему коду. Комиссия начисляется только за подходящие отслеживаемые заказы.",
-        "Замовлення залучених клієнтів залишаються прив’язаними до вашого коду. Комісія нараховується лише за відповідні відстежувані замовлення.",
-        "Bestellungen geworbener Kunden bleiben Ihrem Code zugeordnet. Provision gilt nur für qualifizierte erfasste Bestellungen.",
-        "Los pedidos de clientes referidos siguen vinculados a tu código. La comisión solo aplica a pedidos aptos registrados.",
+        "Each customer you refer stays attributed to your code for life. You earn 10% commission on every order they place. Commission is credited only for completed orders.",
+        "Каждый привлечённый вами клиент навсегда закрепляется за вашим кодом. Вы получаете 10% комиссии с каждого его заказа. Комиссия начисляется только за выполненные заказы.",
+        "Кожен залучений вами клієнт назавжди закріплюється за вашим кодом. Ви отримуєте 10% комісії з кожного його замовлення. Комісію нараховують лише за виконані замовлення.",
+        "Jeder von Ihnen geworbene Kunde bleibt dauerhaft Ihrem Code zugeordnet. Sie erhalten 10 % Provision auf jede Bestellung dieses Kunden. Provision wird nur für abgeschlossene Bestellungen gutgeschrieben.",
+        "Cada cliente que refieras quedará vinculado a tu código para siempre. Recibirás una comisión del 10 % por cada pedido que realice. La comisión solo se acredita por pedidos completados.",
       ),
       href: "#affiliate-faq",
     },
@@ -179,11 +181,11 @@ export default function AffiliateProgramPage({
       image: "creators.jpg",
       title: tx("CREATOR PARTNERS", "АВТОРЫ И ПАРТНЁРЫ", "АВТОРИ Й ПАРТНЕРИ", "CREATOR-PARTNER", "CREADORES SOCIOS"),
       copy: tx(
-        "YouTube, TikTok, Instagram, X, Reddit and more.",
-        "YouTube, TikTok, Instagram, X, Reddit и другие платформы.",
-        "YouTube, TikTok, Instagram, X, Reddit та інші платформи.",
-        "YouTube, TikTok, Instagram, X, Reddit und mehr.",
-        "YouTube, TikTok, Instagram, X, Reddit y más.",
+        "We consider applications from creators with audiences of every size—small and large. Everyone can become part of 10BottleValueCo.",
+        "Мы рассматриваем заявки от авторов с любой аудиторией — и небольшой, и большой. Каждый может стать частью 10BottleValueCo.",
+        "Ми розглядаємо заявки від авторів з аудиторією будь-якого розміру — і невеликою, і великою. Кожен може стати частиною 10BottleValueCo.",
+        "Wir berücksichtigen Bewerbungen von Creators mit jeder Reichweite – klein oder groß. Alle können Teil von 10BottleValueCo werden.",
+        "Consideramos solicitudes de creadores con audiencias de cualquier tamaño, pequeñas o grandes. Todos pueden formar parte de 10BottleValueCo.",
       ),
       href: "#affiliate-apply",
     },
@@ -279,7 +281,9 @@ export default function AffiliateProgramPage({
   ];
 
   return (
-    <main className="affiliate-program-page mx-auto w-full max-w-[1240px] px-4 pb-12 pt-2 sm:px-6 md:px-8 md:pb-16 md:pt-2">
+    <main
+      className="affiliate-program-page mx-auto w-full max-w-[1240px] px-4 pb-12 pt-2 uppercase sm:px-6 md:px-8 md:pb-16 md:pt-2"
+    >
       <section
         id="affiliate-top"
         aria-labelledby="affiliate-title"
@@ -288,14 +292,14 @@ export default function AffiliateProgramPage({
         <div className="relative z-10 flex flex-col items-start justify-center px-6 pb-2 pt-8 sm:px-9 sm:pt-10 lg:px-12 lg:py-12">
           <h1
             id="affiliate-title"
-            className="max-w-[690px] text-[clamp(2rem,4vw,4.5rem)] font-black uppercase leading-[0.9] tracking-[-0.055em] text-white"
+            className="max-w-[690px] text-[clamp(2rem,4vw,4.5rem)] font-black uppercase leading-[0.9] tracking-[-0.055em] text-white sm:text-[clamp(2.5rem,5.5vw,5.5rem)]"
           >
             {tx("EARN", "ЗАРАБАТЫВАЙТЕ", "ЗАРОБЛЯЙТЕ", "VERDIENEN", "GANA")}{" "}
             <span className="text-white">10%</span>
             <br />
             {tx("COMMISSION", "КОМИССИИ", "КОМІСІЇ", "PROVISION", "DE COMISIÓN")}
           </h1>
-          <p className="mt-5 max-w-[520px] text-sm leading-relaxed text-white/75 sm:text-base">
+          <p className="affiliate-program-description mt-5 max-w-[520px] text-sm leading-relaxed text-white sm:text-base lg:text-lg">
             {tx(
               "Partner with 10BottleValueCo and earn by sharing research products with your audience. Your referrals save 5% on their first purchase.",
               "Станьте партнёром 10BottleValueCo и рассказывайте своей аудитории о наших продуктах для исследований. Ваши клиенты получат скидку 5% на первую покупку.",
@@ -308,45 +312,52 @@ export default function AffiliateProgramPage({
             <button
               type="button"
               onClick={onContact}
-              className="inline-flex min-h-10 items-center justify-center gap-3 rounded-full bg-[#2878ff] px-6 text-[10px] font-black uppercase tracking-[0.12em] text-white transition hover:bg-[#1268f4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1220]"
+              className="inline-flex min-h-10 items-center justify-center gap-3 rounded-full bg-[#2878ff] px-6 text-[10px] font-black uppercase tracking-[0.12em] text-white transition hover:bg-[#1268f4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1220] lg:min-h-[60px] lg:gap-4 lg:px-10 lg:text-sm"
             >
               {tx("APPLY NOW", "ПОДАТЬ ЗАЯВКУ", "ПОДАТИ ЗАЯВКУ", "JETZT BEWERBEN", "SOLICITAR AHORA")}
-              <ArrowRight />
-            </button>
-            <button
-              type="button"
-              onClick={onLogin}
-              className="inline-flex min-h-10 items-center justify-center gap-3 rounded-full border border-white/25 bg-white/[0.03] px-6 text-[10px] font-black uppercase tracking-[0.12em] text-white transition hover:border-white/55 hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1220]"
-            >
-              {tx("LOG IN", "ВОЙТИ", "УВІЙТИ", "ANMELDEN", "INICIAR SESIÓN")}
               <ArrowRight />
             </button>
           </div>
         </div>
 
-        <div className="pointer-events-none absolute bottom-[8%] right-[-3%] z-[1] h-11 w-[59%] -skew-y-2 border-y border-[#b9c5db]/20 bg-gradient-to-b from-[#93a3c2]/20 via-[#2b3b55]/90 to-[#111b2a] shadow-[0_-5px_22px_rgba(40,90,190,.1)] lg:right-[-7%]" />
+        <div className="affiliate-program-hero-shelf pointer-events-none absolute bottom-[8%] right-[-3%] z-[1] h-11 w-[59%] -skew-y-2 border-y border-[#b9c5db]/20 bg-gradient-to-b from-[#93a3c2]/20 via-[#2b3b55]/90 to-[#111b2a] shadow-[0_-5px_22px_rgba(40,90,190,.1)] lg:right-[-7%]" />
         <div
           className="relative min-h-[250px] overflow-hidden sm:min-h-[330px] lg:absolute lg:inset-y-0 lg:right-0 lg:w-[54%]"
           aria-label={tx("Featured 10BottleValueCo products", "Продукты 10BottleValueCo", "Продукти 10BottleValueCo", "Produkte von 10BottleValueCo", "Productos de 10BottleValueCo")}
         >
           <div className="relative z-10 mx-auto flex h-full min-h-[250px] max-w-[600px] items-end justify-center gap-0 px-4 pb-[5%] sm:min-h-[330px] lg:min-h-[370px] lg:px-2">
             <img
-              src={`${base}vials-c/tb-500-bpc-157-3ab3e8693952.webp`}
+              src={publicImage("vials-c/tb-500-bpc-157-3ab3e8693952.webp")}
+              data-original-src={`${base}vials-c/tb-500-bpc-157-3ab3e8693952.webp`}
               alt=""
               aria-hidden="true"
-              className="relative z-[1] h-[58%] max-h-[285px] w-[28%] translate-x-5 object-contain drop-shadow-[0_20px_22px_rgba(0,0,0,.55)] sm:translate-x-8 lg:translate-x-10"
+              className="relative z-[1] h-[58%] max-h-[285px] w-[28%] translate-x-8 object-contain drop-shadow-[0_20px_22px_rgba(0,0,0,.55)] sm:translate-x-12 lg:translate-x-16"
+              loading="eager"
+              fetchPriority="high"
+              decoding="sync"
+              onError={onVialImageError}
             />
             <img
-              src={`${base}vials-c/bpc-157-4a596acd979f.webp`}
+              src={publicImage("vials-c/bpc-157-4a596acd979f.webp")}
+              data-original-src={`${base}vials-c/bpc-157-4a596acd979f.webp`}
               alt=""
               aria-hidden="true"
               className="relative z-[2] h-[78%] max-h-[380px] w-[34%] object-contain drop-shadow-[0_24px_28px_rgba(0,0,0,.65)]"
+              loading="eager"
+              fetchPriority="high"
+              decoding="sync"
+              onError={onVialImageError}
             />
             <img
-              src={`${base}vials-c/retatrutide-glp-3-0efb04b0071d.webp`}
+              src={publicImage("vials-c/retatrutide-glp-3-0efb04b0071d.webp")}
+              data-original-src={`${base}vials-c/retatrutide-glp-3-0efb04b0071d.webp`}
               alt=""
               aria-hidden="true"
-              className="relative z-[1] h-[62%] max-h-[310px] w-[28%] -translate-x-5 object-contain drop-shadow-[0_20px_22px_rgba(0,0,0,.55)] sm:-translate-x-8 lg:-translate-x-10"
+              className="relative z-[1] h-[62%] max-h-[310px] w-[28%] -translate-x-8 object-contain drop-shadow-[0_20px_22px_rgba(0,0,0,.55)] sm:-translate-x-12 lg:-translate-x-16"
+              loading="eager"
+              fetchPriority="high"
+              decoding="sync"
+              onError={onVialImageError}
             />
           </div>
         </div>
@@ -384,14 +395,14 @@ export default function AffiliateProgramPage({
           <a
             key={story.id}
             href={story.href}
-            className="group relative isolate flex min-h-[220px] flex-col justify-end overflow-hidden rounded-xl border border-white/10 bg-[#11151c] p-5 shadow-[0_9px_24px_rgba(0,0,0,.17)] transition hover:-translate-y-0.5 hover:border-white/25 sm:p-6"
+            className="relative isolate flex min-h-[220px] flex-col justify-start overflow-hidden rounded-xl border border-white/10 bg-[#11151c] p-5 shadow-[0_9px_24px_rgba(0,0,0,.17)] sm:p-6"
           >
             <>
               <img
-                src={`${base}affiliate/${story.image}`}
+                src={publicImage(`affiliate/${story.image}`)}
                 alt=""
                 aria-hidden="true"
-                className="absolute inset-0 -z-20 h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
+                className="absolute inset-0 -z-20 h-full w-full object-cover"
                 style={{
                   filter: "saturate(.95) brightness(.96) contrast(.98)",
                   objectPosition: "center 52%",
@@ -411,9 +422,6 @@ export default function AffiliateProgramPage({
             <p className="mt-2 max-w-[38rem] text-xs leading-relaxed text-white/75 sm:text-sm">
               {story.copy}
             </p>
-            <span className="mt-4 flex h-9 w-9 items-center justify-center rounded-full border border-white/45 text-white transition group-hover:border-[#2878ff] group-hover:bg-[#2878ff]">
-              <ArrowRight />
-            </span>
           </a>
         ))}
       </section>
@@ -451,7 +459,7 @@ export default function AffiliateProgramPage({
           className="relative isolate flex min-h-[150px] flex-col justify-center overflow-hidden rounded-xl border border-white/10 bg-[#11151c] p-4 shadow-[0_8px_22px_rgba(0,0,0,.14)] sm:p-5"
           style={{
             backgroundImage:
-              `linear-gradient(90deg,rgba(4,8,14,.88) 0%,rgba(4,8,14,.56) 55%,rgba(4,8,14,.12) 100%),url("${base}affiliate/creators.jpg")`,
+              `linear-gradient(90deg,rgba(4,8,14,.88) 0%,rgba(4,8,14,.56) 55%,rgba(4,8,14,.12) 100%),url("${publicImage("affiliate/creators.jpg")}")`,
             backgroundSize: "cover",
             backgroundPosition: "center",
           }}

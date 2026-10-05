@@ -12,28 +12,9 @@ import {
   Truck,
   Zap,
 } from "lucide-react";
+import "./ShippingPricesPage.css";
 
 const assetBase = import.meta.env.BASE_URL;
-const shippingImage = (name) => `${assetBase}shipping/${name}.jpg`;
-const featuredVials = [
-  { name: "KPV", src: `${assetBase}vials-c/kpv-3bda87926280.webp` },
-  { name: "MOTS-C", src: `${assetBase}vials-c/mots-c-ead676f909ff.webp` },
-  { name: "DSIP", src: `${assetBase}vials-c/dsip-0f74d3cf1e6a.webp` },
-];
-
-const shippingBackground = (name, side = "left") => {
-  const image = `url("${shippingImage(name)}")`;
-  const overlay =
-    side === "right"
-      ? "linear-gradient(90deg, rgba(5, 9, 14, .97) 0%, rgba(5, 9, 14, .82) 45%, rgba(5, 9, 14, .24) 100%), linear-gradient(0deg, rgba(4, 7, 11, .75), transparent 58%)"
-      : side === "warehouse"
-        ? "linear-gradient(90deg, rgba(5, 9, 14, .97) 0%, rgba(5, 9, 14, .88) 34%, rgba(5, 9, 14, .48) 62%, rgba(5, 9, 14, .04) 100%), linear-gradient(0deg, rgba(4, 7, 11, .52), transparent 62%)"
-      : "linear-gradient(90deg, rgba(5, 9, 14, .95) 0%, rgba(5, 9, 14, .78) 50%, rgba(5, 9, 14, .18) 100%), linear-gradient(0deg, rgba(4, 7, 11, .75), transparent 58%)";
-  return {
-    backgroundImage: `${overlay}, ${image}`,
-    ...(side === "warehouse" ? { backgroundPosition: "center, center, right center" } : {}),
-  };
-};
 
 function IconBadge({ children, tone }) {
   const tones = {
@@ -76,7 +57,30 @@ function PriceTable({ rows, tx }) {
   );
 }
 
-export default function ShippingPricesPage({ tx }) {
+export default function ShippingPricesPage({ tx, getPublicImageUrl = (src) => src }) {
+  const shippingImage = (name) =>
+    getPublicImageUrl(`${assetBase}shipping/${name}.jpg`);
+  const shippingPageBackground =
+    `url("${getPublicImageUrl(`${assetBase}images/shipping-prices-warehouse-background.webp`)}")`;
+  const featuredVials = [
+    { name: "KPV", src: getPublicImageUrl(`${assetBase}vials-c/kpv-3bda87926280.webp`) },
+    { name: "MOTS-C", src: getPublicImageUrl(`${assetBase}vials-c/mots-c-ead676f909ff.webp`) },
+    { name: "DSIP", src: getPublicImageUrl(`${assetBase}vials-c/dsip-0f74d3cf1e6a.webp`) },
+  ];
+  const shippingBackground = (name, side = "left") => {
+    const image = `url("${shippingImage(name)}")`;
+    const overlay =
+      side === "right"
+        ? "linear-gradient(90deg, rgba(5, 9, 14, .97) 0%, rgba(5, 9, 14, .82) 45%, rgba(5, 9, 14, .24) 100%), linear-gradient(0deg, rgba(4, 7, 11, .75), transparent 58%)"
+        : side === "warehouse"
+          ? "linear-gradient(90deg, rgba(5, 9, 14, .97) 0%, rgba(5, 9, 14, .88) 34%, rgba(5, 9, 14, .48) 62%, rgba(5, 9, 14, .04) 100%), linear-gradient(0deg, rgba(4, 7, 11, .52), transparent 62%)"
+        : "linear-gradient(90deg, rgba(5, 9, 14, .95) 0%, rgba(5, 9, 14, .78) 50%, rgba(5, 9, 14, .18) 100%), linear-gradient(0deg, rgba(4, 7, 11, .75), transparent 58%)";
+    return {
+      backgroundImage: `${overlay}, ${image}`,
+      ...(side === "warehouse" ? { backgroundPosition: "center, center, right center" } : {}),
+    };
+  };
+
   const standardRows = [
     ["$0 – $99", "$59.99"],
     ["$100 – $299", "$39.99"],
@@ -157,7 +161,10 @@ export default function ShippingPricesPage({ tx }) {
   ];
 
   return (
-    <main className="mx-auto w-full max-w-[2000px] px-4 pb-10 pt-[9px] uppercase sm:px-5 md:px-6 md:pt-[17px] 2xl:px-8 2xl:pt-[25px]">
+    <main
+      className="shipping-prices-page mx-auto w-full max-w-[2000px] px-4 pb-10 pt-[9px] uppercase sm:px-5 md:px-6 md:pt-[17px] 2xl:px-8 2xl:pt-[25px]"
+      style={{ "--shipping-prices-background": shippingPageBackground }}
+    >
       <header className="mb-5 text-center md:mb-6 2xl:mb-8">
         <h1 className="text-[25px] font-extrabold leading-none tracking-[0.055em] text-white drop-shadow-[0_2px_8px_rgba(0,0,0,.45)] sm:text-3xl md:text-4xl 2xl:text-5xl">
           {tx("SHIPPING & DISCOUNTS", "ДОСТАВКА И СКИДКИ", "ДОСТАВКА ТА ЗНИЖКИ", "VERSAND & RABATTE", "ENVÍOS Y DESCUENTOS")}

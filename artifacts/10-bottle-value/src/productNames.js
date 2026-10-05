@@ -16,6 +16,7 @@ const labelNames = {
   tirzepatide: "GLP TZ-2",
   "retatrutide / glp-3": "GLP RT-3",
   retatrutide: "GLP RT-3",
+  epitalon: "Epithalon",
 };
 
 const catalogNames = {
@@ -25,6 +26,7 @@ const catalogNames = {
   "glp sg-1": "Semaglutide",
   "glp tz-2": "Tirzepatide / GLP-2",
   "glp rt-3": "Retatrutide / GLP-3",
+  epithalon: "Epitalon",
   "glp-1-s": "Semaglutide",
   "glp-2-t": "Tirzepatide / GLP-2",
   "glp-3-r": "Retatrutide / GLP-3",

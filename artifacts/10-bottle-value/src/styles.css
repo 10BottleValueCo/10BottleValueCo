@@ -334,3 +334,17 @@ img {
   width: 0;
   height: 0;
 }
+
+/* Keep hover feedback immediate across the storefront. */
+*,
+*::before,
+*::after {
+  transition: none !important;
+}
+
+.hero-bullet-row:hover .hero-bullet-icon,
+.hero-bullet-row:hover .hero-bullet-icon[data-icon] {
+  animation: none !important;
+  transform: none !important;
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.55)) !important;
+}
