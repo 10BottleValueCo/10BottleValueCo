@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 const ACCEPTANCE_KEY = "tbv-researcher-entry-accepted-v1";
 
@@ -43,29 +43,10 @@ export default function ResearcherEntryGate({ onAccept }) {
   const [researcherType, setResearcherType] = useState("");
   const [checked, setChecked] = useState({});
   const [declined, setDeclined] = useState(false);
-  const [isResearcherTypeOpen, setIsResearcherTypeOpen] = useState(false);
-  const [activeResearcherTypeIndex, setActiveResearcherTypeIndex] = useState(0);
-  const researcherTypeRef = useRef(null);
-  const selectedResearcherTypeIndex = researcherTypes.findIndex(
-    ({ value }) => value === researcherType
-  );
 
   const canEnter =
     Boolean(researcherType) &&
     confirmations.every(({ name }) => checked[name] === true);
-
-  useEffect(() => {
-    if (!isResearcherTypeOpen) return undefined;
-
-    const closeOnOutsidePointer = (event) => {
-      if (!researcherTypeRef.current?.contains(event.target)) {
-        setIsResearcherTypeOpen(false);
-      }
-    };
-
-    document.addEventListener("pointerdown", closeOnOutsidePointer);
-    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
-  }, [isResearcherTypeOpen]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -74,60 +55,6 @@ export default function ResearcherEntryGate({ onAccept }) {
       document.body.style.overflow = previousOverflow;
     };
   }, []);
-
-  const openResearcherTypeMenu = (direction = "down") => {
-    const openedWithUpArrow = direction === "up" || direction === -1;
-    const initialIndex =
-      selectedResearcherTypeIndex >= 0
-        ? selectedResearcherTypeIndex
-        : openedWithUpArrow
-        ? researcherTypes.length - 1
-        : 0;
-    setActiveResearcherTypeIndex(initialIndex);
-    setIsResearcherTypeOpen(true);
-  };
-
-  const chooseResearcherType = (value) => {
-    setResearcherType(value);
-    setIsResearcherTypeOpen(false);
-  };
-
-  const handleResearcherTypeKeyDown = (event) => {
-    const moveActiveOption = (direction) => {
-      event.preventDefault();
-      if (!isResearcherTypeOpen) {
-        openResearcherTypeMenu(direction);
-        return;
-      }
-      setActiveResearcherTypeIndex((currentIndex) =>
-        (currentIndex + direction + researcherTypes.length) % researcherTypes.length
-      );
-    };
-
-    if (event.key === "ArrowDown") {
-      moveActiveOption(1);
-    } else if (event.key === "ArrowUp") {
-      moveActiveOption(-1);
-    } else if (event.key === "Home" && isResearcherTypeOpen) {
-      event.preventDefault();
-      setActiveResearcherTypeIndex(0);
-    } else if (event.key === "End" && isResearcherTypeOpen) {
-      event.preventDefault();
-      setActiveResearcherTypeIndex(researcherTypes.length - 1);
-    } else if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      if (isResearcherTypeOpen) {
-        chooseResearcherType(researcherTypes[activeResearcherTypeIndex].value);
-      } else {
-        openResearcherTypeMenu();
-      }
-    } else if (event.key === "Escape" && isResearcherTypeOpen) {
-      event.preventDefault();
-      setIsResearcherTypeOpen(false);
-    } else if (event.key === "Tab") {
-      setIsResearcherTypeOpen(false);
-    }
-  };
 
   const handleSubmit = (event) => {
     event.preventDefault();
@@ -143,7 +70,7 @@ export default function ResearcherEntryGate({ onAccept }) {
   };
 
   return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center overflow-y-auto bg-black/65 px-4 py-6 backdrop-blur-[10px] sm:px-6">
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center overflow-y-auto bg-black/70 px-4 py-6 sm:px-6">
       <section
         aria-labelledby="researcher-entry-title"
         aria-modal="true"
@@ -185,82 +112,37 @@ export default function ResearcherEntryGate({ onAccept }) {
             </p>
 
             <div className="mb-6">
-              <div
+              <label
                 className="block text-sm font-medium text-white/90"
-                id="researcher-type-label"
+                htmlFor="researcher-type"
               >
                 Researcher type
-              </div>
-              <div className="relative mt-2" ref={researcherTypeRef}>
-                <button
-                  aria-activedescendant={
-                    isResearcherTypeOpen
-                      ? `researcher-type-option-${activeResearcherTypeIndex}`
-                      : undefined
-                  }
-                  aria-controls="researcher-type-options"
-                  aria-expanded={isResearcherTypeOpen}
-                  aria-haspopup="listbox"
-                  aria-labelledby="researcher-type-label"
-                  aria-required="true"
-                  aria-valuetext={
-                    selectedResearcherTypeIndex >= 0
-                      ? researcherTypes[selectedResearcherTypeIndex].label
-                      : "Select your researcher type"
-                  }
-                  className="flex min-h-12 w-full items-center justify-between rounded-lg border border-white/20 bg-[#414141] px-3 text-left text-sm text-white uppercase outline-none transition focus:border-white/60 focus:ring-2 focus:ring-white/20"
+              </label>
+              <div className="relative mt-2">
+                <select
                   id="researcher-type"
-                  onClick={() => {
-                    if (isResearcherTypeOpen) {
-                      setIsResearcherTypeOpen(false);
-                    } else {
-                      openResearcherTypeMenu();
-                    }
-                  }}
-                  onKeyDown={handleResearcherTypeKeyDown}
-                  role="combobox"
-                  type="button"
+                  data-testid="select-researcher-type"
+                  value={researcherType}
+                  onChange={(event) => setResearcherType(event.target.value)}
+                  required
+                  className="min-h-12 w-full appearance-none rounded-lg border border-white/20 bg-[#414141] px-3 pr-10 text-left text-sm text-white uppercase outline-none focus:border-white/60 focus:ring-2 focus:ring-white/20"
+                  style={{ colorScheme: "dark" }}
                 >
-                  <span>
-                    {selectedResearcherTypeIndex >= 0
-                      ? researcherTypes[selectedResearcherTypeIndex].label
-                      : "Select your researcher type"}
-                  </span>
-                  <span
-                    aria-hidden="true"
-                    className={`ml-3 text-base leading-none transition-transform ${
-                      isResearcherTypeOpen ? "rotate-180" : ""
-                    }`}
-                  >
-                    ⌄
-                  </span>
-                </button>
-                {isResearcherTypeOpen && (
-                  <div
-                    className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 max-h-56 overflow-y-auto rounded-lg border border-white/15 bg-[#343434] py-1 shadow-[0_12px_28px_rgba(0,0,0,0.4)]"
-                    id="researcher-type-options"
-                    role="listbox"
-                    aria-labelledby="researcher-type-label"
-                  >
-                    {researcherTypes.map(({ value, label }, index) => (
-                      <div
-                        aria-selected={researcherType === value}
-                        className={`cursor-pointer px-3 py-3 text-sm uppercase transition ${
-                          activeResearcherTypeIndex === index
-                            ? "bg-white/15"
-                            : "hover:bg-white/10"
-                        }`}
-                        id={`researcher-type-option-${index}`}
-                        key={value}
-                        onClick={() => chooseResearcherType(value)}
-                        onMouseEnter={() => setActiveResearcherTypeIndex(index)}
-                        role="option"
-                      >
-                        {label}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                  <option className="bg-[#343434] text-white" disabled value="">
+                    Select your researcher type
+                  </option>
+                  {researcherTypes.map(({ value, label }) => (
+                    <option className="bg-[#343434] text-white" key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-base leading-none"
+                >
+                  ⌄
+                </span>
               </div>
             </div>
 
