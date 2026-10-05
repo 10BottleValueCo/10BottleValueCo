@@ -95,7 +95,7 @@ function preloadImage(src, fetchPriority, retainForDisplay = false) {
 
           objectUrl = URL.createObjectURL(blob);
           const image = new Image();
-          image.decoding = "sync";
+          image.decoding = "async";
           image.src = objectUrl;
           await image.decode();
           if (!image.naturalWidth) throw new Error(`Public image could not be decoded: ${src}`);
@@ -176,7 +176,7 @@ function preloadPublicImages(extraSources = []) {
   };
 
   return Promise.all(
-    Array.from({ length: Math.min(3, sourceList.length) }, () => worker()),
+    Array.from({ length: Math.min(2, sourceList.length) }, () => worker()),
   );
 }
 
@@ -3538,6 +3538,8 @@ export default function App() {
   );
   const [publicImagesState, setPublicImagesState] = useState("loading");
   const [publicImageRetry, setPublicImageRetry] = useState(0);
+  const researcherEntryGateActive =
+    !researcherEntryAccepted && page !== "terms" && page !== "privacy";
 
   // Keep every public section on a stable, crawlable URL.
   useEffect(() => {
@@ -4214,6 +4216,8 @@ export default function App() {
   const [salesRanking, setSalesRanking] = useState(null);
   const [usSalesRanking, setUsSalesRanking] = useState(null);
   useEffect(() => {
+    if (researcherEntryGateActive) return undefined;
+
     let active = true;
     setPublicImagesState("loading");
     const startPreload = () => {
@@ -4248,13 +4252,15 @@ export default function App() {
       if (idleHandle !== null) window.cancelIdleCallback(idleHandle);
       if (preloadTimer !== null) window.clearTimeout(preloadTimer);
     };
-  }, [publicImageRetry]);
+  }, [publicImageRetry, researcherEntryGateActive]);
   useEffect(() => {
     if (page === "shop") {
       setShopPrimed(true);
     }
   }, [page]);
   useEffect(() => {
+    if (researcherEntryGateActive) return undefined;
+
     const controller = new AbortController();
     const loadRanking = async () => {
       try {
@@ -4283,7 +4289,7 @@ export default function App() {
       controller.abort();
       window.clearInterval(interval);
     };
-  }, []);
+  }, [researcherEntryGateActive]);
   const [chartsExpandedOrder, setChartsExpandedOrder] = useState(null);
   const [chartsFrom, setChartsFrom] = useState("");
   const [chartsTo, setChartsTo] = useState("");
@@ -13210,7 +13216,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   return (
     <>
       {scrollbarStyles}
-      {!researcherEntryAccepted && page !== "terms" && page !== "privacy" && (
+      {researcherEntryGateActive && (
         <ResearcherEntryGate onAccept={() => setResearcherEntryAccepted(true)} />
       )}
       {publicImagesState === "error" && (
