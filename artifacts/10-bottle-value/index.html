@@ -9,6 +9,40 @@
     <meta name="description" content="Buy research peptides in 10-vial kits. Up to 4× cheaper than most brands. BPC-157, TB-500, GLP-1-S, GLP-2-T, GLP-3-R and more. Ships worldwide. Research use only." />
     <meta name="robots" content="index, follow" />
     <meta name="theme-color" content="#000000" />
+    <style>
+      html, body, #root {
+        min-height: 100%;
+        margin: 0;
+        background: #111;
+      }
+      #tbv-startup-fallback {
+        box-sizing: border-box;
+        display: flex;
+        min-height: 100vh;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 24px;
+        background: #111;
+        color: #fff;
+        font: 500 14px/1.4 system-ui, sans-serif;
+      }
+      .tbv-startup-spinner {
+        width: 26px;
+        height: 26px;
+        flex: 0 0 auto;
+        border: 2px solid rgba(255, 255, 255, .25);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: tbv-startup-spin .8s linear infinite;
+      }
+      @keyframes tbv-startup-spin {
+        to { transform: rotate(360deg); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .tbv-startup-spinner { animation: none; }
+      }
+    </style>
 
     <!-- The product edge middleware replaces this with the product URL before
          the HTML is served. React keeps it in sync after the app loads. -->
@@ -33,9 +67,14 @@
 
     <!-- Performance hints -->
     <link rel="dns-prefetch" href="https://js.stripe.com" />
-    <!-- Merit public site token only. Private keys never belong in HTML. -->
-    <script defer src="https://getonmerit.com/attestly-gate.js" data-attestly-site-token="site_0fa1ee6b819ebb8fa1c1e1740a51ae5ed8440baedaaf49eb"></script>
-    <script defer src="https://getonmerit.com/attestly-otp.js" data-attestly-site-token="site_0fa1ee6b819ebb8fa1c1e1740a51ae5ed8440baedaaf49eb"></script>
+    <!-- Buyer verification OTP script; the researcher entry gate is handled in-app. -->
+    <script>
+      const script = document.createElement("script");
+      script.src = "https://getonmerit.com/attestly-otp.js";
+      script.async = true;
+      script.setAttribute("data-attestly-site-token", "site_0fa1ee6b819ebb8fa1c1e1740a51ae5ed8440baedaaf49eb");
+      document.head.appendChild(script);
+    </script>
 
     <!-- Organization + WebSite JSON-LD (static — visible to crawlers before JS) -->
     <script type="application/ld+json">
@@ -76,7 +115,12 @@
     <link rel="preload" href="/globe.png" as="image" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main id="tbv-startup-fallback" role="status" aria-live="polite">
+        <span class="tbv-startup-spinner" aria-hidden="true"></span>
+        <span>Opening 10BottleValueCo…</span>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -1,15 +1,23 @@
 import "./HomePage.css";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, UserRound } from "lucide-react";
+import { useRef, useState } from "react";
 
 export default function HomePage({
   language,
   tx,
   featuredProducts = [],
+  productsReady = true,
   onOpenShop,
   onOpenUsWarehouse,
+  onOpenRegister,
+  getPublicImageUrl = (src) => src,
 }) {
-  const featured = featuredProducts.slice(0, 5);
-  const heroProduct = featuredProducts[0];
+  const featured = featuredProducts;
+  const heroFeatured = featuredProducts.slice(0, 5);
+  const heroProduct = heroFeatured[0];
+  const productsDragRef = useRef(null);
+  const suppressProductsClickRef = useRef(false);
+  const [isDraggingProducts, setIsDraggingProducts] = useState(false);
 
   const copy = {
     headlineOne: tx(
@@ -25,6 +33,7 @@ export default function HomePage({
     usWarehouse: tx("Shop US warehouse", "Магазин со склада США", "Магазин зі складу США", "US-Lager entdecken", "Comprar desde almacén de EE. UU."),
     variants: tx("Popular research peptides", "Популярные исследовательские пептиды", "Популярні дослідницькі пептиди", "Beliebte Forschungspeptide", "Péptidos populares para investigación"),
     allProducts: tx("View all products", "Все продукты", "Усі продукти", "Alle Produkte", "Ver todos los productos"),
+    register: tx("Register", "Регистрация", "Реєстрація", "Registrieren", "Registrarse"),
     socialTitle: tx("Our social channels", "Наши социальные сети", "Наші соціальні мережі", "Unsere Social-Media-Kanäle", "Nuestras redes sociales"),
     reviews: tx("4.6 · 21 reviews", "4,6 · 21 отзыв", "4,6 · 21 відгук", "4,6 · 21 Bewertungen", "4,6 · 21 reseñas"),
     followers: tx("1200+ followers", "Более 1200 подписчиков", "Понад 1200 підписників", "Über 1200 Follower", "Más de 1200 seguidores"),
@@ -39,12 +48,114 @@ export default function HomePage({
     ),
   };
 
-  const heroBackdrop = `${import.meta.env.BASE_URL}home-hero-silver-studio.jpg`;
-  const heroReferenceImage = `${import.meta.env.BASE_URL}images/homepage-hero-background.png`;
-  const heroMobileImage = `${import.meta.env.BASE_URL}images/homepage-hero-mobile.png`;
-  const socialBackdrop = `${import.meta.env.BASE_URL}home-social-studio.jpg`;
-  const socialPhoneImage = `${import.meta.env.BASE_URL}images/homepage-social-phone.png`;
+  const publicImage = (path) =>
+    getPublicImageUrl(`${import.meta.env.BASE_URL}${path}`);
+  const heroReferenceImage = publicImage("images/homepage-hero-background.webp");
+  const heroBackdrop = heroReferenceImage;
+  const heroMobileImage = publicImage("images/homepage-hero-mobile-vial.webp");
   const useExactEnglishHero = String(language ?? "EN").toUpperCase() === "EN";
+  const worldwideIcon = (
+    <svg
+      aria-hidden="true"
+      className="tbv-home__button-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="9.2" />
+      <path d="M2.8 12h18.4M12 2.8c2.4 2.4 3.6 5.5 3.6 9.2s-1.2 6.8-3.6 9.2M12 2.8C9.6 5.2 8.4 8.3 8.4 12s1.2 6.8 3.6 9.2" />
+      <path d="M5.5 6.2c1.8 1.2 4.1 1.8 6.5 1.8s4.7-.6 6.5-1.8M5.5 17.8c1.8-1.2 4.1-1.8 6.5-1.8s4.7.6 6.5 1.8" />
+    </svg>
+  );
+  const usFlagIcon = (
+    <svg
+      aria-hidden="true"
+      className="tbv-home__button-icon tbv-home__button-icon--flag"
+      viewBox="0 0 20 14"
+    >
+      <rect width="20" height="14" fill="#fff" />
+      <path
+        fill="#b22234"
+        d="M0 0h20v1H0zm0 2h20v1H0zm0 2h20v1H0zm0 2h20v1H0zm0 2h20v1H0zm0 2h20v1H0zm0 2h20v1H0z"
+      />
+      <rect width="8.5" height="7.5" fill="#3c3b6e" />
+      <g fill="#fff">
+        <circle cx="1.5" cy="1.3" r=".45" />
+        <circle cx="3.5" cy="1.3" r=".45" />
+        <circle cx="5.5" cy="1.3" r=".45" />
+        <circle cx="7.3" cy="1.3" r=".4" />
+        <circle cx="2.5" cy="3.1" r=".45" />
+        <circle cx="4.5" cy="3.1" r=".45" />
+        <circle cx="6.5" cy="3.1" r=".45" />
+        <circle cx="1.5" cy="5" r=".45" />
+        <circle cx="3.5" cy="5" r=".45" />
+        <circle cx="5.5" cy="5" r=".45" />
+        <circle cx="7.3" cy="5" r=".4" />
+        <circle cx="2.5" cy="6.6" r=".45" />
+        <circle cx="4.5" cy="6.6" r=".45" />
+        <circle cx="6.5" cy="6.6" r=".45" />
+      </g>
+      <rect x=".25" y=".25" width="19.5" height="13.5" fill="none" stroke="#333" strokeOpacity=".22" strokeWidth=".5" />
+    </svg>
+  );
+
+  function handleProductsPointerDown(event) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const track = event.currentTarget;
+    if (track.scrollWidth <= track.clientWidth) return;
+    productsDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startScrollLeft: track.scrollLeft,
+      dragging: false,
+    };
+  }
+
+  function handleProductsPointerMove(event) {
+    const drag = productsDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    const deltaX = event.clientX - drag.startX;
+    const deltaY = event.clientY - drag.startY;
+    if (!drag.dragging) {
+      if (Math.abs(deltaX) < 6 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
+      drag.dragging = true;
+      setIsDraggingProducts(true);
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+
+    event.currentTarget.scrollLeft = drag.startScrollLeft - deltaX;
+    if (event.cancelable) event.preventDefault();
+  }
+
+  function finishProductsPointer(event) {
+    const drag = productsDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    if (drag.dragging) {
+      suppressProductsClickRef.current = true;
+      setIsDraggingProducts(false);
+      window.setTimeout(() => {
+        suppressProductsClickRef.current = false;
+      }, 0);
+    }
+
+    productsDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function preventClickAfterProductsDrag(event) {
+    if (!suppressProductsClickRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    suppressProductsClickRef.current = false;
+  }
 
   return (
     <main className="tbv-home" data-testid="homepage-content" lang={language?.toLowerCase()}>
@@ -76,21 +187,33 @@ export default function HomePage({
               </h1>
             </div>
             <div className="tbv-home__hero-reference-actions">
+              <div className="tbv-home__hero-reference-shop-actions">
+                <button
+                  className="tbv-home__button tbv-home__button--primary tbv-home__hero-reference-action"
+                  type="button"
+                  data-testid="button-home-shop-worldwide"
+                  onClick={() => onOpenShop()}
+                >
+                  {worldwideIcon}<span>{copy.shopWorldwide}</span><span className="tbv-home__arrow" aria-hidden="true">→</span>
+                </button>
+                <button
+                  className="tbv-home__button tbv-home__button--secondary tbv-home__hero-reference-action"
+                  type="button"
+                  data-testid="button-home-shop-us"
+                  onClick={onOpenUsWarehouse}
+                >
+                  {usFlagIcon}<span>{copy.usWarehouse}</span><span className="tbv-home__arrow" aria-hidden="true">→</span>
+                </button>
+              </div>
               <button
-                className="tbv-home__button tbv-home__button--primary tbv-home__hero-reference-action"
+                className="tbv-home__button tbv-home__button--secondary tbv-home__hero-reference-action tbv-home__hero-register-action"
                 type="button"
-                data-testid="button-home-shop-worldwide"
-                onClick={() => onOpenShop()}
+                data-testid="button-home-register"
+                onClick={onOpenRegister}
               >
-                {copy.shopWorldwide}<span className="tbv-home__arrow" aria-hidden="true">→</span>
-              </button>
-              <button
-                className="tbv-home__button tbv-home__button--secondary tbv-home__hero-reference-action"
-                type="button"
-                data-testid="button-home-shop-us"
-                onClick={onOpenUsWarehouse}
-              >
-                {copy.usWarehouse}<span className="tbv-home__arrow" aria-hidden="true">→</span>
+                <UserRound aria-hidden="true" className="tbv-home__button-icon" strokeWidth={1.8} />
+                <span>{copy.register}</span>
+                <span className="tbv-home__arrow" aria-hidden="true">→</span>
               </button>
             </div>
           </>
@@ -103,21 +226,33 @@ export default function HomePage({
               <span className="tbv-home__headline-secondary">{copy.headlineThree}</span>
             </h1>
             <div className="tbv-home__hero-actions">
+              <div className="tbv-home__hero-shop-actions">
+                <button
+                  className="tbv-home__button tbv-home__button--primary"
+                  type="button"
+                  data-testid="button-home-shop-worldwide"
+                  onClick={() => onOpenShop()}
+                >
+                  {worldwideIcon}<span>{copy.shopWorldwide}</span><span className="tbv-home__arrow" aria-hidden="true">→</span>
+                </button>
+                <button
+                  className="tbv-home__button tbv-home__button--secondary"
+                  type="button"
+                  data-testid="button-home-shop-us"
+                  onClick={onOpenUsWarehouse}
+                >
+                  {usFlagIcon}<span>{copy.usWarehouse}</span><span className="tbv-home__arrow" aria-hidden="true">→</span>
+                </button>
+              </div>
               <button
-                className="tbv-home__button tbv-home__button--primary"
+                className="tbv-home__button tbv-home__button--secondary tbv-home__hero-register-action"
                 type="button"
-                data-testid="button-home-shop-worldwide"
-                onClick={() => onOpenShop()}
+                data-testid="button-home-register"
+                onClick={onOpenRegister}
               >
-                {copy.shopWorldwide}<span className="tbv-home__arrow" aria-hidden="true">→</span>
-              </button>
-              <button
-                className="tbv-home__button tbv-home__button--secondary"
-                type="button"
-                data-testid="button-home-shop-us"
-                onClick={onOpenUsWarehouse}
-              >
-                {copy.usWarehouse}<span className="tbv-home__arrow" aria-hidden="true">→</span>
+                <UserRound aria-hidden="true" className="tbv-home__button-icon" strokeWidth={1.8} />
+                <span>{copy.register}</span>
+                <span className="tbv-home__arrow" aria-hidden="true">→</span>
               </button>
             </div>
           </div>
@@ -125,11 +260,11 @@ export default function HomePage({
           <div
             className="tbv-home__hero-art"
             role="img"
-            aria-label={heroProduct ? `${featured.length} featured products, including ${heroProduct.name} ${heroProduct.dose}` : copy.variants}
+            aria-label={heroProduct ? `${heroFeatured.length} featured products, including ${heroProduct.name} ${heroProduct.dose}` : copy.variants}
             data-testid="homepage-hero-visual"
           >
             <div className="tbv-home__hero-vials" aria-hidden="true">
-              {featured.map((product, index) => (
+              {heroFeatured.map((product, index) => (
                 <div className={`tbv-home__hero-vial tbv-home__hero-vial--${index}`} key={`${product.id ?? product.name}-hero`}>
                   <div className="tbv-home__hero-vial-image">{product.image}</div>
                 </div>
@@ -140,8 +275,9 @@ export default function HomePage({
         )}
       </section>
 
+      {productsReady && (
       <section className="tbv-home__section" id="tbv-home-products" aria-labelledby="tbv-home-featured-heading" data-testid="homepage-featured">
-        <div className="tbv-home__container">
+        <div className="tbv-home__container tbv-home__container--featured">
           <div className="tbv-home__section-head">
             <div>
               <h2 id="tbv-home-featured-heading">{copy.variants}</h2>
@@ -155,7 +291,19 @@ export default function HomePage({
               {copy.allProducts}<span className="tbv-home__arrow" aria-hidden="true">→</span>
             </button>
           </div>
-          <div className="tbv-home__products" data-testid="list-home-featured-products">
+          <div
+            className="tbv-home__products"
+            role="region"
+            aria-label={copy.variants}
+            tabIndex={0}
+            data-testid="list-home-featured-products"
+            data-dragging={isDraggingProducts ? "true" : undefined}
+            onPointerDown={handleProductsPointerDown}
+            onPointerMove={handleProductsPointerMove}
+            onPointerUp={finishProductsPointer}
+            onPointerCancel={finishProductsPointer}
+            onClickCapture={preventClickAfterProductsDrag}
+          >
             {featured.length ? featured.map((product, index) => (
               <div className="tbv-home__product-slot" key={`${product.id ?? product.name}-${product.dose ?? index}`} data-testid={`card-featured-product-${product.id ?? index}`}>
                 {product.card}
@@ -166,22 +314,13 @@ export default function HomePage({
           </div>
         </div>
       </section>
+      )}
 
       <section
         className="tbv-home__social"
         aria-labelledby="tbv-home-social-heading"
         data-testid="homepage-social-channels"
-        style={{
-          backgroundImage: `linear-gradient(90deg, rgba(18,20,21,.12) 0%, rgba(32,34,36,.72) 37%, rgba(32,34,36,.66) 63%, rgba(13,15,16,.12) 100%), linear-gradient(180deg, rgba(13,15,16,.2), rgba(13,15,16,.38)), url("${socialBackdrop}")`,
-        }}
       >
-        <div className="tbv-home__social-vials" aria-hidden="true">
-          {[featuredProducts[0], featuredProducts[1]].filter(Boolean).map((product, index) => (
-            <div className={`tbv-home__social-vial tbv-home__social-vial--${index}`} key={`${product.id ?? product.name}-social`}>
-              {product.image}
-            </div>
-          ))}
-        </div>
         <div className="tbv-home__social-content">
           <h2 id="tbv-home-social-heading">{copy.socialTitle}</h2>
           <div className="tbv-home__social-links">
@@ -210,23 +349,17 @@ export default function HomePage({
               href="https://x.com/10BottleValueCo"
               target="_blank"
               rel="noopener noreferrer"
-              aria-label={`X, ${copy.followers}`}
+              aria-label={`X (Twitter), ${copy.followers}`}
               data-testid="link-home-x"
             >
               <span className="tbv-home__social-mark tbv-home__social-mark--x" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.9 2h3.1l-6.8 7.8L23 22h-6.1l-4.8-8.4L4.8 22H1.6l7.3-8.4L1 2h6.3l4.3 7.8L18.9 2Zm-1.1 18h1.7L6.1 3.9H4.3L17.8 20Z" /></svg>
               </span>
-              <span className="tbv-home__social-name">X</span>
+              <span className="tbv-home__social-name">X (Twitter)</span>
               <span className="tbv-home__social-meta">{copy.followers}</span>
               <span className="tbv-home__social-button">{copy.followUs}<ArrowRight size={12} aria-hidden="true" /></span>
             </a>
           </div>
-        </div>
-        <div className="tbv-home__social-phone" aria-hidden="true">
-          <div
-            className="tbv-home__social-phone-screen"
-            style={{ backgroundImage: `url("${socialPhoneImage}")` }}
-          />
         </div>
       </section>
     </main>

@@ -1,0 +1,15 @@
+.shipping-prices-page {
+  position: relative;
+  isolation: isolate;
+}
+
+.shipping-prices-page::before {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(180deg, rgba(9, 13, 18, .48), rgba(9, 13, 18, .62)),
+    var(--shipping-prices-background) center / cover no-repeat;
+}

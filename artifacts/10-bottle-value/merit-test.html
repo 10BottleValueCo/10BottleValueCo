@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex,nofollow" />
-    <title>10 Bottle Value Co — тест Merit без списаний</title>
+    <title>10 Bottle Value Co — Merit Test Without Charges</title>
     <style>
       * { box-sizing: border-box; }
       body { margin: 0; padding: 32px 20px; background: #f3f4f6; color: #171717; font: 16px/1.55 system-ui, sans-serif; }
@@ -28,39 +28,39 @@
   </head>
   <body>
     <main>
-      <p class="muted">10 BOTTLE VALUE CO / ИЗОЛИРОВАННЫЙ ТЕСТ</p>
-      <h1>Подключение Merit</h1>
-      <p class="notice"><strong>Без списаний.</strong> Здесь нет полей карты и подтверждения платежа. Тест создаёт только intent на серверную сумму $1.00; секрет подтверждения не передаётся браузеру. Заказы и база магазина не изменяются.</p>
+      <p class="muted">10 BOTTLE VALUE CO / ISOLATED TEST</p>
+      <h1>Merit Integration</h1>
+      <p class="notice"><strong>No charges.</strong> This page has no card fields or payment confirmation. The test creates an intent for the server-side amount of $1.00 only; no confirmation secret is sent to the browser. Store orders and the database are not modified.</p>
       <section>
-        <h2>1. Готовность сервера</h2>
-        <p id="server-status" role="status">Проверяем настройки…</p>
-        <p class="muted">В Merit должен быть разрешён текущий тестовый домен. Не меняйте подключение основного магазина ради этого теста — запросите staging-доступ у Merit.</p>
-        <button id="refresh" type="button">Проверить настройки снова</button>
+        <h2>1. Server Readiness</h2>
+        <p id="server-status" role="status">Checking settings…</p>
+        <p class="muted">Merit must allow the current test domain. Do not change the main store integration for this test — request staging access from Merit.</p>
+        <button id="refresh" type="button">Check Settings Again</button>
       </section>
       <section>
-        <h2>2. Подключение gate и OTP</h2>
-        <label for="site-token">Публичный site token из Merit</label>
+        <h2>2. Gate and OTP Setup</h2>
+        <label for="site-token">Public site token from Merit</label>
         <input id="site-token" type="text" autocomplete="off" spellcheck="false" placeholder="site_…" />
-        <p class="muted">Только публичный токен из тега скрипта, не private API key. Он не сохраняется на этой странице.</p>
-        <button id="load" type="button">Загрузить gate и OTP</button>
-        <p id="scripts-status" role="status">Скрипты ещё не загружены.</p>
+        <p class="muted">Use only the public token from the script tag, not a private API key. This page does not save it.</p>
+        <button id="load" type="button">Load Gate and OTP</button>
+        <p id="scripts-status" role="status">Scripts have not loaded.</p>
       </section>
       <section>
-        <h2>3. Проверка перед платёжной сессией</h2>
+        <h2>3. Check Before Payment Session</h2>
         <form id="test-form">
-          <label for="email">Email тестового покупателя</label>
-          <input id="email" type="email" required autocomplete="email" placeholder="Email для получения OTP" />
-          <button id="verify" type="submit" disabled>Пройти проверку и создать intent без списания</button>
+          <label for="email">Test buyer email</label>
+          <input id="email" type="email" required autocomplete="email" placeholder="Email address to receive the OTP" />
+          <button id="verify" type="submit" disabled>Complete Verification and Create a No-Charge Intent</button>
         </form>
-        <p id="result" role="status" aria-live="polite">Для теста нужны готовый сервер и загруженные скрипты.</p>
+        <p id="result" role="status" aria-live="polite">This test requires the server and scripts to be ready.</p>
         <ul class="muted">
-          <li>Отмена проверки — серверный запрос не выполняется.</li>
-          <li>Ошибка, пропуск проверки или отсутствие токена — тест останавливается.</li>
-          <li>При SMS-проверке используется итоговый токен из штатного окна Merit.</li>
-          <li>Отказ Merit показывается покупателю; можно начать проверку снова.</li>
+          <li>Canceling verification does not send a server request.</li>
+          <li>If verification fails, is skipped, or no token is provided, the test stops.</li>
+          <li>For SMS verification, the final token from the standard Merit window is used.</li>
+          <li>Merit declines are shown to the buyer; you can start verification again.</li>
         </ul>
       </section>
-      <p class="muted">Успех этого теста подтверждает только создание intent. Он не подтверждает списание, webhook, итоговый Merit score или готовность production.</p>
+      <p class="muted">A successful test confirms intent creation only. It does not confirm a charge, webhook, final Merit score, or production readiness.</p>
     </main>
     <script type="module" src="./src/merit/test-page.js"></script>
   </body>

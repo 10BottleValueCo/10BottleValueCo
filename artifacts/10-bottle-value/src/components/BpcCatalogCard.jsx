@@ -14,7 +14,7 @@ const LABELS = {
   ES: { dosage: "Dosis", quantity: "Seleccionar cantidad", perVial: "por vial", vial: "Vial", vials: "Viales", add: "Añadir al carrito", outOfStock: "Agotado" },
 };
 
-export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLabel, pricesByDose, renderVial, onAddToCart, onDecrementCart, getCartQuantity, isOutOfStock, onOpenProduct, getBadges }) {
+export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLabel, pricesByDose, renderVial, onAddToCart, onDecrementCart, getCartQuantity, isOutOfStock, onOpenProduct, getBadges, catalogStyle = false, worldwideStyle = false, usWarehouseStyle = false }) {
   const doses = Object.keys(pricesByDose);
   const [storedDose, setStoredDose] = useState(doses[0]);
   const [hasManuallySelectedDose, setHasManuallySelectedDose] = useState(false);
@@ -119,7 +119,7 @@ export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLab
   }
 
   return (
-    <article id={id} className={`bpc-catalog-card bpc-catalog-card--quantity-list${name.length > 18 ? " bpc-catalog-card--long-name" : ""}`} aria-label={`${name}${noteLabel ? ` ${noteLabel}` : ""}`}>
+    <article id={id} className={`bpc-catalog-card bpc-catalog-card--quantity-list${catalogStyle ? " bpc-catalog-card--catalog" : ""}${worldwideStyle ? " bpc-catalog-card--worldwide" : ""}${usWarehouseStyle ? " bpc-catalog-card--us-warehouse" : ""}${name.length > 18 ? " bpc-catalog-card--long-name" : ""}`} aria-label={`${name}${noteLabel ? ` ${noteLabel}` : ""}`}>
       <button type="button" className="bpc-catalog-card__product-link" aria-label={`${name} ${displayDose(dose)}`} onClick={open}>
         <div className="bpc-catalog-card__vial">
           {renderVial(dose)}

@@ -1,22 +1,41 @@
 .affiliate-program-page {
   position: relative;
-  isolation: isolate;
-}
-
-.affiliate-program-page::before {
-  position: absolute;
-  z-index: -1;
-  inset-block: 0;
-  left: 50%;
-  width: 100vw;
-  transform: translateX(-50%);
-  pointer-events: none;
-  content: "";
-  background: #8f8f8f;
 }
 
 .affiliate-program-hero {
   background:
     radial-gradient(ellipse at 77% 40%, rgba(37, 99, 235, .2), transparent 43%),
-    linear-gradient(112deg, #0b1220 0%, #101b2e 55%, #09111e 100%);
+    linear-gradient(112deg, rgba(11, 18, 32, .72) 0%, rgba(16, 27, 46, .62) 55%, rgba(9, 17, 30, .68) 100%);
+}
+
+.affiliate-program-description {
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, .95),
+    0 2px 9px rgba(0, 0, 0, .9);
+}
+
+.tbv-app-shell[data-affiliate-backdrop="true"] {
+  background-color: transparent;
+}
+
+header[data-affiliate-header="true"] {
+  background-color: rgba(9, 13, 18, .4);
+  backdrop-filter: blur(8px);
+}
+
+@media (min-width: 768px) {
+  .affiliate-program-page .affiliate-program-hero {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+  }
+
+  .affiliate-program-page .affiliate-program-hero-shelf {
+    display: none;
+  }
+
+  [data-affiliate-backdrop="true"] [data-nosnippet] {
+    background-color: rgba(0, 0, 0, .45);
+    backdrop-filter: blur(7px);
+  }
 }
