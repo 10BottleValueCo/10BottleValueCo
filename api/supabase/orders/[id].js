@@ -1,5 +1,7 @@
+import { requireAdmin } from "../../_require-admin.js";
+
 const SUPABASE_URL = "https://danpkqqzcptamojrnrmk.supabase.co";
-const ALLOWED_ORDER_STATUSES = new Set(["pending","paid","done","refunded","cancelled"]);
+const ALLOWED_ORDER_STATUSES = new Set(["pending", "paid", "done", "refunded", "cancelled"]);
 
 function getServiceKey() {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -12,8 +14,10 @@ async function supabaseAdmin(path, options = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...options,
     headers: {
-      apikey: key, Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json", Prefer: "return=minimal",
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
       ...(options.headers || {}),
     },
   });
@@ -27,10 +31,13 @@ async function supabaseAdmin(path, options = {}) {
 }
 
 export default async function handler(req, res) {
+  res.setHeader("Cache-Control", "no-store");
   if (req.method !== "PATCH") {
     res.setHeader("Allow", "PATCH");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
+  if (!(await requireAdmin(req, res))) return;
+
   try {
     const { id } = req.query;
     if (!id) return res.status(400).json({ ok: false, error: "Missing order id" });
@@ -44,11 +51,11 @@ export default async function handler(req, res) {
         return res.status(400).json({ ok: false, error: `Invalid status: ${status}` });
       }
       update.status = status;
-      // When order is refunded or cancelled, deduct affiliate commission
       if (status === "refunded" || status === "cancelled") {
         zeroAffiliateCommission = true;
       }
     }
+
     if (Object.prototype.hasOwnProperty.call(body, "affiliate_commission_adjustment")) {
       const raw = Number(body.affiliate_commission_adjustment);
       if (!Number.isFinite(raw) || raw < 0) {
@@ -60,26 +67,29 @@ export default async function handler(req, res) {
       return res.status(400).json({ ok: false, error: "No supported fields to update" });
     }
 
-    // Update order status
     await supabaseAdmin(`orders?id=eq.${encodeURIComponent(id)}`, {
-      method: "PATCH", body: JSON.stringify(update),
+      method: "PATCH",
+      body: JSON.stringify(update),
     });
 
-    // Zero out affiliate commission for refunded/cancelled orders
     if (zeroAffiliateCommission) {
       try {
         await supabaseAdmin(`affiliate_orders?order_id=eq.${encodeURIComponent(id)}`, {
-          method: "PATCH", body: JSON.stringify({ commission_amount: 0 }),
+          method: "PATCH",
+          body: JSON.stringify({ commission_amount: 0 }),
         });
       } catch (affErr) {
-        // Non-fatal: log but don't fail the whole request
         console.warn("affiliate_orders zero-commission failed:", affErr.message);
       }
     }
 
-    return res.status(200).json({ ok: true, updated: update, affiliateCommissionZeroed: zeroAffiliateCommission });
+    return res.status(200).json({
+      ok: true,
+      updated: update,
+      affiliateCommissionZeroed: zeroAffiliateCommission,
+    });
   } catch (err) {
     console.error("orders/[id] PATCH failed:", err.message);
-    return res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({ ok: false, error: "Order update failed" });
   }
 }

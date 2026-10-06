@@ -1,3 +1,5 @@
+import { requireAdmin } from "../../../_require-admin.js";
+
 const SUPABASE_URL = "https://danpkqqzcptamojrnrmk.supabase.co";
 
 function getServiceKey() {
@@ -11,8 +13,10 @@ async function supabaseAdmin(path, options = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...options,
     headers: {
-      apikey: key, Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json", Prefer: "return=minimal",
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
       ...(options.headers || {}),
     },
   });
@@ -26,19 +30,23 @@ async function supabaseAdmin(path, options = {}) {
 }
 
 export default async function handler(req, res) {
+  res.setHeader("Cache-Control", "no-store");
   if (req.method !== "PATCH") {
     res.setHeader("Allow", "PATCH");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
+  if (!(await requireAdmin(req, res))) return;
+
   try {
     const { id } = req.query;
     if (!id) return res.status(400).json({ ok: false, error: "Missing order id" });
     await supabaseAdmin(`orders?id=eq.${encodeURIComponent(id)}`, {
-      method: "PATCH", body: JSON.stringify({ status: "paid" }),
+      method: "PATCH",
+      body: JSON.stringify({ status: "paid" }),
     });
     return res.status(200).json({ ok: true });
   } catch (err) {
     console.error("orders/[id]/paid failed:", err.message);
-    return res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({ ok: false, error: "Order update failed" });
   }
 }

@@ -858,11 +858,12 @@ function UPSTrackBlock() {
   );
 }
 
-function TrackOrderPage({ t, supabase }) {
+function TrackOrderPage({ t, supabase, currentUser }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [notFound, setNotFound] = useState(false);
+  const [accessMessage, setAccessMessage] = useState("");
   const [trackInput, setTrackInput] = useState("");
   const [trackUrl, setTrackUrl] = useState("");
 
@@ -877,14 +878,23 @@ function TrackOrderPage({ t, supabase }) {
     e.preventDefault();
     const query = input.trim().toUpperCase();
     if (!query) return;
+    const ownerEmail = currentUser?.email?.trim().toLowerCase();
+    if (!ownerEmail) {
+      setResult(null);
+      setNotFound(false);
+      setAccessMessage(t("trackOrderSignInRequired"));
+      return;
+    }
     setLoading(true);
     setResult(null);
     setNotFound(false);
+    setAccessMessage("");
     try {
       const { data, error } = await supabase
         .from("orders")
         .select("*")
         .ilike("id", query)
+        .eq("email", ownerEmail)
         .limit(1);
       if (error) throw error;
       if (!data || data.length === 0) {
@@ -930,7 +940,7 @@ function TrackOrderPage({ t, supabase }) {
           <input
             type="text"
             value={input}
-            onChange={(e) => { setInput(e.target.value); setResult(null); setNotFound(false); }}
+            onChange={(e) => { setInput(e.target.value); setResult(null); setNotFound(false); setAccessMessage(""); }}
             placeholder={t("trackOrderPlaceholder")}
             className="flex-1 rounded-full border border-white/20 bg-white/10 px-5 py-3 text-[14px] font-semibold uppercase tracking-[0.06em] text-white placeholder:text-white/50 outline-none focus:border-white/50"
             autoComplete="off"
@@ -944,6 +954,12 @@ function TrackOrderPage({ t, supabase }) {
             {loading ? t("trackOrderChecking") : t("trackOrderBtn")}
           </button>
         </form>
+
+        {accessMessage && (
+          <p className="mt-6 text-center text-[14px] font-semibold text-white/60">
+            {accessMessage}
+          </p>
+        )}
 
         {notFound && (
           <p className="mt-6 text-center text-[14px] font-semibold text-white/60 uppercase tracking-wide">
@@ -5168,21 +5184,16 @@ export default function App() {
   }
 
   async function loadUserInbox(silent = false, markVisibleRead = false) {
-    // Logged-in users use their account email; guests use the entered email,
-    // falling back to the last saved guest email after a reload.
-    let email = currentUser?.email || contactForm.email.trim();
-    if (!email) {
-      try { email = window.localStorage.getItem("tbv_guest_email") || ""; } catch {}
-    }
+    const email = currentUser?.email?.trim().toLowerCase() || "";
     if (!email) {
       userInboxRequestIdRef.current += 1;
       userInboxEmailRef.current = "";
       setUserInboxMessages([]);
-      setUserInboxError("");
+      setHasUnreadReply(false);
+      setUserInboxError("Sign in to view your support messages.");
       setUserInboxLoading(false);
       return;
     }
-    email = email.trim().toLowerCase();
     if (userInboxEmailRef.current !== email) {
       userInboxEmailRef.current = email;
       setUserInboxMessages([]);
@@ -6649,6 +6660,7 @@ export default function App() {
       trackOrderBtn: "CHECK STATUS",
       trackOrderChecking: "Checking...",
       trackOrderNotFound: "Order not found. Check the number and try again.",
+      trackOrderSignInRequired: "Sign in with the email used for this order to view its status.",
       trackOrderPaid: "PAID",
       trackOrderPending: "AWAITING PAYMENT",
       trackOrderDate: "Date",
@@ -6771,6 +6783,7 @@ export default function App() {
       trackOrderBtn: "ПРОВЕРИТЬ СТАТУС",
       trackOrderChecking: "Проверяем...",
       trackOrderNotFound: "Заказ не найден. Проверьте номер и попробуйте снова.",
+      trackOrderSignInRequired: "Войдите с адресом электронной почты, указанным для этого заказа, чтобы увидеть его статус.",
       trackOrderPaid: "ОПЛАЧЕН",
       trackOrderPending: "ОЖИДАЕТ ОПЛАТЫ",
       trackOrderDate: "Дата",
@@ -6894,6 +6907,7 @@ export default function App() {
       trackOrderBtn: "VERIFICAR ESTADO",
       trackOrderChecking: "Verificando...",
       trackOrderNotFound: "Pedido no encontrado. Revisa el número e intenta de nuevo.",
+      trackOrderSignInRequired: "Inicia sesión con el correo electrónico usado para este pedido para ver su estado.",
       trackOrderPaid: "PAGADO",
       trackOrderPending: "ESPERANDO PAGO",
       trackOrderDate: "Fecha",
@@ -7017,6 +7031,7 @@ export default function App() {
       trackOrderBtn: "STATUS PRÜFEN",
       trackOrderChecking: "Wird geprüft...",
       trackOrderNotFound: "Bestellung nicht gefunden. Nummer prüfen und erneut versuchen.",
+      trackOrderSignInRequired: "Melde dich mit der E-Mail-Adresse dieses Auftrags an, um seinen Status zu sehen.",
       trackOrderPaid: "BEZAHLT",
       trackOrderPending: "ZAHLUNG AUSSTEHEND",
       trackOrderDate: "Datum",
@@ -7140,6 +7155,7 @@ export default function App() {
       trackOrderBtn: "ПЕРЕВІРИТИ СТАТУС",
       trackOrderChecking: "Перевіряємо...",
       trackOrderNotFound: "Замовлення не знайдено. Перевірте номер і спробуйте ще раз.",
+      trackOrderSignInRequired: "Увійдіть з адресою електронної пошти, вказаною для цього замовлення, щоб переглянути його статус.",
       trackOrderPaid: "ОПЛАЧЕНО",
       trackOrderPending: "ОЧІКУЄ ОПЛАТИ",
       trackOrderDate: "Дата",
@@ -15119,7 +15135,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         ) : null}
 
         {page === "track" && (
-          <TrackOrderPage t={t} supabase={supabase} />
+          <TrackOrderPage t={t} supabase={supabase} currentUser={currentUser} />
         )}
 
         {page === "shipping" && (
