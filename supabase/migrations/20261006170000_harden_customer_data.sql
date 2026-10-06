@@ -1,9 +1,9 @@
 -- Customer-data hardening for orders and support messages.
 -- This replaces only policies on these two tables; it does not alter or delete rows.
--- DO NOT APPLY yet: current browser code still writes paid orders directly for
--- Store Credit and PayPal. This migration intentionally blocks those writes.
--- First move those order updates to verified server-side handlers, then test
--- checkout and payment return flows on a staging Supabase project.
+-- DO NOT APPLY yet: current browser code still writes Store Credit orders as
+-- paid and deducts the balance directly. This migration intentionally blocks
+-- the paid-order write. First move the purchase to a verified server-side,
+-- atomic flow, then test checkout on a staging Supabase project.
 
 BEGIN;
 
