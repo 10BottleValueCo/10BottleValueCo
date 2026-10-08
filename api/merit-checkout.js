@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { requireVerifiedCustomer } from "./_require-customer.js";
 import { MeritError, assertCheckoutOrigin, getMeritConfig, meritRuleSnapshot, publicMeritConfig, readMeritCheckoutKey } from "./_merit-core.js";
-import { buildMeritQuote, MeritQuoteError } from "./_merit-quote.js";
+import { buildMeritQuote, meritCreditSnapshot, MeritQuoteError } from "./_merit-quote.js";
 import { createMeritProvider } from "./_merit-provider.js";
 import { createMeritStore } from "./_merit-storage.js";
 import { reconcileMeritOrder } from "./_merit-reconcile.js";
@@ -12,7 +12,7 @@ const uuid = /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i;
 const record = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const pending = () => new MeritError(503, "Your checkout is being prepared. Check again using this same checkout before making another payment.", "MERIT_PREPARING");
 const orderIdFor = key => `INV-${key.replaceAll("-", "").toUpperCase()}`;
-const publicFields = ["email", "firstName", "lastName", "country", "address", "address2", "city", "state", "postalCode", "phone", "taxId", "orderNotes", "purchaserAttestation", "shippingType", "items", "subtotal", "shipping", "automaticDiscount", "promoDiscount", "promoCode", "promoFreeShipping", "ownerFreeShipping", "affiliateDiscount", "affiliateDiscountDisabled", "affiliateCode", "affiliateCommission", "customerCardSurcharge", "customerCardSurchargeBps", "cryptoDiscount", "storeCreditUsed", "total"];
+const publicFields = ["email", "firstName", "lastName", "country", "address", "address2", "city", "state", "postalCode", "phone", "taxId", "orderNotes", "purchaserAttestation", "shippingType", "items", "subtotal", "shipping", "automaticDiscount", "promoDiscount", "promoCode", "promoFreeShipping", "ownerFreeShipping", "affiliateDiscount", "affiliateDiscountDisabled", "affiliateCode", "affiliateCommission", "customerCardSurcharge", "customerCardSurchargeBps", "cryptoDiscount", "storeCreditUsed", "storeCreditUsedCents", "orderBaseAmountCents", "cardBaseAmountCents", "total"];
 
 function validateAttempt(attempt, customer, checkoutKey) {
   if (!record(attempt) || !uuid.test(attempt.id || "") || attempt.customer_id !== customer.id
@@ -23,12 +23,21 @@ function validateAttempt(attempt, customer, checkoutKey) {
     || Math.round(Number(attempt.snapshot.total) * 100) !== Number(attempt.amount_cents)
     || !/^acct_[A-Za-z0-9]+$/.test(attempt.expected_account || "")
     || typeof attempt.expected_live !== "boolean" || !["reserved", "ready", "paid"].includes(attempt.state)) throw pending();
+  const credit = Number(attempt.credit_reserved_cents ?? 0);
+  const fee = Math.round(Number(attempt.snapshot.customerCardSurcharge) * 100);
+  if (!Number.isSafeInteger(credit) || credit < 0 || Math.round(Number(attempt.snapshot.storeCreditUsed ?? 0) * 100) !== credit) throw pending();
+  if (credit > 0 && (!record(attempt.credit_request_snapshot)
+    || !isDeepStrictEqual(attempt.snapshot, meritCreditSnapshot(attempt.credit_request_snapshot, credit))
+    || !Number.isSafeInteger(fee))) throw pending();
   return attempt;
 }
 
 function sessionResponse(attempt) {
   const amountCents = Number(attempt.amount_cents);
   const surchargeCents = Math.round(Number(attempt.snapshot.customerCardSurcharge) * 100);
+  const storeCreditUsedCents = Number(attempt.credit_reserved_cents ?? 0);
+  const cardBaseAmountCents = amountCents - surchargeCents;
+  const baseAmountCents = cardBaseAmountCents + storeCreditUsedCents;
   if (!["ready", "paid"].includes(attempt.state) || !/^pi_[A-Za-z0-9]+$/.test(attempt.intent_id || "")
     || !new RegExp(`^${attempt.intent_id}_secret_[A-Za-z0-9]+$`).test(attempt.client_secret || "")
     || !/^pk_(?:live|test)_[A-Za-z0-9]+$/.test(attempt.publishable_key || "")
@@ -39,7 +48,7 @@ function sessionResponse(attempt) {
   return {
     ok: true, orderId: attempt.order_id, paid: attempt.state === "paid", order,
     session: { clientSecret: attempt.client_secret, publishableKey: attempt.publishable_key, stripeAccount: attempt.expected_account,
-      orderId: attempt.order_id, amountCents, currency: "usd", baseAmountCents: amountCents - surchargeCents, surchargeCents },
+      orderId: attempt.order_id, amountCents, currency: "usd", baseAmountCents, cardBaseAmountCents, storeCreditUsedCents, appliedCreditCents: storeCreditUsedCents, surchargeCents },
   };
 }
 
@@ -85,22 +94,34 @@ export function createMeritCheckoutHandler({ env = process.env, provider = creat
         supabaseUrl: env.SUPABASE_URL || env.VITE_SUPABASE_URL,
       });
       const snapshot = { ...priced.snapshot, paymentRules: meritRuleSnapshot(config), costSnapshot: null };
-      const fingerprint = createHash("sha256").update(JSON.stringify({ version: 1, currency: priced.currency, amountCents: priced.amountCents, userPromoId: priced.userPromoId, snapshot })).digest("hex");
-      const reservation = await store.reserve({
+      const useStoreCredit = req.body.useStoreCredit === true;
+      const fingerprint = createHash("sha256").update(JSON.stringify({ version: useStoreCredit ? 2 : 1, currency: priced.currency, amountCents: priced.amountCents, userPromoId: priced.userPromoId, snapshot })).digest("hex");
+      const reservation = await (useStoreCredit ? store.reserveCredit : store.reserve)({
         p_checkout_key: checkoutKey, p_email: customer.email, p_customer_id: customer.id, p_fingerprint: fingerprint,
         p_amount_cents: priced.amountCents, p_currency: priced.currency, p_snapshot: snapshot,
         p_expected_account: providerConfig.stripeAccount, p_expected_live: providerConfig.live, p_user_promo_id: priced.userPromoId,
       });
-      if (reservation?.ok !== true || typeof reservation.created !== "boolean") throw pending();
+      if (reservation?.ok !== true) {
+        const creditErrors = {
+          MERIT_CREDIT_PENDING: "A previous Store Credit checkout needs reconciliation. Contact support before making another payment.",
+          MERIT_FULL_CREDIT_AVAILABLE: "Store Credit covers this order. Choose full Store Credit checkout.",
+          MERIT_CREDIT_BALANCE_UNAVAILABLE: "Your Store Credit balance is unavailable or has changed. Refresh your balance before preparing payment.",
+        };
+        if (useStoreCredit && Object.hasOwn(creditErrors, reservation?.error)) throw new MeritError(409, creditErrors[reservation.error], reservation.error);
+        throw pending();
+      }
+      if (typeof reservation.created !== "boolean") throw pending();
       const attempt = validateAttempt(reservation.attempt, customer, checkoutKey);
-      if (attempt.quote_fingerprint !== fingerprint || Number(attempt.amount_cents) !== priced.amountCents
+      const expectedSnapshot = useStoreCredit ? meritCreditSnapshot(snapshot, Number(attempt.credit_reserved_cents)) : snapshot;
+      const expectedAmountCents = Math.round(expectedSnapshot.total * 100);
+      if (attempt.quote_fingerprint !== fingerprint || Number(attempt.amount_cents) !== expectedAmountCents
         || attempt.expected_account !== providerConfig.stripeAccount || attempt.expected_live !== providerConfig.live
-        || !isDeepStrictEqual(attempt.snapshot, snapshot)) throw pending();
+        || !isDeepStrictEqual(attempt.snapshot, expectedSnapshot)) throw pending();
       if (!reservation.created) return res.status(200).json(sessionResponse(attempt));
       if (attempt.state !== "reserved" || attempt.intent_id) throw pending();
       // Only the transaction's first creator can reach the provider. A crash
       // here leaves this same attempt pending; never silently start another.
-      const intent = await provider.create({ amountCents: priced.amountCents, orderId: attempt.order_id,
+      const intent = await provider.create({ amountCents: Number(attempt.amount_cents), orderId: attempt.order_id,
         otpToken: req.body.otpToken, verifiedEmail: customer.email, organization: req.body.organization?.trim() });
       if (intent.stripeAccount !== attempt.expected_account || intent.live !== attempt.expected_live) throw pending();
       const bound = await store.bind({ p_attempt_id: attempt.id, p_intent_id: intent.intentId, p_stripe_account: intent.stripeAccount,

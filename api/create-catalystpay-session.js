@@ -1,3 +1,4 @@
+import { legacyCreditStartError, legacyExistingCreditOrderError } from "./_legacy-store-credit.js";
 import { validateAndPriceItems, getShippingPrice, getAutomaticDiscountRate } from "./_catalog.js";
 import { verifyPromoCode } from "./_promo.js";
 
@@ -19,6 +20,16 @@ const BASE_API_URL = IS_PRODUCTION
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const creditError = legacyCreditStartError(req.body);
+  if (creditError) {
+    const { status, ...body } = creditError;
+    return res.status(status).json(body);
+  }
+  const existingCreditError = await legacyExistingCreditOrderError(req.body);
+  if (existingCreditError) {
+    const { status, ...body } = existingCreditError;
+    return res.status(status).json(body);
+  }
 
   try {
     if (!MERCHANT_ID || !API_TOKEN) {

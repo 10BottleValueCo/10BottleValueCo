@@ -1,3 +1,4 @@
+import { acknowledgeLegacyCreditPaid, debitLegacyOrderCredit } from "./_legacy-store-credit.js";
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
 const sbH = () => ({ apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" });
@@ -30,7 +31,7 @@ async function resolveAffiliate(email, code) {
 // either a NOWPayments IPN payload or a GET /v1/payment/{id} response — both
 // share the same field names (payment_status, order_id, order_description,
 // pay_currency, actually_paid, payment_id, invoice_id).
-export async function processNowPaymentsStatus(data) {
+export async function processNowPaymentsStatus(data, { providerVerified = false } = {}) {
   const status = String(data.payment_status || "").toLowerCase();
   const shouldEmail = ["confirming", "confirmed", "sending", "finished"].includes(status);
   const isPaid = ["confirming", "confirmed", "sending", "finished"].includes(status);
@@ -70,11 +71,13 @@ export async function processNowPaymentsStatus(data) {
   let sbEmail = "";
   let alreadyEmailSent = false;
   let alreadyPaidInDb = false;
+  let orderReadVerified = false;
   if (SB_URL && SB_KEY) {
     try {
-      const sbRes = await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(orderId))}&select=metadata,items,status,email`, { headers: sbH() });
+      const sbRes = await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(orderId))}&select=metadata,items,status,email&limit=1`, { headers: sbH() });
       if (sbRes.ok) {
         const sbRows = await sbRes.json();
+        orderReadVerified = Array.isArray(sbRows) && sbRows.length === 1 && !!sbRows[0] && typeof sbRows[0] === "object";
         if (sbRows?.length && sbRows[0].metadata && typeof sbRows[0].metadata === "object") {
           sbMeta = sbRows[0].metadata;
           if (sbMeta.confirmationEmailSentAt) alreadyEmailSent = true;
@@ -86,6 +89,13 @@ export async function processNowPaymentsStatus(data) {
         sbEmail = String(sbRows?.[0]?.email || "");
       }
     } catch {}
+  }
+
+  if (!orderReadVerified) {
+    const error = new Error("Store credit reconciliation requires the saved order.");
+    error.code = "CREDIT_RECONCILIATION_REQUIRED";
+    error.status = 503;
+    throw error;
   }
 
   // NOWPayments truncates order_description past its own length limit, which silently
@@ -107,6 +117,27 @@ export async function processNowPaymentsStatus(data) {
   if (alreadyEmailSent && !isPaid) {
     return { received: true, skipped: "email_already_sent", status };
   }
+
+  const declaredCredit = sbMeta.storeCreditUsed ?? metadata.storeCreditUsed ?? 0;
+  // Only the existing server-to-provider lookup can establish this flag.
+  // An unsigned IPN payload cannot authorize a balance debit or paid state.
+  if (Number(declaredCredit) !== 0 && providerVerified !== true) {
+    const error = new Error("Store credit requires verified payment reconciliation.");
+    error.code = "CREDIT_RECONCILIATION_REQUIRED";
+    error.status = 503;
+    throw error;
+  }
+  if (isPaid && !alreadyPaidInDb) {
+    await debitLegacyOrderCredit({
+      orderId, email, creditAmount: declaredCredit,
+      provider: "nowpayments",
+    });
+  }
+  const creditPaidAcknowledged = Number(declaredCredit) > 0 && !alreadyPaidInDb;
+  if (creditPaidAcknowledged) await acknowledgeLegacyCreditPaid({
+    id: String(orderId), email, status: "paid", payment_provider: `NOWPayments ${currency}`.trim(),
+    payment_id: String(data.payment_id || data.invoice_id || orderId), paid_at: new Date().toISOString(),
+  });
 
   const resolvedAffiliate = await resolveAffiliate(email, String(sbMeta.affiliateCode || metadata.affiliateCode || metadata.affiliate_code || "")).catch(() => null);
   const affiliateCode = resolvedAffiliate || String(sbMeta.affiliateCode || metadata.affiliateCode || "").trim().toUpperCase();
@@ -218,7 +249,7 @@ export async function processNowPaymentsStatus(data) {
       }
     };
 
-    dbMarkedPaid = await patchOrderPaid();
+    dbMarkedPaid = creditPaidAcknowledged || await patchOrderPaid();
     if (!dbMarkedPaid) dbMarkedPaid = await patchOrderPaid();
 
     // NOTE: deliberately not using on_conflict/merge-duplicates here — Postgres
@@ -263,26 +294,6 @@ export async function processNowPaymentsStatus(data) {
       ).catch(() => {});
     }
 
-    // Deduct spent store credit server-side. This used to happen ONLY in the
-    // frontend's markOrderPaidById (tied to the browser polling/checking status
-    // on the payment-return page) — if the webhook/status-check landed after the
-    // client gave up retrying or the customer closed/left the tab, the credit was
-    // never deducted at all, letting it be re-spent on a future order.
-    if (finalStoreCreditUsed > 0 && email) {
-      try {
-        const creditEmail = email.toLowerCase();
-        const creditRes = await fetch(`${SB_URL}/rest/v1/user_credits?email=eq.${encodeURIComponent(creditEmail)}&select=amount`, { headers: sbH() });
-        const creditRows = creditRes.ok ? await creditRes.json() : [];
-        const newCreditAmount = Math.max(0, (creditRows?.[0] ? Number(creditRows[0].amount) : 0) - finalStoreCreditUsed);
-        await fetch(`${SB_URL}/rest/v1/user_credits?on_conflict=email`, {
-          method: "POST",
-          headers: { ...sbH(), Prefer: "resolution=merge-duplicates,return=minimal" },
-          body: JSON.stringify({ email: creditEmail, amount: newCreditAmount, updated_at: new Date().toISOString() }),
-        }).catch((e) => console.error("NOWPayments: user_credits upsert failed:", e.message));
-      } catch (e) {
-        console.error("NOWPayments: store credit deduction threw:", e?.message || e);
-      }
-    }
   }
 
   return { received: true, status, isPaid, dbMarkedPaid, dbWriteError, affiliateCode, alreadyEmailSent, alreadyPaidInDb };

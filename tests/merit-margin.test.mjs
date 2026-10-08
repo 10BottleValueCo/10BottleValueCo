@@ -143,3 +143,37 @@ test("private source strings and provider secrets are never copied into the comp
   const serialized = JSON.stringify(computeMeritMargin(row));
   assert.doesNotMatch(serialized, /must-not-return-secret|private@example|private-agreement-reference|paymentRules/);
 });
+
+test("mixed credit order preserves full value and estimates processing on card charge only", () => {
+  const row = attempt();
+  row.amount_cents = 1030;
+  row.credit_reserved_cents = 5000;
+  Object.assign(row.snapshot, { total: 10.30, storeCreditUsed: 50, shipping: 20, customerCardSurcharge: .30 });
+  const result = computeMeritMargin(row);
+  assert.equal(result.status, 'estimated_fee_known');
+  assert.equal(result.orderValueCents, 6030);
+  assert.equal(result.storeCreditUsedCents, 5000);
+  assert.equal(result.chargedAmountCents, 1030);
+  assert.equal(result.processorExpenseCents, 77);
+  assert.equal(result.merchantFeeBurdenCents, 47);
+  assert.equal(result.customerShippingCollectedCents, 2000);
+  const withCosts = computeMeritMargin(row, { costs: costs() });
+  assert.equal(withCosts.contributionCents, null);
+  assert.equal(withCosts.contributionKind, 'store_credit_funding_unknown');
+  assert.equal(withCosts.netProfitCents, null);
+  row.snapshot.paymentRules.merchantProcessingExpense.basis = null;
+  const unknown = computeMeritMargin(row);
+  assert.equal(unknown.orderValueCents, 6030);
+  assert.equal(unknown.processorExpenseCents, null);
+  assert.equal(unknown.merchantFeeBurdenCents, null);
+});
+
+
+test("mixed credit margin excludes missing or mismatched private reservations", () => {
+  const row = attempt(); row.amount_cents = 1030;
+  Object.assign(row.snapshot, { total: 10.30, storeCreditUsed: 50, shipping: 20, customerCardSurcharge: .30 });
+  for (const held of [undefined, null, 0, 4999, 5001]) {
+    row.credit_reserved_cents = held;
+    assert.equal(computeMeritMargin(row).status, "unavailable");
+  }
+});

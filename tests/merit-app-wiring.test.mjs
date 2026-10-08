@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { webcrypto } from 'node:crypto';
 import vm from 'node:vm';
 import { test } from 'node:test';
-import { buildMeritCheckoutPayload, meritCheckoutBusinessError, meritPayloadDigest, saveMeritAttempt, readMeritAttempt } from '../artifacts/10-bottle-value/src/merit-checkout-client.js';
+import { buildMeritCheckoutPayload, estimateMeritCreditSplit, meritCheckoutBusinessError, meritPayloadDigest, saveMeritAttempt, readMeritAttempt } from '../artifacts/10-bottle-value/src/merit-checkout-client.js';
 
 // Exercise the actual App event handlers with isolated I/O. Parsing the source
 // keeps these tests independent of browser/Stripe credentials and of hook order.
@@ -25,6 +25,12 @@ const initialState = (name, context) => {
     .find(node => node.id.type === 'ArrayPattern' && node.id.elements[0]?.name === name);
   const init = decl.init.arguments[0];
   return vm.runInNewContext(`(${source.slice(init.start, init.end)})()`, context);
+};
+const initializer = (name, context) => {
+  const decl = appBody.filter(node => node.type === 'VariableDeclaration').flatMap(node => node.declarations)
+    .find(node => node.id.type === 'Identifier' && node.id.name === name);
+  assert.ok(decl, `App initializer ${name} exists`);
+  return vm.runInNewContext(`(${source.slice(decl.init.start, decl.init.end)})`, context);
 };
 function storageFixture() {
   const map = new Map();
@@ -51,9 +57,10 @@ function fixture() {
     window: { innerWidth: 1280, scrollTo: () => {}, sessionStorage: storageFixture(), crypto: webcrypto },
     localStorage: { getItem: () => { throw new Error('unexpected legacy localStorage'); }, setItem: () => { throw new Error('unexpected legacy localStorage'); } },
     persistOrderToServer: () => { throw new Error('unexpected legacy server save'); },
-    openMeritPending: () => calls.push(['pending']), stripeTemporarilyDisabled: false,
+    openMeritPending: () => calls.push(['pending']), showMeritReservedAttempt: () => calls.push(['pending']), stripeTemporarilyDisabled: false,
     meritConfig: { enabled: true, currency: 'usd', surchargeBps: 300 },
     buildMeritCheckoutPayload, meritCheckoutBusinessError, meritPayloadDigest, saveMeritAttempt, language: 'EN',
+    loadStoreCredit: async () => {},
     verifyMeritCheckoutBuyer: async () => ({ otpToken: 'otp', verifiedEmail: 'buyer@example.test' }),
     meritApi: { create: async () => { throw new Error('unexpected create'); } },
   };
@@ -239,4 +246,242 @@ test('Merit receipts remain server-only while the legacy manual receipt path sta
   assert.equal(requests.length, 1);
   assert.equal(requests[0].url, '/api/send-payment-confirmed-email');
   assert.equal(requests[0].body.paymentProvider, 'Wire Transfer');
+});
+
+
+test('credit request cannot switch methods or create a replacement key after a lost response and changed checkout', async () => {
+  const { context, calls } = fixture();
+  context.meritPayload.useStoreCredit = true;
+  context.meritInputsRef.current = JSON.stringify({ payload: context.meritPayload, email: context.currentUser.email, surchargeBps: 300 });
+  let creates = 0;
+  context.meritApi.create = async () => { creates += 1; throw new Error('response lost after credit hold'); };
+  const start = handler('handleStripePayment', context);
+  await start();
+  const original = readMeritAttempt(context.window.sessionStorage);
+  assert.equal(original.createRequested, true);
+  await start();
+  assert.equal(creates, 2);
+  assert.equal(readMeritAttempt(context.window.sessionStorage).key, original.key);
+  handler('setPaymentMethod', context)('paypal');
+  assert.equal(calls.filter(([name]) => name === 'setPaymentMethodState').length, 0);
+  context.meritPayload.items[0].quantity = 3;
+  context.meritInputsRef.current = JSON.stringify({ payload: context.meritPayload, email: context.currentUser.email, surchargeBps: 300 });
+  await start();
+  assert.equal(creates, 2);
+  assert.equal(readMeritAttempt(context.window.sessionStorage).key, original.key);
+  assert.ok(calls.some(([name]) => name === 'pending'));
+});
+
+test('full-credit authoritative rejection releases only the unreserved request for the existing credit checkout', async () => {
+  const { context, calls } = fixture();
+  context.meritPayload.useStoreCredit = true;
+  context.meritInputsRef.current = JSON.stringify({ payload: context.meritPayload, email: context.currentUser.email, surchargeBps: 300 });
+  context.meritApi.create = async () => { const error = new Error('credit covers order'); error.code = 'MERIT_FULL_CREDIT_AVAILABLE'; throw error; };
+  await handler('handleStripePayment', context)();
+  assert.equal(readMeritAttempt(context.window.sessionStorage).createRequested, undefined);
+  assert.match(calls.findLast(([name]) => name === 'setStripeError')[1], /covers the entire order/);
+});
+
+test('missing full-credit RPC leaves cart, balance and retry id intact without a paid browser order', async () => {
+  const { context, calls } = fixture();
+  Object.assign(context, {
+    finalTotal: 0, storeCreditApplied: 60, hasOutOfStockInCart: false,
+    creditCheckoutInFlightRef: { current: false }, isCreditCheckoutSubmitting: false, creditPayAnimating: false,
+    storeCreditOrderAttemptRef: { current: null }, ownerFreeShippingActive: false, affiliateDiscountDisabled: false,
+    supabase: { auth: { getSession: async () => ({ data: { session: { access_token: 'synthetic' } } }) } },
+  });
+  const requests = [];
+  context.fetch = async (url, options) => {
+    requests.push({ url, body: JSON.parse(options.body) });
+    return { ok: false, json: async () => ({ ok: false, error: 'Store Credit checkout is temporarily unavailable.' }) };
+  };
+  for (const name of ['setIsCreditCheckoutSubmitting', 'setStoreCredit', 'setCart', 'setCreditPayAnimating', 'setCreditPayAmount', 'setPaymentReturn']) context[name] = value => calls.push([name, value]);
+  const checkout = handler('handlePayWithCredits', context);
+  await checkout(); await checkout();
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].url, '/api/store-credit-checkout');
+  assert.equal(requests[0].body.paymentMethod, ''); // No card surcharge on an entirely credit-funded order.
+  assert.equal(requests[0].body.orderId, requests[1].body.orderId);
+  assert.equal(context.storeCreditOrderAttemptRef.current, requests[0].body.orderId);
+  assert.equal(context.creditCheckoutInFlightRef.current, false);
+  assert.equal(calls.filter(([name]) => ['setStoreCredit', 'setCart', 'setPaymentReturn', 'setCreditPayAnimating'].includes(name)).length, 0);
+  assert.ok(calls.some(([name, value]) => name === 'setCheckoutMessage' && /unavailable/.test(value)));
+});
+
+test('prepared credit checkout can restore its Merit method and pass details without generating a different attempt', async () => {
+  const { context, calls } = fixture();
+  context.meritAttemptRef.current = { key: 'preserved', orderId: 'INV-HELD123', createRequested: true, submitted: false };
+  context.paymentMethod = 'cashapp';
+  context.meritSession = null;
+  handler('setPaymentMethod', context)('stripe');
+  assert.ok(calls.some(([name, value]) => name === 'setPaymentMethodState' && value === 'stripe'));
+  await handler('handleCheckout', context)();
+  assert.ok(calls.some(([name, value]) => name === 'setCheckoutStep' && value === 'payment'));
+  assert.equal(context.meritAttemptRef.current.key, 'preserved');
+});
+
+test('admin credit double-click uses one delta request and displays a fresh balance after replay', async () => {
+  const { context, calls } = fixture();
+  let resolveAdjustment; let requests = 0; let selectedEmail;
+  Object.assign(context, {
+    adminCreditAdjustmentBusyRef: { current: false }, adminCreditEmail: 'buyer@example.test',
+    adminCreditAmount: '50', adminCreditNote: '',
+    adjustStoreCredit: () => { requests += 1; return new Promise(resolve => { resolveAdjustment = resolve; }); },
+    supabase: { from: table => {
+      assert.equal(table,'user_credits');
+      return { select: () => ({ eq: (field,email) => {
+        assert.equal(field,'email'); selectedEmail=email;
+        return { maybeSingle: async () => ({ data: { amount: 7, note: null, updated_at: 'fixture' }, error: null }) };
+      } }) };
+    } },
+  });
+  for (const name of ['setAdminCreditMessage','setAdminCreditLookup','setStoreCredit','setAdminCreditLoading']) context[name] = value => calls.push([name,value]);
+  const submit=handler('adminAddCredit',context); const first=submit('add'); await submit('add');
+  assert.equal(requests,1); assert.equal(calls.some(([name]) => name === 'setStoreCredit'),false);
+  context.adminCreditEmail='changed@example.test';
+  resolveAdjustment({ email: 'buyer@example.test', balance: 50, note: '', replayed: true }); await first;
+  assert.equal(selectedEmail,'buyer@example.test');
+  assert.equal(calls.findLast(([name])=>name==='setStoreCredit')[1],7);
+  assert.equal(calls.findLast(([name])=>name==='setAdminCreditLookup')[1].amount,7);
+  assert.match(calls.findLast(([name])=>name==='setAdminCreditMessage')[1],/balance after adjustment: \$50\.00/);
+  assert.equal(context.adminCreditAdjustmentBusyRef.current,false);
+});
+
+test('unconfirmed admin adjustment cannot update the displayed balance', async () => {
+  const { context, calls } = fixture();
+  Object.assign(context,{ adminCreditAdjustmentBusyRef:{current:false}, adminCreditEmail:'buyer@example.test', adminCreditAmount:'50', adminCreditNote:'',
+    adjustStoreCredit:async()=>{throw Error('Retry the same adjustment');},
+    supabase:{from:()=>{throw Error('unexpected balance read');}},
+  });
+  for (const name of ['setAdminCreditMessage','setAdminCreditLookup','setStoreCredit','setAdminCreditLoading']) context[name]=value=>calls.push([name,value]);
+  await handler('adminAddCredit',context)('add');
+  assert.equal(calls.some(([name])=>name==='setStoreCredit'||name==='setAdminCreditLookup'),false);
+  assert.match(calls.findLast(([name])=>name==='setAdminCreditMessage')[1],/Retry the same adjustment/);
+  assert.equal(context.adminCreditAdjustmentBusyRef.current,false);
+});
+
+test('a held credit checkout retains the original intent after reload reduces available balance to zero', async () => {
+  const { context, form }=fixture();
+  Object.assign(context,{ checkoutForm:form, storeCredit:50, affiliateDiscountDisabled:false, ownerFreeShippingActive:false });
+  const original=initializer('meritPayload',context);
+  assert.equal(original.useStoreCredit,true);
+  const digest=await meritPayloadDigest(original,context.currentUser.email,300);
+  saveMeritAttempt(context.window.sessionStorage,{ key:webcrypto.randomUUID(), digest, orderId:'INV-HELD123', submitted:false, createRequested:true });
+  context.meritAttemptRef.current=readMeritAttempt(context.window.sessionStorage);
+  context.storeCredit=0;
+  const restored=initializer('meritPayload',context);
+  assert.equal(restored.useStoreCredit,true);
+  assert.equal(await meritPayloadDigest(restored,context.currentUser.email,300),digest);
+  let requests=0;
+  context.meritPayload=restored;
+  context.meritInputsRef.current=JSON.stringify({ payload:restored,email:context.currentUser.email,surchargeBps:300 });
+  context.meritApi.create=async()=>{ requests+=1; return { session:{orderId:'INV-HELD123',storeCreditUsedCents:5000},order:{id:'INV-HELD123'} }; };
+  await handler('handleStripePayment',context)();
+  assert.equal(requests,1);
+  context.meritAttemptRef.current=null;
+  assert.equal(initializer('meritPayload',context).useStoreCredit,false);
+});
+
+function paymentArithmetic({ method='paypal', credit=0, base=60, step='payment' }={}) {
+  const f=fixture();
+  Object.assign(f.context,{ paymentMethod:method, checkoutStep:step, storeCredit:credit, subtotal:base, shipping:0,
+    meritActiveSession:null, estimateMeritCreditSplit });
+  for(const name of ['baseTotal','cryptoDiscountAmount','meritSelected','meritCreditSplit','stripeFeeAmount','totalAfterDiscount','paypalFee','totalWithFee','storeCreditApplied','finalTotal','cashAppEligibleAmount']) {
+    f.context[name]=initializer(name,f.context);
+  }
+  f.context.meritSelectionRef.current={method,step};
+  return f;
+}
+
+test('non-Merit payments apply no partial credit and preserve their ordinary full payable', () => {
+  for(const method of ['paypal','wire','cashapp','paylio']) {
+    for(const credit of [0,50,59.99]) {
+      const {context}=paymentArithmetic({method,credit});
+      assert.equal(context.storeCreditApplied,0,method); assert.equal(context.finalTotal,60,method);
+    }
+    for(const credit of [60,100]) {
+      const {context}=paymentArithmetic({method,credit});
+      assert.equal(context.storeCreditApplied,60,method); assert.equal(context.finalTotal,0,method);
+    }
+  }
+  const large=paymentArithmetic({method:'cashapp',credit:500,base:1100}).context;
+  assert.equal(large.cashAppEligibleAmount,1100);
+});
+
+test('crypto keeps its ordinary discount and full-credit checkout without creating mixed tender', () => {
+  for(const credit of [0,50,58.49]) {
+    const {context}=paymentArithmetic({method:'crypto',credit});
+    assert.equal(context.cryptoDiscountAmount,1.5); assert.equal(context.storeCreditApplied,0); assert.equal(context.finalTotal,58.5);
+  }
+  for(const credit of [58.5,60]) {
+    const {context}=paymentArithmetic({method:'crypto',credit});
+    assert.equal(context.storeCreditApplied,58.5); assert.equal(context.finalTotal,0);
+  }
+  const cents=paymentArithmetic({credit:.3,base:.1+.2}).context;
+  assert.equal(cents.finalTotal,0);
+});
+
+test('Merit still applies partial credit before surcharge and keeps zero-credit and full-credit totals', () => {
+  for(const [credit,applied,total,fee] of [[0,0,61.8,1.8],[50,50,10.3,.3],[60,60,0,0]]) {
+    const {context}=paymentArithmetic({method:'stripe',credit});
+    assert.equal(context.storeCreditApplied,applied); assert.equal(context.finalTotal,total); assert.equal(context.stripeFeeAmount,fee);
+  }
+});
+
+const paypalNodes=[];
+function collectPaypal(node,parents=[]) {
+  if(!node || typeof node!=='object')return;
+  if(node.type==='JSXElement' && node.openingElement.name.name==='PayPalButton')paypalNodes.push({node,parents});
+  for(const value of Object.values(node)) {
+    if(Array.isArray(value))for(const child of value)collectPaypal(child,[...parents,node]);
+    else if(value && typeof value==='object')collectPaypal(value,[...parents,node]);
+  }
+}
+collectPaypal(ast);
+const paypalCreate=context=>{
+  assert.equal(paypalNodes.length,1,'only the selected payment button can prepare a PayPal order');
+  const expr=paypalNodes[0].node.openingElement.attributes.find(a=>a.name?.name==='createOrder').value.expression;
+  return vm.runInNewContext(`(${source.slice(expr.start,expr.end)})`,context);
+};
+
+test('PayPal cannot mount during details, another payment method, or full-credit checkout', () => {
+  assert.equal(paypalNodes.length,1);
+  const container=paypalNodes[0].parents.findLast(node=>node.type==='JSXExpressionContainer' && node.expression.type==='LogicalExpression');
+  const expr=container.expression;
+  assert.equal(expr.right.type,'JSXElement');
+  const condition=source.slice(expr.start,expr.right.start)+'true';
+  for(const [method,step,credit,visible] of [['paypal','payment',0,true],['paypal','payment',50,true],['paypal','payment',60,false],['paypal','details',50,false],['stripe','payment',50,false],['wire','payment',50,false]]) {
+    const {context}=paymentArithmetic({method,step,credit});
+    assert.equal(vm.runInNewContext(condition,context),visible,`${method}/${step}/${credit}`);
+  }
+});
+
+test('PayPal create uses the full amount and stale hidden callbacks stop before financial I/O', async () => {
+  for(const [method,step,credit,held,allowed] of [['paypal','payment',50,false,true],['stripe','payment',50,false,false],['paypal','details',50,false,false],['paypal','payment',60,false,false],['paypal','payment',50,true,false]]) {
+    const {context}=paymentArithmetic({method,step,credit}); const writes=[];
+    Object.assign(context,{orderNumber:'INV-PAYPAL123',paypalSnapshotRef:{current:null},countryNameToISO:()=> 'US',
+      markPaypalCheckoutStarted:async()=>writes.push(['mark']),
+      fetch:async(url,options)=>{writes.push(['fetch',url,JSON.parse(options.body)]);return {ok:true,json:async()=>({id:'paypal-test'})};},
+    });
+    if(held)context.meritAttemptRef.current={createRequested:true};
+    context.assertPaypalCheckoutReady=handler('assertPaypalCheckoutReady',context);
+    if(allowed){
+      assert.equal(await paypalCreate(context)(),'paypal-test');
+      assert.equal(writes[1][2].amount,60);assert.equal(context.paypalSnapshotRef.current.total,60);
+    } else {
+      await assert.rejects(paypalCreate(context)()); assert.equal(writes.length,0); assert.equal(context.paypalSnapshotRef.current,null);
+    }
+  }
+});
+
+test('PayPal approval cannot copy a later Merit credit selection into the saved invoice', async () => {
+  const {context,calls,form}=fixture(); const saved=[];
+  Object.assign(context,{orderNumber:'INV-PAYPAL123',storeCreditApplied:50,paypalFee:0,shippingType:'standard',
+    paypalSnapshotRef:{current:{checkout:form,total:60,subtotal:60,shipping:0,shippingType:'standard',items:context.cart}},
+    persistOrderToServer:async order=>saved.push(order),
+    fetch:async()=>({ok:false,json:async()=>({error:'synthetic capture stopped'})}),
+    setPaypalPaymentLoading:value=>calls.push(['paypalLoading',value]),
+  });
+  await handler('onPaypalApprove',context)({orderID:'paypal-test'});
+  assert.equal(saved.length,1); assert.equal(saved[0].total,60); assert.equal(saved[0].metadata.storeCreditUsed,0);
 });

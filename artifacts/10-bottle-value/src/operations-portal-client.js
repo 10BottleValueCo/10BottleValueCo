@@ -113,7 +113,7 @@ export function validateMeritMarginSummary(body, days) {
   const meta = body?.metadata;
   const summary = body?.summary;
   const counts = ["recordedPaidAttempts", "eligibleAttempts", "excludedRefundOrReversal", "excludedUnknown", "feeKnownAttempts", "feeUnknownAttempts"];
-  const amounts = ["chargedAmountCents", "customerCardSurchargeCents", "customerShippingCollectedCents"];
+  const amounts = ["chargedAmountCents", "storeCreditUsedCents", "orderValueCents", "customerCardSurchargeCents", "customerShippingCollectedCents"];
   if (body?.ok !== true || meta?.schemaVersion !== 1 || meta.source !== "private_merit_attempts"
     || meta.money !== "percentage_fee_estimate_not_settled_profit" || meta.currency !== "usd"
     || meta.complete !== true || meta.days !== days || meta.timezone !== "UTC" || meta.dateBasis !== "merit_paid_at"
@@ -126,7 +126,8 @@ export function validateMeritMarginSummary(body, days) {
     || summary.eligibleAttempts + summary.excludedRefundOrReversal + summary.excludedUnknown !== summary.recordedPaidAttempts
     || summary.feeKnownAttempts + summary.feeUnknownAttempts !== summary.eligibleAttempts
     || summary.customerCardSurchargeCents > summary.chargedAmountCents
-    || summary.customerShippingCollectedCents > summary.chargedAmountCents - summary.customerCardSurchargeCents
+    || summary.orderValueCents !== summary.chargedAmountCents + summary.storeCreditUsedCents
+    || summary.customerShippingCollectedCents > summary.orderValueCents - summary.customerCardSurchargeCents
     || summary.otherProcessorFeesCents !== null || summary.supplierCostsCents !== null || summary.netProfitCents !== null) throw invalid();
   const expense = summary.processorExpenseEstimateCents;
   const burden = summary.merchantFeeBurdenEstimateCents;

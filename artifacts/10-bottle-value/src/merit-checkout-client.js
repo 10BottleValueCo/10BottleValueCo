@@ -13,7 +13,7 @@ export function meritCartMatchesOrder(cart, order) {
   return Array.isArray(cart) && cart.length > 0 && Array.isArray(order?.items) && normalize(cart) === normalize(order.items);
 }
 
-export function buildMeritCheckoutPayload({ items, checkoutForm, shippingType, promoCode, affiliateCode, affiliateDiscountDisabled, ownerFreeShipping, orderNotes, purchaserAttestation }) {
+export function buildMeritCheckoutPayload({ items, checkoutForm, shippingType, promoCode, affiliateCode, affiliateDiscountDisabled, ownerFreeShipping, orderNotes, purchaserAttestation, useStoreCredit = false }) {
   const contact = {};
   for (const key of ["firstName", "lastName", "country", "address", "address2", "city", "state", "postalCode", "phone", "taxId"]) contact[key] = String(checkoutForm?.[key] || "");
   return {
@@ -21,6 +21,7 @@ export function buildMeritCheckoutPayload({ items, checkoutForm, shippingType, p
       ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}) })),
     checkoutForm: contact, shippingType, promoCode: promoCode || "", affiliateCode: affiliateCode || "",
     affiliateDiscountDisabled: Boolean(affiliateDiscountDisabled), ownerFreeShipping: Boolean(ownerFreeShipping),
+    useStoreCredit: useStoreCredit === true,
     orderNotes: String(orderNotes || ""), purchaserAttestation: { ...purchaserAttestation },
   };
 }
@@ -38,13 +39,13 @@ export function readMeritAttempt(storage) {
       || !/^[a-f0-9]{64}$/.test(value?.digest || "")
       || (value.orderId && !/^INV-[A-Z0-9]{6,32}$/i.test(value.orderId))
       || (value.submitted === true && !value.orderId)) return null;
-    return { key: value.key, digest: value.digest, orderId: value.orderId || "", submitted: value.submitted === true };
+    return { key: value.key, digest: value.digest, orderId: value.orderId || "", submitted: value.submitted === true, ...(value.createRequested === true ? { createRequested: true } : {}) };
   } catch { return null; }
 }
 
 export function saveMeritAttempt(storage, value) {
   // No contact information, OTP token, client secret, or bearer token in storage.
-  storage.setItem(MERIT_ATTEMPT_STORAGE_KEY, JSON.stringify({ key: value.key, digest: value.digest, orderId: value.orderId || "", submitted: value.submitted === true }));
+  storage.setItem(MERIT_ATTEMPT_STORAGE_KEY, JSON.stringify({ key: value.key, digest: value.digest, orderId: value.orderId || "", submitted: value.submitted === true, ...(value.createRequested === true ? { createRequested: true } : {}) }));
 }
 
 export async function verifyMeritCheckoutBuyer(email, otp = globalThis.window?.AttestlyOTP) {
@@ -85,19 +86,27 @@ export function createMeritApiClient({ getAccessToken, fetchImpl = globalThis.fe
       const result = await post({ ...payload, ...proof, action: "create", checkoutKey });
       const session = validateMeritSession(result.session);
       const order = { ...result.order?.metadata, ...result.order };
+      const credit = result.session.storeCreditUsedCents ?? (payload.useStoreCredit ? null : 0);
+      const cardBase = result.session.cardBaseAmountCents ?? (payload.useStoreCredit ? null : result.session.baseAmountCents);
       if (result.order?.id !== session.orderId || !Number.isSafeInteger(result.session.baseAmountCents)
         || !Number.isSafeInteger(result.session.surchargeCents) || result.session.baseAmountCents < 0 || result.session.surchargeCents < 0
-        || result.session.baseAmountCents + result.session.surchargeCents !== session.amountCents) throw new Error(SESSION_ERROR);
+        || !Number.isSafeInteger(credit) || credit < 0 || !Number.isSafeInteger(cardBase) || cardBase <= 0
+        || credit + cardBase !== result.session.baseAmountCents
+        || cardBase + result.session.surchargeCents !== session.amountCents
+        || (result.session.appliedCreditCents !== undefined && result.session.appliedCreditCents !== credit)) throw new Error(SESSION_ERROR);
       const moneyFields = ["subtotal", "shipping", "automaticDiscount", "promoDiscount", "affiliateDiscount", "total", "customerCardSurcharge"];
       if (!Array.isArray(order.items) || !order.items.length
         || order.items.some(item => typeof item.name !== "string" || typeof item.dose !== "string" || typeof item.price !== "number" || !Number.isFinite(item.price) || item.price < 0 || !Number.isSafeInteger(item.quantity) || item.quantity < 1)
         || moneyFields.some(key => typeof order[key] !== "number" || !Number.isFinite(order[key]) || order[key] < 0)
         || !Number.isSafeInteger(order.customerCardSurchargeBps) || order.customerCardSurchargeBps < 0 || order.customerCardSurchargeBps > 10000
+        || (payload.useStoreCredit && (typeof order.storeCreditUsed !== "number" || !Number.isFinite(order.storeCreditUsed) || order.storeCreditUsed < 0))
+        || Math.round(Number(order.storeCreditUsed || 0) * 100) !== credit
         || Math.round(order.total * 100) !== session.amountCents
         || Math.round(order.customerCardSurcharge * 100) !== result.session.surchargeCents
-        || Math.round(result.session.baseAmountCents * order.customerCardSurchargeBps / 10000) !== result.session.surchargeCents
+        || Math.round(cardBase * order.customerCardSurchargeBps / 10000) !== result.session.surchargeCents
         || Math.round((order.subtotal + order.shipping - order.automaticDiscount - order.promoDiscount - order.affiliateDiscount) * 100) !== result.session.baseAmountCents) throw new Error(SESSION_ERROR);
-      return { ...result, order, session: { ...session, baseAmountCents: result.session.baseAmountCents, surchargeCents: result.session.surchargeCents } };
+      return { ...result, order, session: { ...session, baseAmountCents: result.session.baseAmountCents,
+        storeCreditUsedCents: credit, cardBaseAmountCents: cardBase, surchargeCents: result.session.surchargeCents } };
     },
     async reconcile({ orderId }) {
       if (!/^INV-[A-Z0-9]{6,32}$/i.test(orderId || "")) throw new Error(SESSION_ERROR);
@@ -106,6 +115,16 @@ export function createMeritApiClient({ getAccessToken, fetchImpl = globalThis.fe
       return result;
     },
   };
+}
+
+// Display estimate only. The authenticated create response reserves credit and
+// supplies the amount mounted into Elements; no preview amount is sent to it.
+export function estimateMeritCreditSplit(baseTotal, availableCredit, surchargeBps) {
+  const baseAmountCents = Math.max(0, Math.round(Number(baseTotal || 0) * 100));
+  const storeCreditUsedCents = Math.min(baseAmountCents, Math.max(0, Math.round(Number(availableCredit || 0) * 100)));
+  const cardBaseAmountCents = baseAmountCents - storeCreditUsedCents;
+  const surchargeCents = Math.round(cardBaseAmountCents * Number(surchargeBps || 0) / 10000);
+  return { baseAmountCents, storeCreditUsedCents, cardBaseAmountCents, surchargeCents, amountCents: cardBaseAmountCents + surchargeCents };
 }
 
 export function validateMeritSession(value) {
@@ -118,7 +137,15 @@ export function validateMeritSession(value) {
     || value.currency !== "usd") {
     throw new Error(SESSION_ERROR);
   }
+  if (value.storeCreditUsedCents !== undefined || value.cardBaseAmountCents !== undefined) {
+    const { baseAmountCents, storeCreditUsedCents, cardBaseAmountCents, surchargeCents } = value;
+    if (![baseAmountCents, storeCreditUsedCents, cardBaseAmountCents, surchargeCents].every(amount => Number.isSafeInteger(amount) && amount >= 0)
+      || cardBaseAmountCents <= 0 || storeCreditUsedCents + cardBaseAmountCents !== baseAmountCents
+      || cardBaseAmountCents + surchargeCents !== value.amountCents) throw new Error(SESSION_ERROR);
+  }
   return {
+    ...(Number.isSafeInteger(value.baseAmountCents) && Number.isSafeInteger(value.storeCreditUsedCents) && Number.isSafeInteger(value.cardBaseAmountCents) && Number.isSafeInteger(value.surchargeCents)
+      ? { baseAmountCents: value.baseAmountCents, storeCreditUsedCents: value.storeCreditUsedCents, cardBaseAmountCents: value.cardBaseAmountCents, surchargeCents: value.surchargeCents } : {}),
     clientSecret: value.clientSecret, publishableKey: value.publishableKey,
     stripeAccount: value.stripeAccount, orderId: value.orderId,
     amountCents: value.amountCents, currency: value.currency,
@@ -143,7 +170,8 @@ export function formatMeritAmount(session, language = "en") {
 
 export const meritCheckoutMessages = {
   en: {
-    heading: "Secure payment", order: "Order", amount: "Total",
+    heading: "Secure payment", order: "Order", amount: "Card payment",
+    orderBase: "Order amount", credit: "Store credit applied", cardBase: "Remaining before card surcharge", surcharge: "Card surcharge",
     loading: "Loading secure payment details…", card: "Or pay by card",
     pay: "Pay", confirming: "Confirming payment…", checking: "Checking payment status…",
     pending: "We’re confirming your payment. Your order will update when confirmation arrives.",
@@ -156,7 +184,8 @@ export const meritCheckoutMessages = {
     secure: "Card details are handled securely by Stripe.",
   },
   ru: {
-    heading: "Безопасная оплата", order: "Заказ", amount: "Итого",
+    heading: "Безопасная оплата", order: "Заказ", amount: "Оплата картой",
+    orderBase: "Сумма заказа", credit: "Использованный кредит магазина", cardBase: "Остаток до доплаты за карту", surcharge: "Доплата за карту",
     loading: "Загружаем защищённую форму оплаты…", card: "Или оплатите картой",
     pay: "Оплатить", confirming: "Подтверждаем оплату…", checking: "Проверяем статус оплаты…",
     pending: "Подтверждаем оплату. Статус заказа обновится после получения подтверждения.",
@@ -172,6 +201,15 @@ export const meritCheckoutMessages = {
 
 export function meritCheckoutBusinessError(error, language = "en") {
   const messages = meritCheckoutMessages[String(language).toLowerCase() === "ru" ? "ru" : "en"];
+  if (error?.code === "MERIT_CREDIT_PENDING") return String(language).toLowerCase() === "ru"
+    ? "Кредит магазина зарезервирован для незавершённой оплаты. Вернитесь к этой оплате или обратитесь в поддержку."
+    : "Your store credit is reserved for an unfinished payment. Return to that payment or contact support.";
+  if (error?.code === "MERIT_CREDIT_BALANCE_UNAVAILABLE") return String(language).toLowerCase() === "ru"
+    ? "Не удалось подтвердить доступный кредит магазина. Оплата картой не начата. Повторите попытку с тем же заказом или обратитесь в поддержку."
+    : "Your available store credit could not be verified. Card payment has not started. Retry this same checkout or contact support.";
+  if (error?.code === "MERIT_FULL_CREDIT_AVAILABLE") return String(language).toLowerCase() === "ru"
+    ? "Кредит магазина покрывает заказ целиком. Вернитесь к оформлению и выберите оплату кредитом магазина."
+    : "Your store credit covers the entire order. Return to checkout and choose Pay with store credit.";
   if (error?.code === "MERIT_PROMO_UNVERIFIED") return messages.promoUnverified;
   if (error?.code === "MERIT_AFFILIATE_UNVERIFIED") return messages.affiliateUnverified;
   return "";

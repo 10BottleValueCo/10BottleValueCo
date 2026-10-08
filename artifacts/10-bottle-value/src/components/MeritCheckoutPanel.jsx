@@ -61,6 +61,12 @@ function MeritPaymentForm({ session, onReconcile, onPaid, onState, language }) {
         </div>
       </div>
 
+      {Number.isSafeInteger(session.storeCreditUsedCents) && <dl className="mb-5 space-y-2 rounded-xl bg-black/[0.03] p-4 text-sm">
+        {[[messages.orderBase, session.baseAmountCents], [messages.credit, -session.storeCreditUsedCents],
+          [messages.cardBase, session.cardBaseAmountCents], [messages.surcharge, session.surchargeCents]].map(([label, value]) =>
+          <div className="flex items-center justify-between gap-4" key={label}><dt className="text-black/65">{label}</dt><dd className="shrink-0 tabular-nums">{new Intl.NumberFormat(language === "ru" ? "ru-RU" : "en-US", { style: "currency", currency: "USD" }).format(value / 100)}</dd></div>)}
+      </dl>}
+
       <div style={state.submitted ? { display: "none" } : undefined}>
         <div style={{ display: walletsAvailable === false ? "none" : undefined, pointerEvents: locked ? "none" : undefined }} aria-disabled={locked}>
           <ExpressCheckoutElement
@@ -117,8 +123,8 @@ export default function MeritCheckoutPanel({ session, onReconcile, onPaid, onSta
   // not replace the controller and release a submitted session's lock.
   const validated = useMemo(() => {
     try { return validateMeritSession(session); } catch { return null; }
-  }, [session?.clientSecret, session?.publishableKey, session?.stripeAccount, session?.orderId, session?.amountCents, session?.currency]);
+  }, [session?.clientSecret, session?.publishableKey, session?.stripeAccount, session?.orderId, session?.amountCents, session?.currency, session?.baseAmountCents, session?.storeCreditUsedCents, session?.cardBaseAmountCents, session?.surchargeCents]);
   if (!validated || typeof onReconcile !== "function") return <p role="alert" className="rounded-xl border border-black/10 bg-white p-4 text-sm text-red-700">{meritCheckoutMessages[locale].unavailable}</p>;
-  const sessionKey = `${validated.orderId}:${validated.clientSecret}:${validated.publishableKey}:${validated.stripeAccount}:${validated.amountCents}`;
+  const sessionKey = `${validated.orderId}:${validated.clientSecret}:${validated.publishableKey}:${validated.stripeAccount}:${validated.amountCents}:${validated.storeCreditUsedCents ?? ""}:${validated.cardBaseAmountCents ?? ""}`;
   return <ValidatedMeritPanel key={sessionKey} session={validated} onReconcile={onReconcile} onPaid={onPaid} onState={onState} language={locale} />;
 }

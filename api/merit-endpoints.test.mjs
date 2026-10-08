@@ -9,7 +9,7 @@ import { createMeritProvider } from './_merit-provider.js';
 import { createMeritCheckoutHandler } from './merit-checkout.js';
 import { createMeritWebhookHandler, verifyMeritSignature } from './attestly-webhook.js';
 import { requireMeritProof } from './_merit-core.js';
-import { buildMeritQuote } from './_merit-quote.js';
+import { buildMeritQuote, meritCreditSnapshot } from './_merit-quote.js';
 
 const env = { MERIT_ENABLED: 'true', ATTESTLY_API_KEY: 'fixture-private-key', ATTESTLY_WEBHOOK_SECRET: 'awhsec_fixture', MERIT_MODE: 'live', MERIT_RULE_VERSION: 'fixture-v1', MERIT_CARD_SURCHARGE_BPS: '300', MERIT_CARD_SURCHARGE_SOURCE: 'Fixture customer rule', MERIT_CARD_SURCHARGE_EFFECTIVE_AT: '2026-10-08T00:00:00Z', MERIT_PROCESSOR_FEE_BPS: '750', MERIT_PROCESSOR_FEE_SOURCE: 'Fixture dashboard reported rate', MERIT_PROCESSOR_FEE_EFFECTIVE_AT: '2026-10-08T00:00:00Z' };
 const customer = { id: 'abcdefab-cdef-4abc-8abc-defabcdefabc', email: 'buyer@example.com' };
@@ -30,6 +30,14 @@ function checkoutFixture(options = {}) {
     findByCheckoutKey: async (...args) => { calls.push(['find', ...args]); return saved; },
     findByOrder: async () => saved,
     reserve: async params => { calls.push(['reserve', params]); saved = { ...readyAttempt, state: 'reserved', intent_id: null, client_secret: null, publishable_key: null, quote_fingerprint: params.p_fingerprint, snapshot: params.p_snapshot }; return { ok: true, created: true, attempt: saved }; },
+    reserveCredit: async params => {
+      calls.push(['reserveCredit', params]);
+      const split = meritCreditSnapshot(params.p_snapshot, options.creditCents ?? 9900);
+      saved = { ...readyAttempt, state: 'reserved', intent_id: null, client_secret: null, publishable_key: null,
+        quote_fingerprint: params.p_fingerprint, snapshot: split, amount_cents: Math.round(split.total * 100),
+        credit_reserved_cents: options.creditCents ?? 9900, credit_request_snapshot: params.p_snapshot };
+      return { ok: true, created: true, attempt: saved };
+    },
     bind: async params => { calls.push(['bind', params]); saved = { ...saved, state: 'ready', intent_id: params.p_intent_id, client_secret: params.p_client_secret, publishable_key: params.p_publishable_key }; return { ok: true, attempt: saved }; },
     finalize: async params => { calls.push(['finalize', params]); return { ok: true, paid: true, order: { id: orderId, status: 'paid' } }; },
     ...options.store,
@@ -345,4 +353,49 @@ test('parsed bodies and oversize signed bodies are rejected, unrelated valid eve
   assert.equal((await deliver(fixture, { type: 'unrelated', padding: 'x'.repeat(65537) })).statusCode, 400);
   assert.deepEqual((await deliver(fixture, { type: 'unrelated' })).body, { received: true });
   assert.deepEqual(fixture.calls, []);
+});
+
+
+test('partial credit provider charge and public session use the SQL-acknowledged split only', async () => {
+  const fixture = checkoutFixture({ creditCents: 9900 });
+  const body = { ...createBody, useStoreCredit: true, storeCreditUsed: 9999999 };
+  const created = await run(fixture.handler, body);
+  assert.equal(created.statusCode, 200);
+  assert.equal(created.body.session.baseAmountCents, 10000);
+  assert.equal(created.body.session.cardBaseAmountCents, 100);
+  assert.equal(created.body.session.storeCreditUsedCents, 9900);
+  assert.equal(created.body.session.appliedCreditCents, 9900);
+  assert.equal(created.body.session.surchargeCents, 3);
+  assert.equal(created.body.session.amountCents, 103);
+  assert.equal(fixture.calls.find(c => c[0] === 'create')[1].amountCents, 103);
+  assert.equal(fixture.calls.some(c => c[0] === 'reserve'), false);
+  const replay = await run(fixture.handler, { action: 'create', checkoutKey });
+  assert.deepEqual(replay.body, created.body);
+  assert.equal(fixture.calls.filter(c => c[0] === 'create').length, 1);
+});
+test('credit reservation errors never create a provider intent or silently charge full cash', async () => {
+  for (const code of ['MERIT_CREDIT_PENDING', 'MERIT_FULL_CREDIT_AVAILABLE', 'MERIT_CREDIT_BALANCE_UNAVAILABLE']) {
+    const fixture = checkoutFixture({ store: { reserveCredit: async () => ({ ok: false, error: code }) } });
+    const result = await run(fixture.handler, { ...createBody, useStoreCredit: true });
+    assert.equal(result.statusCode, 409); assert.equal(result.body.code, code);
+    assert.equal(fixture.calls.some(c => c[0] === 'create'), false);
+  }
+  const unavailable = checkoutFixture({ store: { reserveCredit: async () => { throw Error('missing RPC'); } } });
+  assert.equal((await run(unavailable.handler, { ...createBody, useStoreCredit: true })).statusCode, 503);
+  assert.equal(unavailable.calls.some(c => c[0] === 'create'), false);
+});
+test('credit hold survives a provider timeout and same-key retry never starts a second intent', async () => {
+  const fixture = checkoutFixture({ provider: { create: async () => { throw Error('unknown provider outcome'); } } });
+  assert.equal((await run(fixture.handler, { ...createBody, useStoreCredit: true })).statusCode, 503);
+  const retry = await run(fixture.handler, { action: 'create', checkoutKey });
+  assert.equal(retry.body.code, 'MERIT_PREPARING');
+  assert.equal(fixture.calls.filter(c => c[0] === 'reserveCredit').length, 1);
+});
+test('old cash checkout retry cannot spend newly selected credit', async () => {
+  const fixture = checkoutFixture({ existing: readyAttempt });
+  const result = await run(fixture.handler, { ...createBody, useStoreCredit: true });
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.session.storeCreditUsedCents, 0);
+  assert.equal(result.body.session.amountCents, 10300);
+  assert.deepEqual(fixture.calls.map(c => c[0]), ['find']);
 });

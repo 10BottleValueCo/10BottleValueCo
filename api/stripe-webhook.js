@@ -1,3 +1,4 @@
+import { assertLegacyCreditPaidAcknowledgement, debitLegacyOrderCredit } from "./_legacy-store-credit.js";
 import Stripe from "stripe";
 import { publicProductName } from "./_public-product-name.js";
 
@@ -24,15 +25,17 @@ async function sbSelectOne(table, params) {
 
 async function sbUpsert(table, body, onConflict) {
   const qs = onConflict ? `?on_conflict=${onConflict}` : "";
+  const verifyCreditPaid = table === "orders" && Number(body.metadata?.storeCreditUsed ?? 0) > 0;
   const r = await fetch(`${SB_URL}/rest/v1/${table}${qs}`, {
     method: "POST",
-    headers: { ...sbH(), Prefer: "resolution=merge-duplicates,return=minimal" },
+    headers: { ...sbH(), Prefer: `resolution=merge-duplicates,return=${verifyCreditPaid ? "representation" : "minimal"}` },
     body: JSON.stringify(body),
   });
   if (!r.ok) {
     const text = await r.text().catch(() => "");
     throw new Error(`Supabase upsert into ${table} failed: ${r.status} ${text}`);
   }
+  if (verifyCreditPaid) assertLegacyCreditPaidAcknowledgement(await r.json(), body);
 }
 
 export const config = { api: { bodyParser: false } };
@@ -238,6 +241,7 @@ export default async function handler(req, res) {
         "orders",
         `id=eq.${encodeURIComponent(orderId)}&select=metadata,items,status,payment_id`
       );
+      if (!existingRow) return res.status(503).json({ received: false, code: "CREDIT_RECONCILIATION_REQUIRED" });
 
       // Idempotency guard: Stripe can and does redeliver the same
       // checkout.session.completed event (retries on timeout/5xx, or
@@ -255,6 +259,16 @@ export default async function handler(req, res) {
         !Array.isArray(existingRow.metadata)
           ? existingRow.metadata
           : {};
+
+      // Debit under the shared balance lock before any paid transition or side effects.
+      // Already-paid historical orders retain their existing retry behavior.
+      if (!["paid", "done"].includes(String(existingRow?.status || "").toLowerCase())) {
+        await debitLegacyOrderCredit({
+          orderId, email: email || prevMeta.email,
+          creditAmount: session.metadata?.storeCreditUsed ?? prevMeta.storeCreditUsed ?? 0,
+          provider: "stripe",
+        });
+      }
 
       const affCode = String(
         prevMeta.affiliateCode || session.metadata?.affiliateCode || ""
@@ -392,25 +406,6 @@ export default async function handler(req, res) {
         ).catch(() => {});
       }
 
-      // Deduct spent store credit server-side — same rationale as above: this used
-      // to happen only in the frontend's markOrderPaidById tied to the payment-return
-      // page still being open, so a closed/abandoned tab left the credit un-deducted.
-      const storeCreditUsedAmt = Number(prevMeta.storeCreditUsed || session.metadata?.storeCreditUsed || 0);
-      if (storeCreditUsedAmt > 0 && email) {
-        try {
-          const creditEmail = email.toLowerCase();
-          const creditRow = await sbSelectOne("user_credits", `email=eq.${encodeURIComponent(creditEmail)}&select=amount`);
-          const newCreditAmount = Math.max(0, (creditRow ? Number(creditRow.amount) : 0) - storeCreditUsedAmt);
-          await fetch(`${SB_URL}/rest/v1/user_credits?on_conflict=email`, {
-            method: "POST",
-            headers: { ...sbH(), Prefer: "resolution=merge-duplicates,return=minimal" },
-            body: JSON.stringify({ email: creditEmail, amount: newCreditAmount, updated_at: new Date().toISOString() }),
-          }).catch((e) => console.error("Stripe: user_credits upsert failed:", e.message));
-        } catch (e) {
-          console.error("Stripe: store credit deduction threw:", e?.message || e);
-        }
-      }
-
       // Send confirmation email (single email — frontend guard prevents duplicate)
       if (email) {
         try {
@@ -454,6 +449,7 @@ export default async function handler(req, res) {
         "orders",
         `id=eq.${encodeURIComponent(orderId)}&select=metadata,items,status,payment_id`
       );
+      if (!existingRow) return res.status(503).json({ received: false, code: "CREDIT_RECONCILIATION_REQUIRED" });
 
       // Idempotency: already processed this exact payment
       if (existingRow?.status === "paid" && existingRow?.payment_id === paymentId) {
@@ -464,6 +460,16 @@ export default async function handler(req, res) {
         existingRow?.metadata && typeof existingRow.metadata === "object" && !Array.isArray(existingRow.metadata)
           ? existingRow.metadata
           : {};
+
+      // Debit under the shared balance lock before any paid transition or side effects.
+      // Already-paid historical orders retain their existing retry behavior.
+      if (!["paid", "done"].includes(String(existingRow?.status || "").toLowerCase())) {
+        await debitLegacyOrderCredit({
+          orderId, email: email || prevMeta.email,
+          creditAmount: intent.metadata?.storeCreditUsed ?? prevMeta.storeCreditUsed ?? 0,
+          provider: "stripe",
+        });
+      }
 
       const affCode = String(prevMeta.affiliateCode || intent.metadata?.affiliateCode || "")
         .trim()
@@ -541,23 +547,6 @@ export default async function handler(req, res) {
           `${SB_URL}/rest/v1/user_promos?email=eq.${encodeURIComponent(email.toLowerCase())}&code=eq.${encodeURIComponent(promoCodeUsed)}&used=eq.false`,
           { method: "PATCH", headers: { ...sbH(), Prefer: "return=minimal" }, body: JSON.stringify({ used: true }) }
         ).catch(() => {});
-      }
-
-      // Deduct store credit
-      const storeCreditUsedAmt = Number(prevMeta.storeCreditUsed || intent.metadata?.storeCreditUsed || 0);
-      if (storeCreditUsedAmt > 0 && email) {
-        try {
-          const creditEmail = email.toLowerCase();
-          const creditRow = await sbSelectOne("user_credits", `email=eq.${encodeURIComponent(creditEmail)}&select=amount`);
-          const newCreditAmount = Math.max(0, (creditRow ? Number(creditRow.amount) : 0) - storeCreditUsedAmt);
-          await fetch(`${SB_URL}/rest/v1/user_credits?on_conflict=email`, {
-            method: "POST",
-            headers: { ...sbH(), Prefer: "resolution=merge-duplicates,return=minimal" },
-            body: JSON.stringify({ email: creditEmail, amount: newCreditAmount, updated_at: new Date().toISOString() }),
-          }).catch((e) => console.error("Stripe PI: user_credits upsert failed:", e.message));
-        } catch (e) {
-          console.error("Stripe PI: store credit deduction threw:", e?.message || e);
-        }
       }
 
       // Confirmation email — Payment Intent metadata mirrors the Session

@@ -501,7 +501,7 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
     INSERT INTO auth.users VALUES (${q(customerId)},'buyer@example.test',now()),(${q(supportId)},'support@10bottlevalue.co',now()),(${q(unconfirmedSupportId)},'support@10bottlevalue.co',NULL),(${q(siblingId)},'buyer@example.test',now());
     CREATE TABLE public.orders(id text PRIMARY KEY,email text,status text,total numeric,metadata jsonb,created_at timestamptz DEFAULT now(),updated_at timestamptz,items jsonb,payment_provider text,payment_id text,paid_at timestamptz,admin_note text,tracking_number text,tracking_number_2 text,tracking_number_sent_at timestamptz,affiliate_commission_adjustment numeric);
     CREATE TABLE public.user_promos(id text PRIMARY KEY,email text,code text,rate numeric,used boolean DEFAULT false,updated_at timestamptz DEFAULT now());
-    CREATE TABLE public.user_credits(email text,amount numeric,updated_at timestamptz DEFAULT now());
+    CREATE TABLE public.user_credits(email text,amount numeric,note text,updated_at timestamptz DEFAULT now());
     GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role;
     GRANT ALL ON public.orders,public.user_promos TO anon,authenticated,service_role;
     ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
@@ -518,13 +518,19 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
   const migrationPath = new URL("../../supabase/migrations/20261008180000_merit_checkout.sql", import.meta.url);
   const creditPath = new URL("../../supabase/migrations/20261007100000_store_credit_checkout.sql", import.meta.url);
   const preflightPath = new URL("../../supabase/review/merit_checkout_preflight.sql", import.meta.url);
-  const sources = [migrationPath, creditPath, new URL(import.meta.url), preflightPath];
+  const mixedCreditPath = new URL("../../supabase/migrations/20261008220000_merit_store_credit.sql", import.meta.url);
+  const creditPostflightPath = new URL("../../supabase/review/merit_credit_postflight.sql", import.meta.url);
+  const sources = [migrationPath, creditPath, mixedCreditPath, new URL(import.meta.url), preflightPath, creditPostflightPath];
   evidence.sourceSha256 = {};
   for (const source of sources) evidence.sourceSha256[path.relative(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."), fileURLToPath(source))] = createHash("sha256").update(await readFile(source)).digest("hex");
   await sql(await readFile(creditPath, "utf8"));
   await sql(await readFile(migrationPath, "utf8"));
+  await sql(await readFile(mixedCreditPath, "utf8"));
   const preflight = await scalar(await readFile(preflightPath, "utf8"));
   evidence.preflightQueryExecuted = typeof preflight === "object" && preflight !== null;
+  const creditPostflight = await scalar(await readFile(creditPostflightPath, "utf8"));
+  evidence.creditFunctions = creditPostflight.creditFunctions;
+  evidence.creditTablePrivileges = creditPostflight.tables.filter(t => ["user_credits", "store_credit_ledger", "store_credit_adjustments"].includes(t.name)).map(t => ({ name: t.name, rls: t.rls, rolePrivileges: t.rolePrivileges }));
   evidence.roles = await scalar("SELECT json_agg(x ORDER BY rolname) FROM (SELECT rolname,rolsuper,rolbypassrls,rolinherit FROM pg_roles WHERE rolname IN('anon','authenticated','service_role','fixture_authenticator'))x;");
   assert.ok(evidence.roles.every(r => !r.rolsuper));
   const config = path.join(root, "postgrest.conf");
@@ -675,14 +681,14 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
   await t.test("existing full Store Credit checkout and replay remain functional", async () => {
     await sql("INSERT INTO user_credits(email,amount) VALUES('buyer@example.test',300);");
     const id = `INV-${randomUUID().replaceAll("-", "").toUpperCase()}`;
-    const body = { p_customer_email: "buyer@example.test", p_order: { id, email: "buyer@example.test", status: "paid", paymentProvider: "StoreCredit", storeCreditUsed: 120, checkoutFingerprint: "c".repeat(64) }, p_store_credit_used: 120, p_user_promo_id: null };
+    const body = { p_customer_email: "buyer@example.test", p_order: { id, email: "buyer@example.test", status: "paid", paymentProvider: "StoreCredit", storeCreditUsed: 120, total: 0, items: [{ name: "Fixture" }], checkoutFingerprint: "c".repeat(64) }, p_store_credit_used: 120, p_user_promo_id: null, p_customer_id: customerId };
     const first = await rpc("checkout_store_credit", body); assert.equal(first.data.ok, true); assert.equal(Number(first.data.balance), 180);
     const replay = await rpc("checkout_store_credit", body); assert.equal(replay.data.replayed, true); assert.equal(Number(replay.data.balance), 180);
     assert.equal((await order(id)).metadata.paymentProvider, "StoreCredit");
     assert.equal(await scalar("SELECT amount FROM user_credits WHERE email='buyer@example.test';"), 180);
     for (const role of ["anon", "authenticated"]) {
       const response = await rest(role, `/orders?id=eq.${id}`, { sub: siblingId });
-      assert.equal(response.status, 200); assert.equal(response.data[0].id, id);
+      assert.equal(response.status, 200); assert.deepEqual(response.data, []);
     }
   });
   await t.test("non-Merit public reads and existing anonymous legacy writes remain unchanged", async () => {
@@ -767,7 +773,7 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
       MERIT_PROCESSOR_FEE_BPS: "750", MERIT_PROCESSOR_FEE_SOURCE: "synthetic reported rate",
       MERIT_PROCESSOR_FEE_EFFECTIVE_AT: "2026-10-08T00:00:00Z",
     };
-    let storageRequests = 0, createCalls = 0, verifyCalls = 0, quoteCalls = 0, receiptCalls = 0;
+    let storageRequests = 0, createCalls = 0, verifyCalls = 0, quoteCalls = 0, receiptCalls = 0, expectedProviderAmount = 12360;
     const store = createMeritStore({ env, fetcher: async (input, init) => {
       const target = new URL(input);
       assert.equal(target.origin, origin, "Storage must stay on the owned loopback fixture");
@@ -783,7 +789,7 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
       async configuration() { return providerConfig; },
       async create(input) {
         createCalls++;
-        assert.equal(input.amountCents, 12360);
+        assert.equal(input.amountCents, expectedProviderAmount);
         assert.equal(input.verifiedEmail, "buyer@example.test");
         const intentId = `pi_api${input.orderId.slice(4)}`;
         intents.set(intentId, input);
@@ -853,9 +859,140 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
       assert.equal(await scalar(`SELECT count(*) FROM merit_payment_attempts WHERE order_id=${q(failedId)};`), 0);
       assert.equal(await scalar("SELECT count(*) FROM merit_order_write_permits;"), 0);
     } finally { await sql(clearOrderAckFaultSql); }
+    // Same real handler/storage boundary, now with a partial-credit reservation.
+    await sql("UPDATE user_credits SET amount=119 WHERE email='buyer@example.test';");
+    expectedProviderAmount = 103;
+    const creditKey = randomUUID();
+    const mixed = await invoke({ action: "create", checkoutKey: creditKey, otpToken: "synthetic-otp", verifiedEmail: "buyer@example.test", useStoreCredit: true, storeCreditUsed: 999999 });
+    assert.equal(mixed.status, 200); assert.equal(mixed.data.session.baseAmountCents, 12000);
+    assert.equal(mixed.data.session.storeCreditUsedCents, 11900); assert.equal(mixed.data.session.cardBaseAmountCents, 100);
+    assert.equal(mixed.data.session.surchargeCents, 3); assert.equal(mixed.data.session.amountCents, 103);
+    const mixedReplay = await invoke({ action: "create", checkoutKey: creditKey });
+    assert.deepEqual(mixedReplay.data.session, mixed.data.session); assert.equal(createCalls, 2);
+    assert.equal(await scalar("SELECT amount FROM user_credits WHERE email='buyer@example.test';"), 0);
+    assert.equal((await invoke({ action: "reconcile", orderId: mixed.data.orderId })).data.paid, true);
+    assert.equal(await scalar(`SELECT to_jsonb(state) FROM store_credit_ledger WHERE order_id=${q(mixed.data.orderId)};`), "consumed");
+    evidence.creditRouteStorageIntegration = { actualHandlerAndStore: true, baseCents: 12000, creditCents: 11900, cashBaseCents: 100, surchargeCents: 3, chargedCents: 103, sameKeyAdditionalProviderCreates: 0, consumedOnce: true };
     evidence.routeStorageIntegration = { actualHandlerAndStore: true, transport: "owned loopback PostgREST with Supabase-prefix removal",
       mockedBoundaries: ["provider", "verified customer identity", "quote", "receipt delivery"], storageRequests,
       successfulCreateCalls: createCalls, readyReplayAdditionalCreates: 0,
       failedReservationAdditionalCreates: 0, reconciliations: verifyCalls, persistedPaidTransitions: 1, receiptCalls };
   });
+  const creditReserve = body => rpc("reserve_merit_checkout_with_credit", body);
+  const ownerCreditLock = "SELECT pg_advisory_xact_lock(hashtextextended('store-credit:buyer@example.test',0))";
+  const seedHistoricalCreditOrder = (id,amount=50) => sql(`BEGIN; ALTER TABLE orders DISABLE TRIGGER store_credit_order_write_guard; INSERT INTO orders(id,email,status,total,metadata) VALUES(${q(id)},'buyer@example.test','pending',100,${j({storeCreditUsed:amount})}); ALTER TABLE orders ENABLE TRIGGER store_credit_order_write_guard; COMMIT;`);
+  const reconciledLegacyFixture = (id,cents,provider) => sql(`BEGIN; UPDATE user_credits SET amount=amount-${Number(cents)}/100.0 WHERE email='buyer@example.test'; INSERT INTO store_credit_ledger(order_id,email,credit_cents,provider,state,snapshot,consumed_at) SELECT id,email,${Number(cents)},${q(provider)},'consumed',metadata,now() FROM orders WHERE id=${q(id)}; COMMIT;`);
+  const setCredit = amount => sql(`UPDATE user_credits SET amount=${Number(amount)} WHERE email='buyer@example.test';`);
+  const creditAmount = () => scalar("SELECT amount FROM user_credits WHERE email='buyer@example.test';");
+  const fullCredit = (amount=100) => {
+    const id=`INV-${randomUUID().replaceAll("-","").toUpperCase()}`;
+    return {p_customer_email:"buyer@example.test",p_order:{id,email:"buyer@example.test",status:"paid",paymentProvider:"StoreCredit",total:0,storeCreditUsed:amount,checkoutFingerprint:"d".repeat(64),items:[{name:"Fixture"}]},p_store_credit_used:amount,p_user_promo_id:null,p_customer_id:customerId};
+  };
+  await t.test("simultaneous same-key partial credit debits once and returns one frozen split",async()=>{
+    await setCredit(119);const body=quote();
+    const replies=await simultaneous("same key partial credit",ownerCreditLock,[()=>creditReserve(body),()=>creditReserve(body)]);
+    assert.ok(replies.every(r=>r.status===200&&r.data.ok));assert.equal(replies.filter(r=>r.data.created).length,1);
+    assert.equal(replies[0].data.attempt.id,replies[1].data.attempt.id);assert.equal(replies[0].data.attempt.amount_cents,103);
+    assert.equal(await creditAmount(),0);assert.equal(await scalar(`SELECT count(*) FROM store_credit_ledger WHERE order_id=${q(replies[0].data.attempt.order_id)};`),1);
+  });
+  await t.test("simultaneous different keys cannot spend the same available Store Credit",async()=>{
+    await setCredit(119);const one=quote(),two=quote();
+    const replies=await simultaneous("different keys one credit balance",ownerCreditLock,[()=>creditReserve(one),()=>creditReserve(two)]);
+    assert.equal(replies.filter(r=>r.data.ok).length,1);assert.equal(replies.filter(r=>r.data.error==="MERIT_CREDIT_BALANCE_UNAVAILABLE").length,1);assert.equal(await creditAmount(),0);
+  });
+  await t.test("full-credit and mixed-card checkouts serialize through the same actual balance lock",async()=>{
+    await setCredit(150);const full=fullCredit(100),mixed=quote({p_amount_cents:41200});
+    mixed.p_snapshot={...mixed.p_snapshot,subtotal:380,shipping:20,total:412,customerCardSurcharge:12};
+    const replies=await simultaneous("full credit versus mixed card",ownerCreditLock,[()=>rpc("checkout_store_credit",full),()=>creditReserve(mixed)]);
+    assert.ok(replies[1].data.ok);assert.equal(await creditAmount(),0);
+    const mixedCents=replies[1].data.attempt.credit_reserved_cents;
+    if(replies[0].data.ok){assert.equal(mixedCents,5000);}else{assert.equal(replies[0].data.error,"INSUFFICIENT_CREDIT");assert.equal(mixedCents,15000);}
+    const mixedId=replies[1].data.attempt.order_id;
+    assert.equal(await scalar(`SELECT sum(credit_cents) FROM store_credit_ledger WHERE order_id IN(${q(full.p_order.id)},${q(mixedId)});`),15000);
+  });
+  await t.test("existing legacy callback and new mixed card serialize without balance resurrection",async()=>{
+    await setCredit(150);const legacyId='INV-LEGACY-CREDIT-RACE';
+    await seedHistoricalCreditOrder(legacyId,50);
+    const legacy={p_order_id:legacyId,p_email:"buyer@example.test",p_credit_cents:5000,p_provider:"stripe"},mixed=quote();
+    const replies=await simultaneous("legacy atomic debit versus mixed card",ownerCreditLock,[()=>rpc("debit_legacy_order_credit",legacy),()=>creditReserve(mixed)]);
+    assert.equal(replies[0].data.error,"CREDIT_LEGACY_IDENTITY_UNVERIFIED");
+    assert.equal(replies[1].data.error,"MERIT_CREDIT_PENDING");assert.equal(await creditAmount(),150);
+    // A synthetic privately verified reconciliation precedes allowed replay.
+    await reconciledLegacyFixture(legacyId,5000,"stripe");
+    const retry=await rpc("debit_legacy_order_credit",legacy);assert.equal(retry.data.alreadyDebited,true);
+    assert.equal(await creditAmount(),100);
+    const before=await creditAmount();
+    for(const role of ["service_role","authenticated"]) {
+      const stale=await rest(role,"/user_credits?email=eq.buyer@example.test",{method:"PATCH",body:{amount:150},sub:supportId});
+      assert.ok([401,403].includes(stale.status));
+    }
+    assert.equal(await creditAmount(),before);
+  });
+  await t.test("credit hold remains held when paid-order acknowledgement rolls back",async()=>{
+    await setCredit(119);const draft=(await creditReserve(quote())).data.attempt;
+    const binding=(await rpc("bind_merit_checkout",bindBody(draft))).data.attempt;
+    await sql(orderAckFaultSql(draft.order_id,"UPDATE",orderAckFaults[2]));
+    try {
+      const rejected=await rpc("finalize_merit_checkout",finalBody(binding));assert.equal(rejected.status,400);
+      assert.equal((await order(draft.order_id)).status,"checkout");
+      assert.equal(await scalar(`SELECT to_jsonb(state) FROM store_credit_ledger WHERE order_id=${q(draft.order_id)};`),"held");assert.equal(await creditAmount(),0);
+    } finally {await sql(clearOrderAckFaultSql);}
+    assert.equal((await rpc("finalize_merit_checkout",finalBody(binding))).data.ok,true);
+    assert.equal(await scalar(`SELECT to_jsonb(state) FROM store_credit_ledger WHERE order_id=${q(draft.order_id)};`),"consumed");
+  });
+  await t.test("confirmed admin adjustment is atomic and idempotent; stale direct writes stay denied after payment",async()=>{
+    // Fresh owner avoids unrelated deliberately held race fixtures above.
+    const email="adjustment@example.test",request=randomUUID();
+    const body={p_request_id:request,p_email:email,p_mode:"add",p_amount_cents:2500,p_note:"synthetic adjustment"};
+    const invoke=()=>rest("authenticated","/rpc/adjust_store_credit",{method:"POST",body,sub:supportId});
+    const replies=await simultaneous("same admin credit adjustment",`SELECT pg_advisory_xact_lock(hashtextextended('store-credit:'||${q(email)},0))`,[invoke,invoke]);
+    assert.ok(replies.every(r=>r.data.ok),JSON.stringify(replies));assert.equal(replies.filter(r=>r.data.replayed).length,1);
+    assert.equal(await scalar(`SELECT amount FROM user_credits WHERE email=${q(email)};`),25);
+    for(const sub of [customerId,unconfirmedSupportId]) assert.ok([401,403].includes((await rest("authenticated","/rpc/adjust_store_credit",{method:"POST",body:{...body,p_request_id:randomUUID()},sub,claims:{email:"support@10bottlevalue.co"}})).status));
+    const direct=await rest("authenticated",`/user_credits?email=eq.${email}`,{method:"PATCH",body:{amount:999},sub:supportId});assert.equal(direct.status,403);
+    const held=await rest("authenticated","/rpc/adjust_store_credit",{method:"POST",body:{...body,p_request_id:randomUUID(),p_email:"buyer@example.test"},sub:supportId});assert.equal(held.data.error,"STORE_CREDIT_RESERVATION_PENDING");
+  });
+
+  await t.test("native stale legacy callback and two-step credit erasure fail until exact debit receipt exists",async()=>{
+    await setCredit(100);const id="INV-LEGACY-OLD-DEPLOY";
+    await seedHistoricalCreditOrder(id,20);
+    const cleared=await rest("service_role",`/orders?id=eq.${id}`,{method:"PATCH",body:{metadata:{storeCreditUsed:0}}});assert.equal(cleared.data.message,"LEGACY_CREDIT_CLAIM_PROTECTED");
+    const paidBody={status:"paid",paid_at:new Date().toISOString(),payment_provider:"Stripe"};
+    const stale=await rest("service_role",`/orders?id=eq.${id}`,{method:"PATCH",body:paidBody});assert.equal(stale.data.message,"LEGACY_CREDIT_DEBIT_REQUIRED_BEFORE_PAID");
+    assert.equal((await order(id)).status,"pending");assert.equal(await creditAmount(),100);
+    const debit=await rpc("debit_legacy_order_credit",{p_order_id:id,p_email:"buyer@example.test",p_credit_cents:2000,p_provider:"stripe"});assert.equal(debit.data.error,"CREDIT_LEGACY_IDENTITY_UNVERIFIED");assert.equal(await creditAmount(),100);await reconciledLegacyFixture(id,2000,"stripe");
+    assert.equal((await rest("service_role",`/orders?id=eq.${id}`,{method:"PATCH",body:paidBody})).status,204);assert.equal(await creditAmount(),80);
+  });
+  await t.test("native suppressed or rewritten credit receipt rolls the balance and reservation back",async()=>{
+    for(const mode of ["suppress","rewrite"]) {
+      await setCredit(119);const body=quote();const id=`INV-${body.p_checkout_key.replaceAll("-","").toUpperCase()}`;
+      await sql(`CREATE FUNCTION fixture_private.credit_receipt_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF TG_ARGV[0]='suppress' THEN RETURN NULL; END IF; NEW.fingerprint:='b'||substr(NEW.fingerprint,2); RETURN NEW; END $$; CREATE TRIGGER zz_credit_receipt_fault BEFORE INSERT ON store_credit_ledger FOR EACH ROW EXECUTE FUNCTION fixture_private.credit_receipt_fault(${q(mode)});`);
+      try {
+        const rejected=await creditReserve(body);assert.equal(rejected.status,400);assert.equal(rejected.data.message,"STORE_CREDIT_RECEIPT_NOT_ACKNOWLEDGED");
+        assert.equal(await creditAmount(),119);assert.equal(await scalar(`SELECT count(*) FROM orders WHERE id=${q(id)};`),0);assert.equal(await scalar(`SELECT count(*) FROM merit_payment_attempts WHERE order_id=${q(id)};`),0);
+      } finally {await sql("DROP TRIGGER zz_credit_receipt_fault ON store_credit_ledger; DROP FUNCTION fixture_private.credit_receipt_fault();");}
+    }
+  });
+  await t.test("native unchanged credit consumption cannot acknowledge a paid order",async()=>{
+    await setCredit(119);const draft=(await creditReserve(quote())).data.attempt;const bound=(await rpc("bind_merit_checkout",bindBody(draft))).data.attempt;
+    await sql(`CREATE FUNCTION fixture_private.unchanged_credit_consumption() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN OLD; END $$; CREATE TRIGGER zz_unchanged_credit_consumption BEFORE UPDATE ON store_credit_ledger FOR EACH ROW EXECUTE FUNCTION fixture_private.unchanged_credit_consumption();`);
+    try {
+      const rejected=await rpc("finalize_merit_checkout",finalBody(bound));assert.equal(rejected.status,400);assert.equal(rejected.data.message,"MERIT_CREDIT_CONSUMPTION_NOT_ACKNOWLEDGED");
+      assert.equal((await order(draft.order_id)).status,"checkout");assert.equal(await scalar(`SELECT to_jsonb(state) FROM merit_payment_attempts WHERE id=${q(draft.id)};`),"ready");
+      assert.equal(await scalar(`SELECT to_jsonb(state) FROM store_credit_ledger WHERE order_id=${q(draft.order_id)};`),"held");assert.equal(await creditAmount(),0);
+    } finally {await sql("DROP TRIGGER zz_unchanged_credit_consumption ON store_credit_ledger; DROP FUNCTION fixture_private.unchanged_credit_consumption();");}
+    assert.equal((await rpc("finalize_merit_checkout",finalBody(bound))).data.ok,true);
+  });
+
+  await t.test("native public/service writers cannot manufacture positive credit claims for another email",async()=>{
+    for(const role of ["anon","authenticated","service_role"]){
+      for(const amount of [20,"20","2e1"]){
+        const forged=await rest(role,"/orders",{method:"POST",body:{id:`FORGED-${randomUUID()}`,email:"buyer@example.test",status:"pending",metadata:{storeCreditUsed:amount}}});
+        assert.equal(forged.data.message,"STORE_CREDIT_CLAIM_REQUIRES_PRIVATE_RESERVATION");
+      }
+    }
+    const id=`ZERO-${randomUUID()}`;assert.equal((await rest("anon","/orders",{method:"POST",body:{id,email:"buyer@example.test",status:"pending",metadata:{storeCreditUsed:0}}})).status,201);
+    const forged=await rest("anon",`/orders?id=eq.${id}`,{method:"PATCH",body:{metadata:{storeCreditUsed:20}}});assert.equal(forged.data.message,"STORE_CREDIT_CLAIM_REQUIRES_PRIVATE_RESERVATION");
+  });
+
 });

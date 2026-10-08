@@ -138,9 +138,10 @@ export function renderPaymentConfirmationEmail(order, { escapeValues = false } =
         <td align="right" style="padding:7px 0;color:#222;font-size:15px;font-weight:700;">${orderShipping === 0 ? "Free" : `$${money(orderShipping)}`}</td>
       </tr>
       ${feeAmount > 0 ? `<tr><td style="padding:7px 0;color:#444;font-size:15px;">${feeLabel}</td><td align="right" style="padding:7px 0;color:#222;font-size:15px;font-weight:700;">+$${money(feeAmount)}</td></tr>` : ""}
+      ${isMerit && storeCreditValue > 0 ? `<tr><td style="padding:7px 0;color:#444;font-size:15px;">Order total including card surcharge</td><td align="right" style="padding:7px 0;color:#222;font-size:15px;font-weight:700;">$${money(orderTotal + storeCreditValue)}</td></tr>` : ""}
       ${storeCreditValue > 0 ? `<tr><td style="padding:7px 0;color:#444;font-size:15px;">Store credit</td><td align="right" style="padding:7px 0;color:#222;font-size:15px;font-weight:700;">-$${money(storeCreditValue)}</td></tr>` : ""}
       <tr>
-        <td style="padding:14px 0 0;border-top:1px solid #d7d7d7;color:#111;font-size:18px;font-weight:800;">Total paid</td>
+        <td style="padding:14px 0 0;border-top:1px solid #d7d7d7;color:#111;font-size:18px;font-weight:800;">${isMerit && storeCreditValue > 0 ? "Paid by card" : "Total paid"}</td>
         <td align="right" style="padding:14px 0 0;border-top:1px solid #d7d7d7;color:#111;font-size:18px;font-weight:800;">$${money(orderTotal)}</td>
       </tr>
     </table>

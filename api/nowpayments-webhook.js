@@ -9,6 +9,6 @@ export default async function handler(req, res) {
     return res.status(200).json(result);
   } catch (err) {
     console.error("NOWPayments webhook error:", err.message);
-    return res.status(500).json({ error: "NOWPayments webhook failed", message: err.message });
+    return res.status(err.status || 500).json({ error: "NOWPayments webhook failed", message: err.message, ...(err.code ? { code: err.code } : {}) });
   }
 }

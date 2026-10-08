@@ -6,7 +6,7 @@ const payload = () => ({
   ok: true,
   summary: {
     recordedPaidAttempts: 3, eligibleAttempts: 1, excludedRefundOrReversal: 1, excludedUnknown: 1,
-    feeKnownAttempts: 1, feeUnknownAttempts: 0, chargedAmountCents: 10300, customerCardSurchargeCents: 300,
+    feeKnownAttempts: 1, feeUnknownAttempts: 0, chargedAmountCents: 10300, storeCreditUsedCents: 0, orderValueCents: 10300, customerCardSurchargeCents: 300,
     customerShippingCollectedCents: 1000, processorExpenseEstimateCents: 773, merchantFeeBurdenEstimateCents: 473,
     otherProcessorFeesCents: null, supplierCostsCents: null, netProfitCents: null,
   },
@@ -86,4 +86,17 @@ test("Merit authorization denial rejects the entire read and a late account cann
     return new Response("{}", { status: 502 });
   } });
   assert.equal(result, null);
+});
+
+
+test("mixed tender summary binds order value to credit plus card charge without treating credit as processing expense", () => {
+  const value = payload();
+  Object.assign(value.summary, { chargedAmountCents: 1030, storeCreditUsedCents: 5000, orderValueCents: 6030,
+    customerCardSurchargeCents: 30, customerShippingCollectedCents: 2000,
+    processorExpenseEstimateCents: 77, merchantFeeBurdenEstimateCents: 47 });
+  const result = validateMeritMarginSummary(value, 7);
+  assert.equal(result.summary.storeCreditUsedCents, 5000);
+  assert.equal(result.summary.orderValueCents, 6030);
+  value.summary.orderValueCents = 1030;
+  assert.throws(() => validateMeritMarginSummary(value, 7));
 });

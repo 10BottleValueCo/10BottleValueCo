@@ -88,3 +88,21 @@ test("Russian panel keeps identical amount, connected account and safe pending b
   assert.match(html, /Оплатить/);
   assert.doesNotMatch(html, /Оплата подтверждена|Secret123/);
 });
+
+test("mixed credit panel shows server amounts and keeps the card button disabled until Elements is ready", () => {
+  const mixed = { ...session, baseAmountCents: 6000, storeCreditUsedCents: 5000,
+    cardBaseAmountCents: 1000, surchargeCents: 30, amountCents: 1030 };
+  for (const language of ["en", "ru"]) {
+    const { Panel } = componentFixture();
+    const html = renderToStaticMarkup(React.createElement(Panel, { session: mixed, language, onReconcile: async () => ({ ok: true, paid: false }) }));
+    assert.match(html, language === "en" ? /Store credit applied/ : /Использованный кредит магазина/);
+    assert.match(html, language === "en" ? /Remaining before card surcharge/ : /Остаток до доплаты за карту/);
+    assert.match(html, language === "en" ? /\$10\.30/ : /10,30/);
+    assert.match(html, language === "en" ? /-\$50\.00/ : /-50,00/);
+    assert.match(html, /type="submit" disabled/);
+  }
+  const { Panel, calls } = componentFixture();
+  const invalid = renderToStaticMarkup(React.createElement(Panel, { session: { ...mixed, storeCreditUsedCents: 4999 }, onReconcile: async () => ({}) }));
+  assert.match(invalid, /role="alert"/);
+  assert.equal(calls.payment.length, 0);
+});

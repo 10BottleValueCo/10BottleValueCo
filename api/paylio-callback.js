@@ -1,3 +1,4 @@
+import { debitLegacyOrderCredit } from "./_legacy-store-credit.js";
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
 const sbH = () => ({ apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" });
@@ -57,11 +58,13 @@ export default async function handler(req, res) {
     let sbMeta = {};
     let alreadyEmailSent = false;
     let alreadyPaidInDb = false;
+    let orderReadVerified = false;
     if (SB_URL && SB_KEY) {
       try {
         const sbRes = await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(orderId))}&select=metadata,items,status&limit=1`, { headers: sbH() });
         if (sbRes.ok) {
           const sbRows = await sbRes.json();
+          orderReadVerified = Array.isArray(sbRows) && sbRows.length === 1 && !!sbRows[0] && typeof sbRows[0] === "object";
           if (sbRows?.length && sbRows[0].metadata && typeof sbRows[0].metadata === "object") {
             sbMeta = sbRows[0].metadata;
             if (sbMeta.confirmationEmailSentAt) alreadyEmailSent = true;
@@ -72,6 +75,21 @@ export default async function handler(req, res) {
           }
         }
       } catch {}
+    }
+
+    if (!orderReadVerified) return res.status(503).json({ ok: false, code: "CREDIT_RECONCILIATION_REQUIRED" });
+
+    const declaredCredit = sbMeta.storeCreditUsed ?? metadata.storeCreditUsed ?? query.storeCreditUsed ?? 0;
+    // This legacy callback has no authenticated provider proof contract. A
+    // notification must never authorize spending a customer's credit balance.
+    if (Number(declaredCredit) !== 0) {
+      return res.status(503).json({ ok: false, code: "CREDIT_RECONCILIATION_REQUIRED" });
+    }
+    if (!alreadyPaidInDb) {
+      await debitLegacyOrderCredit({
+        orderId, email, creditAmount: declaredCredit,
+        provider: "paylio",
+      });
     }
 
     const resolvedAffiliate = await resolveAffiliate(email, String(metadata.affiliateCode || metadata.affiliate_code || query.affiliateCode || query.affiliate_code || "")).catch(() => null);
@@ -188,13 +206,7 @@ export default async function handler(req, res) {
       } catch {}
     }
 
-    // Mark promo code as used + deduct spent store credit server-side, once,
-    // guarded on the order not already being paid before this callback ran —
-    // same pattern as the Stripe/CatalystPay/NOWPayments webhooks. Previously
-    // Paylio had neither: both only ever happened client-side in App.jsx,
-    // tied to the browser still being on/returning to the payment-return
-    // page, so a closed tab left the promo code "unused" and the store
-    // credit un-deducted forever, even though the order was genuinely paid.
+    // Promo side effects remain guarded by the winning paid transition.
     if (!alreadyPaidInDb && wonPaidTransition && SB_URL && SB_KEY) {
       const promoCodeUsed = String(finalPromoDiscount > 0 ? (sbMeta.promoCode || "") : "").trim().toUpperCase();
       if (promoCodeUsed && email) {
@@ -202,23 +214,6 @@ export default async function handler(req, res) {
           `${SB_URL}/rest/v1/user_promos?email=eq.${encodeURIComponent(email.toLowerCase())}&code=eq.${encodeURIComponent(promoCodeUsed)}&used=eq.false`,
           { method: "PATCH", headers: { ...sbH(), Prefer: "return=minimal" }, body: JSON.stringify({ used: true }) }
         ).catch(() => {});
-      }
-
-      const storeCreditUsedAmt = Number(sbMeta.storeCreditUsed || 0);
-      if (storeCreditUsedAmt > 0 && email) {
-        try {
-          const creditEmail = email.toLowerCase();
-          const creditRes = await fetch(`${SB_URL}/rest/v1/user_credits?email=eq.${encodeURIComponent(creditEmail)}&select=amount`, { headers: sbH() });
-          const creditRows = creditRes.ok ? await creditRes.json() : [];
-          const newCreditAmount = Math.max(0, (creditRows?.[0] ? Number(creditRows[0].amount) : 0) - storeCreditUsedAmt);
-          await fetch(`${SB_URL}/rest/v1/user_credits?on_conflict=email`, {
-            method: "POST",
-            headers: { ...sbH(), Prefer: "resolution=merge-duplicates,return=minimal" },
-            body: JSON.stringify({ email: creditEmail, amount: newCreditAmount, updated_at: new Date().toISOString() }),
-          }).catch((e) => console.error("Paylio: user_credits upsert failed:", e.message));
-        } catch (e) {
-          console.error("Paylio: store credit deduction threw:", e?.message || e);
-        }
       }
     }
 

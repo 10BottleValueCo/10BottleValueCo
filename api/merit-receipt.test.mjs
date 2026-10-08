@@ -279,3 +279,34 @@ test("failed receipt leaves payment paid; repeated status checks do not retry em
   }
   assert.equal(notifications, 1);
 });
+
+test("mixed credit receipt separates total order value, credit and actual card payment", () => {
+  const attempt = attemptFixture();
+  attempt.amount_cents = 1030;
+  attempt.credit_reserved_cents = 5000;
+  Object.assign(attempt.snapshot, { subtotal: 40, shipping: 20, automaticDiscount: 0, promoDiscount: 0,
+    affiliateDiscount: 0, storeCreditUsed: 50, total: 10.30, customerCardSurcharge: .30 });
+  const receipt = buildMeritReceipt(attempt);
+  const html = renderPaymentConfirmationEmail(receipt, { escapeValues: true });
+  for (const content of ['Order total including card surcharge', '$60.30', 'Store credit', '-$50.00',
+    'Paid by card', '$10.30', 'Card surcharge (3%)', '+$0.30']) assert.ok(html.includes(content), content);
+  assert.doesNotMatch(html, /Total paid|PRIVATE_RECEIPT_SENTINEL/);
+  attempt.snapshot.customerCardSurcharge = 1.8;
+  assert.throws(() => buildMeritReceipt(attempt));
+});
+
+
+test("mixed credit receipt requires a matching private credit reservation", () => {
+  const attempt = attemptFixture();
+  attempt.amount_cents = 1030;
+  Object.assign(attempt.snapshot, { subtotal: 40, shipping: 20, automaticDiscount: 0, promoDiscount: 0,
+    affiliateDiscount: 0, storeCreditUsed: 50, total: 10.30, customerCardSurcharge: .30 });
+  for (const held of [undefined, null, 0, 4999, 5001]) {
+    attempt.credit_reserved_cents = held;
+    assert.throws(() => buildMeritReceipt(attempt));
+  }
+  attempt.credit_reserved_cents = 5000;
+  assert.equal(buildMeritReceipt(attempt).storeCreditUsed, 50);
+  attempt.snapshot.cardBaseAmountCents = 1001;
+  assert.throws(() => buildMeritReceipt(attempt));
+});

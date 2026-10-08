@@ -49,7 +49,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ received: false, skipped: "nowpayments_lookup_failed" });
     }
 
-    const result = await processNowPaymentsStatus(data);
+    const result = await processNowPaymentsStatus(data, { providerVerified: true });
     return res.status(200).json(result);
   } catch (err) {
     console.error("verify-nowpayments-payment error:", err.message);

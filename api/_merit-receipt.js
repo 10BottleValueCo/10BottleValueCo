@@ -25,6 +25,13 @@ export function buildMeritReceipt(attempt) {
     || !Array.isArray(snapshot.items) || snapshot.items.length === 0) throw unavailable();
   const receipt = { email: attempt.email, orderId: attempt.order_id, paymentId: attempt.intent_id, paymentProvider: "Merit", total: amountCents / 100 };
   for (const key of amounts) { cents(snapshot[key]); receipt[key] = snapshot[key]; }
+  const creditCents = cents(receipt.storeCreditUsed);
+  if ((creditCents > 0 || attempt.credit_reserved_cents !== undefined)
+    && (!Number.isSafeInteger(Number(attempt.credit_reserved_cents)) || Number(attempt.credit_reserved_cents) !== creditCents)) throw unavailable();
+  for (const [key, expected] of [["storeCreditUsedCents", creditCents], ["cardBaseAmountCents", amountCents - cents(receipt.customerCardSurcharge)],
+    ["orderBaseAmountCents", amountCents - cents(receipt.customerCardSurcharge) + creditCents]]) {
+    if (snapshot[key] !== undefined && (!Number.isSafeInteger(snapshot[key]) || snapshot[key] !== expected)) throw unavailable();
+  }
   const base = cents(receipt.subtotal) + cents(receipt.shipping) - cents(receipt.automaticDiscount)
     - cents(receipt.promoDiscount) - cents(receipt.affiliateDiscount) - cents(receipt.storeCreditUsed);
   if (base < 0 || base + cents(receipt.customerCardSurcharge) !== amountCents) throw unavailable();

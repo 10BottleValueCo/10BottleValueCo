@@ -44,7 +44,7 @@ function boundRecord(value, attempt, statuses) {
 export function computeMeritMargin(attempt, { settlement = null, costs = null } = {}) {
   const result = {
     schemaVersion: 1, currency: "usd", status: "unavailable", reason: "invalid_attempt",
-    chargedAmountCents: null, customerCardSurchargeCents: null, customerShippingCollectedCents: null,
+    chargedAmountCents: null, storeCreditUsedCents: null, orderValueCents: null, customerCardSurchargeCents: null, customerShippingCollectedCents: null,
     processorExpenseCents: null, processorExpenseKind: "unknown", processorExpenseScope: "unknown",
     merchantFeeBurdenCents: null, otherProcessorFeesCents: null,
     supplierProductCostCents: null, supplierShippingPaidCents: null, otherOrderCostsCents: null,
@@ -61,8 +61,12 @@ export function computeMeritMargin(attempt, { settlement = null, costs = null } 
   const total = money(snapshot?.total);
   const surcharge = money(snapshot?.customerCardSurcharge);
   const shipping = money(snapshot?.shipping);
+  const credit = snapshot?.storeCreditUsed === undefined ? 0 : money(snapshot.storeCreditUsed);
+  const orderValue = amount !== null && credit !== null ? amount + credit : null;
   if (!record(snapshot) || amount === null || amount <= 0 || total !== amount
-    || surcharge === null || surcharge > amount || shipping === null || shipping > amount - surcharge) {
+    || surcharge === null || surcharge > amount || credit === null || !Number.isSafeInteger(orderValue)
+    || ((credit > 0 || attempt.credit_reserved_cents !== undefined) && cents(attempt.credit_reserved_cents) !== credit)
+    || shipping === null || shipping > orderValue - surcharge) {
     return { ...result, reason: "invalid_quote_snapshot" };
   }
 
@@ -77,6 +81,7 @@ export function computeMeritMargin(attempt, { settlement = null, costs = null } 
   }
   Object.assign(result, {
     status: "fee_unknown", reason: "processing_fee_unverified", chargedAmountCents: amount,
+    storeCreditUsedCents: credit, orderValueCents: orderValue,
     customerCardSurchargeCents: surcharge, customerShippingCollectedCents: shipping, ruleVersion: rules.version,
   });
 
@@ -112,7 +117,8 @@ export function computeMeritMargin(attempt, { settlement = null, costs = null } 
     result.supplierProductCostCents = cents(costs.supplierProductCostCents);
     result.supplierShippingPaidCents = cents(costs.supplierShippingPaidCents);
     result.otherOrderCostsCents = cents(costs.otherOrderCostsCents);
-    if ([result.supplierProductCostCents, result.supplierShippingPaidCents, result.otherOrderCostsCents].every(value => value !== null)) {
+    if (credit > 0) result.contributionKind = "store_credit_funding_unknown";
+    if (credit === 0 && [result.supplierProductCostCents, result.supplierShippingPaidCents, result.otherOrderCostsCents].every(value => value !== null)) {
       // Customer shipping is already in amount. Supplier shipping is paid out
       // once here; neither shipping nor surcharge is added to amount again.
       const contribution = BigInt(amount) - BigInt(result.processorExpenseCents)

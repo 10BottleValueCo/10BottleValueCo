@@ -1,19 +1,9 @@
+import { acknowledgeLegacyCreditPaid, debitLegacyOrderCredit } from "./_legacy-store-credit.js";
 import crypto from "crypto";
 
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
 const sbH = () => ({ apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" });
-
-async function sbSelectOneCredit(email) {
-  try {
-    const r = await fetch(`${SB_URL}/rest/v1/user_credits?email=eq.${encodeURIComponent(email)}&select=amount`, { headers: sbH() });
-    if (!r.ok) return null;
-    const rows = await r.json();
-    return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
-  } catch {
-    return null;
-  }
-}
 
 const WEBHOOK_SECRET = process.env.CATALYSTPAY_WEBHOOK_SECRET || "";
 const BASE_URL = process.env.BASE_URL || "https://10bottlevalue.co";
@@ -61,6 +51,7 @@ export default async function handler(req, res) {
     headers_sig: req.headers["x-signature"] || req.headers["x-webhook-signature"] || req.headers["x-paidly-signature"] || "(none)",
   }));
 
+  let signatureVerified = false;
   if (WEBHOOK_SECRET) {
     const sigHeader =
       req.headers["x-signature"] ||
@@ -75,6 +66,7 @@ export default async function handler(req, res) {
       console.error("CatalystPay webhook: invalid signature", { sigHeader, expected: expected.slice(0, 8) + "…" });
       return res.status(401).json({ error: "Invalid webhook signature" });
     }
+    signatureVerified = true;
   } else {
     console.error("CatalystPay webhook: CATALYSTPAY_WEBHOOK_SECRET not set — skipping signature validation");
   }
@@ -100,15 +92,17 @@ export default async function handler(req, res) {
   let sbEmail = "";
   let alreadyEmailSent = false;
   let alreadyPaidInDb = false;
+  let orderReadVerified = false;
 
   if (SB_URL && SB_KEY) {
     try {
       const sbRes = await fetch(
-        `${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(orderId)}&select=metadata,items,status,email`,
+        `${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(orderId)}&select=metadata,items,status,email&limit=1`,
         { headers: sbH() }
       );
       if (sbRes.ok) {
         const rows = await sbRes.json();
+        orderReadVerified = Array.isArray(rows) && rows.length === 1 && !!rows[0] && typeof rows[0] === "object";
         if (rows?.length) {
           if (rows[0].metadata && typeof rows[0].metadata === "object") {
             sbMeta = rows[0].metadata;
@@ -123,6 +117,8 @@ export default async function handler(req, res) {
       }
     } catch {}
   }
+
+  if (!orderReadVerified) return res.status(503).json({ received: false, code: "CREDIT_RECONCILIATION_REQUIRED" });
 
   const email = String(sbEmail || sbMeta.customer_email || sbMeta.email || "");
 
@@ -143,6 +139,26 @@ export default async function handler(req, res) {
   const finalAffiliateCode = String(sbMeta.affiliateCode || "").trim().toUpperCase();
   const finalAffiliateCommission = Number(finalSubtotal || finalTotal) * 0.1;
   const finalShippingType = String(sbMeta.shippingType || "standard");
+
+  if (finalStoreCreditUsed !== 0 && !signatureVerified) {
+    return res.status(503).json({ received: false, code: "CREDIT_RECONCILIATION_REQUIRED" });
+  }
+  if (!alreadyPaidInDb) {
+    try {
+      await debitLegacyOrderCredit({ orderId, email, creditAmount: finalStoreCreditUsed, provider: "catalystpay" });
+    } catch {
+      return res.status(503).json({ received: false, code: "CREDIT_RECONCILIATION_REQUIRED" });
+    }
+  }
+  const creditPaidAcknowledged = finalStoreCreditUsed > 0 && !alreadyPaidInDb;
+  if (creditPaidAcknowledged) {
+    try {
+      await acknowledgeLegacyCreditPaid({ id: orderId, email, status: "paid", payment_provider: "CatalystPay BTC",
+        payment_id: invoiceId || orderId, paid_at: new Date().toISOString() });
+    } catch {
+      return res.status(503).json({ received: false, code: "CREDIT_RECONCILIATION_REQUIRED" });
+    }
+  }
 
   if (!alreadyEmailSent) {
     await fetch(`${BASE_URL}/api/send-payment-confirmed-email`, {
@@ -221,7 +237,7 @@ export default async function handler(req, res) {
       }
     };
 
-    dbMarkedPaid = await patchPaid();
+    dbMarkedPaid = creditPaidAcknowledged || await patchPaid();
     if (!dbMarkedPaid) dbMarkedPaid = await patchPaid();
 
     if (finalAffiliateCode) {
@@ -255,20 +271,6 @@ export default async function handler(req, res) {
       ).catch(() => {});
     }
 
-    if (finalStoreCreditUsed > 0 && email) {
-      try {
-        const creditEmail = email.toLowerCase();
-        const creditRow = await sbSelectOneCredit(creditEmail);
-        const newCreditAmount = Math.max(0, (creditRow ? Number(creditRow.amount) : 0) - finalStoreCreditUsed);
-        await fetch(`${SB_URL}/rest/v1/user_credits?on_conflict=email`, {
-          method: "POST",
-          headers: { ...sbH(), Prefer: "resolution=merge-duplicates,return=minimal" },
-          body: JSON.stringify({ email: creditEmail, amount: newCreditAmount, updated_at: new Date().toISOString() }),
-        }).catch((e) => console.error("CatalystPay: user_credits upsert failed:", e.message));
-      } catch (e) {
-        console.error("CatalystPay: store credit deduction threw:", e?.message || e);
-      }
-    }
   }
 
   return res.status(200).json({ received: true, orderId, dbMarkedPaid, dbWriteError, alreadyEmailSent, alreadyPaidInDb });

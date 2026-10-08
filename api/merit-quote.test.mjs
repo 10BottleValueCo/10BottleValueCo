@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildMeritQuote, MeritQuoteError } from "./_merit-quote.js";
+import { buildMeritQuote, meritCreditSnapshot, MeritQuoteError } from "./_merit-quote.js";
 
 const EMAIL = "buyer@example.org";
 const fixture = overrides => ({
@@ -136,12 +136,12 @@ test("retains existing destination, contact and attestation validation", async (
   }
 });
 
-test("identity and partial-credit rejection happen before discount lookups", async () => {
+test("identity and explicit credit selection are required before discount lookups", async () => {
   for (const email of ["", "not-an-email", null]) await assert.rejects(quote(fixture(), email), isError(403));
   await assert.rejects(quote(fixture({ email: "other@example.org" })), isError(403, "MERIT_QUOTE_IDENTITY_MISMATCH"));
   await assert.rejects(quote(withForm({ email: "other@example.org" })), isError(403));
   for (const credit of [0.01, 1, "12.34"]) {
-    await assert.rejects(quote(fixture({ storeCreditUsed: credit, promoCode: "DYNAMIC" })), isError(409, "MERIT_PARTIAL_CREDIT_UNAVAILABLE"));
+    await assert.rejects(quote(fixture({ storeCreditUsed: credit, promoCode: "DYNAMIC" })), isError(409, "MERIT_CREDIT_SELECTION_REQUIRED"));
   }
   for (const credit of [-1, "garbage", Infinity]) await assert.rejects(quote(fixture({ storeCreditUsed: credit })), isError(400));
   assert.equal((await quote(fixture({ storeCreditUsed: undefined }))).snapshot.storeCreditUsed, 0);
@@ -219,4 +219,21 @@ test("stable snapshot fingerprint ignores untrusted totals but detects contact, 
   assert.notEqual(first.quoteFingerprint, (await quote(fixture(), EMAIL, { ...noNetwork, surchargeBps: 295 })).quoteFingerprint);
   const withoutId = await quote(fixture({ orderId: undefined }));
   assert.equal(Object.hasOwn(withoutId.snapshot, "id"), false);
+});
+
+
+test("credit opt-in never treats a browser amount as the available balance", async () => {
+  const first = await quote(fixture({ useStoreCredit: true, storeCreditUsed: 1 }), EMAIL, { surchargeBps: 300 });
+  const forged = await quote(fixture({ useStoreCredit: true, storeCreditUsed: 99999999 }), EMAIL, { surchargeBps: 300 });
+  assert.deepEqual(first, forged);
+  assert.equal(first.useStoreCredit, true);
+  assert.equal(first.snapshot.storeCreditUsed, 0);
+  assert.equal(first.amountCents, 18436);
+  const split = meritCreditSnapshot(first.snapshot, 17800);
+  assert.equal(split.orderBaseAmountCents, 17899);
+  assert.equal(split.cardBaseAmountCents, 99);
+  assert.equal(split.customerCardSurcharge, .03);
+  assert.equal(split.storeCreditUsed, 178);
+  assert.equal(split.total, 1.02);
+  for (const useStoreCredit of [1, "true", {}]) await assert.rejects(quote(fixture({ useStoreCredit })), isError(400));
 });

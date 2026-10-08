@@ -212,6 +212,7 @@ test("server verifies identity, re-prices the cart, and sends only a paid order 
   assert.ok(rpcCall);
   const rpcBody = JSON.parse(rpcCall.options.body);
   assert.equal(rpcBody.p_customer_email, TEST_EMAIL);
+  assert.equal(rpcBody.p_customer_id, "verified-user-id");
   assert.equal(rpcBody.p_order.status, "paid");
   assert.equal(rpcBody.p_order.total, 0);
   assert.equal(rpcBody.p_store_credit_used, 178.99);
@@ -256,7 +257,7 @@ test("retries return the completed order without debiting credit twice", async (
         orderId: ORDER_ID,
         balance: 21.01,
         order: completedOrder,
-        replayed: false,
+        replayed: rpcCalls > 1,
       });
     }
     throw new Error(`Unexpected network request: ${url}`);
@@ -273,7 +274,7 @@ test("retries return the completed order without debiting credit twice", async (
   assert.equal(retryResponse.body.replayed, true);
   assert.equal(retryResponse.body.order.id, ORDER_ID);
   assert.equal(retryResponse.body.balance, 21.01);
-  assert.equal(rpcCalls, 1);
+  assert.equal(rpcCalls, 2, "every replay must be acknowledged by the private ledger RPC");
 });
 
 test("stale client totals are rejected without a credit mutation", async (t) => {
@@ -315,3 +316,89 @@ test("insufficient credit is surfaced without reporting a completed order", asyn
   assert.equal(res.body.ok, false);
   assert.match(res.body.error, /no longer covers/i);
 });
+
+for (const override of [{ promoCode: "DYNAMIC10" }, { affiliateCode: "AFFILIATE" }]) {
+  test(`untrusted dynamic discount cannot fund full-credit checkout: ${Object.keys(override)[0]}`, async (t) => {
+    const calls = [];
+    withTestEnvironment(t, async (url) => {
+      calls.push(String(url));
+      if (String(url).endsWith("/auth/v1/user")) return authResponse();
+      if (String(url).includes("/rest/v1/orders?")) return orderLookupResponse();
+      throw new Error("Unexpected discount or mutation request");
+    });
+    const res = mockRes();
+    await handler(makeRequest(makeCheckout(override)), res);
+    assert.equal(res.statusCode, 409);
+    assert.match(res.body.error, /needs verification/);
+    assert.equal(calls.length, 2);
+  });
+}
+
+test("static approved promotion remains available for full-credit checkout", async (t) => {
+  withTestEnvironment(t, async (url, options = {}) => {
+    if (String(url).endsWith("/auth/v1/user")) return authResponse();
+    if (String(url).includes("/rest/v1/orders?")) return orderLookupResponse();
+    if (String(url).endsWith("/rest/v1/rpc/checkout_store_credit")) {
+      const body = JSON.parse(options.body);
+      assert.equal(body.p_user_promo_id, null);
+      assert.equal(body.p_order.promoDiscount, 13.9);
+      assert.equal(body.p_store_credit_used, 165.09);
+      return makeResponse({ ok: true, orderId: ORDER_ID, order: body.p_order, balance: 20, replayed: false });
+    }
+    throw new Error("Unexpected network request");
+  });
+  const res = mockRes();
+  await handler(makeRequest(makeCheckout({ promoCode: "REVIEW10", storeCreditUsed: 165.09 })), res);
+  assert.equal(res.statusCode, 200);
+});
+
+test("full-credit checkout never adds a card fee even if an old client sends stripe", async (t) => {
+  withTestEnvironment(t, async (url, options = {}) => {
+    if (String(url).endsWith("/auth/v1/user")) return authResponse();
+    if (String(url).includes("/rest/v1/orders?")) return orderLookupResponse();
+    if (String(url).endsWith("/rest/v1/rpc/checkout_store_credit")) {
+      const body = JSON.parse(options.body);
+      assert.equal(body.p_store_credit_used, 178.99);
+      assert.equal(body.p_order.total, 0);
+      return makeResponse({ ok: true, orderId: ORDER_ID, order: body.p_order, balance: 20, replayed: false });
+    }
+    throw new Error("Unexpected network request");
+  });
+  const res = mockRes();
+  await handler(makeRequest(makeCheckout({ paymentMethod: "stripe" })), res);
+  assert.equal(res.statusCode, 200);
+});
+
+test("a public paid row cannot bypass a failed private ledger replay", async (t) => {
+  let completedOrder;
+  let rpcCalls = 0;
+  withTestEnvironment(t, async (url, options = {}) => {
+    if (String(url).endsWith("/auth/v1/user")) return authResponse();
+    if (String(url).includes("/rest/v1/orders?")) return orderLookupResponse(completedOrder
+      ? [{ id: ORDER_ID, email: TEST_EMAIL, status: "paid", metadata: completedOrder }] : []);
+    if (String(url).endsWith("/rest/v1/rpc/checkout_store_credit")) {
+      rpcCalls++;
+      if (rpcCalls > 1) return makeResponse({ ok: false, error: "ORDER_ID_CONFLICT" });
+      completedOrder = { ...JSON.parse(options.body).p_order, storeCreditBalanceAfter: 20 };
+      return makeResponse({ ok: true, orderId: ORDER_ID, order: completedOrder, balance: 20, replayed: false });
+    }
+    throw new Error("Unexpected network request");
+  });
+  const first = mockRes(); await handler(makeRequest(makeCheckout()), first); assert.equal(first.statusCode, 200);
+  const replay = mockRes(); await handler(makeRequest(makeCheckout()), replay);
+  assert.equal(replay.statusCode, 409); assert.equal(replay.body.ok, false); assert.equal(rpcCalls, 2);
+});
+
+for (const receiptOverride of [{ balance: null }, { balance: -1 }, { balance: 1.001 }, { orderId: "OTHER" }, { replayed: "true" }]) {
+  test(`invalid full-credit acknowledgement stays unconfirmed: ${JSON.stringify(receiptOverride)}`, async (t) => {
+    withTestEnvironment(t, async (url, options = {}) => {
+      if (String(url).endsWith("/auth/v1/user")) return authResponse();
+      if (String(url).includes("/rest/v1/orders?")) return orderLookupResponse();
+      if (String(url).endsWith("/rest/v1/rpc/checkout_store_credit")) return makeResponse({ ok: true, orderId: ORDER_ID,
+        order: JSON.parse(options.body).p_order, balance: 20, replayed: false, ...receiptOverride });
+      throw new Error("Unexpected network request");
+    });
+    const res = mockRes(); await handler(makeRequest(makeCheckout()), res);
+    assert.equal(res.statusCode, 503); assert.equal(res.body.ok, false);
+  });
+}

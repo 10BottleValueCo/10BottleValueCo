@@ -20,7 +20,7 @@ const source = () => ({
   status: "ready", value: {
     summary: {
       recordedPaidAttempts: 2, eligibleAttempts: 1, excludedRefundOrReversal: 1, excludedUnknown: 0,
-      feeUnknownAttempts: 0, chargedAmountCents: 10300, customerCardSurchargeCents: 300,
+      feeUnknownAttempts: 0, chargedAmountCents: 10300, storeCreditUsedCents: 0, orderValueCents: 10300, customerCardSurchargeCents: 300,
       processorExpenseEstimateCents: 773, merchantFeeBurdenEstimateCents: 473, netProfitCents: null,
     },
     metadata: { since: "2026-10-01T21:00:00Z", until: "2026-10-08T21:00:00Z", fetchedAt: "2026-10-08T21:00:01Z" },
@@ -60,4 +60,15 @@ test("complete zero activity is described separately from unavailable amounts", 
   const value = source(); value.value.summary.recordedPaidAttempts = 0;
   const html = render(value); assert.match(html, /No completed live Merit payments/); assert.match(html, /Net profit remains unknown/);
   assert.doesNotMatch(html, /\$0\.00|<strong>Unknown/);
+});
+
+
+test("mixed tender panel shows credit separately from actual card charge in both languages", () => {
+  const value = source();
+  Object.assign(value.value.summary, { chargedAmountCents: 1030, storeCreditUsedCents: 5000, orderValueCents: 6030,
+    customerCardSurchargeCents: 30, processorExpenseEstimateCents: null, merchantFeeBurdenEstimateCents: null, feeUnknownAttempts: 1 });
+  const en = render(value); const ru = render(value, "ru");
+  for (const amount of ["$10.30", "$50.00", "$60.30"]) assert.ok(en.includes(amount));
+  assert.match(en, /Store credit redeemed/); assert.match(en, /not new card revenue/); assert.match(en, /<strong>Unknown/);
+  assert.match(ru, /Использованный кредит магазина/); assert.match(ru, /не новое поступление с карты/);
 });

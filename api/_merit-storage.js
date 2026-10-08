@@ -51,6 +51,7 @@ export function createMeritStore({ env = process.env, fetcher = globalThis.fetch
     findByIntent: intentId => findAttempt({ intent_id: `eq.${intentId}` }),
     findByCheckoutKey: (checkoutKey, customerId) => findAttempt({ checkout_key: `eq.${checkoutKey}`, customer_id: `eq.${customerId}` }),
     reserve: params => request("rpc/reserve_merit_checkout", params),
+    reserveCredit: params => request("rpc/reserve_merit_checkout_with_credit", params),
     bind: params => request("rpc/bind_merit_checkout", params),
     finalize: params => request("rpc/finalize_merit_checkout", params),
   };

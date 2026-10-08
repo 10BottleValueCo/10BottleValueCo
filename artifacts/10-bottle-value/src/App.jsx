@@ -3,9 +3,11 @@
 // @ts-nocheck
 import { Fragment, lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, Search, Tag, UserRound, X } from "lucide-react";
+import { ErrorBoundary } from "./components/error-boundary.tsx";
 import worldwideCatalogBackground from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791141018882.webp";
 import { supabase, userFromSupabase } from "./supabase.js";
-import { buildMeritCheckoutPayload, meritCheckoutBusinessError, meritCartMatchesOrder, meritOrderCardSurcharge, createMeritApiClient, meritPayloadDigest, readMeritAttempt, saveMeritAttempt, verifyMeritCheckoutBuyer, MERIT_ATTEMPT_STORAGE_KEY } from "./merit-checkout-client.js";
+import { adjustStoreCredit } from "./store-credit-admin-client.js";
+import { buildMeritCheckoutPayload, estimateMeritCreditSplit, meritCheckoutBusinessError, meritCartMatchesOrder, meritOrderCardSurcharge, createMeritApiClient, meritPayloadDigest, readMeritAttempt, saveMeritAttempt, verifyMeritCheckoutBuyer, MERIT_ATTEMPT_STORAGE_KEY } from "./merit-checkout-client.js";
 import { ACCOUNT_AVATARS, getAccountAvatar } from "./account-avatars.js";
 import { track, trackPageView } from "./analytics.js";
 import { useSEO } from "./useSEO.js";
@@ -37,9 +39,73 @@ const importShippingRefundPolicyPages = () => import("./components/ShippingRefun
 const importPrivacyPolicyPage = () => import("./components/PrivacyPolicyPage.jsx");
 const importTermsConditionsPage = () => import("./components/TermsConditionsPage.jsx");
 
+const shippingPricesChunkReloadKey = "tbv:shipping-prices-chunk-reloaded";
+
+function importLazyPageWithRecovery(importPage, reloadKey) {
+  return Promise.resolve()
+    .then(importPage)
+    .then((module) => {
+      try {
+        window.sessionStorage.removeItem(reloadKey);
+      } catch {
+        // The page can still load when browser storage is unavailable.
+      }
+      return module;
+    })
+    .catch((error) => {
+      const message = String(error?.message || error || "");
+      const isChunkLoadFailure =
+        /dynamically imported module|module script failed|failed to load module|loading chunk|chunkloaderror|unable to preload css|failed to preload/i.test(message);
+      if (!isChunkLoadFailure || typeof window === "undefined") throw error;
+
+      let shouldReload = false;
+      try {
+        if (window.sessionStorage.getItem(reloadKey) === "1") {
+          window.sessionStorage.removeItem(reloadKey);
+        } else {
+          window.sessionStorage.setItem(reloadKey, "1");
+          shouldReload = true;
+        }
+      } catch {
+        // Fall through to the visible error state when storage is unavailable.
+      }
+
+      if (!shouldReload) throw error;
+      window.location.reload();
+      return new Promise(() => {});
+    });
+}
+
+function ShippingPricesLoadFallback() {
+  return (
+    <main role="alert" className="mx-auto flex min-h-[38vh] max-w-[1400px] items-center px-4 py-8">
+      <div className="w-full rounded-2xl border border-white/15 bg-black/60 p-6 text-center">
+        <h1 className="text-xl font-black uppercase tracking-wide text-white">
+          Shipping prices could not load
+        </h1>
+        <p className="mt-3 text-sm text-white/70">
+          Reload the page to load the latest version.
+        </p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="mt-5 rounded-full bg-white px-5 py-2.5 text-xs font-bold uppercase tracking-wide text-black transition hover:bg-white/90"
+        >
+          Reload page
+        </button>
+      </div>
+    </main>
+  );
+}
+
 const AccountDashboard = lazy(importAccountDashboard);
 const AccountMessages = lazy(importAccountMessages);
-const ShippingPricesPage = lazy(importShippingPricesPage);
+const ShippingPricesPage = lazy(() =>
+  importLazyPageWithRecovery(
+    importShippingPricesPage,
+    shippingPricesChunkReloadKey,
+  ),
+);
 const AffiliateProgramPage = lazy(importAffiliateProgramPage);
 const PublicInfoPages = lazy(importPublicInfoPages);
 const ShippingRefundPolicyPages = lazy(importShippingRefundPolicyPages);
@@ -3946,6 +4012,7 @@ export default function App() {
   const [adminCreditNote, setAdminCreditNote] = useState("");
   const [adminCreditMessage, setAdminCreditMessage] = useState("");
   const [adminCreditLoading, setAdminCreditLoading] = useState(false);
+  const adminCreditAdjustmentBusyRef = useRef(false);
   const [adminCreditLookup, setAdminCreditLookup] = useState(null);
   const [appliedPromo, setAppliedPromo] = useState(() => {
     try {
@@ -4832,7 +4899,7 @@ export default function App() {
   }, [currentUser?.email, supportConversationOpen]);
 
   useEffect(() => {
-    if (currentUser?.email && (page === "account" || page === "checkout")) loadStoreCredit(currentUser.email);
+    if (currentUser?.email && (page === "account" || page === "checkout" || page === "cart")) loadStoreCredit(currentUser.email);
   }, [currentUser?.email, page]);
 
 
@@ -5703,39 +5770,31 @@ export default function App() {
   }
 
   async function adminAddCredit(mode) {
-    const email = adminCreditEmail.trim().toLowerCase();
-    const amount = parseFloat(adminCreditAmount);
-    if (!email || isNaN(amount)) { setAdminCreditMessage("Enter a valid email and amount."); return; }
+    if (adminCreditAdjustmentBusyRef.current) return;
+    adminCreditAdjustmentBusyRef.current = true;
     setAdminCreditLoading(true);
     setAdminCreditMessage("");
     try {
-      const { data: existing } = await supabase.from("user_credits").select("amount").eq("email", email).maybeSingle();
-      const currentAmount = existing ? Number(existing.amount) : 0;
-      let newAmount;
-      if (mode === "set") newAmount = amount;
-      else if (mode === "subtract") newAmount = Math.max(0, currentAmount - Math.abs(amount));
-      else newAmount = Math.max(0, currentAmount + amount);
-      // UPDATE existing row first; INSERT if none exists (avoids duplicate rows from missing UNIQUE constraint)
-      const { error: updErr, count } = await supabase.from("user_credits")
-        .update({ amount: newAmount, note: adminCreditNote.trim() || null, updated_at: new Date().toISOString() })
-        .eq("email", email);
-      const needsInsert = !existing && !updErr;
-      const { error } = needsInsert
-        ? await supabase.from("user_credits").insert({ email, amount: newAmount, note: adminCreditNote.trim() || null, updated_at: new Date().toISOString() })
-        : { error: updErr };
-      // Clean up any duplicate rows
-      const { data: dupRows } = await supabase.from("user_credits").select("id, updated_at").eq("email", email).order("updated_at", { ascending: false });
-      if (dupRows && dupRows.length > 1) {
-        await supabase.from("user_credits").delete().in("id", dupRows.slice(1).map(r => r.id));
-      }
-      if (error) { setAdminCreditMessage("Error: " + error.message); }
-      else {
-        setAdminCreditMessage(`✓ ${email} — new balance: $${newAmount.toFixed(2)}`);
-        setAdminCreditLookup({ email, amount: newAmount });
-        if (currentUser?.email?.toLowerCase() === email) setStoreCredit(newAmount);
-      }
-    } catch (e) { setAdminCreditMessage("Error: " + e.message); }
-    setAdminCreditLoading(false);
+      const result = await adjustStoreCredit({ supabase, storage: window.sessionStorage,
+        email: adminCreditEmail, mode, amount: adminCreditAmount, note: adminCreditNote });
+      setAdminCreditMessage(`✓ ${result.email} — adjustment confirmed; balance after adjustment: $${result.balance.toFixed(2)}`);
+      // An idempotent replay may predate a later checkout. Refresh the current
+      // balance separately instead of presenting its old receipt as live credit.
+      setAdminCreditLookup(null);
+      try {
+        const { data, error } = await supabase.from("user_credits").select("amount, updated_at, note").eq("email", result.email).maybeSingle();
+        const balance = Number(data?.amount);
+        if (!error && data && Number.isFinite(balance) && balance >= 0) {
+          setAdminCreditLookup({ email: result.email, amount: balance, updated_at: data.updated_at, note: data.note });
+          if (currentUser?.email?.trim().toLowerCase() === result.email) setStoreCredit(balance);
+        }
+      } catch { /* The adjustment is confirmed; the current-balance refresh can be retried. */ }
+    } catch (error) {
+      setAdminCreditMessage(error?.message || "Store credit could not be confirmed. Retry the same adjustment.");
+    } finally {
+      adminCreditAdjustmentBusyRef.current = false;
+      setAdminCreditLoading(false);
+    }
   }
 
   async function adminLookupCredit() {
@@ -8179,10 +8238,10 @@ export default function App() {
       });
     }
   }, [page, checkoutStep]);
-  const [paymentMethod, setPaymentMethodState] = useState("cashapp");
+  const [paymentMethod, setPaymentMethodState] = useState(() => readMeritAttempt(window.sessionStorage)?.createRequested ? "stripe" : "cashapp");
   function setPaymentMethod(next) {
     if (next === paymentMethod) return;
-    if (meritAttemptRef.current?.submitted) { openMeritPending(); return; }
+    if (meritAttemptRef.current?.submitted || (meritAttemptRef.current?.createRequested && next !== "stripe")) { showMeritReservedAttempt(); return; }
     if (next === "stripe" && meritSession) setOrderNumber(meritSession.orderId);
     else if (deferredLegacyOrderRef.current?.id) setOrderNumber(deferredLegacyOrderRef.current.id);
     meritSelectionRef.current = { method: next, step: checkoutStep };
@@ -10052,7 +10111,9 @@ export default function App() {
     items: cart, checkoutForm, shippingType: effectiveShippingType,
     promoCode: appliedPromo?.code, affiliateCode: affiliateTrackingCode,
     affiliateDiscountDisabled, ownerFreeShipping: ownerFreeShippingActive,
-    orderNotes: getCheckoutOrderNotes(checkoutForm),
+    // A recovered hold has already reduced the available balance. Preserve its
+    // original credit intent so this same checkout can recover after reload.
+    orderNotes: getCheckoutOrderNotes(checkoutForm), useStoreCredit: Boolean(currentUser && (storeCredit > 0 || meritAttemptRef.current?.createRequested)),
     purchaserAttestation: { over21AndResearchUseOnly: Boolean(researchAccepted),
       qualifiedResearcherOrLicensedProfessional: Boolean(qualifiedAccepted),
       noHumanOrAnimalUse: Boolean(qualifiedAccepted), policiesAccepted: Boolean(termsAccepted) },
@@ -10062,18 +10123,18 @@ export default function App() {
   const meritActiveSession = meritSession?.inputsKey === meritInputsKey ? meritSession : null;
   const meritSelected = paymentMethod === "stripe" && checkoutStep === "payment";
   const meritSurchargePercent = Number(meritActiveSession?.order?.customerCardSurchargeBps ?? meritConfig?.surchargeBps ?? 0) / 100;
-  const stripeFeeAmount = meritSelected
-    ? (meritActiveSession ? meritActiveSession.surchargeCents / 100 : Math.round(Math.max(0, baseTotal) * Number(meritConfig?.surchargeBps || 0) / 100) / 100)
-    : 0;
+  const meritCreditSplit = meritActiveSession || estimateMeritCreditSplit(baseTotal, currentUser ? storeCredit : 0, meritConfig?.surchargeBps);
+  const stripeFeeAmount = meritSelected ? meritCreditSplit.surchargeCents / 100 : 0;
   const totalAfterDiscount = baseTotal - cryptoDiscountAmount + stripeFeeAmount;
   const PAYPAL_FEE_RATE = 0;
   const paypalFee = 0;
   const totalWithFee = totalAfterDiscount + paypalFee;
   const paypalSnapshotRef = useRef(null);
-  // Full-credit checkout stays on its existing server path. Merit charges its
-  // complete canonical amount; partial credit is not silently deducted.
-  const storeCreditApplied = !meritSelected && currentUser && storeCredit > 0 ? Math.min(storeCredit, totalWithFee) : 0;
-  const finalTotal = meritSelected && meritActiveSession ? meritActiveSession.amountCents / 100 : Math.max(0, totalWithFee - storeCreditApplied);
+  // Preview credit is informational. The authenticated Merit response replaces
+  // every amount before its card form mounts; full-credit uses its existing RPC.
+  const storeCreditApplied = meritSelected ? meritCreditSplit.storeCreditUsedCents / 100
+    : currentUser && storeCredit > 0 && totalWithFee > 0 && Math.round(storeCredit * 100) >= Math.round(totalWithFee * 100) ? totalWithFee : 0;
+  const finalTotal = meritSelected ? meritCreditSplit.amountCents / 100 : Math.max(0, totalWithFee - storeCreditApplied);
   const stripeTemporarilyDisabled = meritConfig?.enabled !== true;
   const checkoutInvoice = meritSelected && meritActiveSession?.order ? meritActiveSession.order : {
     items: cart, subtotal, shipping, automaticDiscount, promoDiscount, affiliateDiscount,
@@ -10081,7 +10142,7 @@ export default function App() {
   };
   useEffect(() => {
     if (meritSession && meritSession.inputsKey !== meritInputsKey) {
-      if (meritAttemptRef.current?.submitted) openMeritPending();
+      if (meritAttemptRef.current?.submitted || meritAttemptRef.current?.createRequested) showMeritReservedAttempt();
       else setMeritSession(null);
     }
   }, [meritInputsKey, meritSession]);
@@ -10662,6 +10723,20 @@ export default function App() {
     await markOrderCheckoutStartedById(orderNumber, "PayPal");
   }
 
+  function assertPaypalCheckoutReady() {
+    if (meritSelectionRef.current.method !== "paypal" || meritSelectionRef.current.step !== "payment"
+      || finalTotal <= 0 || storeCreditApplied > 0 || meritAttemptRef.current?.createRequested || meritAttemptRef.current?.submitted) {
+      throw new Error(tx("Select PayPal for an order paid fully with PayPal. Use Merit for partial store credit, or Pay with Credits for full coverage.", "Выберите PayPal для полной оплаты через PayPal. Для частичной оплаты кредитом магазина выберите Merit, а при полном покрытии — оплату кредитами."));
+    }
+  }
+
+  function showMeritReservedAttempt() {
+    const message = tx("Your store credit may be reserved for this payment. Continue this same card checkout, or contact support before starting another payment.", "Кредит магазина может быть зарезервирован для этой оплаты. Продолжите то же оформление с оплатой картой или обратитесь в поддержку перед новой оплатой.");
+    setStripeError(message);
+    setCheckoutMessage(message);
+    if (meritAttemptRef.current?.submitted && meritAttemptRef.current?.orderId) openMeritPending();
+  }
+
   function openMeritPending(orderId = meritAttemptRef.current?.orderId) {
     if (!orderId) return;
     setPaymentReturn({ status: "pending", provider: "merit", order: orderId });
@@ -10681,7 +10756,10 @@ export default function App() {
       meritAttemptRef.current = null;
     }
     setMeritSession(null);
-    if (currentUser?.email) refreshUserOrdersFromSupabase(currentUser.email);
+    if (currentUser?.email) {
+      refreshUserOrdersFromSupabase(currentUser.email);
+      void loadStoreCredit(currentUser.email);
+    }
   }
 
   async function checkMeritReturn() {
@@ -10730,14 +10808,20 @@ export default function App() {
     try {
       const digest = await meritPayloadDigest(payload, currentUser.email, meritConfig.surchargeBps);
       const previous = meritAttemptRef.current;
+      if (previous?.createRequested && previous.digest !== digest) { showMeritReservedAttempt(); return; }
       const attempt = previous?.digest === digest ? previous : { key: window.crypto.randomUUID(), digest, orderId: "", submitted: false };
       meritAttemptRef.current = attempt;
       saveMeritAttempt(window.sessionStorage, attempt);
       const proof = await verifyMeritCheckoutBuyer(currentUser.email);
       if (!proof) return;
       if (meritInputsRef.current !== requestedInputs || meritSelectionRef.current.method !== "stripe" || meritSelectionRef.current.step !== "payment") throw new Error("checkout_changed");
+      // Persist before network I/O: a lost create response may already hold
+      // credit. Only this key and unchanged input may recover that reservation.
+      attempt.createRequested = payload.useStoreCredit === true;
+      saveMeritAttempt(window.sessionStorage, attempt);
       const result = await meritApi.create({ checkoutKey: attempt.key, payload, proof });
       attempt.orderId = result.session.orderId;
+      if (result.session.storeCreditUsedCents === 0) attempt.createRequested = false;
       if (result.paid === true) {
         // A recovered create response may describe an already-paid attempt.
         // Reconcile it immediately; never remount a form that can confirm again.
@@ -10764,6 +10848,11 @@ export default function App() {
       setOrderNumber(result.session.orderId);
       setMeritSession({ ...result.session, order: { ...result.order.metadata, ...result.order }, inputsKey: requestedInputs });
     } catch (error) {
+      if (["MERIT_PROMO_UNVERIFIED", "MERIT_AFFILIATE_UNVERIFIED", "MERIT_FULL_CREDIT_AVAILABLE"].includes(error?.code) && !meritAttemptRef.current?.orderId) {
+        meritAttemptRef.current.createRequested = false;
+        saveMeritAttempt(window.sessionStorage, meritAttemptRef.current);
+      }
+      if (error?.code === "MERIT_FULL_CREDIT_AVAILABLE") await loadStoreCredit(currentUser.email);
       const businessError = meritCheckoutBusinessError(error, language);
       setStripeError(businessError || (error?.code === "authentication_required"
         ? tx("Your sign-in has expired. Sign in again, then continue.", "Срок входа истёк. Войдите снова и продолжите.")
@@ -10865,7 +10954,7 @@ export default function App() {
           affiliateCode: snap?.affiliateCode ?? affiliateTrackingCode,
           affiliateOwnerEmail: snap?.affiliateOwnerEmail ?? affiliateTrackingOwnerEmail,
           affiliateCommission: snap?.affiliateCommission ?? Number(affiliateCommission.toFixed(2)),
-          storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
+          storeCreditUsed: 0,
           paypalFee: Number(paypalFee.toFixed(2)),
           firstName: checkoutSnapshot.firstName || "", lastName: checkoutSnapshot.lastName || "",
           country: checkoutSnapshot.country || "", address: checkoutSnapshot.address || "",
@@ -11711,7 +11800,7 @@ export default function App() {
   }
 
   async function handlePayWithCredits(attestationOverride = null) {
-    if (meritAttemptRef.current?.submitted) { openMeritPending(); return; }
+    if (meritAttemptRef.current?.submitted || meritAttemptRef.current?.createRequested) { showMeritReservedAttempt(); return; }
     const acceptedResearch = attestationOverride?.researchAccepted ?? researchAccepted;
     const acceptedQualified = attestationOverride?.qualifiedAccepted ?? qualifiedAccepted;
     const acceptedTerms = attestationOverride?.termsAccepted ?? termsAccepted;
@@ -11784,7 +11873,7 @@ export default function App() {
         taxId: syncedForm.taxId || "",
       },
       shippingType: effectiveShippingType,
-      paymentMethod: checkoutStep === "payment" ? paymentMethod : "",
+      paymentMethod: checkoutStep === "payment" && paymentMethod !== "stripe" ? paymentMethod : "",
       promoCode: appliedPromo?.code || "",
       ownerFreeShipping: Boolean(ownerFreeShippingActive),
       affiliateCode: affiliateTrackingCode || "",
@@ -14848,7 +14937,8 @@ export default function App() {
         )}
 
         {page === "bonuses" && (
-          <Suspense
+          <ErrorBoundary FallbackComponent={ShippingPricesLoadFallback}>
+            <Suspense
             fallback={
               <div className="mx-auto min-h-[38vh] max-w-[1400px] px-4 pt-8" aria-busy="true">
                 <div className="h-9 w-48 animate-pulse rounded bg-white/10" />
@@ -14861,8 +14951,9 @@ export default function App() {
               getPublicImageUrl={getPreloadedDisplayImageUrl}
               onVialImageLoad={cacheDisplayedPublicImage}
             />
-          </Suspense>
-          )}
+            </Suspense>
+          </ErrorBoundary>
+        )}
 
         {page === "affiliate" && (
           <Suspense
@@ -20188,49 +20279,7 @@ export default function App() {
 
         {page === "cart" && (
           <main className="mx-auto max-w-[1280px] px-4 pt-8 pb-28 md:px-10 md:pt-12 md:pb-16">
-            {/* Hidden pre-render: warms up PayPal SDK + card form resources while user fills details */}
-            <div aria-hidden="true" style={{ position: "fixed", left: "-9999px", top: 0, width: "450px", pointerEvents: "none", opacity: 0, zIndex: -1 }}>
-              <PayPalButton
-                autoClickCard={true}
-                billingCountryCode={countryNameToISO(checkoutForm.country) || "US"}
-                disabled={paypalPaymentLoading}
-                createOrder={async () => {
-                  // No markPaypalCheckoutStarted here — this is the hidden warm-up button
-                  const checkoutSnapshot = readCheckoutSnapshot();
-                  const snapAmount = Number(finalTotal.toFixed(2));
-                  paypalSnapshotRef.current = {
-                    checkout: checkoutSnapshot,
-                    total: snapAmount, subtotal: Number(subtotal.toFixed(2)),
-                    shipping: Number(shipping.toFixed(2)), shippingType: effectiveShippingType,
-                    automaticDiscount: Number(automaticDiscount.toFixed(2)),
-                    promoDiscount: Number(promoDiscount.toFixed(2)),
-                    promoCode: appliedPromo?.code || "",
-                    affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-         cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-                    affiliateCode: affiliateTrackingCode,
-                    affiliateOwnerEmail: affiliateTrackingOwnerEmail,
-                    affiliateCommission: Number(affiliateCommission.toFixed(2)),
-                    items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
-                  };
-                  const res = await fetch("/api/paypal?action=create-order", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      amount: snapAmount,
-                      currency: "USD",
-                      orderId: orderNumber,
-                      description: `10BottleValueCo Order ${orderNumber}`,
-                      countryCode: countryNameToISO(checkoutSnapshot.country),
-                    }),
-                  });
-                  const data = await res.json();
-                  if (!res.ok) throw new Error(data?.error || "Failed to create PayPal order.");
-                  return data.id;
-                }}
-                onApprove={onPaypalApprove}
-                onError={() => {}}
-              />
-            </div>
+            {/* The PayPal SDK preloads above; payment buttons mount only when selected. */}
             <div
               className={
                 checkoutStep === "payment"
@@ -21280,6 +21329,9 @@ export default function App() {
                         <div className="text-[13px] font-semibold uppercase tracking-[0.2em] text-black/50">
                           {t("choosePaymentMethod")}
                         </div>
+                        {currentUser && storeCredit > 0 && <p className="mt-3 text-sm leading-6 text-black/65">
+                          {tx("Partial store credit is available with Merit card payment. Other payment methods use the full amount; orders fully covered by store credit can use Pay with Credits.", "Частичная оплата кредитом магазина доступна при оплате картой через Merit. При других способах к оплате идёт полная сумма; если кредит покрывает весь заказ, выберите «Оплатить кредитами».")}
+                        </p>}
                         {/* ── Payment method list (same style on all screen sizes) ── */}
                         <div className="mt-3 grid grid-cols-1 gap-2 pt-2 md:w-full md:grid-cols-2 md:grid-flow-col md:grid-rows-3 md:gap-4">
 
@@ -21691,8 +21743,7 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* Always render so PayPal SDK loads & buttons mount in background; hidden when not selected */}
-                        <div style={paymentMethod === "paypal" ? {} : { visibility: "hidden", height: 0, overflow: "hidden" }}>
+                        {paymentMethod === "paypal" && checkoutStep === "payment" && finalTotal > 0 && storeCreditApplied === 0 && <div>
                           <div className="mt-6 rounded-[1.8rem] border border-black/10 bg-white p-4 shadow-[0_20px_50px_rgba(0,0,0,0.05)] md:p-6">
                             <div className="mt-0 rounded-[1.4rem] border border-black/10 bg-black/[0.03] p-4 md:p-5">
                               <div className="text-[10px] uppercase tracking-[0.2em] text-black/50 md:text-[11px] md:tracking-[0.22em]">
@@ -21722,6 +21773,7 @@ export default function App() {
                               <PayPalButton
                                 disabled={paypalPaymentLoading}
                                 createOrder={async () => {
+                                  assertPaypalCheckoutReady();
                                   const checkoutSnapshot = readCheckoutSnapshot();
                                   const snapAmount = Number(finalTotal.toFixed(2));
                                   paypalSnapshotRef.current = {
@@ -21760,7 +21812,7 @@ export default function App() {
                               />
                             </div>
                           </div>
-                        </div>
+                        </div>}
 
                         {paymentMethod === "stripe" && (
                           <div className="mt-6 rounded-[1.8rem] border border-black/10 bg-white p-4 shadow-[0_20px_50px_rgba(0,0,0,0.05)] md:p-6">
@@ -21795,9 +21847,12 @@ export default function App() {
                               {tx("Card surcharge", "Доплата за карту")} {meritSurchargePercent}%: +{formatPricePrecise(stripeFeeAmount)}.
                               {" "}{tx("The final total is confirmed before you pay.", "Итоговая сумма подтверждается до оплаты.")}
                             </p>
-                            {storeCredit > 0 && <p className="mt-2 text-sm leading-6 text-black/65">
-                              {tx("This card payment uses the full order amount. Your Store Credit remains available; partial Store Credit cannot be combined with this payment.", "Оплата картой производится на полную сумму заказа. Store Credit сохраняется: частично использовать его вместе с этой оплатой нельзя.")}
+                            {(meritPayload.useStoreCredit || meritActiveSession?.storeCreditUsedCents > 0) && <p className="mt-2 text-sm leading-6 text-black/65">
+                              {meritActiveSession
+                                ? tx("Store credit has been checked. Applied credit is reserved for this payment; the card surcharge applies only to the remaining card balance.", "Кредит магазина проверен. Используемая сумма зарезервирована для этой оплаты; доплата за карту начисляется только на остаток к оплате картой.")
+                                : tx("Available store credit will be checked before payment. The amounts shown are estimates; the card surcharge applies only to the remaining card balance.", "Доступный кредит магазина будет проверен до оплаты. Показанные суммы предварительные; доплата за карту начисляется только на остаток к оплате картой.")}
                             </p>}
+                            {stripeError && <p className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">{stripeError}</p>}
                             {meritActiveSession ? (
                               <Suspense fallback={<div className="mt-4 min-h-[190px]" aria-busy="true" />}>
                                 <MeritCheckoutPanel session={meritActiveSession} language={language.toLowerCase()}
@@ -21805,7 +21860,6 @@ export default function App() {
                               </Suspense>
                             ) : (
                               <div className="mt-4">
-                                {stripeError && <p className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">{stripeError}</p>}
                                 <button type="button" disabled={stripeLoading || stripeTemporarilyDisabled}
                                   onClick={handleStripePayment}
                                   className="mt-3 min-h-12 w-full rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white disabled:opacity-40">
@@ -22171,8 +22225,12 @@ export default function App() {
                                 <span className="font-semibold text-emerald-600">−{formatPricePrecise(storeCreditApplied)}</span>
                               </div>
                             )}
+                            {meritSelected && storeCreditApplied > 0 && <div className="flex items-center justify-between text-black/65">
+                              <span>{tx("Remaining before card surcharge", "Остаток до доплаты за карту")}</span>
+                              <span>{formatPricePrecise(meritCreditSplit.cardBaseAmountCents / 100)}</span>
+                            </div>}
                             <div className="flex items-center justify-between border-t border-black/10 pt-3 text-base font-semibold text-black">
-                              <span>{t("total")}</span>
+                              <span>{meritSelected ? tx("Card payment", "Оплата картой") : t("total")}</span>
                               <span>
                                 {formatPricePrecise(finalTotal)}
                               </span>

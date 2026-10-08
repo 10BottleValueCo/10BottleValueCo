@@ -5,7 +5,7 @@ export const MAX_MERIT_MARGIN_ATTEMPTS = 5_000;
 const MAX_PAGE_BYTES = 2_000_000;
 // Fetch only the private canonical amounts/rules needed for this read. Customer
 // details, provider client secrets and payment credentials never leave storage.
-const FIELDS = "id,state,amount_cents,currency,expected_live,created_at,paid_at,total:snapshot->total,customer_surcharge:snapshot->customerCardSurcharge,customer_surcharge_bps:snapshot->customerCardSurchargeBps,customer_shipping:snapshot->shipping,payment_rules:snapshot->paymentRules,order:orders(status)";
+const FIELDS = "id,state,amount_cents,credit_reserved_cents,currency,expected_live,created_at,paid_at,total:snapshot->total,customer_surcharge:snapshot->customerCardSurcharge,customer_surcharge_bps:snapshot->customerCardSurchargeBps,customer_shipping:snapshot->shipping,store_credit_used:snapshot->storeCreditUsed,payment_rules:snapshot->paymentRules,order:orders(status)";
 const timestamp = value => typeof value === "string" && value.length <= 64 && /^\d{4}-\d{2}-\d{2}T/.test(value) && Number.isFinite(Date.parse(value)) ? Date.parse(value) : null;
 
 export class MeritMarginReadError extends Error {
@@ -27,7 +27,7 @@ export async function readMeritMarginSummary(config, days, { now = new Date(), f
   const since = new Date(now.getTime() - days * 86_400_000).toISOString();
   const summary = {
     recordedPaidAttempts: 0, eligibleAttempts: 0, excludedRefundOrReversal: 0, excludedUnknown: 0,
-    feeKnownAttempts: 0, feeUnknownAttempts: 0, chargedAmountCents: 0, customerCardSurchargeCents: 0,
+    feeKnownAttempts: 0, feeUnknownAttempts: 0, chargedAmountCents: 0, storeCreditUsedCents: 0, orderValueCents: 0, customerCardSurchargeCents: 0,
     customerShippingCollectedCents: 0, processorExpenseEstimateCents: 0, merchantFeeBurdenEstimateCents: 0,
     otherProcessorFeesCents: null, supplierCostsCents: null, netProfitCents: null,
   };
@@ -68,9 +68,9 @@ export async function readMeritMarginSummary(config, days, { now = new Date(), f
       summary.recordedPaidAttempts += 1;
       const margin = computeMeritMargin({
         id: row.id, state: row.state, currency: row.currency, expected_live: row.expected_live,
-        amount_cents: row.amount_cents, orderStatus: row.order?.status,
+        amount_cents: row.amount_cents, credit_reserved_cents: row.credit_reserved_cents, orderStatus: row.order?.status,
         snapshot: {
-          total: row.total, customerCardSurcharge: row.customer_surcharge,
+          total: row.total, storeCreditUsed: row.store_credit_used, customerCardSurcharge: row.customer_surcharge,
           customerCardSurchargeBps: row.customer_surcharge_bps, shipping: row.customer_shipping,
           paymentRules: row.payment_rules,
         },
@@ -81,7 +81,7 @@ export async function readMeritMarginSummary(config, days, { now = new Date(), f
         continue;
       }
       summary.eligibleAttempts += 1;
-      for (const key of ["chargedAmountCents", "customerCardSurchargeCents", "customerShippingCollectedCents"]) summary[key] = sum(summary[key], margin[key]);
+      for (const key of ["chargedAmountCents", "storeCreditUsedCents", "orderValueCents", "customerCardSurchargeCents", "customerShippingCollectedCents"]) summary[key] = sum(summary[key], margin[key]);
       if (margin.processorExpenseCents === null) summary.feeUnknownAttempts += 1;
       else {
         summary.feeKnownAttempts += 1;

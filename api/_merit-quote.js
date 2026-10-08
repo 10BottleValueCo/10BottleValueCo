@@ -60,9 +60,14 @@ function normalizeInput(body, verifiedEmail) {
   if (!Number.isFinite(credit) || credit < 0) {
     throw new MeritQuoteError(400, "Invalid Store Credit amount.");
   }
-  if (credit > 0) {
-    throw new MeritQuoteError(409, "Store Credit cannot be combined with this card payment. Remove Store Credit to continue.", "MERIT_PARTIAL_CREDIT_UNAVAILABLE");
+  if (body.useStoreCredit !== undefined && typeof body.useStoreCredit !== "boolean") {
+    throw new MeritQuoteError(400, "Select whether to apply Store Credit.");
   }
+  if (credit > 0 && body.useStoreCredit !== true) {
+    throw new MeritQuoteError(409, "Select Store Credit before preparing your card payment.", "MERIT_CREDIT_SELECTION_REQUIRED");
+  }
+  // A browser amount is never a balance or debit instruction. The private SQL
+  // reservation decides the available credit while holding the balance lock.
 
   const form = {};
   for (const [field, label, limit, required] of [
@@ -128,7 +133,7 @@ function normalizeInput(body, verifiedEmail) {
   return {
     email, form, items, orderId: orderId.toUpperCase(), shippingType, promoCode, affiliateCode,
     affiliateDiscountDisabled: body.affiliateDiscountDisabled === true,
-    ownerFreeShipping, purchaserAttestation,
+    ownerFreeShipping, purchaserAttestation, useStoreCredit: body.useStoreCredit === true,
     orderNotes: cleanString(body.orderNotes || "", "order notes", 2000),
   };
 }
@@ -208,6 +213,24 @@ export async function buildMeritQuote(body, verifiedEmail, options = {}) {
   return {
     currency: "usd", amountCents, subtotalCents, shippingCents, automaticDiscountCents,
     promoDiscountCents, affiliateDiscountCents, preSurchargeTotalCents, surchargeBps, surchargeCents,
-    userPromoId: promo.userPromoId, snapshot, quoteFingerprint,
+    userPromoId: promo.userPromoId, snapshot, quoteFingerprint, useStoreCredit: input.useStoreCredit,
   };
+}
+
+// Derive the expected frozen split from a server quote and the SQL-acknowledged
+// private hold. This never reads a browser balance or creates a reservation.
+export function meritCreditSnapshot(snapshot, creditCents) {
+  const total = Math.round(Number(snapshot.total) * 100);
+  const originalFee = Math.round(Number(snapshot.customerCardSurcharge) * 100);
+  const bps = snapshot.customerCardSurchargeBps;
+  const base = total - originalFee;
+  if (![total, originalFee, base, creditCents, bps].every(Number.isSafeInteger)
+      || base <= 0 || creditCents <= 0 || creditCents >= base || bps < 0 || bps > 10000) {
+    throw new MeritQuoteError(503, "Store Credit reservation is unavailable.", "MERIT_PENDING");
+  }
+  const cash = base - creditCents;
+  const fee = Number((BigInt(cash) * BigInt(bps) + 5000n) / 10000n);
+  return { ...snapshot, storeCreditUsed: creditCents / 100, storeCreditUsedCents: creditCents,
+    orderBaseAmountCents: base, cardBaseAmountCents: cash,
+    customerCardSurcharge: fee / 100, total: (cash + fee) / 100 };
 }
