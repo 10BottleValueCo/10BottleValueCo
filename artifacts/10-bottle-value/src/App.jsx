@@ -103,20 +103,27 @@ const routeChunkLoaders = {
   about: importPublicInfoPages,
   attestation: importPublicInfoPages,
 };
+const publicPagesToWarm = [
+  "bonuses", "affiliate", "faq", "about", "attestation",
+  "shipping", "refund", "privacy", "terms",
+];
 const prefetchedRouteChunks = new Set();
 const pendingRouteChunkPrefetches = new Map();
 
 function prefetchRouteChunks(page) {
   const loadChunks = routeChunkLoaders[page];
-  if (!loadChunks || prefetchedRouteChunks.has(page) || pendingRouteChunkPrefetches.has(page)) return;
+  if (!loadChunks || prefetchedRouteChunks.has(page)) return Promise.resolve();
+  if (pendingRouteChunkPrefetches.has(page)) return pendingRouteChunkPrefetches.get(page);
 
-  const prefetch = loadChunks()
+  const prefetch = Promise.resolve()
+    .then(loadChunks)
     .then(() => prefetchedRouteChunks.add(page))
     .catch((error) => {
       console.error(`Failed to prefetch the ${page} page:`, error);
     })
     .finally(() => pendingRouteChunkPrefetches.delete(page));
   pendingRouteChunkPrefetches.set(page, prefetch);
+  return prefetch;
 }
 
 const topProductNames = new Set(["Retatrutide / GLP-3", "10-GH", "KLOW80"]);
@@ -3719,8 +3726,14 @@ export default function App() {
 
     const prefetchFromIntent = (event) => {
       const target = event.target;
-      const link = target instanceof Element ? target.closest("a[href]") : null;
+      const link = target instanceof Element ? target.closest("a[href], [data-prefetch-page]") : null;
       if (!link) return;
+      const prefetchPage = link.getAttribute("data-prefetch-page");
+      if (prefetchPage) {
+        prefetchRouteChunks(prefetchPage);
+        return;
+      }
+      if (!(link instanceof HTMLAnchorElement)) return;
 
       const destination = new URL(link.href, window.location.href);
       if (destination.origin !== window.location.origin) return;
@@ -3738,10 +3751,47 @@ export default function App() {
     };
 
     document.addEventListener("pointerover", prefetchFromIntent, { passive: true });
+    document.addEventListener("pointerdown", prefetchFromIntent, { passive: true });
     document.addEventListener("focusin", prefetchFromIntent);
     return () => {
       document.removeEventListener("pointerover", prefetchFromIntent);
+      document.removeEventListener("pointerdown", prefetchFromIntent);
       document.removeEventListener("focusin", prefetchFromIntent);
+    };
+  }, [researcherEntryGateActive]);
+
+  useEffect(() => {
+    if (researcherEntryGateActive) return undefined;
+    let stopped = false;
+    let nextPageIndex = 0;
+    let startTimer = null;
+    let fallbackTimer = null;
+    let idleHandle = null;
+
+    const scheduleNext = () => {
+      if (stopped || nextPageIndex >= publicPagesToWarm.length) return;
+      const loadNext = () => {
+        idleHandle = null;
+        fallbackTimer = null;
+        if (stopped || nextPageIndex >= publicPagesToWarm.length) return;
+        const nextPage = publicPagesToWarm[nextPageIndex++];
+        prefetchRouteChunks(nextPage).finally(scheduleNext);
+      };
+      if (typeof window.requestIdleCallback === "function") {
+        idleHandle = window.requestIdleCallback(loadNext, { timeout: 1800 });
+      } else {
+        fallbackTimer = window.setTimeout(loadNext, 350);
+      }
+    };
+
+    startTimer = window.setTimeout(scheduleNext, 900);
+    return () => {
+      stopped = true;
+      if (startTimer !== null) window.clearTimeout(startTimer);
+      if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
+      if (idleHandle !== null && typeof window.cancelIdleCallback === "function") {
+        window.cancelIdleCallback(idleHandle);
+      }
     };
   }, [researcherEntryGateActive]);
 
