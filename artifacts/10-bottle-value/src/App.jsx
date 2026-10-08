@@ -10803,7 +10803,7 @@ export default function App() {
       setOrderNumber(result.session.orderId);
       setMeritSession({ ...result.session, order: { ...result.order.metadata, ...result.order }, inputsKey: requestedInputs });
     } catch (error) {
-      if (["MERIT_PROMO_UNVERIFIED", "MERIT_AFFILIATE_UNVERIFIED", "MERIT_FULL_CREDIT_AVAILABLE"].includes(error?.code) && !meritAttemptRef.current?.orderId) {
+      if (["MERIT_PROMO_UNVERIFIED", "MERIT_AFFILIATE_UNVERIFIED", "MERIT_FULL_CREDIT_AVAILABLE", "MERIT_CREDIT_PENDING", "MERIT_CREDIT_BALANCE_UNAVAILABLE"].includes(error?.code) && !meritAttemptRef.current?.orderId) {
         meritAttemptRef.current.createRequested = false;
         saveMeritAttempt(window.sessionStorage, meritAttemptRef.current);
       }

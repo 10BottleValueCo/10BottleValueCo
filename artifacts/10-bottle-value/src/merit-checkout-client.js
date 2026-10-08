@@ -202,8 +202,8 @@ export const meritCheckoutMessages = {
 export function meritCheckoutBusinessError(error, language = "en") {
   const messages = meritCheckoutMessages[String(language).toLowerCase() === "ru" ? "ru" : "en"];
   if (error?.code === "MERIT_CREDIT_PENDING") return String(language).toLowerCase() === "ru"
-    ? "Кредит магазина зарезервирован для незавершённой оплаты. Вернитесь к этой оплате или обратитесь в поддержку."
-    : "Your store credit is reserved for an unfinished payment. Return to that payment or contact support.";
+    ? "В старом заказе есть несверенное использование кредита магазина. Эта оплата не начата. Обратитесь в поддержку для проверки старого заказа."
+    : "An earlier order has an unresolved store-credit claim. This payment has not started. Contact support to review the earlier order.";
   if (error?.code === "MERIT_CREDIT_BALANCE_UNAVAILABLE") return String(language).toLowerCase() === "ru"
     ? "Не удалось подтвердить доступный кредит магазина. Оплата картой не начата. Повторите попытку с тем же заказом или обратитесь в поддержку."
     : "Your available store credit could not be verified. Card payment has not started. Retry this same checkout or contact support.";

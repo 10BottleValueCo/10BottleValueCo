@@ -282,6 +282,19 @@ test('full-credit authoritative rejection releases only the unreserved request f
   assert.match(calls.findLast(([name]) => name === 'setStripeError')[1], /covers the entire order/);
 });
 
+for (const code of ['MERIT_CREDIT_PENDING', 'MERIT_CREDIT_BALANCE_UNAVAILABLE']) {
+  test(`${code} releases an explicitly unreserved request so another payment method remains available`, async () => {
+    const { context, calls } = fixture();
+    context.meritPayload.useStoreCredit = true;
+    context.meritInputsRef.current = JSON.stringify({ payload: context.meritPayload, email: context.currentUser.email, surchargeBps: 300 });
+    context.meritApi.create = async () => { const error = new Error('request rejected before reservation'); error.code = code; throw error; };
+    await handler('handleStripePayment', context)();
+    assert.equal(readMeritAttempt(context.window.sessionStorage).createRequested, undefined);
+    handler('setPaymentMethod', context)('paypal');
+    assert.ok(calls.some(([name, value]) => name === 'setPaymentMethodState' && value === 'paypal'));
+  });
+}
+
 test('missing full-credit RPC leaves cart, balance and retry id intact without a paid browser order', async () => {
   const { context, calls } = fixture();
   Object.assign(context, {

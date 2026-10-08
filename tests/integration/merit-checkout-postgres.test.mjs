@@ -519,13 +519,15 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
   const creditPath = new URL("../../supabase/migrations/20261007100000_store_credit_checkout.sql", import.meta.url);
   const preflightPath = new URL("../../supabase/review/merit_checkout_preflight.sql", import.meta.url);
   const mixedCreditPath = new URL("../../supabase/migrations/20261008220000_merit_store_credit.sql", import.meta.url);
+  const legacyIsolationPath = new URL("../../supabase/migrations/20261008230000_merit_legacy_credit_isolation.sql", import.meta.url);
   const creditPostflightPath = new URL("../../supabase/review/merit_credit_postflight.sql", import.meta.url);
-  const sources = [migrationPath, creditPath, mixedCreditPath, new URL(import.meta.url), preflightPath, creditPostflightPath];
+  const sources = [migrationPath, creditPath, mixedCreditPath, legacyIsolationPath, new URL(import.meta.url), preflightPath, creditPostflightPath];
   evidence.sourceSha256 = {};
   for (const source of sources) evidence.sourceSha256[path.relative(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."), fileURLToPath(source))] = createHash("sha256").update(await readFile(source)).digest("hex");
   await sql(await readFile(creditPath, "utf8"));
   await sql(await readFile(migrationPath, "utf8"));
   await sql(await readFile(mixedCreditPath, "utf8"));
+  await sql(await readFile(legacyIsolationPath, "utf8"));
   const preflight = await scalar(await readFile(preflightPath, "utf8"));
   evidence.preflightQueryExecuted = typeof preflight === "object" && preflight !== null;
   const creditPostflight = await scalar(await readFile(creditPostflightPath, "utf8"));
@@ -911,22 +913,27 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
     assert.equal(await scalar(`SELECT sum(credit_cents) FROM store_credit_ledger WHERE order_id IN(${q(full.p_order.id)},${q(mixedId)});`),15000);
   });
   await t.test("existing legacy callback and new mixed card serialize without balance resurrection",async()=>{
-    await setCredit(150);const legacyId='INV-LEGACY-CREDIT-RACE';
+    await setCredit(119);const legacyId='INV-LEGACY-CREDIT-RACE';
     await seedHistoricalCreditOrder(legacyId,50);
     const legacy={p_order_id:legacyId,p_email:"buyer@example.test",p_credit_cents:5000,p_provider:"stripe"},mixed=quote();
     const replies=await simultaneous("legacy atomic debit versus mixed card",ownerCreditLock,[()=>rpc("debit_legacy_order_credit",legacy),()=>creditReserve(mixed)]);
     assert.equal(replies[0].data.error,"CREDIT_LEGACY_IDENTITY_UNVERIFIED");
-    assert.equal(replies[1].data.error,"MERIT_CREDIT_PENDING");assert.equal(await creditAmount(),150);
-    // A synthetic privately verified reconciliation precedes allowed replay.
-    await reconciledLegacyFixture(legacyId,5000,"stripe");
-    const retry=await rpc("debit_legacy_order_credit",legacy);assert.equal(retry.data.alreadyDebited,true);
-    assert.equal(await creditAmount(),100);
+    assert.equal(replies[1].data.ok,true);assert.equal(replies[1].data.attempt.credit_reserved_cents,11900);assert.equal(await creditAmount(),0);
+    const retry=await rpc("debit_legacy_order_credit",legacy);assert.equal(retry.data.error,"CREDIT_LEGACY_IDENTITY_UNVERIFIED");
+    assert.equal(await scalar(`SELECT count(*) FROM store_credit_ledger WHERE order_id=${q(legacyId)};`),0);
+    assert.equal((await order(legacyId)).status,"pending");assert.equal(await creditAmount(),0);
     const before=await creditAmount();
     for(const role of ["service_role","authenticated"]) {
       const stale=await rest(role,"/user_credits?email=eq.buyer@example.test",{method:"PATCH",body:{amount:150},sub:supportId});
       assert.ok([401,403].includes(stale.status));
     }
     assert.equal(await creditAmount(),before);
+  });
+  await t.test("unverified historical credit claim cannot block a new authenticated full-credit order",async()=>{
+    await setCredit(150);const id='INV-LEGACY-FULL-CREDIT';await seedHistoricalCreditOrder(id,50);
+    const complete=await rpc("checkout_store_credit",fullCredit(100));assert.equal(complete.data.ok,true);assert.equal(await creditAmount(),50);
+    const old=await rpc("debit_legacy_order_credit",{p_order_id:id,p_email:"buyer@example.test",p_credit_cents:5000,p_provider:"stripe"});
+    assert.equal(old.data.error,"CREDIT_LEGACY_IDENTITY_UNVERIFIED");assert.equal(await creditAmount(),50);assert.equal((await order(id)).status,"pending");
   });
   await t.test("credit hold remains held when paid-order acknowledgement rolls back",async()=>{
     await setCredit(119);const draft=(await creditReserve(quote())).data.attempt;

@@ -17,7 +17,7 @@ test('Credit + Merit atomic reservation, replay and balance ownership', {skip:!m
  GRANT ALL ON public.orders,public.user_promos,public.user_credits TO anon,authenticated,service_role;
  ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
  CREATE POLICY all_orders ON public.orders FOR ALL TO PUBLIC USING(true) WITH CHECK(true);`);
- for(const file of ['20261008180000_merit_checkout.sql','20261008220000_merit_store_credit.sql']) await db.exec(await readFile(new URL('../../supabase/migrations/'+file,import.meta.url),'utf8'));
+ for(const file of ['20261008180000_merit_checkout.sql','20261008220000_merit_store_credit.sql','20261008230000_merit_legacy_credit_isolation.sql']) await db.exec(await readFile(new URL('../../supabase/migrations/'+file,import.meta.url),'utf8'));
  const customer='a0000000-0000-4000-8000-000000000001',support='a0000000-0000-4000-8000-000000000002';
  await db.query('INSERT INTO auth.users VALUES($1,$2,now()),($3,$4,now())',[customer,'buyer@example.test',support,'support@10bottlevalue.co']);
  const run=(fn,role='service_role',sub=customer)=>db.transaction(async tx=>{await tx.exec(`SET LOCAL ROLE ${role}`);await tx.query("SELECT set_config('request.jwt.claims',$1,true)",[JSON.stringify({sub,role,email:'support@10bottlevalue.co'})]);return fn(tx);});
@@ -43,7 +43,7 @@ test('Credit + Merit atomic reservation, replay and balance ownership', {skip:!m
  await t.test('$178.99 base plus full-order $5.37 surcharge minus $178 credit charges $6.36',async()=>{
   await setBalance(178);q=quote();const r=await reserve(q);assert.equal(r.ok,true);assert.equal(r.created,true);a=r.attempt;
   assert.equal(a.amount_cents,636);assert.equal(a.credit_reserved_cents,17800);assert.equal(a.snapshot.storeCreditUsed,178);assert.equal(a.snapshot.cardBaseAmountCents,99);assert.equal(a.snapshot.customerCardSurcharge,5.37);assert.equal(a.snapshot.total,6.36);assert.deepEqual(a.credit_request_snapshot,q[6]);assert.equal(await balance(),0);
-  const row=(await db.query('SELECT * FROM orders WHERE id=$1',[a.order_id])).rows[0];assert.equal(Number(row.total),1.02);assert.equal(row.metadata.paymentRules,undefined);
+  const row=(await db.query('SELECT * FROM orders WHERE id=$1',[a.order_id])).rows[0];assert.equal(Number(row.total),6.36);assert.equal(row.metadata.paymentRules,undefined);
  });
  await t.test('same key retains held amount with zero current balance and does not debit twice',async()=>{
   for(let i=0;i<3;i++){const r=await reserve(q);assert.equal(r.created,false);assert.equal(r.attempt.id,a.id);assert.equal(await balance(),0);}
@@ -69,12 +69,19 @@ test('Credit + Merit atomic reservation, replay and balance ownership', {skip:!m
   for(const amount of [null,-1,.001]){await setBalance(amount);assert.equal((await reserve(quote())).error,'MERIT_CREDIT_BALANCE_UNAVAILABLE');}
   await setBalance(100);await db.exec("INSERT INTO user_credits(email,amount) VALUES('BUYER@example.test',100)");assert.equal((await reserve(quote())).error,'MERIT_CREDIT_BALANCE_UNAVAILABLE');await db.exec("DELETE FROM user_credits WHERE email='BUYER@example.test'");
  });
- await t.test('existing pending legacy credit blocks a new hold until atomic legacy debit is recorded',async()=>{
+ await t.test('unverified legacy credit remains isolated while a fresh authenticated checkout reserves real credit',async()=>{
   await setBalance(178);await seedLegacy('legacy-one','buyer@example.test','pending',20);
-  assert.equal((await reserve(quote())).error,'MERIT_CREDIT_PENDING');assert.equal(await balance(),178);
-  const args=['legacy-one','buyer@example.test',2000,'stripe'];assert.equal((await rpc('debit_legacy_order_credit',args)).error,'CREDIT_LEGACY_IDENTITY_UNVERIFIED');assert.equal(await balance(),178);await reconcileLegacyFixture('legacy-one',2000,'stripe');const first=await rpc('debit_legacy_order_credit',args);assert.deepEqual(first,{ok:true,orderId:'legacy-one',email:'buyer@example.test',creditCents:2000,provider:'stripe',alreadyDebited:true,balanceCents:15800});assert.equal(await balance(),158);
-  assert.equal((await rpc('debit_legacy_order_credit',args)).alreadyDebited,true);assert.equal(await balance(),158);assert.equal((await rpc('debit_legacy_order_credit',['legacy-one','buyer@example.test',1900,'stripe'])).ok,false);
-  const r=await reserve(quote());assert.equal(r.attempt.credit_reserved_cents,15800);assert.equal(await balance(),0);
+  const r=await reserve(quote());assert.equal(r.ok,true);assert.equal(r.attempt.credit_reserved_cents,17800);assert.equal(await balance(),0);
+  const args=['legacy-one','buyer@example.test',2000,'stripe'];assert.equal((await rpc('debit_legacy_order_credit',args)).error,'CREDIT_LEGACY_IDENTITY_UNVERIFIED');assert.equal(await balance(),0);
+  assert.equal((await db.query('SELECT count(*)::int n FROM store_credit_ledger WHERE order_id=$1',['legacy-one'])).rows[0].n,0);
+  assert.equal((await db.query('SELECT status FROM orders WHERE id=$1',['legacy-one'])).rows[0].status,'pending');
+ });
+ await t.test('privately reconciled historical debit replays without spending twice',async()=>{
+  await setBalance(178);await seedLegacy('legacy-reconciled','buyer@example.test','pending',20);
+  const args=['legacy-reconciled','buyer@example.test',2000,'stripe'];await reconcileLegacyFixture(args[0],2000,'stripe');
+  const first=await rpc('debit_legacy_order_credit',args);assert.deepEqual(first,{ok:true,orderId:args[0],email:'buyer@example.test',creditCents:2000,provider:'stripe',alreadyDebited:true,balanceCents:15800});
+  assert.equal((await rpc('debit_legacy_order_credit',args)).alreadyDebited,true);assert.equal(await balance(),158);
+  assert.equal((await rpc('debit_legacy_order_credit',[args[0],args[1],1900,args[3]])).ok,false);
  });
  await t.test('full-credit completion has a private canonical replay and no public-row-only replay',async()=>{
   await setBalance(300);const f=full();const r=await rpc('checkout_store_credit',f);assert.equal(r.ok,true);assert.equal(r.replayed,false);assert.equal(await balance(),180);
