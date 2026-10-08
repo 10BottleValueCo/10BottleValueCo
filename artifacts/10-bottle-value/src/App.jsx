@@ -13191,7 +13191,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     page === "account" && Boolean(currentUser) && authMode !== "reset";
   const currentAccountAvatar = getAccountAvatar(currentUser?.avatarId);
   const pageBackdropImage =
-    page === "faq"
+    page === "admin"
+      ? laboratoryBackgroundImage
+      : page === "faq"
       ? faqBackgroundImage
       : accountDashboardBackdrop
       ? laboratoryBackgroundImage
@@ -13568,7 +13570,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         </div>
       )}
       <div
-        className={`tbv-app-shell min-h-screen ${page === "admin" ? "bg-[#737373]" : "bg-[#8f8f8f]"} text-white ${page === "home" ? "tbv-app-shell--home" : ""} ${usesCatalogBackground ? "tbv-app-shell--catalog-background" : ""} ${pageBackdropImage ? "tbv-app-shell--photo-backdrop" : ""}`}
+        className={`tbv-app-shell min-h-screen ${page === "admin" ? "bg-[#0a0c10]" : "bg-[#8f8f8f]"} text-white ${page === "home" ? "tbv-app-shell--home" : ""} ${usesCatalogBackground ? "tbv-app-shell--catalog-background" : ""} ${pageBackdropImage ? "tbv-app-shell--photo-backdrop" : ""}`}
         data-affiliate-backdrop={page === "affiliate" ? "true" : undefined}
         style={
           page === "affiliate"
@@ -13581,7 +13583,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               }
             : pageBackdropImage
             ? {
-                backgroundImage: `linear-gradient(rgba(76, 80, 86, 0.66), rgba(55, 59, 66, 0.72)), url("${pageBackdropImage}")`,
+                backgroundImage:
+                  page === "admin"
+                    ? `linear-gradient(rgba(10, 12, 16, 0.78), rgba(10, 12, 16, 0.82)), url("${pageBackdropImage}")`
+                    : `linear-gradient(rgba(76, 80, 86, 0.66), rgba(55, 59, 66, 0.72)), url("${pageBackdropImage}")`,
                 backgroundSize: "cover",
                 backgroundPosition: "center top",
                 backgroundRepeat: "no-repeat",
@@ -16224,7 +16229,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 ))}
               </div>
               {adminActiveTab === "orders" && (
-              <section className="rounded-[2rem] border border-white/20 bg-[#676767] p-5 md:p-6">
+              <section className="rounded-[2rem] border border-white/20 bg-black p-5 md:p-6">
                 {/* Stats + action buttons row */}
                 <div className="flex items-center gap-3 flex-wrap">
                   {(() => {
@@ -16380,7 +16385,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           }[String(order.status || "pending").toLowerCase()] || "border-amber-300/40 bg-amber-300/10 text-amber-200";
 
                           return (
-                            <div key={order.id} className="rounded-[1.4rem] border border-white/15 bg-[#525252] px-5 pt-5 pb-3">
+                            <div key={order.id} className="rounded-[1.4rem] border border-white/15 bg-black/20 px-5 pt-5 pb-3">
                               {/* Header row */}
                               <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div className="flex flex-wrap items-center gap-3">
