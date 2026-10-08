@@ -861,18 +861,18 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
     } finally { await sql(clearOrderAckFaultSql); }
     // Same real handler/storage boundary, now with a partial-credit reservation.
     await sql("UPDATE user_credits SET amount=119 WHERE email='buyer@example.test';");
-    expectedProviderAmount = 103;
+    expectedProviderAmount = 460;
     const creditKey = randomUUID();
     const mixed = await invoke({ action: "create", checkoutKey: creditKey, otpToken: "synthetic-otp", verifiedEmail: "buyer@example.test", useStoreCredit: true, storeCreditUsed: 999999 });
     assert.equal(mixed.status, 200); assert.equal(mixed.data.session.baseAmountCents, 12000);
     assert.equal(mixed.data.session.storeCreditUsedCents, 11900); assert.equal(mixed.data.session.cardBaseAmountCents, 100);
-    assert.equal(mixed.data.session.surchargeCents, 3); assert.equal(mixed.data.session.amountCents, 103);
+    assert.equal(mixed.data.session.surchargeCents, 360); assert.equal(mixed.data.session.amountCents, 460);
     const mixedReplay = await invoke({ action: "create", checkoutKey: creditKey });
     assert.deepEqual(mixedReplay.data.session, mixed.data.session); assert.equal(createCalls, 2);
     assert.equal(await scalar("SELECT amount FROM user_credits WHERE email='buyer@example.test';"), 0);
     assert.equal((await invoke({ action: "reconcile", orderId: mixed.data.orderId })).data.paid, true);
     assert.equal(await scalar(`SELECT to_jsonb(state) FROM store_credit_ledger WHERE order_id=${q(mixed.data.orderId)};`), "consumed");
-    evidence.creditRouteStorageIntegration = { actualHandlerAndStore: true, baseCents: 12000, creditCents: 11900, cashBaseCents: 100, surchargeCents: 3, chargedCents: 103, sameKeyAdditionalProviderCreates: 0, consumedOnce: true };
+    evidence.creditRouteStorageIntegration = { actualHandlerAndStore: true, baseCents: 12000, creditCents: 11900, cashBaseCents: 100, surchargeCents: 360, chargedCents: 460, sameKeyAdditionalProviderCreates: 0, consumedOnce: true };
     evidence.routeStorageIntegration = { actualHandlerAndStore: true, transport: "owned loopback PostgREST with Supabase-prefix removal",
       mockedBoundaries: ["provider", "verified customer identity", "quote", "receipt delivery"], storageRequests,
       successfulCreateCalls: createCalls, readyReplayAdditionalCreates: 0,
@@ -892,7 +892,7 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
     await setCredit(119);const body=quote();
     const replies=await simultaneous("same key partial credit",ownerCreditLock,[()=>creditReserve(body),()=>creditReserve(body)]);
     assert.ok(replies.every(r=>r.status===200&&r.data.ok));assert.equal(replies.filter(r=>r.data.created).length,1);
-    assert.equal(replies[0].data.attempt.id,replies[1].data.attempt.id);assert.equal(replies[0].data.attempt.amount_cents,103);
+    assert.equal(replies[0].data.attempt.id,replies[1].data.attempt.id);assert.equal(replies[0].data.attempt.amount_cents,460);
     assert.equal(await creditAmount(),0);assert.equal(await scalar(`SELECT count(*) FROM store_credit_ledger WHERE order_id=${q(replies[0].data.attempt.order_id)};`),1);
   });
   await t.test("simultaneous different keys cannot spend the same available Store Credit",async()=>{

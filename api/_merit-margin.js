@@ -76,7 +76,7 @@ export function computeMeritMargin(attempt, { settlement = null, costs = null } 
     || !record(customerRule) || customerRule.unit !== "basis_points" || !rate(customerRule.rate)
     || !text(customerRule.source) || !date(customerRule.effectiveAt)
     || snapshot.customerCardSurchargeBps !== customerRule.rate
-    || percentage(amount - surcharge, customerRule.rate) !== surcharge) {
+    || percentage(customerRule.basis === "order_before_credit" ? orderValue - surcharge : amount - surcharge, customerRule.rate) !== surcharge) {
     return { ...result, reason: "invalid_customer_rule_snapshot" };
   }
   Object.assign(result, {

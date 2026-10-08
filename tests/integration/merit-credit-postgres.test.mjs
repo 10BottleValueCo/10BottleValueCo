@@ -40,9 +40,9 @@ test('Credit + Merit atomic reservation, replay and balance ownership', {skip:!m
  const finalize=a=>rpc('finalize_merit_checkout',[a.id,a.intent_id,a.amount_cents,a.currency,a.email,a.order_id,a.expected_account,false]);
  const full=(amount=120)=>{const id='INV-'+randomUUID().replaceAll('-','').toUpperCase();return ['buyer@example.test',{id,email:'buyer@example.test',status:'paid',paymentProvider:'StoreCredit',checkoutFingerprint:'b'.repeat(64),storeCreditUsed:amount,total:0,items:[{name:'Fixture'}]},amount,null,customer];};
  let q,a,ready;
- await t.test('$178.99 base minus $178 credit charges $1.02 including 3 cents surcharge',async()=>{
+ await t.test('$178.99 base plus full-order $5.37 surcharge minus $178 credit charges $6.36',async()=>{
   await setBalance(178);q=quote();const r=await reserve(q);assert.equal(r.ok,true);assert.equal(r.created,true);a=r.attempt;
-  assert.equal(a.amount_cents,102);assert.equal(a.credit_reserved_cents,17800);assert.equal(a.snapshot.storeCreditUsed,178);assert.equal(a.snapshot.cardBaseAmountCents,99);assert.equal(a.snapshot.customerCardSurcharge,.03);assert.equal(a.snapshot.total,1.02);assert.deepEqual(a.credit_request_snapshot,q[6]);assert.equal(await balance(),0);
+  assert.equal(a.amount_cents,636);assert.equal(a.credit_reserved_cents,17800);assert.equal(a.snapshot.storeCreditUsed,178);assert.equal(a.snapshot.cardBaseAmountCents,99);assert.equal(a.snapshot.customerCardSurcharge,5.37);assert.equal(a.snapshot.total,6.36);assert.deepEqual(a.credit_request_snapshot,q[6]);assert.equal(await balance(),0);
   const row=(await db.query('SELECT * FROM orders WHERE id=$1',[a.order_id])).rows[0];assert.equal(Number(row.total),1.02);assert.equal(row.metadata.paymentRules,undefined);
  });
  await t.test('same key retains held amount with zero current balance and does not debit twice',async()=>{

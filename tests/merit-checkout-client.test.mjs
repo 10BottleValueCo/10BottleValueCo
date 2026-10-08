@@ -397,17 +397,17 @@ test('unverified promo and affiliate errors provide matching English and Russian
 test('mixed credit quote has exact credit, uncovered base, surcharge and final card parity', async () => {
   const payload = { ...checkoutPayload(), useStoreCredit: true };
   const good = { ok: true, session: { ...session, baseAmountCents: 6000, storeCreditUsedCents: 5000,
-    appliedCreditCents: 5000, cardBaseAmountCents: 1000, surchargeCents: 30, amountCents: 1030 },
+    appliedCreditCents: 5000, cardBaseAmountCents: 1000, surchargeCents: 180, amountCents: 1180 },
     order: { id: session.orderId, items: [{ name: 'BPC-157', dose: '5 mg', price: 40, quantity: 1 }],
       subtotal: 40, shipping: 20, automaticDiscount: 0, promoDiscount: 0, affiliateDiscount: 0,
-      storeCreditUsed: 50, total: 10.30, customerCardSurcharge: .30, customerCardSurchargeBps: 300 } };
+      storeCreditUsed: 50, total: 11.80, customerCardSurcharge: 1.80, customerCardSurchargeBps: 300 } };
   let reply = structuredClone(good);
   let sent;
   const api = createMeritApiClient({ getAccessToken: async () => 'token', fetchImpl: async (_url, options) => {
     sent = JSON.parse(options.body); return apiResponse(reply);
   } });
   const result = await api.create({ checkoutKey: 'same-key', payload, proof: {} });
-  assert.equal(result.session.amountCents, 1030);
+  assert.equal(result.session.amountCents, 1180);
   assert.equal(result.session.storeCreditUsedCents, 5000);
   assert.equal(sent.useStoreCredit, true);
   assert.equal(sent.storeCreditUsed, undefined);
@@ -416,7 +416,7 @@ test('mixed credit quote has exact credit, uncovered base, surcharge and final c
     r => { delete r.session.storeCreditUsedCents; }, r => { delete r.session.cardBaseAmountCents; },
     r => { r.session.storeCreditUsedCents = 4999; }, r => { r.order.storeCreditUsed = 49.99; },
     r => { r.session.appliedCreditCents = 4900; },
-    r => { r.session.surchargeCents = 180; r.session.amountCents = 1180; r.order.total = 11.8; r.order.customerCardSurcharge = 1.8; },
+    r => { r.session.surchargeCents = 30; r.session.amountCents = 1030; r.order.total = 10.3; r.order.customerCardSurcharge = .3; },
     r => { delete r.order.storeCreditUsed; },
   ]) {
     reply = structuredClone(good); change(reply);
@@ -433,12 +433,12 @@ test('credit intent changes the digest and cannot be inferred from a browser sup
     await meritPayloadDigest({ ...withCredit, useStoreCredit: false }, 'buyer@example.test', 300, webcrypto));
 });
 
-test('card preview charges surcharge only on the remainder and preserves the full-credit route', async () => {
+test('card preview charges surcharge on the full pre-credit order and preserves the full-credit route', async () => {
   const { estimateMeritCreditSplit } = await import('../artifacts/10-bottle-value/src/merit-checkout-client.js');
   assert.deepEqual(estimateMeritCreditSplit(60, 50, 300), { baseAmountCents: 6000, storeCreditUsedCents: 5000,
-    cardBaseAmountCents: 1000, surchargeCents: 30, amountCents: 1030 });
+    cardBaseAmountCents: 1000, surchargeCents: 180, amountCents: 1180 });
   assert.deepEqual(estimateMeritCreditSplit(60, 100, 300), { baseAmountCents: 6000, storeCreditUsedCents: 6000,
     cardBaseAmountCents: 0, surchargeCents: 0, amountCents: 0 });
   assert.equal(estimateMeritCreditSplit(60, 0, 300).amountCents, 6180);
-  assert.equal(estimateMeritCreditSplit(60.01, 60, 300).amountCents, 1);
+  assert.equal(estimateMeritCreditSplit(60.01, 60, 300).amountCents, 181);
 });

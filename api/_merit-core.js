@@ -81,6 +81,7 @@ export function meritRuleSnapshot(config) {
     currency: "usd",
     customerCardSurcharge: {
       status: "owner_approved",
+      basis: "order_before_credit",
       rate: config.surchargeBps,
       unit: "basis_points",
       source: config.surchargeSource,

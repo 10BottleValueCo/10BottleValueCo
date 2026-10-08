@@ -232,8 +232,9 @@ test("credit opt-in never treats a browser amount as the available balance", asy
   const split = meritCreditSnapshot(first.snapshot, 17800);
   assert.equal(split.orderBaseAmountCents, 17899);
   assert.equal(split.cardBaseAmountCents, 99);
-  assert.equal(split.customerCardSurcharge, .03);
+  assert.equal(split.customerCardSurcharge, 5.37);
   assert.equal(split.storeCreditUsed, 178);
-  assert.equal(split.total, 1.02);
+  assert.equal(split.total, 6.36);
+  assert.equal(split.customerCardSurchargeBasis, "order_before_credit");
   for (const useStoreCredit of [1, "true", {}]) await assert.rejects(quote(fixture({ useStoreCredit })), isError(400));
 });

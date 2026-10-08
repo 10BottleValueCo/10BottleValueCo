@@ -103,7 +103,7 @@ export function createMeritApiClient({ getAccessToken, fetchImpl = globalThis.fe
         || Math.round(Number(order.storeCreditUsed || 0) * 100) !== credit
         || Math.round(order.total * 100) !== session.amountCents
         || Math.round(order.customerCardSurcharge * 100) !== result.session.surchargeCents
-        || Math.round(cardBase * order.customerCardSurchargeBps / 10000) !== result.session.surchargeCents
+        || Math.round(result.session.baseAmountCents * order.customerCardSurchargeBps / 10000) !== result.session.surchargeCents
         || Math.round((order.subtotal + order.shipping - order.automaticDiscount - order.promoDiscount - order.affiliateDiscount) * 100) !== result.session.baseAmountCents) throw new Error(SESSION_ERROR);
       return { ...result, order, session: { ...session, baseAmountCents: result.session.baseAmountCents,
         storeCreditUsedCents: credit, cardBaseAmountCents: cardBase, surchargeCents: result.session.surchargeCents } };
@@ -123,7 +123,7 @@ export function estimateMeritCreditSplit(baseTotal, availableCredit, surchargeBp
   const baseAmountCents = Math.max(0, Math.round(Number(baseTotal || 0) * 100));
   const storeCreditUsedCents = Math.min(baseAmountCents, Math.max(0, Math.round(Number(availableCredit || 0) * 100)));
   const cardBaseAmountCents = baseAmountCents - storeCreditUsedCents;
-  const surchargeCents = Math.round(cardBaseAmountCents * Number(surchargeBps || 0) / 10000);
+  const surchargeCents = cardBaseAmountCents > 0 ? Math.round(baseAmountCents * Number(surchargeBps || 0) / 10000) : 0;
   return { baseAmountCents, storeCreditUsedCents, cardBaseAmountCents, surchargeCents, amountCents: cardBaseAmountCents + surchargeCents };
 }
 
@@ -171,7 +171,7 @@ export function formatMeritAmount(session, language = "en") {
 export const meritCheckoutMessages = {
   en: {
     heading: "Secure payment", order: "Order", amount: "Card payment",
-    orderBase: "Order amount", credit: "Store credit applied", cardBase: "Remaining before card surcharge", surcharge: "Card surcharge",
+    orderBase: "Order amount", credit: "Store credit applied", cardBase: "Remaining before card surcharge", surcharge: "Card surcharge on full order",
     loading: "Loading secure payment details…", card: "Or pay by card",
     pay: "Pay", confirming: "Confirming payment…", checking: "Checking payment status…",
     pending: "We’re confirming your payment. Your order will update when confirmation arrives.",
@@ -185,7 +185,7 @@ export const meritCheckoutMessages = {
   },
   ru: {
     heading: "Безопасная оплата", order: "Заказ", amount: "Оплата картой",
-    orderBase: "Сумма заказа", credit: "Использованный кредит магазина", cardBase: "Остаток до доплаты за карту", surcharge: "Доплата за карту",
+    orderBase: "Сумма заказа", credit: "Использованный кредит магазина", cardBase: "Остаток до доплаты за карту", surcharge: "Доплата за карту на весь заказ",
     loading: "Загружаем защищённую форму оплаты…", card: "Или оплатите картой",
     pay: "Оплатить", confirming: "Подтверждаем оплату…", checking: "Проверяем статус оплаты…",
     pending: "Подтверждаем оплату. Статус заказа обновится после получения подтверждения.",

@@ -421,8 +421,8 @@ test('crypto keeps its ordinary discount and full-credit checkout without creati
   assert.equal(cents.finalTotal,0);
 });
 
-test('Merit still applies partial credit before surcharge and keeps zero-credit and full-credit totals', () => {
-  for(const [credit,applied,total,fee] of [[0,0,61.8,1.8],[50,50,10.3,.3],[60,60,0,0]]) {
+test('Merit calculates surcharge on the full order before partial credit and keeps zero-credit and full-credit totals', () => {
+  for(const [credit,applied,total,fee] of [[0,0,61.8,1.8],[50,50,11.8,1.8],[60,60,0,0]]) {
     const {context}=paymentArithmetic({method:'stripe',credit});
     assert.equal(context.storeCreditApplied,applied); assert.equal(context.finalTotal,total); assert.equal(context.stripeFeeAmount,fee);
   }

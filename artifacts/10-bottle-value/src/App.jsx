@@ -21795,8 +21795,8 @@ export default function App() {
                             </p>
                             {(meritPayload.useStoreCredit || meritActiveSession?.storeCreditUsedCents > 0) && <p className="mt-2 text-sm leading-6 text-black/65">
                               {meritActiveSession
-                                ? tx("Store credit has been checked. Applied credit is reserved for this payment; the card surcharge applies only to the remaining card balance.", "Кредит магазина проверен. Используемая сумма зарезервирована для этой оплаты; доплата за карту начисляется только на остаток к оплате картой.")
-                                : tx("Available store credit will be checked before payment. The amounts shown are estimates; the card surcharge applies only to the remaining card balance.", "Доступный кредит магазина будет проверен до оплаты. Показанные суммы предварительные; доплата за карту начисляется только на остаток к оплате картой.")}
+                                ? tx("Store credit has been checked. Applied credit is reserved for this payment; the card surcharge is calculated on the full order total before store credit.", "Кредит магазина проверен. Используемая сумма зарезервирована для этой оплаты; доплата за карту рассчитывается на всю сумму заказа до применения кредита магазина.")
+                                : tx("Available store credit will be checked before payment. The amounts shown are estimates; the card surcharge is calculated on the full order total before store credit.", "Доступный кредит магазина будет проверен до оплаты. Показанные суммы предварительные; доплата за карту рассчитывается на всю сумму заказа до применения кредита магазина.")}
                             </p>}
                             {stripeError && <p className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">{stripeError}</p>}
                             {meritActiveSession ? (

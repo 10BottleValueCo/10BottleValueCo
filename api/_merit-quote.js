@@ -206,7 +206,7 @@ export async function buildMeritQuote(body, verifiedEmail, options = {}) {
     ownerFreeShipping: input.ownerFreeShipping, affiliateDiscount: affiliateDiscountCents / 100,
     affiliateDiscountDisabled: input.affiliateDiscountDisabled,
     affiliateCode: "", affiliateOwnerEmail: "", affiliateCommission: 0,
-    customerCardSurcharge: surchargeCents / 100, customerCardSurchargeBps: surchargeBps,
+    customerCardSurcharge: surchargeCents / 100, customerCardSurchargeBps: surchargeBps, customerCardSurchargeBasis: "order_before_credit",
     cryptoDiscount: 0, storeCreditUsed: 0, total: amountCents / 100,
   };
   const quoteFingerprint = createHash("sha256").update(JSON.stringify({ version: 1, currency: "usd", amountCents, userPromoId: promo.userPromoId, snapshot })).digest("hex");
@@ -229,8 +229,8 @@ export function meritCreditSnapshot(snapshot, creditCents) {
     throw new MeritQuoteError(503, "Store Credit reservation is unavailable.", "MERIT_PENDING");
   }
   const cash = base - creditCents;
-  const fee = Number((BigInt(cash) * BigInt(bps) + 5000n) / 10000n);
+  const fee = Number((BigInt(base) * BigInt(bps) + 5000n) / 10000n);
   return { ...snapshot, storeCreditUsed: creditCents / 100, storeCreditUsedCents: creditCents,
-    orderBaseAmountCents: base, cardBaseAmountCents: cash,
+    orderBaseAmountCents: base, cardBaseAmountCents: cash, customerCardSurchargeBasis: "order_before_credit",
     customerCardSurcharge: fee / 100, total: (cash + fee) / 100 };
 }

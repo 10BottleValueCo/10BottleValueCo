@@ -282,25 +282,25 @@ test("failed receipt leaves payment paid; repeated status checks do not retry em
 
 test("mixed credit receipt separates total order value, credit and actual card payment", () => {
   const attempt = attemptFixture();
-  attempt.amount_cents = 1030;
+  attempt.amount_cents = 1180;
   attempt.credit_reserved_cents = 5000;
   Object.assign(attempt.snapshot, { subtotal: 40, shipping: 20, automaticDiscount: 0, promoDiscount: 0,
-    affiliateDiscount: 0, storeCreditUsed: 50, total: 10.30, customerCardSurcharge: .30 });
+    affiliateDiscount: 0, storeCreditUsed: 50, total: 11.80, customerCardSurcharge: 1.80, customerCardSurchargeBasis: "order_before_credit" });
   const receipt = buildMeritReceipt(attempt);
   const html = renderPaymentConfirmationEmail(receipt, { escapeValues: true });
-  for (const content of ['Order total including card surcharge', '$60.30', 'Store credit', '-$50.00',
-    'Paid by card', '$10.30', 'Card surcharge (3%)', '+$0.30']) assert.ok(html.includes(content), content);
+  for (const content of ['Order total including card surcharge', '$61.80', 'Store credit', '-$50.00',
+    'Paid by card', '$11.80', 'Card surcharge (3%)', '+$1.80']) assert.ok(html.includes(content), content);
   assert.doesNotMatch(html, /Total paid|PRIVATE_RECEIPT_SENTINEL/);
-  attempt.snapshot.customerCardSurcharge = 1.8;
+  attempt.snapshot.customerCardSurcharge = .3;
   assert.throws(() => buildMeritReceipt(attempt));
 });
 
 
 test("mixed credit receipt requires a matching private credit reservation", () => {
   const attempt = attemptFixture();
-  attempt.amount_cents = 1030;
+  attempt.amount_cents = 1180;
   Object.assign(attempt.snapshot, { subtotal: 40, shipping: 20, automaticDiscount: 0, promoDiscount: 0,
-    affiliateDiscount: 0, storeCreditUsed: 50, total: 10.30, customerCardSurcharge: .30 });
+    affiliateDiscount: 0, storeCreditUsed: 50, total: 11.80, customerCardSurcharge: 1.80, customerCardSurchargeBasis: "order_before_credit" });
   for (const held of [undefined, null, 0, 4999, 5001]) {
     attempt.credit_reserved_cents = held;
     assert.throws(() => buildMeritReceipt(attempt));

@@ -305,11 +305,12 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'error', 'MERIT_FULL_CREDIT_AVAILABLE');
   END IF;
   v_cash := v_base - v_credit_cents;
-  v_fee := round(v_cash::numeric * v_bps / 10000)::bigint;
+  v_fee := round(v_base::numeric * v_bps / 10000)::bigint;
   p_amount_cents := v_cash + v_fee;
   p_snapshot := p_snapshot || jsonb_build_object(
     'storeCreditUsed', v_credit_cents::numeric / 100, 'storeCreditUsedCents', v_credit_cents,
     'orderBaseAmountCents', v_base, 'cardBaseAmountCents', v_cash,
+    'customerCardSurchargeBasis', 'order_before_credit',
     'customerCardSurcharge', v_fee::numeric / 100, 'total', p_amount_cents::numeric / 100
   );
 

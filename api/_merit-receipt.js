@@ -38,7 +38,7 @@ export function buildMeritReceipt(attempt) {
   if (snapshot.customerCardSurchargeBps !== undefined && snapshot.customerCardSurchargeBps !== null) {
     const rate = snapshot.customerCardSurchargeBps;
     if (!Number.isSafeInteger(rate) || rate < 0 || rate > 10000
-      || Number((BigInt(base) * BigInt(rate) + 5000n) / 10000n) !== cents(receipt.customerCardSurcharge)) throw unavailable();
+      || Number((BigInt(snapshot.customerCardSurchargeBasis === "order_before_credit" ? base + creditCents : base) * BigInt(rate) + 5000n) / 10000n) !== cents(receipt.customerCardSurcharge)) throw unavailable();
     receipt.customerCardSurchargeBps = rate;
   }
   for (const key of strings) receipt[key] = String(snapshot[key] || "");

@@ -365,9 +365,9 @@ test('partial credit provider charge and public session use the SQL-acknowledged
   assert.equal(created.body.session.cardBaseAmountCents, 100);
   assert.equal(created.body.session.storeCreditUsedCents, 9900);
   assert.equal(created.body.session.appliedCreditCents, 9900);
-  assert.equal(created.body.session.surchargeCents, 3);
-  assert.equal(created.body.session.amountCents, 103);
-  assert.equal(fixture.calls.find(c => c[0] === 'create')[1].amountCents, 103);
+  assert.equal(created.body.session.surchargeCents, 300);
+  assert.equal(created.body.session.amountCents, 400);
+  assert.equal(fixture.calls.find(c => c[0] === 'create')[1].amountCents, 400);
   assert.equal(fixture.calls.some(c => c[0] === 'reserve'), false);
   const replay = await run(fixture.handler, { action: 'create', checkoutKey });
   assert.deepEqual(replay.body, created.body);
