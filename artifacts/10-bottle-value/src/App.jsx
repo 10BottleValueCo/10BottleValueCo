@@ -1,6 +1,7 @@
 // @ts-nocheck
 // cache-bust
 // @ts-nocheck
+import { publicPaymentMethod } from "../../../shared/payment-method-label.js";
 import { Fragment, lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, Search, Tag, UserRound, X } from "lucide-react";
 import { ErrorBoundary } from "./components/error-boundary.tsx";
@@ -1192,7 +1193,7 @@ function TrackOrderPage({ t, supabase, currentUser }) {
             {result.paymentProvider && result.paymentProvider !== "pending" && (
               <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
                 <span className="text-[13px] font-bold uppercase tracking-[0.14em] text-white/60">{t("trackOrderMethod")}</span>
-                <span className="text-[14px] text-white">{["Paylio", "Paylio Card", "Card (Paylio)"].includes(result.paymentProvider) ? "Card" : result.paymentProvider}</span>
+                <span className="text-[14px] text-white">{publicPaymentMethod(result.paymentProvider)}</span>
               </div>
             )}
 
@@ -5973,7 +5974,7 @@ export default function App() {
       y += 5;
       doc.setFontSize(8);
       doc.setTextColor(100, 100, 100);
-      doc.text(`Payment method: ${order.paymentProvider}${order.paymentId ? "  ·  Ref: " + order.paymentId.slice(0, 28) : ""}`, margin, y);
+      doc.text(`Payment method: ${publicPaymentMethod(order.paymentProvider)}${order.paymentId ? "  ·  Ref: " + order.paymentId.slice(0, 28) : ""}`, margin, y);
     }
     y += 4;
 
@@ -10681,12 +10682,12 @@ export default function App() {
   function assertPaypalCheckoutReady() {
     if (meritSelectionRef.current.method !== "paypal" || meritSelectionRef.current.step !== "payment"
       || finalTotal <= 0 || storeCreditApplied > 0 || meritAttemptRef.current?.createRequested || meritAttemptRef.current?.submitted) {
-      throw new Error(tx("Select PayPal for an order paid fully with PayPal. Use Merit for partial store credit, or Pay with Credits for full coverage.", "Выберите PayPal для полной оплаты через PayPal. Для частичной оплаты кредитом магазина выберите Merit, а при полном покрытии — оплату кредитами."));
+      throw new Error(tx("Select PayPal to pay the full amount. Choose card payment to combine it with store credit, or Pay with Credits when credit covers the order.", "Выберите PayPal для полной оплаты через PayPal. Для частичной оплаты кредитом магазина выберите карту, а при полном покрытии — оплату кредитами."));
     }
   }
 
   function showMeritReservedAttempt() {
-    const message = tx("Your store credit may be reserved for this payment. Continue this same card checkout, or contact support before starting another payment.", "Кредит магазина может быть зарезервирован для этой оплаты. Продолжите то же оформление с оплатой картой или обратитесь в поддержку перед новой оплатой.");
+    const message = tx("This payment may already be in progress. Continue this same checkout, or contact support before starting another payment.", "Эта оплата уже могла начаться. Продолжите то же оформление или обратитесь в поддержку перед новой оплатой.");
     setStripeError(message);
     setCheckoutMessage(message);
     if (meritAttemptRef.current?.submitted && meritAttemptRef.current?.orderId) openMeritPending();
@@ -20128,7 +20129,7 @@ export default function App() {
               </section>
             ) : paymentReturn.provider === "merit" ? (
               <section className="rounded-[2.4rem] border border-white/15 bg-black/25 px-8 py-12 text-center text-white">
-                <div className="text-xs font-bold uppercase tracking-widest text-white/60">Merit</div>
+                <div className="text-xs font-bold uppercase tracking-widest text-white/60">{tx("Card payment", "Оплата картой")}</div>
                 <h1 className="mt-4 text-3xl font-black">{tx("Checking payment", "Проверяем оплату")}</h1>
                 <p className="mx-auto mt-5 max-w-lg text-sm leading-7 text-white/65">
                   {tx("Your payment is not confirmed yet. Check its status before trying another payment.", "Оплата пока не подтверждена. Проверьте статус, прежде чем оплачивать повторно.")}
@@ -21261,7 +21262,7 @@ export default function App() {
                               : paymentMethod === "wire"
                               ? "Wire Transfer (SWIFT)"
                               : paymentMethod === "stripe"
-                              ? tx("Merit · Card", "Merit · Карта")
+                              ? tx("Card", "Карта")
                               : paymentMethod === "cashapp"
                               ? "Cash App"
                               : <span className="block md:inline">PayPal (US) · Apple Pay · Google Pay · Cards</span>}
@@ -21275,8 +21276,8 @@ export default function App() {
                         <div className="text-[13px] font-semibold uppercase tracking-[0.2em] text-black/50">
                           {t("choosePaymentMethod")}
                         </div>
-                        {currentUser && storeCredit > 0 && <p className="mt-3 text-sm leading-6 text-black/65">
-                          {tx("Partial store credit is available with Merit card payment. Other payment methods use the full amount; orders fully covered by store credit can use Pay with Credits.", "Частичная оплата кредитом магазина доступна при оплате картой через Merit. При других способах к оплате идёт полная сумма; если кредит покрывает весь заказ, выберите «Оплатить кредитами».")}
+                        {currentUser && storeCredit > 0 && paymentMethod !== "stripe" && storeCreditApplied === 0 && <p className="mt-3 text-sm leading-6 text-black/65">
+                          {tx("Choose card payment to use your store credit toward this order.", "Выберите оплату картой, чтобы использовать кредит магазина для этого заказа.")}
                         </p>}
                         {/* ── Payment method list (same style on all screen sizes) ── */}
                         <div className="mt-3 grid grid-cols-1 gap-2 pt-2 md:w-full md:grid-cols-2 md:grid-flow-col md:grid-rows-3 md:gap-4">
@@ -21326,7 +21327,6 @@ export default function App() {
                                   </div>
                                 ) : (
                                   <>
-                                    <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "stripe" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>Merit</span>
                                     <span className={`text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "stripe" ? "text-white/70" : "text-black/70"}`}>{tx("Card surcharge", "Доплата за карту")} {meritSurchargePercent}%</span>
                                   </>
                                 )}
@@ -21347,7 +21347,6 @@ export default function App() {
                             <div className="flex-1 min-w-0">
                               <div className="text-[14px] font-semibold">{tx("Crypto", "Крипто", "Крипто", "Krypto", "Cripto")}</div>
                               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                                <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "crypto" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>Merit</span>
                                 <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "crypto" ? "bg-emerald-400/25 text-emerald-300" : "bg-emerald-500 text-white"}`}>2.5% OFF</span>
                               </div>
                             </div>
@@ -21425,9 +21424,6 @@ export default function App() {
                             <div className="flex-1 min-w-0">
                               <div className="text-[14px] font-semibold">Wire Transfer</div>
                               <div className={`mt-1 text-[12px] font-medium ${paymentMethod === "wire" ? "text-white/55" : "text-black/45"}`}>SWIFT / IBAN · Worldwide</div>
-                              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                                <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "wire" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>Merit</span>
-                              </div>
                             </div>
                             {paymentMethod === "wire" && <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500"><svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>}
                           </button>
@@ -21454,11 +21450,9 @@ export default function App() {
                           >
                             {stripeTemporarilyDisabled ? (
                               <span className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-gray-400 px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-white shadow-sm">{tx("Unavailable", "Недоступно")}</span>
-                            ) : (
-                              <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">Merit</span>
-                            )}
+                            ) : null}
                             <div className={`leading-snug flex flex-col items-center gap-0.5 ${stripeTemporarilyDisabled ? "text-black/30" : ""}`}>
-                              <div className="text-sm font-semibold md:text-base">Merit</div>
+                              <div className="text-sm font-semibold md:text-base">{tx("Card payment", "Оплата картой")}</div>
                               <div className="text-xs font-semibold md:text-sm">Apple Pay</div>
                               <div className="text-xs font-semibold md:text-sm">Google Pay</div>
                               <div className="text-xs font-semibold md:text-sm">Cards</div>
@@ -21494,7 +21488,6 @@ export default function App() {
                             }`}
                           >
                             <span className="absolute -top-1 left-2 rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-white shadow-sm">BEST</span>
-                            <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">Merit</span>
                             <div className="text-[10px] uppercase tracking-[0.18em] opacity-70 md:text-[11px] md:tracking-[0.2em]">
                               {t("method")}
                             </div>
@@ -21519,7 +21512,6 @@ export default function App() {
                                 }`}
                               >
                                  <span className="absolute -top-1 left-2 rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-white shadow-sm">BEST</span>
-                                <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">Merit</span>
                                 <div className="text-[10px] uppercase tracking-[0.18em] opacity-70 md:text-[11px] md:tracking-[0.2em]">
                                   {t("method")}
                                 </div>
@@ -21571,7 +21563,6 @@ export default function App() {
                                 : "border-black/10 bg-white text-black hover:bg-black/5"
                             }`}
                           >
-                            <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">Merit</span>
                             <div className="text-[10px] uppercase tracking-[0.18em] opacity-70 md:text-[11px] md:tracking-[0.2em]">
                               {t("method")}
                             </div>
@@ -21793,10 +21784,10 @@ export default function App() {
                               {tx("Card surcharge", "Доплата за карту")} {meritSurchargePercent}%: +{formatPricePrecise(stripeFeeAmount)}.
                               {" "}{tx("The final total is confirmed before you pay.", "Итоговая сумма подтверждается до оплаты.")}
                             </p>
-                            {(meritPayload.useStoreCredit || meritActiveSession?.storeCreditUsedCents > 0) && <p className="mt-2 text-sm leading-6 text-black/65">
+                            {(storeCreditApplied > 0 || meritActiveSession?.storeCreditUsedCents > 0) && <p className="mt-2 text-sm leading-6 text-black/65">
                               {meritActiveSession
-                                ? tx("Store credit has been checked. Applied credit is reserved for this payment; the card surcharge is calculated on the full order total before store credit.", "Кредит магазина проверен. Используемая сумма зарезервирована для этой оплаты; доплата за карту рассчитывается на всю сумму заказа до применения кредита магазина.")
-                                : tx("Available store credit will be checked before payment. The amounts shown are estimates; the card surcharge is calculated on the full order total before store credit.", "Доступный кредит магазина будет проверен до оплаты. Показанные суммы предварительные; доплата за карту рассчитывается на всю сумму заказа до применения кредита магазина.")}
+                                ? tx("Your store credit is applied. The card surcharge is calculated on the order total before credit.", "Кредит магазина применён. Доплата за карту рассчитывается на сумму заказа до вычета кредита.")
+                                : tx("Your store credit will be checked before payment. The card surcharge is calculated on the order total before credit.", "Кредит магазина будет проверен до оплаты. Доплата за карту рассчитывается на сумму заказа до вычета кредита.")}
                             </p>}
                             {stripeError && <p className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">{stripeError}</p>}
                             {meritActiveSession ? (

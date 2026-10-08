@@ -1,3 +1,4 @@
+import { publicPaymentMethod } from "../shared/payment-method-label.js";
 import { publicProductName } from "./_public-product-name.js";
 
 const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, character => ({
@@ -170,7 +171,7 @@ export function renderPaymentConfirmationEmail(order, { escapeValues = false } =
                 <p style="margin:0 0 10px;font-size:15px;color:#222;"><strong>Order ID:</strong> ${text(orderId)}</p>
                 <p style="margin:0 0 10px;font-size:15px;color:#222;"><strong>Total:</strong> $${money(orderTotal)}</p>
                 <p style="margin:0 0 10px;font-size:15px;color:#222;"><strong>Shipping method:</strong> ${shippingLabel}</p>
-                <p style="margin:0 0 10px;font-size:15px;color:#222;"><strong>Payment method:</strong> ${text(paymentProvider || "Payment")}</p>
+                <p style="margin:0 0 10px;font-size:15px;color:#222;"><strong>Payment method:</strong> ${text(publicPaymentMethod(paymentProvider) || "Payment")}</p>
                 <p style="margin:0;font-size:15px;color:#222;"><strong>Payment ID:</strong> ${text(paymentId || "—")}</p>
               </td></tr>
             </table>

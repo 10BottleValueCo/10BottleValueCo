@@ -106,3 +106,14 @@ test("mixed credit panel shows server amounts and keeps the card button disabled
   assert.match(invalid, /role="alert"/);
   assert.equal(calls.payment.length, 0);
 });
+
+test("ordinary card customers do not see a zero-credit breakdown", () => {
+  const cashOnly = { ...session, baseAmountCents: 10000, storeCreditUsedCents: 0,
+    cardBaseAmountCents: 10000, surchargeCents: 300, amountCents: 10300 };
+  for (const language of ["en", "ru"]) {
+    const { Panel } = componentFixture();
+    const html = renderToStaticMarkup(React.createElement(Panel, { session: cashOnly, language, onReconcile: async () => ({}) }));
+    assert.doesNotMatch(html, /Store credit|кредит магазина|Merit|Stripe/i);
+    assert.match(html, language === "en" ? /\$103\.00/ : /103,00/);
+  }
+});

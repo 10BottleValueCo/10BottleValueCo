@@ -61,7 +61,7 @@ function MeritPaymentForm({ session, onReconcile, onPaid, onState, language }) {
         </div>
       </div>
 
-      {Number.isSafeInteger(session.storeCreditUsedCents) && <dl className="mb-5 space-y-2 rounded-xl bg-black/[0.03] p-4 text-sm">
+      {Number.isSafeInteger(session.storeCreditUsedCents) && session.storeCreditUsedCents > 0 && <dl className="mb-5 space-y-2 rounded-xl bg-black/[0.03] p-4 text-sm">
         {[[messages.orderBase, session.baseAmountCents], [messages.credit, -session.storeCreditUsedCents],
           [messages.cardBase, session.cardBaseAmountCents], [messages.surcharge, session.surchargeCents]].map(([label, value]) =>
           <div className="flex items-center justify-between gap-4" key={label}><dt className="text-black/65">{label}</dt><dd className="shrink-0 tabular-nums">{new Intl.NumberFormat(language === "ru" ? "ru-RU" : "en-US", { style: "currency", currency: "USD" }).format(value / 100)}</dd></div>)}

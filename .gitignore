@@ -51,6 +51,7 @@ Thumbs.db
 
 # Deployment-local state and credentials
 .vercel/
+output/releases/
 .env
 .env.*
 **/.env

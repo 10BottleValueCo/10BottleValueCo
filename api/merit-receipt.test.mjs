@@ -66,7 +66,8 @@ test("shared receipt preserves branded content, display names and the exact stor
     "20 vials × GLP-1-S 10mg", "Card surcharge (3%)", "+$3.30", "$113.30"]) {
     assert.ok(html.includes(content), content);
   }
-  for (const excluded of [PRIVATE, "Card processing fee (5%)", "$999.00", "Semaglutide"]) {
+  assert.match(html, /<strong>Payment method:<\/strong> Card<\/p>/);
+  for (const excluded of [PRIVATE, "Card processing fee (5%)", "$999.00", "Semaglutide", "Merit"]) {
     assert.equal(html.includes(excluded), false, excluded);
   }
 });

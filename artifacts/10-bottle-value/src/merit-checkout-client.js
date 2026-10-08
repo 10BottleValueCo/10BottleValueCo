@@ -181,7 +181,7 @@ export const meritCheckoutMessages = {
     promoUnverified: "This promo code cannot be verified for card payment. Remove it or contact support.",
     affiliateUnverified: "This affiliate code cannot be verified for card payment. Choose another payment method or contact support.",
     unavailable: "Secure payment is unavailable. Reload checkout and try again.",
-    secure: "Card details are handled securely by Stripe.",
+    secure: "Secure card payment.",
   },
   ru: {
     heading: "Безопасная оплата", order: "Заказ", amount: "Оплата картой",
@@ -195,7 +195,7 @@ export const meritCheckoutMessages = {
     promoUnverified: "Этот промокод не удаётся проверить для оплаты картой. Удалите его или обратитесь в поддержку.",
     affiliateUnverified: "Этот партнёрский код не удаётся проверить для оплаты картой. Выберите другой способ оплаты или обратитесь в поддержку.",
     unavailable: "Защищённая форма оплаты недоступна. Обновите страницу оформления заказа и повторите попытку.",
-    secure: "Платёжные данные безопасно обрабатываются Stripe.",
+    secure: "Безопасная оплата картой.",
   },
 };
 
