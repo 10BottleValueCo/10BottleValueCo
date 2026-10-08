@@ -3,6 +3,7 @@
 // @ts-nocheck
 import { Fragment, lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, Search, Tag, UserRound, X } from "lucide-react";
+import { ErrorBoundary } from "./components/error-boundary.tsx";
 import worldwideCatalogBackground from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791141018882.webp";
 import { supabase, userFromSupabase } from "./supabase.js";
 import { ACCOUNT_AVATARS, getAccountAvatar } from "./account-avatars.js";
@@ -35,10 +36,73 @@ const importPublicInfoPages = () => import("./components/PublicInfoPages.jsx");
 const importShippingRefundPolicyPages = () => import("./components/ShippingRefundPolicyPages.jsx");
 const importPrivacyPolicyPage = () => import("./components/PrivacyPolicyPage.jsx");
 const importTermsConditionsPage = () => import("./components/TermsConditionsPage.jsx");
+const shippingPricesChunkReloadKey = "tbv:shipping-prices-chunk-reloaded";
+
+function importLazyPageWithRecovery(importPage, reloadKey) {
+  return Promise.resolve()
+    .then(importPage)
+    .then((module) => {
+      try {
+        window.sessionStorage.removeItem(reloadKey);
+      } catch {
+        // The page can still load when browser storage is unavailable.
+      }
+      return module;
+    })
+    .catch((error) => {
+      const message = String(error?.message || error || "");
+      const isChunkLoadFailure =
+        /dynamically imported module|module script failed|failed to load module|loading chunk|chunkloaderror|unable to preload css|failed to preload/i.test(message);
+      if (!isChunkLoadFailure || typeof window === "undefined") throw error;
+
+      let shouldReload = false;
+      try {
+        if (window.sessionStorage.getItem(reloadKey) === "1") {
+          window.sessionStorage.removeItem(reloadKey);
+        } else {
+          window.sessionStorage.setItem(reloadKey, "1");
+          shouldReload = true;
+        }
+      } catch {
+        // Fall through to the visible error state when storage is unavailable.
+      }
+
+      if (!shouldReload) throw error;
+      window.location.reload();
+      return new Promise(() => {});
+    });
+}
+
+function ShippingPricesLoadFallback() {
+  return (
+    <main role="alert" className="mx-auto flex min-h-[38vh] max-w-[1400px] items-center px-4 py-8">
+      <div className="w-full rounded-2xl border border-white/15 bg-black/60 p-6 text-center">
+        <h1 className="text-xl font-black uppercase tracking-wide text-white">
+          Shipping prices could not load
+        </h1>
+        <p className="mt-3 text-sm text-white/70">
+          Reload the page to load the latest version.
+        </p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="mt-5 rounded-full bg-white px-5 py-2.5 text-xs font-bold uppercase tracking-wide text-black transition hover:bg-white/90"
+        >
+          Reload page
+        </button>
+      </div>
+    </main>
+  );
+}
 
 const AccountDashboard = lazy(importAccountDashboard);
 const AccountMessages = lazy(importAccountMessages);
-const ShippingPricesPage = lazy(importShippingPricesPage);
+const ShippingPricesPage = lazy(() =>
+  importLazyPageWithRecovery(
+    importShippingPricesPage,
+    shippingPricesChunkReloadKey,
+  ),
+);
 const AffiliateProgramPage = lazy(importAffiliateProgramPage);
 const PublicInfoPages = lazy(importPublicInfoPages);
 const ShippingRefundPolicyPages = lazy(importShippingRefundPolicyPages);
@@ -14790,7 +14854,8 @@ export default function App() {
         )}
 
         {page === "bonuses" && (
-          <Suspense
+          <ErrorBoundary FallbackComponent={ShippingPricesLoadFallback}>
+            <Suspense
             fallback={
               <div className="mx-auto min-h-[38vh] max-w-[1400px] px-4 pt-8" aria-busy="true">
                 <div className="h-9 w-48 animate-pulse rounded bg-white/10" />
@@ -14803,8 +14868,9 @@ export default function App() {
               getPublicImageUrl={getPreloadedDisplayImageUrl}
               onVialImageLoad={cacheDisplayedPublicImage}
             />
-          </Suspense>
-          )}
+            </Suspense>
+          </ErrorBoundary>
+        )}
 
         {page === "affiliate" && (
           <Suspense
