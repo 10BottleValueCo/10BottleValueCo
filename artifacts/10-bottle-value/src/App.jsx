@@ -13568,7 +13568,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         </div>
       )}
       <div
-        className={`tbv-app-shell min-h-screen bg-[#8f8f8f] text-white ${page === "home" ? "tbv-app-shell--home" : ""} ${usesCatalogBackground ? "tbv-app-shell--catalog-background" : ""} ${pageBackdropImage ? "tbv-app-shell--photo-backdrop" : ""}`}
+        className={`tbv-app-shell min-h-screen ${page === "admin" ? "bg-[#737373]" : "bg-[#8f8f8f]"} text-white ${page === "home" ? "tbv-app-shell--home" : ""} ${usesCatalogBackground ? "tbv-app-shell--catalog-background" : ""} ${pageBackdropImage ? "tbv-app-shell--photo-backdrop" : ""}`}
         data-affiliate-backdrop={page === "affiliate" ? "true" : undefined}
         style={
           page === "affiliate"
@@ -13601,7 +13601,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           data-home-header={page === "home" ? "true" : undefined}
           data-affiliate-header={page === "affiliate" ? "true" : undefined}
           className={`sticky top-0 md:top-[32px] z-[200] border-b border-white/20 pb-0 md:pb-[3px] ${
-            pageBackdropImage || usesCatalogBackground ? "bg-black/20 backdrop-blur-md" : "bg-[#8f8f8f]"
+            page === "admin"
+              ? "bg-black"
+              : pageBackdropImage || usesCatalogBackground
+              ? "bg-black/20 backdrop-blur-md"
+              : "bg-[#8f8f8f]"
           }`}
         >
           <div className="mx-auto flex min-h-[44px] w-full items-center justify-between px-4 py-1 pt-[19px] md:min-h-0 md:px-10 md:py-0 md:pt-[19px]">
@@ -16220,7 +16224,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 ))}
               </div>
               {adminActiveTab === "orders" && (
-              <section className="rounded-[2rem] border border-white/20 bg-black/10 p-5 md:p-6">
+              <section className="rounded-[2rem] border border-white/20 bg-[#676767] p-5 md:p-6">
                 {/* Stats + action buttons row */}
                 <div className="flex items-center gap-3 flex-wrap">
                   {(() => {
@@ -16376,7 +16380,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           }[String(order.status || "pending").toLowerCase()] || "border-amber-300/40 bg-amber-300/10 text-amber-200";
 
                           return (
-                            <div key={order.id} className="rounded-[1.4rem] border border-white/15 bg-black/20 px-5 pt-5 pb-3">
+                            <div key={order.id} className="rounded-[1.4rem] border border-white/15 bg-[#525252] px-5 pt-5 pb-3">
                               {/* Header row */}
                               <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div className="flex flex-wrap items-center gap-3">
