@@ -3572,12 +3572,13 @@ export default function App() {
       .catch(() => {});
   }, []);
   useEffect(() => {
+    const mobileViewport = window.matchMedia("(max-width: 767px)");
+    let lastScrolledState = null;
     const onScroll = () => {
-      if (window.matchMedia("(max-width: 767px)").matches) {
-        setIsScrolled(window.scrollY > 0);
-      } else {
-        setIsScrolled(false);
-      }
+      const nextScrolledState = mobileViewport.matches && window.scrollY > 0;
+      if (nextScrolledState === lastScrolledState) return;
+      lastScrolledState = nextScrolledState;
+      setIsScrolled(nextScrolledState);
     };
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -3808,7 +3809,14 @@ export default function App() {
   const effectiveShippingType = cart.length > 0 && cart.every(i => i.fromWarehouse === "us") ? "us-warehouse" : shippingType;
   const [showScrollTop, setShowScrollTop] = useState(false);
   useEffect(() => {
-    const onScroll = () => setShowScrollTop(window.scrollY > 400);
+    let lastVisibleState = null;
+    const onScroll = () => {
+      const nextVisibleState = window.scrollY > 400;
+      if (nextVisibleState === lastVisibleState) return;
+      lastVisibleState = nextVisibleState;
+      setShowScrollTop(nextVisibleState);
+    };
+    onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
@@ -9778,6 +9786,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   }
 
   useEffect(() => {
+    if (!isCountryDropdownOpen) return;
+
     function handleClickOutside(event) {
       if (
         countryDropdownRef.current &&
@@ -9801,7 +9811,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       window.removeEventListener("scroll", handleScrollOrResize, true);
       window.removeEventListener("resize", handleScrollOrResize);
     };
-  }, []);
+  }, [isCountryDropdownOpen]);
 
   const filteredProducts = useMemo(() => {
     return products.filter((product) =>
@@ -13197,6 +13207,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     backgroundAttachment: "fixed",
     backgroundRepeat: "no-repeat",
   };
+  const catalogShellBackgroundStyle = {
+    "--tbv-catalog-background-image": catalogBackgroundStyle.backgroundImage,
+  };
   const usesCatalogBackground = page === "shop" || page === "product" || page === "us-warehouse" || page === "cart";
   const navigateAccountSection = (section) => {
     setActiveAccountSection(section);
@@ -13555,7 +13568,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         </div>
       )}
       <div
-        className={`tbv-app-shell min-h-screen bg-[#8f8f8f] text-white ${page === "home" ? "tbv-app-shell--home" : ""} ${pageBackdropImage ? "tbv-app-shell--photo-backdrop" : ""}`}
+        className={`tbv-app-shell min-h-screen bg-[#8f8f8f] text-white ${page === "home" ? "tbv-app-shell--home" : ""} ${usesCatalogBackground ? "tbv-app-shell--catalog-background" : ""} ${pageBackdropImage ? "tbv-app-shell--photo-backdrop" : ""}`}
         data-affiliate-backdrop={page === "affiliate" ? "true" : undefined}
         style={
           page === "affiliate"
@@ -13579,7 +13592,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 "--tbv-home-lower-background": `url("${import.meta.env.BASE_URL}images/homepage-lower-background.webp")`,
               }
             : usesCatalogBackground
-            ? catalogBackgroundStyle
+            ? catalogShellBackgroundStyle
             : undefined
         }
       >
@@ -16452,7 +16465,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
                               {/* Shipping address */}
                               {(order.firstName || order.lastName || order.address || order.city || order.state || order.postalCode || order.country || order.phone || order.taxId) && (
-                                <div className="mt-2 rounded-lg border border-white/40 bg-black/15 px-3 py-2 text-xs grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                                <div className="mt-2 rounded-lg border-2 border-white/70 bg-black/15 px-3 py-2 text-xs grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
                                   {(order.firstName || order.lastName) && (<><span className="text-white/50 uppercase tracking-[0.12em]">Name</span><span className="text-white/85 font-semibold">{[order.firstName, order.lastName].filter(Boolean).join(" ")}</span></>)}
                                   {order.address && (<><span className="text-white/50 uppercase tracking-[0.12em]">Address</span><span className="text-white/70">{order.address}</span></>)}
                                   <><span className="text-white/50 uppercase tracking-[0.12em]">Apt/Suite</span><span className={order.address2 ? "text-white/70" : "text-white/30"}>{order.address2 || "—"}</span></>
@@ -16648,7 +16661,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                   />
                                 );
                                 return (
-                              <div className="mt-3 rounded-lg border border-white/40 bg-black/15 px-3 py-2 text-xs grid grid-cols-[auto_auto] gap-x-4 gap-y-1.5 items-center w-fit">
+                              <div className="mt-3 rounded-lg border-2 border-white/70 bg-black/15 px-3 py-2 text-xs grid grid-cols-[auto_auto] gap-x-4 gap-y-1.5 items-center w-fit">
                                 <span className="text-white/50 uppercase tracking-[0.12em]">Subtotal</span>
                                 {priceInput("subtotal", displaySubtotal)}
                                 <span className="text-white/50 uppercase tracking-[0.12em]">Shipping</span>
