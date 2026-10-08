@@ -48,3 +48,12 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Deployment-local state and credentials
+.vercel/
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example

@@ -5,6 +5,7 @@ import { Fragment, lazy, startTransition, Suspense, useCallback, useEffect, useL
 import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, Search, Tag, UserRound, X } from "lucide-react";
 import worldwideCatalogBackground from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791141018882.webp";
 import { supabase, userFromSupabase } from "./supabase.js";
+import { buildMeritCheckoutPayload, meritCheckoutBusinessError, meritCartMatchesOrder, meritOrderCardSurcharge, createMeritApiClient, meritPayloadDigest, readMeritAttempt, saveMeritAttempt, verifyMeritCheckoutBuyer, MERIT_ATTEMPT_STORAGE_KEY } from "./merit-checkout-client.js";
 import { ACCOUNT_AVATARS, getAccountAvatar } from "./account-avatars.js";
 import { track, trackPageView } from "./analytics.js";
 import { useSEO } from "./useSEO.js";
@@ -44,7 +45,7 @@ const PublicInfoPages = lazy(importPublicInfoPages);
 const ShippingRefundPolicyPages = lazy(importShippingRefundPolicyPages);
 const PrivacyPolicyPage = lazy(importPrivacyPolicyPage);
 const TermsConditionsPage = lazy(importTermsConditionsPage);
-const StripeCheckoutPanel = lazy(() => import("./components/StripeCheckoutPanel.jsx"));
+const MeritCheckoutPanel = lazy(() => import("./components/MeritCheckoutPanel.jsx"));
 const AdminChart = lazy(() => import("./components/AdminChart.jsx"));
 const publicPolicyPageFallback = (
   <main className="mx-auto max-w-5xl px-4 pt-8 pb-16 md:px-10 md:pt-12">
@@ -3688,7 +3689,7 @@ export default function App() {
     if (typeof window === "undefined") return "home";
     const params = new URLSearchParams(window.location.search || "");
     const payment = (params.get("payment") || "").toLowerCase().trim();
-    if (["success", "cancelled", "cancel", "failed"].includes(payment)) return "payment-return";
+    if (["success", "pending", "cancelled", "cancel", "failed"].includes(payment)) return "payment-return";
     const pathSlug = window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase().trim();
     if (publicPathToPage[pathSlug]) return publicPathToPage[pathSlug];
     // Support both old ?product=slug and new /slug format
@@ -4167,6 +4168,7 @@ export default function App() {
   const [isCountryDropdownOpen, setIsCountryDropdownOpen] = useState(false);
   const [countryDropdownRect, setCountryDropdownRect] = useState(null);
   const [checkoutStep, setCheckoutStep] = useState("details");
+  const deferredLegacyOrderRef = useRef(null);
   const [isBonusExpanded, setIsBonusExpanded] = useState(false);
   const [shippingHighlight, setShippingHighlight] = useState(false);
   const [checkboxHighlight, setCheckboxHighlight] = useState(false);
@@ -4241,12 +4243,12 @@ export default function App() {
   const [paymentReturn, setPaymentReturn] = useState(() => {
     const _params = new URLSearchParams(window.location.search || "");
     const _payment = (_params.get("payment") || "").toLowerCase().trim();
-    if (["success", "cancelled", "cancel", "failed"].includes(_payment)) {
+    if (["success", "pending", "cancelled", "cancel", "failed"].includes(_payment)) {
       const _provider = (_params.get("provider") || "").toLowerCase().trim();
       // CatalystPay always redirects to ?payment=success even on cancel.
       // Start as "cancelled" immediately to prevent flashing ORDER CONFIRMED;
       // the useEffect will upgrade to "success" if Supabase confirms paid.
-      const _status = (_payment === "cancel" ? "cancelled" : _payment === "success" && _provider === "catalystpay" ? "cancelled" : _payment);
+      const _status = (_provider === "merit" ? "pending" : _payment === "cancel" ? "cancelled" : _payment === "success" && _provider === "catalystpay" ? "cancelled" : _payment);
       // Capture pi_id from URL — set by onSuccess handler or by Stripe's own
       // redirect (which appends ?payment_intent=pi_xxx for 3DS flows).
       const _piId = (_params.get("pi") || _params.get("payment_intent") || "").trim();
@@ -4366,7 +4368,7 @@ export default function App() {
     };
   }, [page, paymentReturn.status]);
   useEffect(() => {
-    if (paymentReturn.status === "success" && paymentReturn.order) {
+    if (paymentReturn.provider !== "merit" && paymentReturn.status === "success" && paymentReturn.order) {
       const stored = getStoredOrders().find(o => o.id === paymentReturn.order);
       if (stored) setPaymentReturnOrder(stored);
     }
@@ -6653,7 +6655,7 @@ export default function App() {
 
   async function sendPaymentConfirmedEmail(order) {
     if (!order?.email || order?.confirmationEmailSentAt) return;
-    // Stripe, NOWPayments (crypto) and Paylio all have server-side webhooks
+    // Merit, Stripe, NOWPayments (crypto) and Paylio have server-side confirmation
     // (api/stripe-webhook.js, api/_nowpayments-shared.js, api/paylio-callback.js)
     // that already send the confirmation email themselves, using the
     // authoritative Supabase order record (correct discounts/store credit/total).
@@ -6664,6 +6666,7 @@ export default function App() {
     // still need this client-side send.
     const provider = String(order.paymentProvider || "").toLowerCase();
     const hasServerWebhookEmail =
+      provider === "merit" ||
       provider === "stripe" ||
       provider === "paylio" ||
       provider.includes("nowpayments") ||
@@ -6730,6 +6733,8 @@ export default function App() {
   }
 
   async function persistOrderToServer(order) {
+    const deferred = deferredLegacyOrderRef.current?.id === order.id ? deferredLegacyOrderRef.current : null;
+    if (deferred) order = { ...order, metadata: { ...deferred, ...order.metadata } };
     const response = await fetch("/api/order-checkout", {
       method: "POST",
       credentials: "same-origin",
@@ -6741,11 +6746,22 @@ export default function App() {
     if (!response.ok || result?.ok !== true) {
       throw new Error(result?.error || "Could not save this checkout.");
     }
+    if (deferred) {
+      const localOrder = { ...order.metadata, id: order.id, email: order.email, status: order.status, total: order.total };
+      const next = [localOrder, ...getStoredOrders().filter(saved => saved.id !== order.id)];
+      saveStoredOrders(next);
+      setAllOrders(next);
+      if (currentUser?.email) setUserOrders(getPaidOrdersForEmail(currentUser.email, next));
+    }
     return result;
   }
 
   async function markOrderCheckoutStartedById(orderId, paymentProvider = "Paylio") {
     if (!orderId) return;
+    const deferred = deferredLegacyOrderRef.current;
+    if (deferred?.id === orderId && !getStoredOrders().some(order => order.id === orderId)) {
+      await persistOrderToServer({ id: deferred.id, email: deferred.email, status: "pending", total: deferred.total, metadata: deferred });
+    }
     const orders = getStoredOrders();
     let updatedOrder = null;
     const nextOrders = orders.map((savedOrder) => {
@@ -6857,6 +6873,14 @@ export default function App() {
     const payment = (params.get("payment") || "").toLowerCase().trim();
     const order = (params.get("order") || "").trim();
     const npId = (params.get("NP_id") || params.get("payment_id") || "").trim();
+
+    if ((params.get("provider") || "").toLowerCase().trim() === "merit") {
+      // Stripe redirects can append a client secret. Keep only the order lookup
+      // in browser history; neither the secret nor a URL status confirms payment.
+      window.history.replaceState({}, "", `/?${new URLSearchParams({ provider: "merit", payment: "pending", order })}`);
+      setPage("payment-return");
+      return; // Merit URL parameters are never payment confirmation.
+    }
 
     if (["success", "cancelled", "cancel", "failed"].includes(payment)) {
       const urlProvider = (params.get("provider") || "").toLowerCase().trim();
@@ -8105,7 +8129,15 @@ export default function App() {
       });
     }
   }, [page, checkoutStep]);
-  const [paymentMethod, setPaymentMethod] = useState("cashapp");
+  const [paymentMethod, setPaymentMethodState] = useState("cashapp");
+  function setPaymentMethod(next) {
+    if (next === paymentMethod) return;
+    if (meritAttemptRef.current?.submitted) { openMeritPending(); return; }
+    if (next === "stripe" && meritSession) setOrderNumber(meritSession.orderId);
+    else if (deferredLegacyOrderRef.current?.id) setOrderNumber(deferredLegacyOrderRef.current.id);
+    meritSelectionRef.current = { method: next, step: checkoutStep };
+    setPaymentMethodState(next);
+  }
 
 
   const [selectedCrypto, setSelectedCrypto] = useState("USDT");
@@ -8179,8 +8211,30 @@ export default function App() {
   const [catalystPayTimedOut, setCatalystPayTimedOut] = useState(false);
   const [stripeLoading, setStripeLoading] = useState(false);
   const [stripeError, setStripeError] = useState("");
-  const [stripeClientSecret, setStripeClientSecret] = useState("");
-  const [showStripeModal, setShowStripeModal] = useState(false);
+  const [meritConfig, setMeritConfig] = useState(null);
+  const [meritSession, setMeritSession] = useState(null);
+  const [meritReturnChecking, setMeritReturnChecking] = useState(false);
+  const [meritReturnError, setMeritReturnError] = useState("");
+  const meritCreateBusyRef = useRef(false);
+  const meritReturnBusyRef = useRef(false);
+  const meritAttemptRef = useRef(readMeritAttempt(window.sessionStorage));
+  const meritInputsRef = useRef("");
+  const meritSelectionRef = useRef({});
+  meritSelectionRef.current = { method: paymentMethod, step: checkoutStep };
+  const meritBuyerEmailRef = useRef("");
+  meritBuyerEmailRef.current = normalizeEmail(currentUser?.email);
+  const meritApi = useMemo(() => createMeritApiClient({ getAccessToken: async () => {
+    const { data, error } = await supabase.auth.getSession();
+    return error ? "" : data?.session?.access_token || "";
+  } }), []);
+  useEffect(() => {
+    let active = true;
+    meritApi.configuration().then(config => { if (active) setMeritConfig(config); }).catch(() => { if (active) setMeritConfig(null); });
+    return () => { active = false; };
+  }, [meritApi]);
+  useEffect(() => {
+    if (paymentReturn.provider !== "merit" && meritAttemptRef.current?.submitted && meritAttemptRef.current.orderId) openMeritPending();
+  }, []);
   const [wireLoading, setWireLoading] = useState(false);
   const [wireConfirmed, setWireConfirmed] = useState(false);
   const [wireError, setWireError] = useState("");
@@ -9405,17 +9459,7 @@ export default function App() {
     return () => window.clearInterval(timerId);
   }, [checkoutStep, paymentMethod]);
 
-  // Auto-load Stripe payment form when Stripe is selected
-  useEffect(() => {
-    if (checkoutStep !== "payment" || paymentMethod !== "stripe") {
-      setStripeClientSecret("");
-      setStripeError("");
-      setStripeLoading(false);
-      return;
-    }
-    handleStripePayment();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checkoutStep, paymentMethod]);
+  // Verification opens from the explicit continue button, after method selection.
 
   useEffect(() => {
     if (!currentUser?.email) return;
@@ -9954,25 +9998,50 @@ export default function App() {
   const cryptoDiscountAmount = (paymentMethod === "crypto" && checkoutStep === "payment")
     ? Math.round(baseTotal * 0.025 * 100) / 100
     : 0;
-  // Stripe card payments carry a 2.95% processing fee, added on top of the total.
-  const stripeFeeAmount = (paymentMethod === "stripe" && checkoutStep === "payment")
-    ? Math.round(baseTotal * 0.0295 * 100) / 100
+  const meritPayload = buildMeritCheckoutPayload({
+    items: cart, checkoutForm, shippingType: effectiveShippingType,
+    promoCode: appliedPromo?.code, affiliateCode: affiliateTrackingCode,
+    affiliateDiscountDisabled, ownerFreeShipping: ownerFreeShippingActive,
+    orderNotes: getCheckoutOrderNotes(checkoutForm),
+    purchaserAttestation: { over21AndResearchUseOnly: Boolean(researchAccepted),
+      qualifiedResearcherOrLicensedProfessional: Boolean(qualifiedAccepted),
+      noHumanOrAnimalUse: Boolean(qualifiedAccepted), policiesAccepted: Boolean(termsAccepted) },
+  });
+  const meritInputsKey = JSON.stringify({ payload: meritPayload, email: normalizeEmail(currentUser?.email), surchargeBps: meritConfig?.surchargeBps });
+  meritInputsRef.current = meritInputsKey;
+  const meritActiveSession = meritSession?.inputsKey === meritInputsKey ? meritSession : null;
+  const meritSelected = paymentMethod === "stripe" && checkoutStep === "payment";
+  const meritSurchargePercent = Number(meritActiveSession?.order?.customerCardSurchargeBps ?? meritConfig?.surchargeBps ?? 0) / 100;
+  const stripeFeeAmount = meritSelected
+    ? (meritActiveSession ? meritActiveSession.surchargeCents / 100 : Math.round(Math.max(0, baseTotal) * Number(meritConfig?.surchargeBps || 0) / 100) / 100)
     : 0;
   const totalAfterDiscount = baseTotal - cryptoDiscountAmount + stripeFeeAmount;
   const PAYPAL_FEE_RATE = 0;
   const paypalFee = 0;
   const totalWithFee = totalAfterDiscount + paypalFee;
-  // Snapshot refs — captured at PayPal order-creation time so onPaypalApprove
-  // always saves what was actually charged, even if the cart changes mid-flow.
   const paypalSnapshotRef = useRef(null);
-  const storeCreditApplied = (currentUser && storeCredit > 0) ? Math.min(storeCredit, totalWithFee) : 0;
-  const finalTotal = Math.max(0, totalWithFee - storeCreditApplied);
-
-  // Stripe's $999 cap must be checked against the amount Stripe would actually
-  // charge (base order total minus store credit, BEFORE any payment-method-
-  // specific discount or fee) — not `finalTotal`, which reflects whichever
-  // method happens to be selected right now. Otherwise selecting a discounted
-  const stripeTemporarilyDisabled = true;
+  // Full-credit checkout stays on its existing server path. Merit charges its
+  // complete canonical amount; partial credit is not silently deducted.
+  const storeCreditApplied = !meritSelected && currentUser && storeCredit > 0 ? Math.min(storeCredit, totalWithFee) : 0;
+  const finalTotal = meritSelected && meritActiveSession ? meritActiveSession.amountCents / 100 : Math.max(0, totalWithFee - storeCreditApplied);
+  const stripeTemporarilyDisabled = meritConfig?.enabled !== true;
+  const checkoutInvoice = meritSelected && meritActiveSession?.order ? meritActiveSession.order : {
+    items: cart, subtotal, shipping, automaticDiscount, promoDiscount, affiliateDiscount,
+    promoCode: appliedPromo?.code, shippingType: effectiveShippingType,
+  };
+  useEffect(() => {
+    if (meritSession && meritSession.inputsKey !== meritInputsKey) {
+      if (meritAttemptRef.current?.submitted) openMeritPending();
+      else setMeritSession(null);
+    }
+  }, [meritInputsKey, meritSession]);
+  useEffect(() => {
+    if (currentUser?.email && paymentReturn.provider === "merit" && paymentReturn.status === "pending") setPage("payment-return");
+  }, [currentUser?.email]);
+  useEffect(() => {
+    if (page !== "payment-return" || paymentReturn.provider !== "merit" || paymentReturn.status === "success" || !currentUser?.email) return;
+    void checkMeritReturn();
+  }, [page, paymentReturn.provider, paymentReturn.order, currentUser?.email]);
 
   // Cash App orders are capped at $999, checked against the same
   // pre-discount base amount as Stripe's cap (see comment above) so the
@@ -10543,144 +10612,115 @@ export default function App() {
     await markOrderCheckoutStartedById(orderNumber, "PayPal");
   }
 
-  async function handleStripePayment() {
-    if (stripeLoading) return;
-    setStripeLoading(true);
-    setStripeError("");
-    try {
-      const syncedCF = readCheckoutSnapshot();
-      const email = (syncedCF.email || currentUser?.email || "").trim().toLowerCase();
-      await persistOrderToServer({
-        id: orderNumber,
-        email,
-        status: "checkout",
-        total: Number(finalTotal.toFixed(2)),
-        metadata: {
-          id: orderNumber,
-          email,
-          status: "checkout",
-          paymentProvider: "Stripe",
-          checkoutStartedAt: new Date().toISOString(),
-          total: Number(finalTotal.toFixed(2)),
-          subtotal: Number(subtotal.toFixed(2)),
-          shipping: Number(shipping.toFixed(2)),
-          shippingType: effectiveShippingType,
-          automaticDiscount: Number(automaticDiscount.toFixed(2)),
-          promoDiscount: Number(promoDiscount.toFixed(2)),
-          promoCode: appliedPromo?.code || "",
-          affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-         cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-          affiliateCode: affiliateTrackingCode,
-          storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-          firstName: syncedCF.firstName || "",
-          lastName: syncedCF.lastName || "",
-          country: syncedCF.country || "",
-          address: syncedCF.address || "",
-          address2: syncedCF.address2 || "",
-          city: syncedCF.city || "",
-          state: syncedCF.state || "",
-          postalCode: syncedCF.postalCode || "",
-          phone: syncedCF.phone || "",
-          taxId: syncedCF.taxId || "",
-          orderNotes: getCheckoutOrderNotes(syncedCF),
-          items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price })),
-        },
-      });
-      const res = await fetch("/api/create-payment-intent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId: orderNumber,
-          email,
-          items: cart.map((item) => ({
-            name: item.name,
-            dose: item.dose,
-            noteLabel: item.noteLabel || "",
-            price: item.price,
-            quantity: item.quantity,
-            ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
-          })),
-          affiliateCode: affiliateTrackingCode || "",
-          shippingType: effectiveShippingType,
-          promoCode: appliedPromo?.code || "",
-          promoDiscount: Number(promoDiscount.toFixed(2)),
-          promoFreeShipping: Boolean(appliedPromo?.freeShipping || ownerFreeShippingActive),
-          affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-          cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-          storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-          metadata: {
-            orderId: orderNumber,
-            email,
-            firstName: syncedCF.firstName || "",
-            lastName: syncedCF.lastName || "",
-            country: syncedCF.country || "",
-            address: syncedCF.address || "",
-            address2: syncedCF.address2 || "",
-            city: syncedCF.city || "",
-            state: syncedCF.state || "",
-            postalCode: syncedCF.postalCode || "",
-            phone: syncedCF.phone || "",
-            taxId: syncedCF.taxId || "",
-            orderNotes: getCheckoutOrderNotes(syncedCF),
-            affiliateCode: affiliateTrackingCode || "",
-            shippingType: effectiveShippingType,
-            total: Number(finalTotal.toFixed(2)),
-            subtotal: Number(subtotal.toFixed(2)),
-            shipping: Number(shipping.toFixed(2)),
-            automaticDiscount: Number(automaticDiscount.toFixed(2)),
-            promoDiscount: Number(promoDiscount.toFixed(2)),
-            affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-            cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-          },
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.clientSecret) throw new Error(data?.error || "Failed to create payment.");
-      // Save order to localStorage so success page can reconstruct details
-      try {
-        const localOrder = {
-          id: orderNumber,
-          email,
-          status: "checkout",
-          paymentProvider: "Stripe",
-          total: Number(finalTotal.toFixed(2)),
-          subtotal: Number(subtotal.toFixed(2)),
-          shipping: Number(shipping.toFixed(2)),
-          shippingType,
-          automaticDiscount: Number(automaticDiscount.toFixed(2)),
-          promoDiscount: Number(promoDiscount.toFixed(2)),
-          promoCode: appliedPromo?.code || "",
-          affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-          cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-          affiliateCode: affiliateTrackingCode,
-          affiliateOwnerEmail: affiliateTrackingOwnerEmail,
-          affiliateCommission: Number(affiliateCommission.toFixed(2)),
-          storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-          firstName: syncedCF.firstName || "",
-          lastName: syncedCF.lastName || "",
-          country: syncedCF.country || "",
-          address: syncedCF.address || "",
-          address2: syncedCF.address2 || "",
-          city: syncedCF.city || "",
-          state: syncedCF.state || "",
-          postalCode: syncedCF.postalCode || "",
-          phone: syncedCF.phone || "",
-          taxId: syncedCF.taxId || "",
-          orderNotes: getCheckoutOrderNotes(syncedCF),
-          items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price })),
-          createdAt: new Date().toISOString(),
-        };
-        const existingOrders = JSON.parse(localStorage.getItem("tbv-orders") || "[]");
-        const filtered = existingOrders.filter((o) => o.id !== orderNumber);
-        localStorage.setItem("tbv-orders", JSON.stringify([localOrder, ...filtered]));
-      } catch {}
-      setStripeClientSecret(data.clientSecret);
-      setStripeLoading(false);
-    } catch (err) {
-      setStripeError(err?.message || "Something went wrong. Please try again.");
-    } finally {
-      setStripeLoading(false);
+  function openMeritPending(orderId = meritAttemptRef.current?.orderId) {
+    if (!orderId) return;
+    setPaymentReturn({ status: "pending", provider: "merit", order: orderId });
+    setPage("payment-return");
+  }
+
+  async function acceptMeritPaid(result, expectedId = meritSession?.orderId || paymentReturn.order) {
+    if (result?.ok !== true || result?.paid !== true || result.orderId !== expectedId || result.order?.id !== expectedId) return;
+    const order = { ...result.order.metadata, ...result.order };
+    setPaymentReturnOrder(order);
+    setPaymentReturn({ status: "success", provider: "merit", order: expectedId });
+    setPage("payment-return");
+    // Clear only matching product selections; a later cart survives a delayed return.
+    setCart(current => meritCartMatchesOrder(current, order) ? [] : current);
+    if (meritAttemptRef.current?.orderId === expectedId) {
+      try { window.sessionStorage.removeItem(MERIT_ATTEMPT_STORAGE_KEY); } catch { /* Local cleanup cannot undo confirmation. */ }
+      meritAttemptRef.current = null;
     }
+    setMeritSession(null);
+    if (currentUser?.email) refreshUserOrdersFromSupabase(currentUser.email);
+  }
+
+  async function checkMeritReturn() {
+    if (meritReturnBusyRef.current || !paymentReturn.order) return;
+    meritReturnBusyRef.current = true;
+    setMeritReturnChecking(true);
+    setMeritReturnError("");
+    const requestingEmail = meritBuyerEmailRef.current;
+    try {
+      const result = await meritApi.reconcile({ orderId: paymentReturn.order });
+      if (meritBuyerEmailRef.current !== requestingEmail) return;
+      if (result.paid === true) await acceptMeritPaid(result, paymentReturn.order);
+    } catch (error) {
+      setMeritReturnError(error?.code === "authentication_required"
+        ? tx("Sign in to the account used for this order, then check its status.", "Войдите в аккаунт, с которого сделан заказ, и проверьте статус.")
+        : tx("We could not confirm the payment yet. Check its status before trying another payment.", "Пока не удалось подтвердить оплату. Проверьте статус, прежде чем оплачивать повторно."));
+    } finally { meritReturnBusyRef.current = false; setMeritReturnChecking(false); }
+  }
+
+  function handleMeritState(state) {
+    const attempt = meritAttemptRef.current;
+    if (!attempt) return;
+    // Persist before confirmation starts, so refresh/redirect recovers status.
+    if (state.phase === "confirming" || state.submitted) attempt.submitted = true;
+    else if (state.phase === "error" && !state.submitted) attempt.submitted = false;
+    try { saveMeritAttempt(window.sessionStorage, attempt); } catch { /* In-memory lock remains active. */ }
+  }
+
+  async function handleStripePayment() {
+    if (meritCreateBusyRef.current || stripeTemporarilyDisabled) return;
+    if (meritAttemptRef.current?.submitted) { openMeritPending(); return; }
+    if (!currentUser?.email) { setPage("account"); return; }
+    const syncedForm = readCheckoutSnapshot();
+    const errors = validateCheckoutForm(syncedForm);
+    if (Object.keys(errors).length || !researchAccepted || !qualifiedAccepted || !termsAccepted) {
+      setCheckoutErrors(errors); setCheckoutStep("details");
+      setCheckoutMessage(tx("Review your contact details and checkout confirmations.", "Проверьте контактные данные и подтверждения при оформлении."));
+      return;
+    }
+    setCheckoutForm(syncedForm);
+    // Buffered fields must be committed before requesting the canonical quote.
+    const payload = buildMeritCheckoutPayload({ ...meritPayload, checkoutForm: syncedForm, orderNotes: getCheckoutOrderNotes(syncedForm) });
+    const requestedInputs = JSON.stringify({ payload, email: normalizeEmail(currentUser.email), surchargeBps: meritConfig.surchargeBps });
+    meritCreateBusyRef.current = true;
+    setStripeLoading(true); setStripeError("");
+    try {
+      const digest = await meritPayloadDigest(payload, currentUser.email, meritConfig.surchargeBps);
+      const previous = meritAttemptRef.current;
+      const attempt = previous?.digest === digest ? previous : { key: window.crypto.randomUUID(), digest, orderId: "", submitted: false };
+      meritAttemptRef.current = attempt;
+      saveMeritAttempt(window.sessionStorage, attempt);
+      const proof = await verifyMeritCheckoutBuyer(currentUser.email);
+      if (!proof) return;
+      if (meritInputsRef.current !== requestedInputs || meritSelectionRef.current.method !== "stripe" || meritSelectionRef.current.step !== "payment") throw new Error("checkout_changed");
+      const result = await meritApi.create({ checkoutKey: attempt.key, payload, proof });
+      attempt.orderId = result.session.orderId;
+      if (result.paid === true) {
+        // A recovered create response may describe an already-paid attempt.
+        // Reconcile it immediately; never remount a form that can confirm again.
+        attempt.submitted = true;
+        saveMeritAttempt(window.sessionStorage, attempt);
+        meritReturnBusyRef.current = true;
+        setMeritReturnChecking(true);
+        openMeritPending(attempt.orderId);
+        try {
+          const confirmed = await meritApi.reconcile({ orderId: attempt.orderId });
+          if (meritBuyerEmailRef.current === normalizeEmail(currentUser.email) && confirmed.paid === true) {
+            await acceptMeritPaid(confirmed, attempt.orderId);
+          }
+        } catch {
+          setMeritReturnError(tx("We could not confirm the payment yet. Check its status before trying another payment.", "Пока не удалось подтвердить оплату. Проверьте статус, прежде чем оплачивать повторно."));
+        } finally {
+          meritReturnBusyRef.current = false;
+          setMeritReturnChecking(false);
+        }
+        return;
+      }
+      saveMeritAttempt(window.sessionStorage, attempt);
+      if (meritInputsRef.current !== requestedInputs || meritSelectionRef.current.method !== "stripe" || meritSelectionRef.current.step !== "payment") throw new Error("checkout_changed");
+      setOrderNumber(result.session.orderId);
+      setMeritSession({ ...result.session, order: { ...result.order.metadata, ...result.order }, inputsKey: requestedInputs });
+    } catch (error) {
+      const businessError = meritCheckoutBusinessError(error, language);
+      setStripeError(businessError || (error?.code === "authentication_required"
+        ? tx("Your sign-in has expired. Sign in again, then continue.", "Срок входа истёк. Войдите снова и продолжите.")
+        : error?.message === "checkout_changed"
+          ? tx("Your checkout changed. Review the total and continue again.", "Данные заказа изменились. Проверьте сумму и продолжите снова.")
+          : tx("We could not open secure payment. Continue again to recover the same checkout.", "Не удалось открыть защищённую оплату. Продолжите снова, чтобы восстановить то же оформление.")));
+    } finally { meritCreateBusyRef.current = false; setStripeLoading(false); }
   }
 
   async function handleWireConfirm() {
@@ -11417,6 +11457,7 @@ export default function App() {
   }
 
   async function handleCheckout(attestationOverride = null) {
+    if (meritAttemptRef.current?.submitted) { openMeritPending(); return; }
     const acceptedResearch = attestationOverride?.researchAccepted ?? researchAccepted;
     const acceptedQualified = attestationOverride?.qualifiedAccepted ?? qualifiedAccepted;
     const acceptedTerms = attestationOverride?.termsAccepted ?? termsAccepted;
@@ -11602,41 +11643,7 @@ export default function App() {
       })),
     };
 
-    try {
-      const existingOrders = JSON.parse(
-        localStorage.getItem("tbv-orders") || "[]"
-      );
-      const nextOrders = Array.isArray(existingOrders)
-        ? [orderRecord, ...existingOrders]
-        : [orderRecord];
-      localStorage.setItem("tbv-orders", JSON.stringify(nextOrders));
-      setAllOrders(nextOrders);
-      setUserOrders(getPaidOrdersForEmail(normalizedEmail, nextOrders));
-    } catch (error) {
-      console.error("Failed to save order", error);
-    }
-
-    try {
-      await persistOrderToServer({
-        id: orderRecord.id,
-        email: orderRecord.email,
-        status: orderRecord.status,
-        total: orderRecord.total,
-        metadata: orderRecord,
-      });
-    } catch (error) {
-      console.error("Checkout order save failed:", error);
-      setCheckoutMessage(
-        tx(
-          "Could not save your order. Please try again.",
-          "Не удалось сохранить заказ. Повторите попытку.",
-          "Не вдалося зберегти замовлення. Спробуйте ще раз.",
-          "Ihre Bestellung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
-          "No se pudo guardar el pedido. Inténtalo de nuevo."
-        )
-      );
-      return;
-    }
+    deferredLegacyOrderRef.current = orderRecord;
 
     setPaymentTimer(59 * 60 + 45);
     setNowPaymentData(null);
@@ -11654,6 +11661,7 @@ export default function App() {
   }
 
   async function handlePayWithCredits(attestationOverride = null) {
+    if (meritAttemptRef.current?.submitted) { openMeritPending(); return; }
     const acceptedResearch = attestationOverride?.researchAccepted ?? researchAccepted;
     const acceptedQualified = attestationOverride?.qualifiedAccepted ?? qualifiedAccepted;
     const acceptedTerms = attestationOverride?.termsAccepted ?? termsAccepted;
@@ -15713,11 +15721,12 @@ export default function App() {
                                 const displayCredits = Number(order.storeCreditUsed || 0);
                                 const displayTotal = Number(order.total || 0);
                                 const knownDiscounts = Number(order.automaticDiscount || 0) + Number(order.promoDiscount || 0) + Number(order.affiliateDiscount || 0) + displayCredits + Number(order.cryptoDiscount || 0);
-                                const isStripeProvider = /stripe/i.test(order.paymentProvider || "");
+                                const meritSurcharge = meritOrderCardSurcharge(order);
+                                const isStripeProvider = !meritSurcharge.isMerit && /stripe/i.test(order.paymentProvider || "");
                                 const isCryptoProvider = /crypto|btc|eth|usdt|usdc|cash.?app|nowpayments|catalystpay|paylio/i.test(order.paymentProvider || "");
                                 const baseBeforeFee = displaySubtotal + displayShipping - knownDiscounts + Number(order.paypalFee || 0);
                                 const impliedStripeFee = isStripeProvider ? Math.round(baseBeforeFee * 0.0295 * 100) / 100 : 0;
-                                const rawImpliedDiscount = (displayTotal > 0.009 && displayTotal < baseBeforeFee + impliedStripeFee - 0.009) ? (baseBeforeFee + impliedStripeFee - displayTotal) : 0;
+                                const rawImpliedDiscount = !meritSurcharge.isMerit && (displayTotal > 0.009 && displayTotal < baseBeforeFee + impliedStripeFee - 0.009) ? (baseBeforeFee + impliedStripeFee - displayTotal) : 0;
                                 const isFeeArtifact = isStripeProvider && Math.abs(rawImpliedDiscount - impliedStripeFee) < 0.02;
                                 const impliedDiscount = isFeeArtifact ? 0 : rawImpliedDiscount;
                                 const impliedLabel = isCryptoProvider ? "Crypto disc. (2.5%)" : "Discount";
@@ -15753,6 +15762,7 @@ export default function App() {
                                 {impliedDiscount > 0 && (<><span className="text-white/50 uppercase tracking-[0.12em]">{impliedLabel}</span><span className="text-emerald-300 text-right tabular-nums">-{formatPricePrecise(impliedDiscount)}</span></>)}
                                 {Number(order.paypalFee) > 0 && (<><span className="text-white/50 uppercase tracking-[0.12em]">PayPal fee (4.9%)</span><span className="text-amber-300/80 text-right tabular-nums">+{formatPricePrecise(order.paypalFee)}</span></>)}
                                 {impliedStripeFee > 0.009 && (<><span className="text-white/50 uppercase tracking-[0.12em]">Stripe fee (2.95%)</span><span className="text-amber-300/80 text-right tabular-nums">+{formatPricePrecise(impliedStripeFee)}</span></>)}
+                                {meritSurcharge.isMerit && (<><span className="text-white/50 uppercase tracking-[0.12em]">{tx("Customer card surcharge", "Доплата покупателя за карту")}</span><span className="text-amber-300/80 text-right tabular-nums">{meritSurcharge.amount === null ? tx("Unknown", "Неизвестно") : `+${formatPricePrecise(meritSurcharge.amount)}`}</span></>)}
                                 <span className="text-white/50 uppercase tracking-[0.12em] font-bold">Total</span>
                                 {priceInput("total", displayTotal, "font-bold text-white")}
                               </div>
@@ -20029,6 +20039,27 @@ export default function App() {
                   </div>
                 </div>
               </section>
+            ) : paymentReturn.provider === "merit" ? (
+              <section className="rounded-[2.4rem] border border-white/15 bg-black/25 px-8 py-12 text-center text-white">
+                <div className="text-xs font-bold uppercase tracking-widest text-white/60">Merit</div>
+                <h1 className="mt-4 text-3xl font-black">{tx("Checking payment", "Проверяем оплату")}</h1>
+                <p className="mx-auto mt-5 max-w-lg text-sm leading-7 text-white/65">
+                  {tx("Your payment is not confirmed yet. Check its status before trying another payment.", "Оплата пока не подтверждена. Проверьте статус, прежде чем оплачивать повторно.")}
+                </p>
+                <p className="mt-4 font-mono text-sm">{paymentReturn.order}</p>
+                {meritReturnError && <p className="mx-auto mt-4 max-w-lg text-sm text-amber-200" role="alert">{meritReturnError}</p>}
+                {currentUser?.email ? (
+                  <button type="button" disabled={meritReturnChecking} onClick={checkMeritReturn}
+                    className="mt-6 rounded-full bg-white px-7 py-3 text-sm font-semibold text-black disabled:opacity-50">
+                    {meritReturnChecking ? tx("Checking…", "Проверяем…") : tx("Check payment status", "Проверить статус оплаты")}
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => { setAuthMode("login"); setPage("account"); }}
+                    className="mt-6 rounded-full bg-white px-7 py-3 text-sm font-semibold text-black">
+                    {tx("Sign in to check payment", "Войти и проверить оплату")}
+                  </button>
+                )}
+              </section>
             ) : (catalystPayPending && paymentReturn.status !== "cancelled") ? (
               <section className="overflow-hidden rounded-[2.4rem] border border-white/15 bg-black/25 shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
                 <div className="h-1 w-full bg-gradient-to-r from-amber-400 via-orange-300 to-amber-400" />
@@ -21185,7 +21216,7 @@ export default function App() {
                               : paymentMethod === "wire"
                               ? "Wire Transfer (SWIFT)"
                               : paymentMethod === "stripe"
-                              ? "Stripe Card"
+                              ? tx("Merit · Card", "Merit · Карта")
                               : paymentMethod === "cashapp"
                               ? "Cash App"
                               : <span className="block md:inline">PayPal (US) · Apple Pay · Google Pay · Cards</span>}
@@ -21233,25 +21264,22 @@ export default function App() {
                               </div>
                             </div>
                             <div className="flex-1 min-w-0 pr-7">
-                              <div className={`text-[14px] font-semibold leading-tight md:text-[12px] ${stripeTemporarilyDisabled ? "text-black/30" : ""}`}>Apple Pay · Google Pay · Cards · Stripe</div>
+                              <div className={`text-[14px] font-semibold leading-tight md:text-[12px] ${stripeTemporarilyDisabled ? "text-black/30" : ""}`}>Apple Pay · Google Pay · Cards</div>
                               <div className="mt-1.5 md:mt-0.5 flex flex-nowrap items-center gap-1.5">
                                 {stripeTemporarilyDisabled ? (
                                   <div>
-                                    <span className="inline-flex rounded-md bg-gray-400 px-2 py-0.5 text-[11px] font-black text-white">Unavailable</span>
+                                    <span className="inline-flex rounded-md bg-gray-400 px-2 py-0.5 text-[11px] font-black text-white">{tx("Unavailable", "Недоступно")}</span>
                                     <div className="mt-1 md:mt-0 text-[10px] font-semibold leading-tight text-black/35">
                                       {tx(
-                                        "We're looking for a new provider.",
-                                        "Мы ищем нового провайдера.",
-                                        "Ми шукаємо нового провайдера.",
-                                        "Wir suchen einen neuen Anbieter.",
-                                        "Estamos buscando un nuevo proveedor."
+                                        "Card payment is temporarily unavailable.",
+                                        "Оплата картой временно недоступна."
                                       )}
                                     </div>
                                   </div>
                                 ) : (
                                   <>
-                                    <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "stripe" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>No KYC</span>
-                                    <span className={`text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "stripe" ? "text-white/70" : "text-black/70"}`}>FEE 2.95%</span>
+                                    <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "stripe" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>Merit</span>
+                                    <span className={`text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "stripe" ? "text-white/70" : "text-black/70"}`}>{tx("Card surcharge", "Доплата за карту")} {meritSurchargePercent}%</span>
                                   </>
                                 )}
                               </div>
@@ -21271,7 +21299,7 @@ export default function App() {
                             <div className="flex-1 min-w-0">
                               <div className="text-[14px] font-semibold">{tx("Crypto", "Крипто", "Крипто", "Krypto", "Cripto")}</div>
                               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                                <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "crypto" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>No KYC</span>
+                                <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "crypto" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>Merit</span>
                                 <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "crypto" ? "bg-emerald-400/25 text-emerald-300" : "bg-emerald-500 text-white"}`}>2.5% OFF</span>
                               </div>
                             </div>
@@ -21350,7 +21378,7 @@ export default function App() {
                               <div className="text-[14px] font-semibold">Wire Transfer</div>
                               <div className={`mt-1 text-[12px] font-medium ${paymentMethod === "wire" ? "text-white/55" : "text-black/45"}`}>SWIFT / IBAN · Worldwide</div>
                               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                                <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "wire" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>No KYC</span>
+                                <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "wire" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>Merit</span>
                               </div>
                             </div>
                             {paymentMethod === "wire" && <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500"><svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>}
@@ -21377,26 +21405,23 @@ export default function App() {
                             className={`relative flex flex-col items-center justify-start text-center rounded-[1.3rem] border px-2.5 pt-6 pb-3 md:px-3 md:pt-7 md:pb-3 min-h-[148px] md:min-h-[160px] ${stripeTemporarilyDisabled ? "border-black/10 bg-white/60 cursor-not-allowed" : paymentMethod === "stripe" ? "border-black bg-black text-white" : "border-black/10 bg-white text-black hover:bg-black/5"}`}
                           >
                             {stripeTemporarilyDisabled ? (
-                              <span className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-gray-400 px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-white shadow-sm">Unavailable</span>
+                              <span className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-gray-400 px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-white shadow-sm">{tx("Unavailable", "Недоступно")}</span>
                             ) : (
-                              <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">No KYC</span>
+                              <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">Merit</span>
                             )}
                             <div className={`leading-snug flex flex-col items-center gap-0.5 ${stripeTemporarilyDisabled ? "text-black/30" : ""}`}>
-                              <div className="text-sm font-semibold md:text-base">Stripe</div>
+                              <div className="text-sm font-semibold md:text-base">Merit</div>
                               <div className="text-xs font-semibold md:text-sm">Apple Pay</div>
                               <div className="text-xs font-semibold md:text-sm">Google Pay</div>
                               <div className="text-xs font-semibold md:text-sm">Cards</div>
                             </div>
                             <div className="mt-2 flex flex-col items-center gap-0.5">
-                              <div className={`text-sm font-black uppercase tracking-[0.1em] ${stripeTemporarilyDisabled ? "text-black/25" : paymentMethod === "stripe" ? "text-white" : "text-black/70"}`}>FEE 2.95%</div>
+                              <div className={`text-sm font-black uppercase tracking-[0.1em] ${stripeTemporarilyDisabled ? "text-black/25" : paymentMethod === "stripe" ? "text-white" : "text-black/70"}`}>{tx("Card surcharge", "Доплата за карту")} {meritSurchargePercent}%</div>
                               {stripeTemporarilyDisabled && (
                                 <div className="mt-1 max-w-[145px] text-[9px] font-semibold leading-[1.25] text-black/30">
                                   {tx(
-                                    "We're looking for a new provider.",
-                                    "Мы ищем нового провайдера.",
-                                    "Ми шукаємо нового провайдера.",
-                                    "Wir suchen einen neuen Anbieter.",
-                                    "Estamos buscando un nuevo proveedor."
+                                    "Card payment is temporarily unavailable.",
+                                    "Оплата картой временно недоступна."
                                   )}
                                 </div>
                               )}
@@ -21421,7 +21446,7 @@ export default function App() {
                             }`}
                           >
                             <span className="absolute -top-1 left-2 rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-white shadow-sm">BEST</span>
-                            <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">No KYC</span>
+                            <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">Merit</span>
                             <div className="text-[10px] uppercase tracking-[0.18em] opacity-70 md:text-[11px] md:tracking-[0.2em]">
                               {t("method")}
                             </div>
@@ -21446,7 +21471,7 @@ export default function App() {
                                 }`}
                               >
                                  <span className="absolute -top-1 left-2 rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-white shadow-sm">BEST</span>
-                                <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">No KYC</span>
+                                <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">Merit</span>
                                 <div className="text-[10px] uppercase tracking-[0.18em] opacity-70 md:text-[11px] md:tracking-[0.2em]">
                                   {t("method")}
                                 </div>
@@ -21498,7 +21523,7 @@ export default function App() {
                                 : "border-black/10 bg-white text-black hover:bg-black/5"
                             }`}
                           >
-                            <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">No KYC</span>
+                            <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">Merit</span>
                             <div className="text-[10px] uppercase tracking-[0.18em] opacity-70 md:text-[11px] md:tracking-[0.2em]">
                               {t("method")}
                             </div>
@@ -21716,37 +21741,26 @@ export default function App() {
                                 </div>
                               </div>
                             </div>
-                            {stripeClientSecret ? (
+                            <p className="mt-4 text-sm leading-6 text-black/65">
+                              {tx("Card surcharge", "Доплата за карту")} {meritSurchargePercent}%: +{formatPricePrecise(stripeFeeAmount)}.
+                              {" "}{tx("The final total is confirmed before you pay.", "Итоговая сумма подтверждается до оплаты.")}
+                            </p>
+                            {storeCredit > 0 && <p className="mt-2 text-sm leading-6 text-black/65">
+                              {tx("This card payment uses the full order amount. Your Store Credit remains available; partial Store Credit cannot be combined with this payment.", "Оплата картой производится на полную сумму заказа. Store Credit сохраняется: частично использовать его вместе с этой оплатой нельзя.")}
+                            </p>}
+                            {meritActiveSession ? (
                               <Suspense fallback={<div className="mt-4 min-h-[190px]" aria-busy="true" />}>
-                                <StripeCheckoutPanel
-                                  clientSecret={stripeClientSecret}
-                                  orderNumber={orderNumber}
-                                  onSuccess={(pi) => {
-                                    const piParam = pi?.id ? `&pi=${encodeURIComponent(pi.id)}` : "";
-                                    window.location.assign(`/?payment=success&order=${encodeURIComponent(orderNumber)}&provider=stripe${piParam}`);
-                                  }}
-                                />
+                                <MeritCheckoutPanel session={meritActiveSession} language={language.toLowerCase()}
+                                  onReconcile={meritApi.reconcile} onPaid={acceptMeritPaid} onState={handleMeritState} />
                               </Suspense>
-                            ) : stripeError ? (
-                              <div className="mt-4">
-                                <div className="rounded-[1.2rem] border border-red-200 bg-red-50 px-4 py-4 text-[14px] leading-6 text-red-700">
-                                  {stripeError}
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => { setStripeError(""); handleStripePayment(); }}
-                                  className="mt-3 w-full rounded-[1.2rem] border border-black/10 bg-white py-3 text-[13px] font-semibold text-black/60 hover:bg-black/5 transition-colors"
-                                >
-                                  {tx("Try again", "Повторить", "Спробувати знову", "Erneut versuchen", "Intentar de nuevo")}
-                                </button>
-                              </div>
                             ) : (
-                              <div className="mt-6 flex items-center justify-center gap-3 py-6 text-[14px] text-black/40">
-                                <svg className="animate-spin text-[#635BFF]" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                  <circle cx="12" cy="12" r="10" strokeOpacity="0.2"/>
-                                  <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" stroke="#635BFF"/>
-                                </svg>
-                                {tx("Loading payment form…", "Загрузка формы…", "Завантаження форми…", "Formular wird geladen…", "Cargando formulario…")}
+                              <div className="mt-4">
+                                {stripeError && <p className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">{stripeError}</p>}
+                                <button type="button" disabled={stripeLoading || stripeTemporarilyDisabled}
+                                  onClick={handleStripePayment}
+                                  className="mt-3 min-h-12 w-full rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white disabled:opacity-40">
+                                  {stripeLoading ? tx("Preparing secure payment…", "Подготавливаем защищённую оплату…") : tx("Verify email and continue", "Подтвердить email и продолжить")}
+                                </button>
                               </div>
                             )}
                           </div>
@@ -22015,8 +22029,8 @@ export default function App() {
                             {t("orderSummary")}
                           </div>
                           <div className="mt-4 space-y-3 text-sm text-black/70">
-                            {cart.map((item) => {
-                              const isOOS = products.some((p) => p.name === item.name && p.dose === item.dose && p.outOfStock && (p.warehouse !== "us" || item.fromWarehouse === "us"));
+                            {checkoutInvoice.items.map((item) => {
+                              const isOOS = !meritActiveSession && products.some((p) => p.name === item.name && p.dose === item.dose && p.outOfStock && (p.warehouse !== "us" || item.fromWarehouse === "us"));
                               return (
                               <div
                                 key={getProductId(item)}
@@ -22041,29 +22055,29 @@ export default function App() {
                             })}
                             <div className="flex items-center justify-between border-t border-black/10 pt-3">
                               <span>{t("subtotal")}</span>
-                              <span>{formatPricePrecise(subtotal)}</span>
+                              <span>{formatPricePrecise(checkoutInvoice.subtotal)}</span>
                             </div>
-                            {automaticDiscount > 0 && (
+                            {checkoutInvoice.automaticDiscount > 0 && (
                               <div className="flex items-center justify-between">
                                 <span>{t("automaticDiscount")}</span>
                                 <span>
-                                  -{formatPricePrecise(automaticDiscount)}
+                                  -{formatPricePrecise(checkoutInvoice.automaticDiscount)}
                                 </span>
                               </div>
                             )}
-                            {promoDiscountRate > 0 && (
+                            {checkoutInvoice.promoDiscount > 0 && (
                               <div className="flex items-center justify-between">
-                                <span>{t("promoCode")} {appliedPromo?.code} ({+(((appliedPromo?.rate || 0) * 100).toFixed(2))}% off)</span>
+                                <span>{t("promoCode")} {checkoutInvoice.promoCode}</span>
                                 <span>
-                                  -{formatPricePrecise(promoDiscount)}
+                                  -{formatPricePrecise(checkoutInvoice.promoDiscount)}
                                 </span>
                               </div>
                             )}
-                            {affiliateDiscount > 0 && (
+                            {checkoutInvoice.affiliateDiscount > 0 && (
                               <div className="flex items-center justify-between">
                                 <span>{tx("Affiliate discount", "Партнёрская скидка", "Партнерська знижка", "Affiliate-Rabatt", "Descuento de afiliado")}</span>
                                 <span>
-                                  -{formatPricePrecise(affiliateDiscount)}
+                                  -{formatPricePrecise(checkoutInvoice.affiliateDiscount)}
                                 </span>
                               </div>
                             )}
@@ -22075,7 +22089,7 @@ export default function App() {
                             )}
                             {stripeFeeAmount > 0 && (
                               <div className="flex items-center justify-between">
-                                <span>Card processing fee (2.95%)</span>
+                                <span>{tx("Card surcharge", "Доплата за карту")} ({meritSurchargePercent}%)</span>
                                 <span>+{formatPricePrecise(stripeFeeAmount)}</span>
                               </div>
                             )}
@@ -22084,15 +22098,15 @@ export default function App() {
                                 {t("shipping")}
                                 {" "}
                                 <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/50">
-                                  ({shippingType === "express"
+                                  ({checkoutInvoice.shippingType === "us-warehouse" ? tx("US warehouse", "Склад США") : checkoutInvoice.shippingType === "express"
                                     ? tx("Express", "Экспресс", "Експрес", "Express", "Exprés")
                                     : tx("Standard", "Стандарт", "Стандарт", "Standard", "Estándar")})
                                 </span>
                               </span>
                               <span>
-                                {shipping === 0
+                                {checkoutInvoice.shipping === 0
                                   ? "FREE"
-                                  : formatPricePrecise(shipping)}
+                                  : formatPricePrecise(checkoutInvoice.shipping)}
                               </span>
                             </div>
                             {paypalFee > 0 && (

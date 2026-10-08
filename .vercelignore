@@ -1,0 +1,16 @@
+
+# Never upload local credentials, repository internals, or installed dependencies
+.vercel/
+.git/
+.env
+.env.*
+**/.env
+**/.env.*
+node_modules/
+**/node_modules/
+**/*.tsbuildinfo
+
+# Tests are local checks, never serverless routes or deployment inputs.
+api/*.test.*
+api/**/*.test.*
+tests/

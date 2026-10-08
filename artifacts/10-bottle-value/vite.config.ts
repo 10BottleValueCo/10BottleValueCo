@@ -91,6 +91,7 @@ export default defineConfig({
         storefront: path.resolve(import.meta.dirname, 'index.html'),
         meritTest: path.resolve(import.meta.dirname, 'merit-test.html'),
         meritReview: path.resolve(import.meta.dirname, 'merit-review.html'),
+        operations: path.resolve(import.meta.dirname, 'operations.html'),
       },
     },
     outDir: path.resolve(import.meta.dirname, 'dist/public'),
