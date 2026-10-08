@@ -1,19 +1,26 @@
+import { requireCheckoutOrder, persistCheckoutPricing } from "./_checkout-order.js";
+import { requireCheckoutIdentity } from "./_checkout-auth.js";
+import { rejectUnverifiedStoreCredit } from "./_payment-guard.js";
 import Stripe from "stripe";
-import {
-  validateAndPriceItems,
-  getShippingPrice,
-  getAutomaticDiscountRate,
-} from "./_catalog.js";
+import { validateAndPriceItems, getShippingPrice, getAutomaticDiscountRate } from "./_catalog.js";
 import { verifyPromoCode } from "./_promo.js";
 
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
-const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+const SB_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  "";
 
 export default async function handler(req, res) {
+  if (rejectUnverifiedStoreCredit(req.body, res)) return;
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const checkoutIdentity = await requireCheckoutIdentity(req, res);
+  if (!checkoutIdentity) return;
 
   const stripeKey = process.env.STRIPE_SECRET_KEY;
-  if (!stripeKey) return res.status(500).json({ error: "STRIPE_SECRET_KEY not configured on server." });
+  if (!stripeKey)
+    return res.status(500).json({ error: "STRIPE_SECRET_KEY not configured on server." });
   const stripe = new Stripe(stripeKey);
 
   try {
@@ -29,7 +36,7 @@ export default async function handler(req, res) {
       affiliateCode = "",
       storeCreditUsed = 0,
       metadata = {},
-    } = req.body || {};
+    } = { ...req.body, email: checkoutIdentity.email };
 
     if (!orderId) {
       return res.status(400).json({ error: "Missing orderId" });
@@ -38,6 +45,17 @@ export default async function handler(req, res) {
     if (!process.env.STRIPE_SECRET_KEY) {
       return res.status(500).json({ error: "STRIPE_SECRET_KEY not set" });
     }
+
+    const checkoutOrder = await requireCheckoutOrder(
+      {
+        orderId: orderId,
+        identity: checkoutIdentity,
+        sbUrl: SB_URL,
+        sbKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+      },
+      res,
+    );
+    if (!checkoutOrder) return;
 
     // ---- SERVER-SIDE PRICE & STOCK VALIDATION ----
     let pricedItems, subtotal, regularSubtotal, usSubtotal;
@@ -69,14 +87,22 @@ export default async function handler(req, res) {
 
     // Affiliate discount is first-order-only — verify server-side
     const SB_URL_S = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
-    const SB_KEY_S = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
-    const sbHS = () => ({ apikey: SB_KEY_S, Authorization: `Bearer ${SB_KEY_S}`, "Content-Type": "application/json" });
+    const SB_KEY_S =
+      process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.SUPABASE_ANON_KEY ||
+      process.env.VITE_SUPABASE_ANON_KEY ||
+      "";
+    const sbHS = () => ({
+      apikey: SB_KEY_S,
+      Authorization: `Bearer ${SB_KEY_S}`,
+      "Content-Type": "application/json",
+    });
     let isFirstTimeBuyer = true;
     if (SB_URL_S && SB_KEY_S && email) {
       try {
         const checkResp = await fetch(
           `${SB_URL_S}/rest/v1/orders?email=eq.${encodeURIComponent(String(email).toLowerCase().trim())}&status=in.(paid,done)&select=id&limit=1`,
-          { headers: sbHS() }
+          { headers: sbHS() },
         );
         if (checkResp.ok) {
           const rows = await checkResp.json();
@@ -86,26 +112,33 @@ export default async function handler(req, res) {
     }
 
     let affiliateDiscount = 0;
-    if (!promoDiscount && isFirstTimeBuyer && String(affiliateCode || "").trim() && Number(clientAffiliateDiscount) > 0) {
+    if (
+      !promoDiscount &&
+      isFirstTimeBuyer &&
+      String(affiliateCode || "").trim() &&
+      Number(clientAffiliateDiscount) > 0
+    ) {
       const impliedRate = Number(clientAffiliateDiscount) / (subtotal || 1);
-      affiliateDiscount = impliedRate <= MAX_AFFILIATE_RATE
-        ? Math.min(Number(clientAffiliateDiscount), subtotal)
-        : Math.round(subtotal * MAX_AFFILIATE_RATE * 100) / 100;
+      affiliateDiscount =
+        impliedRate <= MAX_AFFILIATE_RATE
+          ? Math.min(Number(clientAffiliateDiscount), subtotal)
+          : Math.round(subtotal * MAX_AFFILIATE_RATE * 100) / 100;
     }
 
-    const finalAutomaticDiscount = promoDiscount > 0 || affiliateDiscount > 0 ? 0 : automaticDiscount;
+    const finalAutomaticDiscount =
+      promoDiscount > 0 || affiliateDiscount > 0 ? 0 : automaticDiscount;
     const finalAffiliateDiscount = promoDiscount > 0 ? 0 : affiliateDiscount;
 
     const shipping =
       pricedItems.length === 0
         ? 0
         : verifiedPromoFreeShipping || regularSubtotal === 0
-        ? 0
-        : getShippingPrice(regularSubtotal, shippingType === "express" ? "express" : "standard");
+          ? 0
+          : getShippingPrice(regularSubtotal, shippingType === "express" ? "express" : "standard");
 
     const preCreditTotal = Math.max(
       0,
-      subtotal - finalAutomaticDiscount - promoDiscount - finalAffiliateDiscount + shipping
+      subtotal - finalAutomaticDiscount - promoDiscount - finalAffiliateDiscount + shipping,
     );
     const safeStoreCreditUsed = Math.min(Math.max(Number(storeCreditUsed) || 0, 0), preCreditTotal);
 
@@ -113,27 +146,33 @@ export default async function handler(req, res) {
     // doesn't also save the customer from the card processing fee.
     const STRIPE_FEE_RATE = 0.05;
     const stripeFee = Math.round(preCreditTotal * STRIPE_FEE_RATE * 100) / 100;
-    const amount = Math.max(0, Math.round((preCreditTotal + stripeFee - safeStoreCreditUsed) * 100) / 100);
+    const amount = Math.max(
+      0,
+      Math.round((preCreditTotal + stripeFee - safeStoreCreditUsed) * 100) / 100,
+    );
 
     if (!amount || amount <= 0) {
       return res.status(400).json({ error: "Order total must be greater than zero." });
     }
 
-
     const productName = `10BottleValueCo Order #${orderId}`;
 
-    const lineItems = [{
-      price_data: {
-        currency: "usd",
-        product_data: { name: productName },
-        unit_amount: Math.round(Number(amount) * 100),
+    const lineItems = [
+      {
+        price_data: {
+          currency: "usd",
+          product_data: { name: productName },
+          unit_amount: Math.round(Number(amount) * 100),
+        },
+        quantity: 1,
       },
-      quantity: 1,
-    }];
+    ];
 
     const sessionMetadata = {
       ...(typeof metadata === "object" && metadata !== null ? metadata : {}),
       orderId: String(orderId),
+      paymentProvider: "Stripe",
+      checkoutStartedAt: new Date().toISOString(),
       email: String(email || ""),
       affiliateCode: String(affiliateCode || ""),
       shippingType: String(shippingType),
@@ -157,6 +196,15 @@ export default async function handler(req, res) {
       }
     }
 
+    if (
+      !(await persistCheckoutPricing(
+        checkoutOrder,
+        { total: amount, items: pricedItems, metadata: sessionMetadata },
+        res,
+      ))
+    )
+      return;
+
     // Embedded checkout (returns client_secret for EmbeddedCheckout component)
     const origin = req.headers.origin || "https://10bottlevalue.co";
     const session = await stripe.checkout.sessions.create({
@@ -170,7 +218,9 @@ export default async function handler(req, res) {
       metadata: sessionMetadata,
     });
 
-    return res.status(200).json({ clientSecret: session.client_secret, sessionId: session.id, verifiedAmount: amount });
+    return res
+      .status(200)
+      .json({ clientSecret: session.client_secret, sessionId: session.id, verifiedAmount: amount });
   } catch (err) {
     console.error("create-stripe-session error:", err.message);
     return res.status(500).json({ error: err.message || "Failed to create Stripe session" });

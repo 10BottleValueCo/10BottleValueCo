@@ -1,8 +1,15 @@
+import { requireCheckoutOrder, persistCheckoutPricing } from "./_checkout-order.js";
+import { requireCheckoutIdentity } from "./_checkout-auth.js";
+import { rejectUnverifiedStoreCredit } from "./_payment-guard.js";
 import { validateAndPriceItems, getShippingPrice, getAutomaticDiscountRate } from "./_catalog.js";
 import { verifyPromoCode } from "./_promo.js";
 
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
-const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+const SB_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  "";
 const sbH = () => ({
   apikey: SB_KEY,
   Authorization: `Bearer ${SB_KEY}`,
@@ -18,7 +25,10 @@ const BASE_API_URL = IS_PRODUCTION
   : "https://api-staging.paidlyinteractive.com";
 
 export default async function handler(req, res) {
+  if (rejectUnverifiedStoreCredit(req.body, res)) return;
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const checkoutIdentity = await requireCheckoutIdentity(req, res);
+  if (!checkoutIdentity) return;
 
   try {
     if (!MERCHANT_ID || !API_TOKEN) {
@@ -44,11 +54,23 @@ export default async function handler(req, res) {
       postalCode = "",
       phone = "",
       taxId = "",
+      orderNotes = "",
       items = [],
       paymentMethod = "",
-    } = req.body || {};
+    } = { ...req.body, customer_email: checkoutIdentity.email };
 
     if (!order_id) return res.status(400).json({ error: "Missing order_id" });
+
+    const checkoutOrder = await requireCheckoutOrder(
+      {
+        orderId: order_id,
+        identity: checkoutIdentity,
+        sbUrl: SB_URL,
+        sbKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+      },
+      res,
+    );
+    if (!checkoutOrder) return;
 
     // ---- SERVER-SIDE PRICE & STOCK VALIDATION ----
     let pricedItems, subtotal, regularSubtotal;
@@ -84,7 +106,7 @@ export default async function handler(req, res) {
       try {
         const checkResp = await fetch(
           `${SB_URL}/rest/v1/orders?email=eq.${encodeURIComponent(String(customer_email).toLowerCase().trim())}&status=in.(paid,done)&select=id&limit=1`,
-          { headers: sbH() }
+          { headers: sbH() },
         );
         if (checkResp.ok) {
           const rows = await checkResp.json();
@@ -94,36 +116,43 @@ export default async function handler(req, res) {
     }
 
     let affiliateDiscount = 0;
-    if (!promoDiscount && isFirstTimeBuyer && String(affiliateCode || "").trim() && Number(clientAffiliateDiscount) > 0) {
+    if (
+      !promoDiscount &&
+      isFirstTimeBuyer &&
+      String(affiliateCode || "").trim() &&
+      Number(clientAffiliateDiscount) > 0
+    ) {
       const impliedRate = Number(clientAffiliateDiscount) / (subtotal || 1);
-      affiliateDiscount = impliedRate <= MAX_AFFILIATE_RATE
-        ? Math.min(Number(clientAffiliateDiscount), subtotal)
-        : Math.round(subtotal * MAX_AFFILIATE_RATE * 100) / 100;
+      affiliateDiscount =
+        impliedRate <= MAX_AFFILIATE_RATE
+          ? Math.min(Number(clientAffiliateDiscount), subtotal)
+          : Math.round(subtotal * MAX_AFFILIATE_RATE * 100) / 100;
     }
 
-    const finalAutomaticDiscount = promoDiscount > 0 || affiliateDiscount > 0 ? 0 : automaticDiscount;
+    const finalAutomaticDiscount =
+      promoDiscount > 0 || affiliateDiscount > 0 ? 0 : automaticDiscount;
     const finalAffiliateDiscount = promoDiscount > 0 ? 0 : affiliateDiscount;
 
     const shipping =
       pricedItems.length === 0
         ? 0
         : verifiedPromoFreeShipping || regularSubtotal === 0
-        ? 0
-        : getShippingPrice(regularSubtotal, shippingType === "express" ? "express" : "standard");
+          ? 0
+          : getShippingPrice(regularSubtotal, shippingType === "express" ? "express" : "standard");
 
-    const baseTotal = subtotal - finalAutomaticDiscount - promoDiscount - finalAffiliateDiscount + shipping;
+    const baseTotal =
+      subtotal - finalAutomaticDiscount - promoDiscount - finalAffiliateDiscount + shipping;
 
     // Crypto discount removed
     const cryptoDiscountAmount = 0;
 
     const safeStoreCreditUsed = Math.min(
       Math.max(Number(storeCreditUsed) || 0, 0),
-      Math.max(0, baseTotal - cryptoDiscountAmount)
+      Math.max(0, baseTotal - cryptoDiscountAmount),
     );
 
-    const price_amount = Math.round(
-      (baseTotal - cryptoDiscountAmount - safeStoreCreditUsed) * 100
-    ) / 100;
+    const price_amount =
+      Math.round((baseTotal - cryptoDiscountAmount - safeStoreCreditUsed) * 100) / 100;
 
     if (!price_amount || price_amount <= 0) {
       return res.status(400).json({ error: "Order total must be greater than zero." });
@@ -136,12 +165,58 @@ export default async function handler(req, res) {
     const safeEmail = (customer_email || "").replace(/[^a-zA-Z0-9\-_]/g, "_");
     const safeAffCode = (affiliateCode || "").replace(/[^a-zA-Z0-9\-_]/g, "_");
 
+    if (
+      !(await persistCheckoutPricing(
+        checkoutOrder,
+        {
+          total: Number(price_amount),
+          items: pricedItems,
+          metadata: {
+            ...(checkoutOrder.order.metadata || {}),
+            total: price_amount,
+            paymentProvider: "CatalystPay BTC",
+            checkoutStartedAt: new Date().toISOString(),
+            subtotal: Number(subtotal),
+            shipping: Number(shipping),
+            automaticDiscount: Number(finalAutomaticDiscount),
+            promoDiscount: Number(promoDiscount),
+            promoCode: String(promoCode || ""),
+            affiliateDiscount: Number(finalAffiliateDiscount),
+            cryptoDiscount: Number(cryptoDiscountAmount),
+            storeCreditUsed: Number(safeStoreCreditUsed),
+            affiliateCode: String(affiliateCode || "")
+              .trim()
+              .toUpperCase(),
+            affiliateOwnerEmail: String(affiliateOwnerEmail || ""),
+            shippingType: String(shippingType),
+            items: pricedItems,
+            orderNotes: String(orderNotes || checkoutOrder.order.metadata.orderNotes || ""),
+            // Persisted explicitly (not just relying on a prior client-side
+            // upsert) so customer/shipping details survive even if that
+            // earlier write raced with or lost to this server-side PATCH.
+            firstName: String(firstName || (checkoutOrder.order.metadata?.firstName ?? "")),
+            lastName: String(lastName || (checkoutOrder.order.metadata?.lastName ?? "")),
+            country: String(country || (checkoutOrder.order.metadata?.country ?? "")),
+            address: String(address || (checkoutOrder.order.metadata?.address ?? "")),
+            address2: String(address2 || (checkoutOrder.order.metadata?.address2 ?? "")),
+            city: String(city || (checkoutOrder.order.metadata?.city ?? "")),
+            state: String(state || (checkoutOrder.order.metadata?.state ?? "")),
+            postalCode: String(postalCode || (checkoutOrder.order.metadata?.postalCode ?? "")),
+            phone: String(phone || (checkoutOrder.order.metadata?.phone ?? "")),
+            taxId: String(taxId || (checkoutOrder.order.metadata?.taxId ?? "")),
+          },
+        },
+        res,
+      ))
+    )
+      return;
+
     const nowRes = await fetch(`${BASE_API_URL}/api/v1/stores/${MERCHANT_ID}/invoices`, {
       method: "POST",
       headers: {
-        "accept": "application/json",
+        accept: "application/json",
         "Content-Type": "application/json",
-        "Authorization": `token ${API_TOKEN}`,
+        Authorization: `token ${API_TOKEN}`,
       },
       body: JSON.stringify({
         amount: price_amount.toFixed(2),
@@ -165,77 +240,44 @@ export default async function handler(req, res) {
     try {
       data = rawText ? JSON.parse(rawText) : {};
     } catch {
-      return res.status(502).json({ error: "CatalystPay returned non-JSON", raw: rawText.slice(0, 300) });
+      return res
+        .status(502)
+        .json({ error: "CatalystPay returned non-JSON", raw: rawText.slice(0, 300) });
     }
 
     if (!nowRes.ok) {
       console.error("CatalystPay invoice creation failed:", nowRes.status, JSON.stringify(data));
       return res.status(nowRes.status).json({
         error: data.message || data.error || "CatalystPay error",
-        _debug: {
-          status: nowRes.status,
-          api_url: BASE_API_URL,
-          is_production: IS_PRODUCTION,
-          merchant_id_set: !!MERCHANT_ID,
-          token_set: !!API_TOKEN,
-          token_prefix: API_TOKEN ? API_TOKEN.slice(0, 6) + "..." : "MISSING",
-        },
         ...data,
       });
     }
 
-    // Persist order to Supabase so webhook can find address/discount data
-    if (SB_URL && SB_KEY && order_id) {
-      try {
-        const existing = await fetch(
-          `${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(order_id))}&select=status,metadata`,
-          { headers: sbH() }
-        );
-        const rows = existing.ok ? await existing.json() : [];
-        const currentStatus = String(rows?.[0]?.status || "").toLowerCase();
-        if (currentStatus !== "paid") {
-          await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(order_id))}`, {
-            method: "PATCH",
-            headers: { ...sbH(), Prefer: "return=minimal" },
-            body: JSON.stringify({
-              status: "checkout (clicked pay)",
-              metadata: {
-                ...(rows?.[0]?.metadata || {}),
-                catalystpay_invoice_id: data.id || "",
-                total: price_amount,
-                subtotal: Number(subtotal),
-                shipping: Number(shipping),
-                automaticDiscount: Number(finalAutomaticDiscount),
-                promoDiscount: Number(promoDiscount),
-                promoCode: String(promoCode || ""),
-                affiliateDiscount: Number(finalAffiliateDiscount),
-                cryptoDiscount: Number(cryptoDiscountAmount),
-                storeCreditUsed: Number(safeStoreCreditUsed),
-                affiliateCode: String(affiliateCode || "").trim().toUpperCase(),
-                affiliateOwnerEmail: String(affiliateOwnerEmail || ""),
-                shippingType: String(shippingType),
-                items: pricedItems,
-                // Persisted explicitly (not just relying on a prior client-side
-                // upsert) so customer/shipping details survive even if that
-                // earlier write raced with or lost to this server-side PATCH.
-                firstName: String(firstName || (rows?.[0]?.metadata?.firstName ?? "")),
-                lastName: String(lastName || (rows?.[0]?.metadata?.lastName ?? "")),
-                country: String(country || (rows?.[0]?.metadata?.country ?? "")),
-                address: String(address || (rows?.[0]?.metadata?.address ?? "")),
-                address2: String(address2 || (rows?.[0]?.metadata?.address2 ?? "")),
-                city: String(city || (rows?.[0]?.metadata?.city ?? "")),
-                state: String(state || (rows?.[0]?.metadata?.state ?? "")),
-                postalCode: String(postalCode || (rows?.[0]?.metadata?.postalCode ?? "")),
-                phone: String(phone || (rows?.[0]?.metadata?.phone ?? "")),
-                taxId: String(taxId || (rows?.[0]?.metadata?.taxId ?? "")),
-              },
-            }),
-          }).catch(() => {});
-        }
-      } catch {}
+    if (
+      typeof data.id !== "string" ||
+      !data.id ||
+      typeof data.checkoutLink !== "string" ||
+      !data.checkoutLink
+    ) {
+      return res.status(502).json({ error: "Payment provider returned an incomplete invoice." });
     }
+    // The provider invoice already exists here. Withhold its payment link if
+    // binding fails; do not describe that failure as no invoice being created.
+    if (
+      !(await persistCheckoutPricing(
+        checkoutOrder,
+        {
+          total: Number(price_amount),
+          items: pricedItems,
+          metadata: { catalystpay_invoice_id: data.id },
+        },
+        res,
+        { providerCreated: true },
+      ))
+    )
+      return;
 
-    console.error("CatalystPay invoice created:", { order_id, price_amount, invoice_id: data.id, checkoutLink: data.checkoutLink, api_url: BASE_API_URL, is_production: IS_PRODUCTION });
+    console.log("CatalystPay invoice created");
 
     return res.status(200).json({
       checkoutLink: data.checkoutLink,

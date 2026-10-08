@@ -17,6 +17,7 @@ test("product names change only in email display", async () => {
 
   // The request is intercepted locally: no message is sent and no payment is created.
   process.env.RESEND_API_KEY = "test-only-key";
+  process.env.INTERNAL_API_SECRET = "test-only-internal-key";
   const originalFetch = globalThis.fetch;
   let renderedHtml = "";
   globalThis.fetch = async (_url, options) => {
@@ -31,6 +32,7 @@ test("product names change only in email display", async () => {
     };
     await sendPaymentConfirmedEmail({
       method: "POST",
+      headers: { "x-internal-api-secret": process.env.INTERNAL_API_SECRET },
       body: { email: "test@example.invalid", orderId: "TEST-ORDER", total: 400, items },
     }, response);
     assert.equal(status, 200);

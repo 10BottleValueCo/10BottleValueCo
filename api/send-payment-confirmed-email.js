@@ -1,6 +1,8 @@
+import { requireInternalRequest } from "./_auth.js";
 import { publicProductName } from "./_public-product-name.js";
 
 export default async function handler(req, res) {
+  if (!requireInternalRequest(req, res)) return;
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }

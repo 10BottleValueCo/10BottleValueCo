@@ -8,12 +8,23 @@ import confetti from "canvas-confetti";
 import { supabase, userFromSupabase } from "./supabase.js";
 import { ACCOUNT_AVATARS, getAccountAvatar } from "./account-avatars.js";
 import { track, trackPageView } from "./analytics.js";
+import { privateAccountState, purgeLegacyPrivateState } from "./private-account-state.js";
+import { calculateOrderContribution } from "./order-contribution.js";
+import { serverOrder, isConfirmedPaidOrder } from "./server-order.js";
+import { startVisiblePolling } from "./visible-poll.js";
+import { createCheckoutSession } from "./checkout-session.js";
+import { requestEmailCode, confirmEmailCode, emailCodeWaitSeconds, isEmailCodeRateLimit, isEmailCodeEnabled, EMAIL_CODE_COOLDOWN_SECONDS } from "./email-code-auth.js";
+import { enabledOAuthProviders, captureOAuthCallback, readOAuthReturn, clearOAuthReturn, confirmedOAuthReturnPage, startOAuthSignIn } from "./oauth-auth.js";
+import { loadOwnedPayoutSummary } from "./affiliate-payout-summary.js";
+import { loadAccountOrders, canViewAccountOrderConfirmation, isAccountHistoryConfirmation, clearAccountHistoryConfirmation } from "./account-orders.js";
 import { useSEO } from "./useSEO.js";
-import { catalogProductName, matchesProductSearch, productSlug as productSlugFor, publicProductName } from "./productNames.js";
+import { isProductRoute, resolveProductRoute, resolveProductSelection, productSelectionPath, productWarehouse } from "./product-selection.js";
+import { catalogProductName, matchesProductSearch, publicProductName } from "./productNames.js";
 import { buildSupportTimeline } from "./support-timeline.js";
 import BpcCatalogCard from "./components/BpcCatalogCard.jsx";
 import HomePage from "./components/HomePage.jsx";
 import AccountDashboard from "./components/AccountDashboard.jsx";
+import AccountOrderReadStatus from "./components/AccountOrderReadStatus.jsx";
 import AccountMessages from "./components/AccountMessages.jsx";
 import ProductPackSelector from "./components/ProductPackSelector.jsx";
 import ShippingPricesPage from "./components/ShippingPricesPage.jsx";
@@ -31,6 +42,7 @@ import legalPolicyBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.
 
 const StripeCheckoutPanel = lazy(() => import("./components/StripeCheckoutPanel.jsx"));
 const AdminChart = lazy(() => import("./components/AdminChart.jsx"));
+const OperationsStudio = lazy(() => import("./components/OperationsStudio.jsx"));
 
 const topProductNames = new Set(["Retatrutide / GLP-3", "10-GH", "KLOW80"]);
 const isTopProduct = (product) =>
@@ -455,6 +467,14 @@ function PayPalButton({ createOrder, onApprove, onError, disabled, autoClickCard
     }
   } catch (_) {}
 })();
+
+const configuredOAuthProviders = enabledOAuthProviders(import.meta.env);
+const authSupabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
+const emailCodeAuthEnabled = isEmailCodeEnabled(import.meta.env);
+const defaultAuthMethod = emailCodeAuthEnabled ? "email" : "password";
+const initialOAuthCallback = typeof window === "undefined"
+  ? { marked: false, failed: false }
+  : captureOAuthCallback(window.location);
 
 const SOCIAL_ICONS = {
   Trustpilot: (
@@ -2684,6 +2704,7 @@ function FunnelTab({ supabase }) {
   const [range, setRange] = useState("7d");
   const [sessions, setSessions] = useState([]);
   const [activeSession, setActiveSession] = useState(null);
+  const [coverage, setCoverage] = useState(null);
 
   useEffect(() => {
     loadEvents();
@@ -2708,6 +2729,7 @@ function FunnelTab({ supabase }) {
 
       const rows = Array.isArray(result?.events) ? result.events : [];
       setEvents(rows);
+      setCoverage(result.metadata || result.meta || null);
       const sessionMap = new Map();
       for (const e of [...rows].reverse()) {
         if (!e.session_id) continue;
@@ -2751,7 +2773,7 @@ function FunnelTab({ supabase }) {
       match: (e) => e.event_type === "checkout_step" && e.properties?.step === "payment",
       icon: "💳",
     },
-    { key: "order", label: "Placed order", match: (e) => e.event_type === "order_placed", icon: "✅" },
+    { key: "order", label: "Order submitted (browser)", match: (e) => e.event_type === "order_placed", icon: "✅" },
   ];
 
   const funnelData = funnelSteps.map(step => {
@@ -2827,13 +2849,20 @@ function FunnelTab({ supabase }) {
           </div>
         </div>
 
+        <p className="mb-4 text-xs leading-6 text-amber-100" role="status">
+          Browser-reported activity. Order submission is not confirmed payment, and stage counts do not establish ordered drop-off. Historical IDs may span multiple visits.
+          {coverage?.truncated && " This range is truncated: totals and rates are incomplete. Choose a shorter period."}
+          {Number(coverage?.legacy_events) > 0 && ` ${coverage.legacy_events} legacy events may use persistent browser IDs.`}
+          {coverage?.received_at && ` Retrieved ${coverage.received_at}.`}
+          {!coverage && " Coverage metadata is unavailable; completeness is unverified."}
+        </p>
         {/* KPI row */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
           {[
-            { label: "Sessions",      value: totalSessions.toLocaleString() },
+            { label: "Browser sessions / legacy IDs", value: totalSessions.toLocaleString() },
             { label: "Events",        value: totalEvents.toLocaleString() },
             { label: "Avg depth",     value: avgEventsPerSession + " events" },
-            { label: "Conversion",    value: overallCvr + "%" },
+            { label: "Order-submission rate", value: coverage?.truncated ? "Incomplete" : overallCvr + "%" },
           ].map(({ label, value }) => (
             <div key={label} className={card}>
               <div className="text-[10px] uppercase tracking-[0.18em] text-white/40 mb-1">{label}</div>
@@ -2855,9 +2884,6 @@ function FunnelTab({ supabase }) {
           <div className="space-y-3">
             {funnelData.map((step, i) => {
               const pct = topVisit > 0 ? (step.count / topVisit) * 100 : 0;
-              const dropPct = i > 0 && funnelData[i-1].count > 0
-                ? (((funnelData[i-1].count - step.count) / funnelData[i-1].count) * 100).toFixed(0)
-                : null;
               const barColor = i === 0 ? "#6bff8a" : i === 1 ? "#4ade80" : i === 2 ? "#22d3ee" : i === 3 ? "#a78bfa" : i === 4 ? "#f59e0b" : "#f87171";
               return (
                 <div key={step.key}>
@@ -2871,9 +2897,6 @@ function FunnelTab({ supabase }) {
                     <span className="text-sm font-bold text-white w-12 text-right">{step.count.toLocaleString()}</span>
                     <span className="text-xs text-white/40 w-10 text-right">{pct.toFixed(0)}%</span>
                   </div>
-                  {dropPct && Number(dropPct) > 0 && (
-                    <div className="ml-10 text-[11px] text-red-400/70 mb-1">▼ {dropPct}% dropped off</div>
-                  )}
                 </div>
               );
             })}
@@ -3029,6 +3052,14 @@ function FunnelTab({ supabase }) {
 
 export default function App() {
   const orderLoadInitiatedRef = useRef(false);
+  const oauthReturnRef = useRef(null);
+  if (oauthReturnRef.current === null) {
+    try {
+      oauthReturnRef.current = readOAuthReturn({ storage: window.sessionStorage, callback: initialOAuthCallback, catalog: PRODUCTS_BASE });
+    } catch {
+      oauthReturnRef.current = { status: initialOAuthCallback.marked ? "failed" : "none", cart: [] };
+    }
+  }
   const publicPathToPage = {
     "terms-and-conditions": "terms",
     "privacy-policy": "privacy",
@@ -3516,21 +3547,13 @@ export default function App() {
   );
   const [page, setPage] = useState(() => {
     if (typeof window === "undefined") return "home";
+    if (oauthReturnRef.current.status !== "none") return "account";
     const params = new URLSearchParams(window.location.search || "");
     const payment = (params.get("payment") || "").toLowerCase().trim();
     if (["success", "cancelled", "cancel", "failed"].includes(payment)) return "payment-return";
     const pathSlug = window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase().trim();
     if (publicPathToPage[pathSlug]) return publicPathToPage[pathSlug];
-    // Support both old ?product=slug and new /slug format
-    const productSlugFromQuery = (params.get("product") || "").toLowerCase().trim();
-    const productSlugFromPath = pathSlug;
-    const productSlug = productSlugFromPath || productSlugFromQuery;
-    if (productSlug) {
-      const hit = PRODUCTS_BASE.find(p =>
-        productSlug === productSlugFor(p) || productSlug === productSlugFor(p, true)
-      );
-      if (hit) return "product";
-    }
+    if (isProductRoute(PRODUCTS_BASE, window.location)) return "product";
     return "home";
   });
   const [researcherEntryAccepted, setResearcherEntryAccepted] = useState(
@@ -3543,6 +3566,8 @@ export default function App() {
 
   // Keep every public section on a stable, crawlable URL.
   useEffect(() => {
+    // Leave callback parameters intact until Supabase finishes its exchange.
+    if (oauthReturnRef.current.status === "pending") return;
     const publicPath = publicPageToPath[page];
     const path = window.location.pathname;
     if (publicPath) {
@@ -3587,22 +3612,38 @@ export default function App() {
       window.removeEventListener("resize", onScroll);
     };
   }, []);
-  const [cart, setCart] = useState([]);
-  const [selectedProduct, setSelectedProduct] = useState(() => {
-    if (typeof window === "undefined") return null;
-    const params2 = new URLSearchParams(window.location.search || "");
-    const productSlugFromQuery2 = (params2.get("product") || "").toLowerCase().trim();
-    const productSlugFromPath2 = window.location.pathname.replace(/^\//, "").toLowerCase().trim();
-    const productSlug = productSlugFromPath2 || productSlugFromQuery2;
-    if (!productSlug) return null;
-    return PRODUCTS_BASE.find(p =>
-      productSlug === productSlugFor(p) || productSlug === productSlugFor(p, true)
-    ) ?? null;
-  });
+  const [cart, setCart] = useState(() => oauthReturnRef.current.cart || []);
+  const [cartHydratedFor, setCartHydratedFor] = useState("");
+  const [selectedProduct, setSelectedProduct] = useState(() =>
+    typeof window === "undefined" ? null : resolveProductRoute(PRODUCTS_BASE, window.location)
+  );
+  useEffect(() => {
+    if (page !== "product" || !selectedProduct) return;
+    const nextPath = productSelectionPath(selectedProduct, window.location.search);
+    if (window.location.pathname + window.location.search !== nextPath) {
+      window.history.replaceState({}, "", nextPath);
+    }
+  }, [page, selectedProduct]);
   // ── SEO: dynamic meta/title/JSON-LD per page (invisible to users) ────────
   useSEO({ page, product: selectedProduct });
 
   const [authMode, setAuthMode] = useState("signin");
+  const [authMethod, setAuthMethod] = useState(defaultAuthMethod);
+  const [accountAuthBusy, setAccountAuthBusy] = useState(false);
+  const accountAuthBusyRef = useRef(false);
+  const [verificationKind, setVerificationKind] = useState("signup");
+  const [verificationEntryMode, setVerificationEntryMode] = useState("create");
+  const [emailCodeCooldown, setEmailCodeCooldown] = useState({ email: "", until: 0 });
+  const [emailCodeClock, setEmailCodeClock] = useState(Date.now());
+  useEffect(() => {
+    if (emailCodeCooldown.until <= Date.now()) return;
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      setEmailCodeClock(now);
+      if (now >= emailCodeCooldown.until) window.clearInterval(timer);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [emailCodeCooldown.until]);
   const [forgotEmail, setForgotEmail] = useState("");
   const [resetForm, setResetForm] = useState({ code: "", password: "", confirmPassword: "" });
   // Stores the Supabase recovery tokens in memory (never in localStorage).
@@ -3623,8 +3664,15 @@ export default function App() {
   const [signupVerificationEmail, setSignupVerificationEmail] = useState("");
   const [signupVerificationCode, setSignupVerificationCode] = useState("");
   const [signupVerificationBusy, setSignupVerificationBusy] = useState(false);
+  const signupVerificationBusyRef = useRef(false);
   const [pendingRegistrationPromoCode, setPendingRegistrationPromoCode] = useState("");
   const requireSignupVerificationRef = useRef(false);
+  const emailCodeWait = emailCodeWaitSeconds(emailCodeCooldown, authMode === "verify" ? signupVerificationEmail : accountForm.email, emailCodeClock);
+  function startEmailCodeCooldown(email) {
+    const now = Date.now();
+    setEmailCodeClock(now);
+    setEmailCodeCooldown({ email, until: now + EMAIL_CODE_COOLDOWN_SECONDS * 1000 });
+  }
   const [showAccountPassword, setShowAccountPassword] = useState(false);
   const [showAccountConfirmPassword, setShowAccountConfirmPassword] = useState(false);
   const [accountPromoCodeInput, setAccountPromoCodeInput] = useState("");
@@ -3636,6 +3684,8 @@ export default function App() {
   const [avatarSaveError, setAvatarSaveError] = useState("");
   const [avatarSaveStatus, setAvatarSaveStatus] = useState("");
   const [userOrders, setUserOrders] = useState([]);
+  const [customerOrderHistory, setCustomerOrderHistory] = useState({ status: "idle", orders: [] });
+  const customerOrderRequestRef = useRef(0);
   const [expandedOrders, setExpandedOrders] = useState(new Set());
   const [copiedOrderId, setCopiedOrderId] = useState(null);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -3674,7 +3724,7 @@ export default function App() {
   const [adminCreditLookup, setAdminCreditLookup] = useState(null);
   const [appliedPromo, setAppliedPromo] = useState(() => {
     try {
-      const saved = localStorage.getItem("tbv-applied-promo");
+      const saved = privateAccountState.getItem("tbv-applied-promo");
       return saved ? JSON.parse(saved) : null;
     } catch { return null; }
   });
@@ -3682,13 +3732,13 @@ export default function App() {
   const [affiliateDiscountDisabled, setAffiliateDiscountDisabled] = useState(false);
   const [affiliateManuallyApplied, setAffiliateManuallyApplied] = useState(false);
 
-  // Persist applied promo across sessions and redeployments
+  // Keep applied promo only for the active account in this tab
   useEffect(() => {
     try {
       if (appliedPromo) {
-        localStorage.setItem("tbv-applied-promo", JSON.stringify(appliedPromo));
+        privateAccountState.setItem("tbv-applied-promo", JSON.stringify(appliedPromo));
       } else {
-        localStorage.removeItem("tbv-applied-promo");
+        privateAccountState.removeItem("tbv-applied-promo");
       }
     } catch {}
   }, [appliedPromo]);
@@ -3711,7 +3761,7 @@ export default function App() {
   const [affiliatePayoutError, setAffiliatePayoutError] = useState(false);
   const [affiliateDataCode, setAffiliateDataCode] = useState("");
   const affiliateLoadRequestRef = useRef(0);
-  const [affiliatePaidOut, setAffiliatePaidOut] = useState(0);
+  const [affiliatePaidOut, setAffiliatePaidOut] = useState(null);
   const [activeAffiliateCode, setActiveAffiliateCode] = useState(() => {
     if (typeof window === "undefined") return "";
 
@@ -3882,13 +3932,10 @@ export default function App() {
     };
   }, []);
   const savedShopScrollY = useRef(0);
-  const productOriginPage = useRef("shop");
+  const productOriginPage = useRef(selectedProduct?.fromWarehouse === "us" ? "us-warehouse" : "shop");
   const productDetailOverlayClass =
     productOriginPage.current === "shop" ? "bg-black/60" : "bg-black/50";
-  const selectedProductUnavailable = Boolean(
-    selectedProduct?.outOfStock &&
-    (selectedProduct?.warehouse !== "us" || page === "us-warehouse" || productOriginPage.current === "us-warehouse")
-  );
+  const selectedProductUnavailable = Boolean(selectedProduct?.outOfStock);
   const selectedProductCartItem = selectedProduct
     ? cart.find((item) => getProductId(item) === getProductId(selectedProduct))
     : null;
@@ -4009,121 +4056,19 @@ export default function App() {
     const _payment = (_params.get("payment") || "").toLowerCase().trim();
     if (["success", "cancelled", "cancel", "failed"].includes(_payment)) {
       const _provider = (_params.get("provider") || "").toLowerCase().trim();
-      // CatalystPay always redirects to ?payment=success even on cancel.
-      // Start as "cancelled" immediately to prevent flashing ORDER CONFIRMED;
-      // the useEffect will upgrade to "success" if Supabase confirms paid.
-      const _status = (_payment === "cancel" ? "cancelled" : _payment === "success" && _provider === "catalystpay" ? "cancelled" : _payment);
+      // A provider return URL is not proof of payment. Verify the server record
+      // before rendering confirmation for any provider.
+      const _status = _payment === "success" ? "pending" : _payment === "cancel" ? "cancelled" : _payment;
       // Capture pi_id from URL — set by onSuccess handler or by Stripe's own
       // redirect (which appends ?payment_intent=pi_xxx for 3DS flows).
       const _piId = (_params.get("pi") || _params.get("payment_intent") || "").trim();
-      return { status: _status, order: _params.get("order") || "INV-DEMO", provider: _provider, piId: _piId };
+      return { status: _status, order: _params.get("order") || "", provider: _provider, piId: _piId, paymentId: _params.get("NP_id") || _params.get("payment_id") || "" };
     }
     return { status: "", order: "", provider: "", piId: "" };
   });
   const [paymentReturnOrder, setPaymentReturnOrder] = useState(null);
   useEffect(() => {
-    if (paymentReturn.status === "success" && paymentReturn.order === "INV-TEST2025") {
-      setPaymentReturnOrder({ id: "INV-TEST2025", email: "john.carter@gmail.com", status: "paid", total: 348, subtotal: 296, shipping: 52, shippingType: "standard", paymentProvider: "Stripe", firstName: "John", lastName: "Carter", country: "United States", address: "4812 Oak Ridge Drive", city: "Austin", state: "TX", postalCode: "78701", items: [{ name: "BPC-157", dose: "5mg", quantity: 2, price: 78 }, { name: "TB-500", dose: "5mg", quantity: 1, price: 82 }, { name: "Semaglutide", dose: "3mg", quantity: 1, price: 58 }] });
-      return;
-    }
-    if (paymentReturn.status === "success" && paymentReturn.order === "INV-MIX") {
-      setPaymentReturnOrder({ id: "INV-MIX", email: "sarah.kim@gmail.com", status: "paid", total: 498, subtotal: 438, shipping: 60, shippingType: "standard", paymentProvider: "Stripe", firstName: "Sarah", lastName: "Kim", country: "United States", address: "320 Sunset Blvd", city: "Los Angeles", state: "CA", postalCode: "90028", items: [{ name: "Retatrutide", dose: "20mg", quantity: 2, price: 119, fromWarehouse: "us" }, { name: "GHK-Cu", dose: "50mg", quantity: 1, price: 89, fromWarehouse: "us" }, { name: "BPC-157", dose: "5mg", quantity: 2, price: 78 }, { name: "TB-500", dose: "5mg", quantity: 1, price: 82 }] });
-      return;
-    }
-    if (paymentReturn.status === "success" && paymentReturn.provider === "stripe" && paymentReturn.order) {
-      (async () => {
-        try {
-          const { data } = await supabase
-            .from("orders")
-            .select("metadata,affiliate_code,affiliate_owner_email")
-            .eq("id", paymentReturn.order)
-            .single();
-          // localStorage has full order data saved before Stripe redirect.
-          // Use it as a fallback when Supabase SELECT returns sparse/empty metadata (RLS blocks user_id=null rows).
-          const storedOrder = getStoredOrders().find((o) => o.id === paymentReturn.order);
-          const storedMeta = storedOrder
-            ? {
-                email: storedOrder.email,
-                total: storedOrder.total,
-                subtotal: storedOrder.subtotal,
-                shipping: storedOrder.shipping,
-                shippingType: storedOrder.shippingType,
-                automaticDiscount: storedOrder.automaticDiscount,
-                promoDiscount: storedOrder.promoDiscount,
-                promoCode: storedOrder.promoCode,
-                affiliateDiscount: storedOrder.affiliateDiscount,
-                affiliateCode: storedOrder.affiliateCode,
-                affiliateOwnerEmail: storedOrder.affiliateOwnerEmail,
-                affiliateCommission: storedOrder.affiliateCommission,
-                storeCreditUsed: storedOrder.storeCreditUsed,
-                firstName: storedOrder.firstName,
-                lastName: storedOrder.lastName,
-                country: storedOrder.country,
-                address: storedOrder.address,
-                address2: storedOrder.address2,
-                city: storedOrder.city,
-                state: storedOrder.state,
-                postalCode: storedOrder.postalCode,
-                phone: storedOrder.phone,
-                items: storedOrder.items,
-              }
-            : {};
-          // Supabase data overrides localStorage where available
-          const prev = { ...storedMeta, ...(data?.metadata || {}) };
-          const affCode = String(prev.affiliateCode || data?.affiliate_code || "").trim().toUpperCase();
-
-          // ── Server-side Stripe verification + Supabase status update ──────
-          // The server verifies the payment intent with Stripe's API and writes
-          // status="paid" using the service role key — bypasses any RLS issues.
-          const piId = paymentReturn.piId || "";
-          try {
-            const confirmRes = await fetch("/api/confirm-stripe-payment", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ orderId: paymentReturn.order, paymentIntentId: piId }),
-            });
-            const confirmData = await confirmRes.json().catch(() => ({}));
-            if (!confirmData.confirmed) {
-              console.error("confirm-stripe-payment: payment not confirmed by server", confirmData);
-            } else if (!confirmData.dbUpdated) {
-              console.error("confirm-stripe-payment: DB update failed on server", confirmData.dbError);
-            } else {
-              console.log("confirm-stripe-payment: order marked paid server-side ✓");
-            }
-          } catch (confirmErr) {
-            console.error("confirm-stripe-payment fetch failed:", confirmErr);
-          }
-
-          // ── Affiliate order sync ──────────────────────────────────────────
-          let ownerEmail = prev.affiliateOwnerEmail || data?.affiliate_owner_email || "";
-          if (!ownerEmail && affCode) {
-            const { data: affRow } = await supabase
-              .from("affiliates")
-              .select("email")
-              .eq("code", affCode)
-              .maybeSingle();
-            if (affRow?.email) ownerEmail = String(affRow.email).trim().toLowerCase();
-          }
-
-          const commission = Number(prev.affiliateCommission) || Number(prev.subtotal || prev.total || 0) * 0.1;
-
-          if (affCode) {
-            const { error: affErr } = await supabase.from("affiliate_orders").upsert({
-              order_id: paymentReturn.order,
-              affiliate_code: affCode,
-              commission_amount: commission,
-              shipping_type: String(prev.shippingType || "standard").toLowerCase(),
-            }, { onConflict: "order_id" });
-            if (affErr) console.error("Stripe success: affiliate_orders upsert failed:", affErr.message);
-          }
-        } catch (e) {
-          console.error("Stripe success handler failed:", e);
-        }
-      })();
-    }
-  }, []);
-  useEffect(() => {
-    if (page !== "payment-return" || paymentReturn.status !== "success") return;
+    if (page !== "payment-return" || paymentReturn.status !== "success" || isAccountHistoryConfirmation(paymentReturn)) return;
     const isMobile = window.matchMedia("(max-width: 767px)").matches;
     const colors = ["#ff0000", "#ff8800", "#ffe600", "#9d00ff", "#00ff2a"];
 
@@ -4182,28 +4127,36 @@ export default function App() {
       if (Date.now() < end) requestAnimationFrame(frame);
     };
     frame();
-  }, [page, paymentReturn.status]);
+  }, [page, paymentReturn.status, paymentReturn.origin, paymentReturn.provider]);
   useEffect(() => {
-    if (paymentReturn.status === "success" && paymentReturn.order) {
-      const stored = getStoredOrders().find(o => o.id === paymentReturn.order);
-      if (stored) setPaymentReturnOrder(stored);
-      supabase.from("orders").select("metadata,items").eq("id", paymentReturn.order).single().then(({ data }) => {
-        if (data?.metadata && typeof data.metadata === "object" && !Array.isArray(data.metadata)) {
-          const sbMeta = data.metadata;
-          const sbItems = Array.isArray(sbMeta.items) && sbMeta.items.length > 0
-            ? sbMeta.items
-            : Array.isArray(data.items) && data.items.length > 0
-            ? data.items
-            : null;
-          const stored = getStoredOrders().find(o => o.id === paymentReturn.order);
-          const storedItems = Array.isArray(stored?.items) && stored.items.length > 0 ? stored.items : null;
-          const bestItems = sbItems || storedItems || [];
-          setPaymentReturnOrder({ ...sbMeta, items: bestItems });
-        }
-      });
-    }
-  }, [paymentReturn.order]);
-  const [pendingCheckoutAfterAuth, setPendingCheckoutAfterAuth] = useState(false);
+    if (page !== "payment-return" || !paymentReturn.order || paymentReturn.status !== "pending") return;
+    const requestScope = privateAccountState.capture();
+    return startVisiblePolling(async ({ attempt, signal }) => {
+      if (attempt === 1 && paymentReturn.provider === "stripe") {
+        await fetch("/api/confirm-stripe-payment", {
+          method: "POST", headers: { "Content-Type": "application/json" }, signal,
+          body: JSON.stringify({ orderId: paymentReturn.order, paymentIntentId: paymentReturn.piId || "" }),
+        });
+      }
+      // Only explicit crypto returns reconcile with NOWPayments; no order scans.
+      if ([1, 3, 6].includes(attempt) && paymentReturn.provider === "nowpayments") {
+        await fetch("/api/verify-nowpayments-payment", {
+          method: "POST", headers: { "Content-Type": "application/json" }, signal,
+          body: JSON.stringify({ order_id: paymentReturn.order, payment_id: paymentReturn.paymentId || undefined }),
+        });
+      }
+      if (signal.aborted || !privateAccountState.isCurrent(requestScope)) return false;
+      const orders = await markOrderPaidById(paymentReturn.order);
+      if (signal.aborted || !privateAccountState.isCurrent(requestScope)) return false;
+      if (orders.some(order => order.id === paymentReturn.order && isConfirmedPaidOrder(order))) {
+        setPaymentReturn(value => ({ ...value, status: "success" }));
+        setCart([]);
+        if (currentUser?.email) loadStoreCredit(currentUser.email);
+        return false;
+      }
+    }, { intervalMs: 5000, maxIntervalMs: 30000, maxAttempts: 8, backoff: true });
+  }, [page, paymentReturn.order, paymentReturn.provider, paymentReturn.status, currentUser?.email]);
+  const [pendingCheckoutAfterAuth, setPendingCheckoutAfterAuth] = useState(() => oauthReturnRef.current.returnTo === "cart");
   const [adminActiveTab, setAdminActiveTab] = useState("orders");
   const [revPeriod, setRevPeriod] = useState("month");
   const [analyticsFrom, setAnalyticsFrom] = useState("2026-04-01");
@@ -4294,11 +4247,15 @@ export default function App() {
   const [chartsFrom, setChartsFrom] = useState("");
   const [chartsTo, setChartsTo] = useState("");
   const [lineCostEdits, setLineCostEdits] = useState({}); // { "orderId-lineIdx": draftString }
+  const [supplierCostConfig, setSupplierCostConfig] = useState(null);
+  const [supplierCostLoadError, setSupplierCostLoadError] = useState("");
+  const [costScenarios, setCostScenarios] = useState({});
+
   const [adminAffiliates, setAdminAffiliates] = useState([]);
   const [adminAffiliatesLoading, setAdminAffiliatesLoading] = useState(false);
   const [copiedAffCode, setCopiedAffCode] = useState("");
   const [affPaidMap, setAffPaidMap] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("tbv-aff-paid") || "{}"); } catch { return {}; }
+    try { return JSON.parse(privateAccountState.getItem("tbv-aff-paid") || "{}"); } catch { return {}; }
   });
   const [affPaySaving, setAffPaySaving] = useState({});
   const [affPayErrors, setAffPayErrors] = useState({});
@@ -4313,7 +4270,7 @@ export default function App() {
   const [inventoryOosOnly, setInventoryOosOnly] = useState(false);
   const [adminInboxPage, setAdminInboxPage] = useState(1);
   const [readThreadTimestamps, setReadThreadTimestamps] = useState(() => {
-    try { return new Map(Object.entries(JSON.parse(localStorage.getItem("tbv_read_thread_ts") || "{}"))); } catch { return new Map(); }
+    try { return new Map(Object.entries(JSON.parse(privateAccountState.getItem("tbv_read_thread_ts") || "{}"))); } catch { return new Map(); }
   });
   const [adminDateFrom, setAdminDateFrom] = useState("");
   const [adminDateTo, setAdminDateTo] = useState("");
@@ -4360,6 +4317,10 @@ export default function App() {
   const [userInboxError, setUserInboxError] = useState("");
   const userInboxRequestIdRef = useRef(0);
   const userInboxEmailRef = useRef("");
+  const userInboxPendingRef = useRef(null);
+  const adminMessagesPendingRef = useRef(null);
+  const adminOrdersPendingRef = useRef(null);
+  const reactionsRequestRef = useRef({ pending: false, nextAllowedAt: 0, failures: 0 });
   const [expandedMsgId, setExpandedMsgId] = useState(null);
   const [contactComposeOpen, setContactComposeOpen] = useState(false);
 
@@ -4456,12 +4417,14 @@ export default function App() {
 
   // Save cart to Supabase user_metadata (debounced 1s) whenever it changes
   useEffect(() => {
-    if (!currentUser?.email) return;
+    if (!currentUser?.email || cartHydratedFor !== normalizeEmail(currentUser.email)) return;
+    const requestScope = privateAccountState.capture();
     const t = window.setTimeout(() => {
+      if (!privateAccountState.isCurrent(requestScope)) return;
       supabase.auth.updateUser({ data: { savedCart: cart } });
     }, 1000);
     return () => window.clearTimeout(t);
-  }, [cart, currentUser?.email]);
+  }, [cart, currentUser?.email, cartHydratedFor]);
 
   // Migrates a cart item saved under an old product name/dose/price to the
   // current canonical values so the server-side catalog lookup doesn't reject it
@@ -4514,10 +4477,14 @@ export default function App() {
   // Load + merge saved cart from Supabase when user logs in
   useEffect(() => {
     if (!currentUser?.email) return;
-    supabase.auth.getUser().then(({ data }) => {
+    const requestScope = privateAccountState.capture();
+    let cancelled = false;
+    setCartHydratedFor("");
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (cancelled || error || !privateAccountState.isCurrent(requestScope) || normalizeEmail(data?.user?.email) !== normalizeEmail(currentUser.email)) return;
       const savedCart = data?.user?.user_metadata?.savedCart;
-      if (!Array.isArray(savedCart) || savedCart.length === 0) return;
-      setCart((current) => {
+      if (savedCart !== undefined && !Array.isArray(savedCart)) return;
+      if (savedCart?.length) setCart((current) => {
         const merged = [...current];
         savedCart.forEach((raw) => {
           const savedItem = migrateCartItem(raw);
@@ -4527,39 +4494,27 @@ export default function App() {
         });
         return merged;
       });
-    });
+      setCartHydratedFor(normalizeEmail(currentUser.email));
+    }).catch(() => { /* Do not overwrite an account cart when its read failed. */ });
+    return () => { cancelled = true; };
   }, [currentUser?.email]);
 
-  const unreadPollEmailRef = useRef(null);
   useEffect(() => {
-    unreadPollEmailRef.current = currentUser?.email?.toLowerCase() || null;
-  });
-
-  useEffect(() => {
-    if (!currentUser?.email) { setHasUnreadReply(false); return; }
-    let active = true;
-    async function poll() {
-      const email = unreadPollEmailRef.current;
-      if (!email || !active) return;
-      const { data } = await supabase
+    if (!currentUser?.email || supportConversationOpen) return;
+    // A lightweight badge query is sufficient while the conversation is closed.
+    const email = currentUser.email.toLowerCase();
+    const requestScope = privateAccountState.capture();
+    return startVisiblePolling(async () => {
+      const { data, error } = await supabase
         .from("contact_messages")
         .select("id")
         .eq("email", email)
         .not("admin_reply", "is", null)
         .is("user_read_at", null)
         .limit(1);
-      if (active) setHasUnreadReply((data || []).length > 0);
-    }
-    poll();
-    const id = window.setInterval(poll, 5000);
-    return () => { active = false; window.clearInterval(id); };
-  }, [currentUser?.email]);
-
-  useEffect(() => {
-    if (!currentUser?.email || supportConversationOpen) return;
-    loadUserInbox(false);
-    const pid = window.setInterval(() => loadUserInbox(true), 10000);
-    return () => window.clearInterval(pid);
+      if (error) throw error;
+      if (privateAccountState.isCurrent(requestScope)) setHasUnreadReply((data || []).length > 0);
+    }, { intervalMs: 60000 });
   }, [currentUser?.email, supportConversationOpen]);
 
   useEffect(() => {
@@ -4573,15 +4528,18 @@ export default function App() {
       setAdminIsTyping(false);
       return;
     }
-    loadUserInbox(false, true);
-    const pid = window.setInterval(() => loadUserInbox(true, true), 10000);
+    let initial = true;
+    const stopPolling = startVisiblePolling(async () => {
+      await loadUserInbox(!initial, true);
+      initial = false;
+    }, { intervalMs: 30000 });
     const email = (currentUser?.email || contactForm.email.trim() || "").toLowerCase();
     if (email) setupTypingChannel(email);
     return () => {
-      window.clearInterval(pid);
+      stopPolling();
       if (typingChannelRef.current) { supabase.removeChannel(typingChannelRef.current); typingChannelRef.current = null; }
     };
-  }, [supportConversationOpen]);
+  }, [supportConversationOpen, currentUser?.email]);
 
   const prevSupportConversationOpen = useRef(false);
   const scrollInboxToBottom = () => {
@@ -4875,8 +4833,8 @@ export default function App() {
       alert("Send failed: " + error.message);
       return;
     }
-    // Remember this email so guest users (not logged in) can still reload their own thread later
-    if (email) { try { window.localStorage.setItem("tbv_guest_email", email); } catch {} }
+    // Remember this email only for the current tab; do not persist support identities
+    if (email) { try { privateAccountState.setItem("tbv_guest_email", email); } catch {} }
     // Clear input and add optimistic message immediately
     setContactForm((f) => ({ ...f, message: "" }));
     setReplyPreview(null);
@@ -4887,27 +4845,41 @@ export default function App() {
   }
 
   async function loadAdminMessages() {
+    if (!isAdminUser()) return;
+    const requestScope = privateAccountState.capture();
+    if (adminMessagesPendingRef.current?.scope === requestScope) return;
+    const request = { scope: requestScope };
+    adminMessagesPendingRef.current = request;
     setAdminMessagesLoading(true);
-    const { data } = await supabase.from("contact_messages").select("*").order("created_at", { ascending: false });
-    setAdminMessages(data || []);
-    setAdminMessagesLoading(false);
-    loadReactions();
+    try {
+      const { data, error } = await supabase.from("contact_messages").select("*").order("created_at", { ascending: false });
+      if (!privateAccountState.isCurrent(requestScope)) return;
+      if (error) throw error;
+      setAdminMessages(data || []);
+      if (page === "admin" && adminActiveTab === "inbox") loadReactions();
+    } catch {
+      if (privateAccountState.isCurrent(requestScope)) setAdminMessage("Support messages could not be refreshed.");
+    } finally {
+      if (adminMessagesPendingRef.current === request) adminMessagesPendingRef.current = null;
+      if (privateAccountState.isCurrent(requestScope)) setAdminMessagesLoading(false);
+    }
   }
 
   useEffect(() => {
-    if (!isAdminUser()) return;
-    const id = window.setInterval(loadAdminMessages, 30000);
-    return () => window.clearInterval(id);
-  }, [currentUser?.email]);
+    if (!isAdminUser() || page !== "admin") return;
+    return startVisiblePolling(loadAdminMessages, {
+      intervalMs: adminActiveTab === "inbox" ? 30000 : 120000,
+    });
+  }, [currentUser?.email, page, adminActiveTab]);
 
   const [adminInboxLastSeen, setAdminInboxLastSeen] = useState(
-    () => localStorage.getItem("tbv-admin-inbox-seen") || ""
+    () => privateAccountState.getItem("tbv-admin-inbox-seen") || ""
   );
 
   useEffect(() => {
     if (page === "admin" && isAdminUser()) {
       const now = new Date().toISOString();
-      localStorage.setItem("tbv-admin-inbox-seen", now);
+      privateAccountState.setItem("tbv-admin-inbox-seen", now);
       setAdminInboxLastSeen(now);
       // Preload jsPDF so invoice download is instant on first click
       if (!window.jspdf) {
@@ -4927,7 +4899,6 @@ export default function App() {
     if (ADMIN_EMAILS.includes(normalizeEmail(currentUser.email))) return;
     if (orderLoadInitiatedRef.current) return;
     orderLoadInitiatedRef.current = true;
-    console.log("[TBV] auto-trigger: calling refresh for", currentUser?.email);
     refreshUserOrdersFromSupabase();
   }, [page, currentUser?.email]);
 
@@ -4967,10 +4938,20 @@ export default function App() {
   }
 
   async function loadReactions() {
+    if (document.hidden || !(supportConversationOpenRef.current || (page === "admin" && adminActiveTab === "inbox"))) return;
+    const requestScope = privateAccountState.capture();
+    const request = reactionsRequestRef.current;
+    if (request.unavailable || request.pending || Date.now() < request.nextAllowedAt) return;
+    request.pending = true;
     try {
-      const resp = await fetch("/api/reactions");
-      if (!resp.ok) return;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!privateAccountState.isCurrent(requestScope)) return;
+      const headers = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+      const resp = await fetch("/api/reactions", { headers, cache: "no-store" });
+      if ([404, 410].includes(resp.status)) { request.unavailable = true; return; }
+      if (!resp.ok) throw new Error("Reactions unavailable");
       const data = await resp.json();
+      if (!privateAccountState.isCurrent(requestScope)) return;
       const flat = {};
       for (const [msgId, sides] of Object.entries(data)) {
         flat[`in_${msgId}`] = sides.msg || {};
@@ -4978,8 +4959,14 @@ export default function App() {
         flat[`usr_sent_${msgId}`] = sides.msg || {};
         flat[`usr_rcvd_${msgId}`] = sides.reply || {};
       }
+      request.failures = 0;
       setMsgReactions(flat);
-    } catch {}
+    } catch {
+      request.failures += 1;
+    } finally {
+      request.pending = false;
+      request.nextAllowedAt = Date.now() + Math.min(300000, 30000 * (2 ** Math.min(request.failures, 4)));
+    }
   }
 
   async function toggleReaction(rKey, emoji) {
@@ -5168,11 +5155,10 @@ export default function App() {
   }
 
   async function loadUserInbox(silent = false, markVisibleRead = false) {
-    // Logged-in users use their account email; guests use the entered email,
-    // falling back to the last saved guest email after a reload.
+    // Logged-in users use their account email; guest identity lives only in this tab.
     let email = currentUser?.email || contactForm.email.trim();
     if (!email) {
-      try { email = window.localStorage.getItem("tbv_guest_email") || ""; } catch {}
+      try { email = privateAccountState.getItem("tbv_guest_email") || ""; } catch {}
     }
     if (!email) {
       userInboxRequestIdRef.current += 1;
@@ -5189,14 +5175,19 @@ export default function App() {
       setUserInboxError("");
       setHasUnreadReply(false);
     }
+    const requestScope = privateAccountState.capture();
+    if (userInboxPendingRef.current?.scope === requestScope && userInboxPendingRef.current?.email === email) return;
+    const request = { scope: requestScope, email };
+    userInboxPendingRef.current = request;
     const requestId = ++userInboxRequestIdRef.current;
     if (!silent) setUserInboxLoading(true);
+    try {
     const { data, error } = await supabase
       .from("contact_messages")
       .select("*")
       .eq("email", email)
       .order("created_at", { ascending: true });
-    if (requestId !== userInboxRequestIdRef.current) return;
+    if (requestId !== userInboxRequestIdRef.current || !privateAccountState.isCurrent(requestScope)) return;
     if (error) {
       console.error("Support inbox load failed:", error);
       setUserInboxError("Messages could not be loaded. Please try again.");
@@ -5210,7 +5201,10 @@ export default function App() {
     if (markVisibleRead && supportConversationOpenRef.current && currentUser?.email?.toLowerCase() === email) {
       markRepliesRead(data || [], email).catch((readError) => console.error("Support read status update failed:", readError));
     }
-    loadReactions();
+    if (supportConversationOpenRef.current) loadReactions();
+    } finally {
+      if (userInboxPendingRef.current === request) userInboxPendingRef.current = null;
+    }
   }
 
   function getAffiliateCommissionBaseAmount(order) {
@@ -5271,6 +5265,7 @@ export default function App() {
   }
 
   async function loadStoreCredit(email) {
+    const requestScope = privateAccountState.capture();
     if (!email) return;
     try {
       const { data } = await supabase
@@ -5278,6 +5273,7 @@ export default function App() {
         .select("amount")
         .eq("email", email.toLowerCase().trim())
         .maybeSingle();
+      if (!privateAccountState.isCurrent(requestScope)) return;
       setStoreCredit(data ? Number(data.amount ?? 0) : 0);
     } catch { /* ignore */ }
   }
@@ -5329,11 +5325,13 @@ export default function App() {
 
   async function fetchUserPromos(email, currentAppliedPromo) {
     if (!email) return;
+    const requestScope = privateAccountState.capture();
     try {
       const [{ data, error }, { data: pubData }] = await Promise.all([
         supabase.from("user_promos").select("*").eq("email", String(email).trim().toLowerCase()),
         supabase.from("user_promos").select("*").eq("email", "__PUBLIC__"),
       ]);
+      if (!privateAccountState.isCurrent(requestScope)) return;
       if (!error && Array.isArray(data)) {
         const publicPromoRows = Array.isArray(pubData) ? pubData : [];
         const activePromos = [...data.filter((p) => !p.used), ...publicPromoRows];
@@ -5817,11 +5815,11 @@ export default function App() {
     } catch (e) {
       console.error("Bulk delete affiliate_orders error:", e);
     }
-    const deletedIds = new Set(JSON.parse(localStorage.getItem("tbv-deleted-order-ids") || "[]"));
+    const deletedIds = new Set(JSON.parse(privateAccountState.getItem("tbv-deleted-order-ids") || "[]"));
     ids.forEach((id) => deletedIds.add(id));
-    localStorage.setItem("tbv-deleted-order-ids", JSON.stringify([...deletedIds]));
+    privateAccountState.setItem("tbv-deleted-order-ids", JSON.stringify([...deletedIds]));
     const next = getStoredOrders().filter((o) => !ids.includes(o.id));
-    localStorage.setItem("tbv-orders", JSON.stringify(next));
+    privateAccountState.setItem("tbv-orders", JSON.stringify(next));
     setAllOrders((prev) => prev.filter((o) => !ids.includes(o.id)));
     await loadOrdersFromSupabase();
   }
@@ -5840,11 +5838,11 @@ export default function App() {
       console.error("Delete affiliate_orders error:", e);
     }
     // Persist deleted ID so it stays hidden even after Supabase reload
-    const deletedIds = JSON.parse(localStorage.getItem("tbv-deleted-order-ids") || "[]");
+    const deletedIds = JSON.parse(privateAccountState.getItem("tbv-deleted-order-ids") || "[]");
     if (!deletedIds.includes(orderId)) deletedIds.push(orderId);
-    localStorage.setItem("tbv-deleted-order-ids", JSON.stringify(deletedIds));
+    privateAccountState.setItem("tbv-deleted-order-ids", JSON.stringify(deletedIds));
     const next = getStoredOrders().filter((o) => o.id !== orderId);
-    localStorage.setItem("tbv-orders", JSON.stringify(next));
+    privateAccountState.setItem("tbv-orders", JSON.stringify(next));
     setAllOrders(next);
   }
 
@@ -5960,7 +5958,7 @@ export default function App() {
 
   function getStoredOrders() {
     try {
-      const parsed = JSON.parse(localStorage.getItem("tbv-orders") || "[]");
+      const parsed = JSON.parse(privateAccountState.getItem("tbv-orders") || "[]");
       return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
@@ -5968,7 +5966,7 @@ export default function App() {
   }
 
   function saveStoredOrders(nextOrders) {
-    localStorage.setItem("tbv-orders", JSON.stringify(nextOrders));
+    privateAccountState.setItem("tbv-orders", JSON.stringify(nextOrders));
     setAllOrders(nextOrders);
   }
 
@@ -5992,20 +5990,40 @@ export default function App() {
 
   const [isRefreshingUserOrders, setIsRefreshingUserOrders] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+  const accountOrders = isAdminUser() ? userOrders : customerOrderHistory.orders;
+  const accountOrdersReadStatus = isAdminUser() ? "complete" : customerOrderHistory.status;
+  const isHistoryConfirmation = isAccountHistoryConfirmation(paymentReturn);
 
   async function refreshUserOrdersFromSupabase(email = currentUser?.email) {
+    const requestScope = privateAccountState.capture();
     if (!email) { console.log("[TBV] refreshOrders: no email, skipping"); return; }
-    console.log("[TBV] refreshOrders: start for", email);
+    if (!isAdminUser()) {
+      const requestId = ++customerOrderRequestRef.current;
+      const isCurrentRequest = () => customerOrderRequestRef.current === requestId && privateAccountState.isCurrent(requestScope);
+      setIsRefreshingUserOrders(true);
+      setCustomerOrderHistory({ status: "loading", orders: [] });
+      try {
+        const orders = await loadAccountOrders({ supabase, expectedEmail: email, isCurrent: isCurrentRequest });
+        if (!orders || !isCurrentRequest()) return;
+        setCustomerOrderHistory({ status: "complete", orders });
+        setUserOrders(orders);
+      } catch (error) {
+        if (!isCurrentRequest()) return;
+        setCustomerOrderHistory({ status: "error", orders: [] });
+      } finally {
+        if (isCurrentRequest()) setIsRefreshingUserOrders(false);
+      }
+      return;
+    }
+    // Preserve the separate administrator flow during this customer-only migration.
     setIsRefreshingUserOrders(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      console.log("[TBV] refreshOrders: session user=", session?.user?.email || "none");
       const { data, error } = await supabase
         .from("orders")
         .select("*")
         .eq("email", normalizeEmail(email))
         .order("created_at", { ascending: false });
-      console.log("[TBV] refreshOrders: result rows=", data?.length, "error=", error?.message);
       if (error) throw new Error(error.message);
       const rows = Array.isArray(data) ? data : [];
       const reconstructed = rows.map((sbOrder) => {
@@ -6030,10 +6048,11 @@ export default function App() {
             items: mergedItems,
             id: sbOrder.id ?? meta.id,
             invoiceId: meta.invoiceId || "",
-            email: meta.email || sbOrder.email || "",
-            total: meta.total ?? sbOrder.total ?? 0,
-            status: sbOrder.status ?? meta.status ?? "pending",
-            createdAt: meta.createdAt || sbOrder.created_at || "",
+            email: sbOrder.email || "",
+            total: sbOrder.total ?? null,
+            status: sbOrder.status || "pending",
+            createdAt: sbOrder.created_at || meta.createdAt || "",
+            paidAt: sbOrder.paid_at || "",
             paymentProvider: sbOrder.payment_provider || meta.paymentProvider || "",
             paymentId: sbOrder.payment_id || meta.paymentId || "",
             affiliateCommissionAdjustment:
@@ -6044,7 +6063,7 @@ export default function App() {
           id: sbOrder.id,
           invoiceId: "",
           email: sbOrder.email || "",
-          total: sbOrder.total ?? 0,
+          total: sbOrder.total ?? null,
           status: sbOrder.status || "pending",
           createdAt: sbOrder.created_at || "",
           items: sbOrder.items || [],
@@ -6053,28 +6072,29 @@ export default function App() {
         };
       });
 
-      const existingOrders = getStoredOrders();
-      const existingMap = new Map(existingOrders.map((o) => [o.id, o]));
-      for (const order of reconstructed) {
-        const existing = existingMap.get(order.id) || {};
-        const existingItems = Array.isArray(existing.items) && existing.items.length > 0 ? existing.items : null;
-        const newItems = Array.isArray(order.items) && order.items.length > 0 ? order.items : null;
-        existingMap.set(order.id, { ...existing, ...order, items: newItems || existingItems || [] });
-      }
-      const merged = Array.from(existingMap.values()).sort(
-        (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-      );
-      localStorage.setItem("tbv-orders", JSON.stringify(merged));
+      if (!privateAccountState.isCurrent(requestScope)) return;
+      const merged = reconstructed;
+      privateAccountState.setItem("tbv-orders", JSON.stringify(merged));
       setAllOrders(merged);
       setUserOrders(getPaidOrdersForEmail(email, merged));
     } catch (err) {
+      if (!privateAccountState.isCurrent(requestScope)) return;
       console.error("Failed to refresh user orders:", err);
+      privateAccountState.removeItem("tbv-orders");
+      setAllOrders([]);
+      setUserOrders([]);
+      setAccountMessage("Orders could not be refreshed. Please try again.");
     } finally {
-      setIsRefreshingUserOrders(false);
+      if (privateAccountState.isCurrent(requestScope)) setIsRefreshingUserOrders(false);
     }
   }
 
   async function loadOrdersFromSupabase() {
+    if (!isAdminUser()) return;
+    const requestScope = privateAccountState.capture();
+    if (adminOrdersPendingRef.current?.scope === requestScope) return;
+    const request = { scope: requestScope };
+    adminOrdersPendingRef.current = request;
     setIsLoadingOrders(true);
     try {
       // Paginate through all orders (Supabase server caps at 1000 per request)
@@ -6087,6 +6107,7 @@ export default function App() {
           .select("*")
           .order("created_at", { ascending: false })
           .range(from, from + PAGE - 1);
+        if (!privateAccountState.isCurrent(requestScope)) return;
         if (batchErr) throw new Error(batchErr.message);
         const rows = Array.isArray(batch) ? batch : [];
         allFetched = allFetched.concat(rows);
@@ -6096,7 +6117,7 @@ export default function App() {
       const supabaseOrders = allFetched;
 
       // Filter out orders permanently deleted by admin
-      const deletedIds = new Set(JSON.parse(localStorage.getItem("tbv-deleted-order-ids") || "[]"));
+      const deletedIds = new Set(JSON.parse(privateAccountState.getItem("tbv-deleted-order-ids") || "[]"));
       const filteredSupabaseOrders = supabaseOrders.filter((o) => !deletedIds.has(o.id));
 
       const reconstructed = filteredSupabaseOrders.map((sbOrder) => {
@@ -6128,10 +6149,11 @@ export default function App() {
             items: mergedItems,
             id: sbOrder.id ?? meta.id,
             invoiceId: meta.invoiceId || "",
-            email: meta.email || sbOrder.email || "",
-            total: meta.total ?? sbOrder.total ?? 0,
-            status: sbOrder.status ?? meta.status ?? "pending",
-            createdAt: meta.createdAt || sbOrder.created_at || "",
+            email: sbOrder.email || "",
+            total: sbOrder.total ?? null,
+            status: sbOrder.status || "pending",
+            createdAt: sbOrder.created_at || meta.createdAt || "",
+            paidAt: sbOrder.paid_at || "",
             paymentProvider: sbOrder.payment_provider || meta.paymentProvider || "",
             paymentId: sbOrder.payment_id || meta.paymentId || "",
             affiliateCommissionAdjustment:
@@ -6146,7 +6168,7 @@ export default function App() {
         return {
           id: sbOrder.id,
           email: sbOrder.email || "",
-          total: sbOrder.total ?? 0,
+          total: sbOrder.total ?? null,
           subtotal: sbOrder.subtotal ?? sbOrder.total ?? 0,
           status: sbOrder.status || "pending",
           createdAt: sbOrder.created_at || "",
@@ -6165,201 +6187,32 @@ export default function App() {
         };
       });
 
-      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-      const localTestOrders = getStoredOrders().filter(
-        (o) =>
-          String(o.id).startsWith("TEST-") &&
-          new Date(o.createdAt || 0).getTime() > cutoff
-      );
-      const supabaseIds = new Set(reconstructed.map((o) => o.id));
-      const freshTestOrders = localTestOrders.filter((o) => !supabaseIds.has(o.id));
-      const withTest = [...freshTestOrders, ...reconstructed];
+      // Only rows returned by the authenticated server are reporting inputs.
+      if (!privateAccountState.isCurrent(requestScope)) return;
+      const serverOrders = reconstructed;
 
-      withTest.sort((a, b) => {
+      serverOrders.sort((a, b) => {
         const da = new Date(a.createdAt || a.created_at || 0).getTime();
         const db = new Date(b.createdAt || b.created_at || 0).getTime();
         return db - da;
       });
 
-      // Retroactive affiliate fix: for paid orders that have an affiliateCode but no
-      // affiliateOwnerEmail stored, look up the owner from the affiliates table and
-      // patch both the orders row and affiliate_orders. Fire-and-forget, best effort.
-      (async () => {
-        try {
-          const needsFix = withTest.filter(
-            (o) =>
-              o.affiliateCode &&
-              !o.affiliateOwnerEmail &&
-              ["paid", "done"].includes(String(o.status || "").toLowerCase())
-          );
-          if (needsFix.length === 0) return;
-
-          const codes = [...new Set(needsFix.map((o) => String(o.affiliateCode).trim().toUpperCase()))];
-          const { data: affRows } = await supabase
-            .from("affiliates")
-            .select("code,email")
-            .in("code", codes);
-
-          if (!Array.isArray(affRows) || affRows.length === 0) return;
-          const codeToEmail = Object.fromEntries(
-            affRows.map((r) => [String(r.code).trim().toUpperCase(), String(r.email).trim().toLowerCase()])
-          );
-
-          for (const o of needsFix) {
-            const code = String(o.affiliateCode).trim().toUpperCase();
-            const ownerEmail = codeToEmail[code];
-            if (!ownerEmail) continue;
-
-            // Patch in-memory order
-            o.affiliateOwnerEmail = ownerEmail;
-
-            // Patch Supabase orders row
-            const metaPatch = o.metadata && typeof o.metadata === "object"
-              ? { ...o.metadata, affiliateOwnerEmail: ownerEmail }
-              : undefined;
-            const upsertPayload = {
-              id: o.id,
-              affiliate_owner_email: ownerEmail,
-              ...(metaPatch ? { metadata: metaPatch } : {}),
-            };
-            supabase.from("orders").upsert(upsertPayload).then(() => {});
-
-            // Ensure affiliate_orders row exists
-            supabase.from("affiliate_orders").upsert({
-              order_id: o.id,
-              affiliate_code: code,
-              commission_amount: Number(o.affiliateCommission) || Number(o.subtotal || o.total || 0) * 0.1,
-              shipping_type: String(o.shippingType || "standard").toLowerCase(),
-            }, { onConflict: "order_id" }).then(() => {});
-          }
-        } catch (e) {
-          console.error("Retroactive affiliate fix failed:", e);
-        }
-      })();
-
-      localStorage.setItem("tbv-orders", JSON.stringify(withTest));
-      setAllOrders(withTest);
+      privateAccountState.setItem("tbv-orders", JSON.stringify(serverOrders));
+      setAllOrders(serverOrders);
       if (currentUser?.email) {
-        setUserOrders(getPaidOrdersForEmail(currentUser.email, withTest));
+        setUserOrders(getPaidOrdersForEmail(currentUser.email, serverOrders));
       }
 
-      // Self-healing safety net: the NOWPayments IPN webhook occasionally fails to
-      // flip an order to "paid" in Supabase even though the payment itself is
-      // genuinely confirmed (confirmation email already sent) — root cause not
-      // fully pinned down yet, so instead of relying solely on the webhook, every
-      // time the admin panel loads orders we re-check any order still stuck in
-      // "checkout (clicked pay)" directly against NOWPayments' own API and let the
-      // server apply the same paid-order logic if it's actually confirmed. Cheap
-      // no-op for non-crypto orders (NOWPayments simply reports no match).
-      (async () => {
-        try {
-          const now = Date.now();
-          const stuck = withTest.filter((o) => {
-            const status = String(o.status || "").toLowerCase();
-            if (status !== "checkout (clicked pay)" && status !== "checkout") return false;
-            const age = now - new Date(o.createdAt || o.created_at || 0).getTime();
-            return age > 2 * 60 * 1000 && age < 7 * 24 * 60 * 60 * 1000;
-          });
-          for (const o of stuck) {
-            fetch("/api/verify-nowpayments-payment", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ order_id: o.id, payment_id: o.paymentId || undefined }),
-            })
-              .then((r) => r.json())
-              .then((result) => {
-                if (result?.dbMarkedPaid || result?.alreadyPaidInDb) loadOrdersFromSupabase();
-              })
-              .catch(() => {});
-          }
-        } catch (e) {
-          console.error("Stuck-order reconciliation failed:", e);
-        }
-      })();
+      // Provider reconciliation runs only for the active payment return.
     } catch (error) {
-      console.error("Failed to load orders from Supabase, falling back to localStorage", error);
-      const localOrders = getStoredOrders();
-      setAllOrders(localOrders);
+      if (!privateAccountState.isCurrent(requestScope)) return;
+      console.error("Failed to load orders from Supabase", error);
+      privateAccountState.removeItem("tbv-orders");
+      setAllOrders([]);
+      setAdminMessage("Orders could not be loaded. No cached financial data is being shown.");
     } finally {
-      setIsLoadingOrders(false);
-    }
-  }
-
-  async function sendPaymentConfirmedEmail(order) {
-    if (!order?.email || order?.confirmationEmailSentAt) return;
-    // Stripe, NOWPayments (crypto) and Paylio all have server-side webhooks
-    // (api/stripe-webhook.js, api/_nowpayments-shared.js, api/paylio-callback.js)
-    // that already send the confirmation email themselves, using the
-    // authoritative Supabase order record (correct discounts/store credit/total).
-    // Sending it again from here used a stale localStorage-cached `order` object
-    // (built before the crypto discount/store-credit fields were fully known),
-    // which caused a second email with a wrong, undiscounted total for crypto
-    // orders. Only providers without their own webhook (PayPal, wire transfer)
-    // still need this client-side send.
-    const provider = String(order.paymentProvider || "").toLowerCase();
-    const hasServerWebhookEmail =
-      provider === "stripe" ||
-      provider === "paylio" ||
-      provider.includes("nowpayments") ||
-      provider.includes("catalystpay") ||
-      provider.includes("cashapp") ||
-      provider.includes("crypto") ||
-      provider.includes("usdt") ||
-      provider.includes("usdc") ||
-      provider.includes("btc") ||
-      provider.includes("eth") ||
-      provider.includes("·");
-    if (hasServerWebhookEmail) return;
-
-    try {
-      const res = await fetch("/api/send-payment-confirmed-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId: order.id,
-          email: order.email,
-          total: order.total,
-          subtotal: order.subtotal || 0,
-          shipping: order.shipping || 0,
-          automaticDiscount: order.automaticDiscount || 0,
-          promoDiscount: order.promoDiscount || 0,
-          affiliateDiscount: order.affiliateDiscount || 0,
-          affiliateCode: order.affiliateCode || "",
-          affiliateOwnerEmail: order.affiliateOwnerEmail || "",
-          affiliateCommission: order.affiliateCommission || 0,
-          shippingType: order.shippingType,
-          items: (order.items || []).map((item) => ({ ...item, name: publicProductName(item.name) })),
-          paymentProvider: order.paymentProvider || "Crypto",
-          paymentId: order.paymentId || "",
-          firstName: order.firstName || "",
-          lastName: order.lastName || "",
-          address: order.address || "",
-          address2: order.address2 || "",
-          city: order.city || "",
-          state: order.state || "",
-          postalCode: order.postalCode || "",
-          phone: order.phone || "",
-          country: order.country || "",
-        }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error || data?.message || "Payment confirmation email failed");
-      }
-
-      const orders = getStoredOrders();
-      const nextOrders = orders.map((savedOrder) =>
-        savedOrder.id === order.id
-          ? { ...savedOrder, confirmationEmailSentAt: new Date().toISOString() }
-          : savedOrder
-      );
-      saveStoredOrders(nextOrders);
-      if (currentUser?.email) {
-        setUserOrders(getPaidOrdersForEmail(currentUser.email, nextOrders));
-      }
-    } catch (error) {
-      console.error("Failed to send payment confirmation email", error);
+      if (adminOrdersPendingRef.current === request) adminOrdersPendingRef.current = null;
+      if (privateAccountState.isCurrent(requestScope)) setIsLoadingOrders(false);
     }
   }
 
@@ -6402,234 +6255,19 @@ export default function App() {
     }
   }
 
-  function markOrderPaidById(orderId, paymentProvider = "NOWPayments", paymentId = "") {
+  async function markOrderPaidById(orderId) {
     if (!orderId) return [];
-
-    const orders = getStoredOrders();
-    let paidOrder = null;
-    let wasAlreadyPaid = false;
-    const nextOrders = orders.map((savedOrder) => {
-      if (savedOrder.id !== orderId) return savedOrder;
-
-      wasAlreadyPaid = String(savedOrder.status || "").toLowerCase() === "paid";
-      const updatedOrder = {
-        ...savedOrder,
-        status: "paid",
-        paymentProvider,
-        paymentId: paymentId || savedOrder.paymentId || "",
-        paidAt: savedOrder.paidAt || new Date().toISOString(),
-      };
-      paidOrder = updatedOrder;
-      return updatedOrder;
-    });
-
+    const requestScope = privateAccountState.capture();
+    const { data, error } = await supabase.from("orders").select("*").eq("id", orderId).single();
+    if (!privateAccountState.isCurrent(requestScope)) return [];
+    const order = serverOrder(data);
+    if (error || !isConfirmedPaidOrder(order)) return [];
+    const nextOrders = [order, ...getStoredOrders().filter(saved => saved.id !== orderId)];
     saveStoredOrders(nextOrders);
-
-    if (paidOrder && !wasAlreadyPaid) {
-      const paidAt = paidOrder.paidAt || new Date().toISOString();
-      // Status in Supabase is set ONLY by server-side webhooks (Stripe / Paylio / NOWPayments).
-      // The frontend must not write status:"paid" — it creates false positives when the
-      // payment provider redirects to the success URL before the payment is confirmed.
-
-      if (paidOrder.affiliateCode) {
-        supabase
-          .from("affiliate_orders")
-          .upsert({
-            order_id: paidOrder.id,
-            affiliate_code: String(paidOrder.affiliateCode).trim().toUpperCase(),
-            commission_amount: Number(paidOrder.affiliateCommission) || Number(paidOrder.subtotal || paidOrder.total || 0) * 0.1,
-            shipping_type: String(paidOrder.shippingType || "standard").toLowerCase(),
-          })
-          .then(({ error }) => { if (error) console.error("Supabase: insert affiliate_orders failed:", error.message); });
-      }
-
-      // Store credit is now deducted server-side by the payment webhooks
-      // (Stripe / CatalystPay / NOWPayments / Paylio), right when they mark
-      // the order paid — this is the authoritative, always-runs-once path.
-      // The frontend must NOT also deduct it here: doing so from a
-      // read-then-write on the client, in addition to the same pattern
-      // running server-side, could double-deduct the same order's credit
-      // if both happened to run (e.g. a slow client poll racing the
-      // webhook). The caller already refreshes the displayed balance via
-      // loadStoreCredit(creditEmail) right after this function returns.
-    }
-
-    if (paidOrder && !wasAlreadyPaid) {
-      if (appliedPromo?.type === "general") {
-        setUsedPromoCodes((current) => [...current, appliedPromo.code]);
-        setAppliedPromo(null);
-      }
-      if (appliedPromo?.type === "user_promo" && appliedPromo?.id) {
-        const promoId = appliedPromo.id;
-        const promoCode = appliedPromo.code;
-        setUsedPromoCodes((current) => [...current, promoCode]);
-        setUserPromos((current) => current.filter((p) => p.id !== promoId));
-        supabase
-          .from("user_promos")
-          .update({ used: true })
-          .eq("id", promoId)
-          .then(({ error }) => { if (error) console.error("Failed to mark user promo as used:", error.message); });
-      }
-      setOwnerFreeShippingActive(false);
-      setPromoInput("");
-    }
-
-    if (paidOrder && !paidOrder.confirmationEmailSentAt) {
-      sendPaymentConfirmedEmail(paidOrder);
-    }
-
-    // Fallback DB update removed — only server-side webhooks may set status:"paid".
-
+    setPaymentReturnOrder(order);
+    if (currentUser?.email) setUserOrders(getPaidOrdersForEmail(currentUser.email, nextOrders));
     return nextOrders;
   }
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const params = new URLSearchParams(window.location.search || "");
-    const payment = (params.get("payment") || "").toLowerCase().trim();
-    const order = (params.get("order") || "").trim();
-    const npId = (params.get("NP_id") || params.get("payment_id") || "").trim();
-
-    if (["success", "cancelled", "cancel", "failed"].includes(payment)) {
-      const urlProvider = (params.get("provider") || "").toLowerCase().trim();
-      const isCatalystPay = urlProvider === "catalystpay";
-
-      // CatalystPay always redirects to ?payment=success even on cancel.
-      // useState already initialised status="cancelled" so there is zero
-      // flash of ORDER CONFIRMED. "Payment Cancelled" shows immediately.
-      //
-      // In the background we silently poll Supabase for up to ~60s so that
-      // a real payment (where the webhook arrives slightly after the redirect)
-      // still upgrades to ORDER CONFIRMED without requiring a new redirect.
-      // The user sees nothing change while cancelled — only if the webhook
-      // fires and Supabase confirms "paid" does the screen flip to success.
-      if (payment === "success" && isCatalystPay && order) {
-        setPage("payment-return");
-        setCatalystPayPending(true);
-        const upgradeCatalystPayIfPaid = async (attempt) => {
-          try {
-            const { data } = await supabase.from("orders").select("status").eq("id", order).single();
-            if (String(data?.status || "").toLowerCase() === "paid") {
-              let payProvider = "CatalystPay BTC";
-              try {
-                const s = localStorage.getItem(`tbv-pay-method-${order}`);
-                if (s) { payProvider = s; localStorage.removeItem(`tbv-pay-method-${order}`); }
-              } catch {}
-              const nextOrders = markOrderPaidById(order, payProvider, npId);
-              if (currentUser?.email) setUserOrders(getPaidOrdersForEmail(currentUser.email, nextOrders));
-              const paidOrder = (Array.isArray(nextOrders) ? nextOrders : []).find((o) => o.id === order);
-              const creditEmail = paidOrder?.email || currentUser?.email;
-              const creditUsedCatalyst = Number(paidOrder?.storeCreditUsed || 0);
-              if (creditUsedCatalyst > 0) {
-                setStoreCredit((prev) => Math.max(0, prev - creditUsedCatalyst));
-              }
-              if (creditEmail) {
-                loadStoreCredit(creditEmail);
-                setTimeout(() => loadStoreCredit(creditEmail), 6000);
-              }
-              setPaymentReturn({ status: "success", order, paymentId: npId });
-              setCatalystPayPending(false);
-              setCart([]);
-              return; // stop retrying
-            }
-          } catch {}
-          // Retry 24× at 5s intervals = 120s total window for delayed webhooks.
-          // After that the order is genuinely cancelled/expired — stop silently.
-          if (attempt < 24) {
-            setTimeout(() => upgradeCatalystPayIfPaid(attempt + 1), 5000);
-          } else {
-            setCatalystPayPending(false);
-            setCatalystPayTimedOut(true);
-          }
-        };
-        upgradeCatalystPayIfPaid(0);
-        window.history.replaceState({}, "", `${window.location.origin}${window.location.pathname}`);
-        return;
-      }
-
-      setPaymentReturn({ status: payment, order, paymentId: npId });
-      setPage("payment-return");
-
-      if (payment === "success" && order) {
-        try {
-          // Determine payment provider: Stripe uses ?provider=stripe in return URL
-          let payProvider = urlProvider === "stripe" ? "Stripe" : "NOWPayments";
-          try {
-            const stored = localStorage.getItem(`tbv-pay-method-${order}`);
-            if (stored) { payProvider = stored; localStorage.removeItem(`tbv-pay-method-${order}`); }
-          } catch {}
-          const nextOrders = markOrderPaidById(order, payProvider, npId);
-          if (currentUser?.email) {
-            setUserOrders(getPaidOrdersForEmail(currentUser.email, nextOrders));
-          }
-          // Resync the displayed store-credit balance using the ORDER's own email,
-          // not currentUser — currentUser's async session restore frequently hasn't
-          // finished yet at this exact moment (right after the payment redirect),
-          // so gating on currentUser?.email silently skipped this refresh and left
-          // the header/account balance stale until the user happened to open the
-          // account/checkout page later. The order itself always has the email
-          // that was used to spend the credit, regardless of session state.
-          const paidOrderForCredit = (Array.isArray(nextOrders) ? nextOrders : []).find((o) => o.id === order);
-          const creditRefreshEmail = paidOrderForCredit?.email || currentUser?.email;
-          // Optimistically deduct credits immediately so the balance updates
-          // before the server-side webhook has a chance to run.
-          const creditUsedNow = Number(paidOrderForCredit?.storeCreditUsed || 0);
-          if (creditUsedNow > 0) {
-            setStoreCredit((prev) => Math.max(0, prev - creditUsedNow));
-          }
-          if (creditRefreshEmail) {
-            loadStoreCredit(creditRefreshEmail);
-            // Re-sync after 6s to pick up any webhook-written value
-            setTimeout(() => loadStoreCredit(creditRefreshEmail), 6000);
-          }
-
-          // Fallback for crypto orders: the DB "paid" status is normally set by the
-          // NOWPayments IPN webhook, which can be delayed or occasionally never
-          // arrive. Directly ask NOWPayments for the real status of this payment
-          // and let the server apply the same paid-order logic once it's confirmed.
-          // A single check right at redirect time is not enough — crypto payments
-          // often aren't confirmed by the blockchain yet at that exact moment — so
-          // retry a few times over several minutes instead of checking only once.
-          // IMPORTANT: NOWPayments' hosted invoice page does NOT always append
-          // NP_id/payment_id to the success redirect, so this used to silently
-          // never run at all for some orders (order stuck as "checkout (clicked
-          // pay)" forever, even though the customer paid and NOWPayments itself
-          // shows "Finished"). We always have our own order id, so pass that too
-          // and let the server look the payment up by order_id when npId is missing.
-          if (payProvider === "NOWPayments" && (npId || order)) {
-            const checkNowPaymentsStatus = async (attempt) => {
-              try {
-                const r = await fetch(`/api/verify-nowpayments-payment`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ payment_id: npId || undefined, order_id: order || undefined }),
-                });
-                const result = await r.json().catch(() => ({}));
-                // Only stop retrying once the order is actually confirmed paid in the
-                // database (dbMarkedPaid / alreadyPaidInDb) — NOT just when the payment
-                // provider says "paid" (result.isPaid). The Supabase write can fail
-                // transiently; if we stop on isPaid alone, a failed write leaves the
-                // order permanently stuck even though a "payment confirmed" email
-                // already went out.
-                if (result?.dbMarkedPaid || result?.alreadyPaidInDb) return;
-              } catch {}
-              if (attempt < 20) {
-                setTimeout(() => checkNowPaymentsStatus(attempt + 1), 20000);
-              }
-            };
-            checkNowPaymentsStatus(0);
-          }
-        } catch (error) {
-          console.error("Failed to mark order as paid", error);
-        }
-        setCart([]);
-      }
-
-      // Remove payment query params after processing so refresh does not reopen the payment result modal.
-      window.history.replaceState({}, "", `${window.location.origin}${window.location.pathname}`);
-    }
-  }, [currentUser?.email]);
 
   const translations = {
     EN: {
@@ -7775,6 +7413,8 @@ export default function App() {
     null;
   const [cryptoEmailNotice, setCryptoEmailNotice] = useState(false);
   const [orderNumber, setOrderNumber] = useState("INV-LNXH4V56");
+  const checkoutDraftPendingRef = useRef(false);
+  const checkoutDraftAttemptRef = useRef(null);
   const [paymentTimer, setPaymentTimer] = useState(59 * 60 + 45);
   const [nowPaymentLoading, setNowPaymentLoading] = useState(false);
   const [nowPaymentError, setNowPaymentError] = useState("");
@@ -8056,10 +7696,12 @@ export default function App() {
   }
 
   async function loadAffiliateProfilesFromSupabase() {
+    const requestScope = privateAccountState.capture();
     try {
       const rows = await supabaseFetch(
         "affiliates?select=email,code,active,created_at&order=created_at.desc"
       );
+      if (!privateAccountState.isCurrent(requestScope)) return;
       const normalized = normalizeAffiliateRows(rows);
       setAffiliateProfiles(normalized);
       setAffiliateProfilesLoaded(true);
@@ -8085,6 +7727,7 @@ export default function App() {
         );
       }
     } catch (error) {
+      if (!privateAccountState.isCurrent(requestScope)) return;
       console.error("Failed to load Supabase affiliates", error);
       setAffiliateProfilesLoaded(true);
     }
@@ -8095,9 +7738,11 @@ export default function App() {
     if (!codeUpper) return;
 
     const requestId = ++affiliateLoadRequestRef.current;
+    const requestScope = privateAccountState.capture();
+    const isCurrentRequest = () => requestId === affiliateLoadRequestRef.current && privateAccountState.isCurrent(requestScope);
     setAffiliateDataCode("");
     setAffiliateCommissionOrders([]);
-    setAffiliatePaidOut(0);
+    setAffiliatePaidOut(null);
     setAffiliateCommissionLoading(true);
     setAffiliateOrdersError(false);
     setAffiliatePayoutError(false);
@@ -8305,38 +7950,34 @@ export default function App() {
       commissionRows.sort(
         (a, b) => (Date.parse(b.created_at || "") || 0) - (Date.parse(a.created_at || "") || 0)
       );
-      if (requestId === affiliateLoadRequestRef.current) {
+      if (isCurrentRequest()) {
         setAffiliateCommissionOrders(commissionRows);
         setAffiliateOrdersError(orderReadErrors.length > 0);
       }
     } catch (error) {
       console.error("Failed to load affiliate commission orders", error);
-      if (requestId === affiliateLoadRequestRef.current) {
+      if (isCurrentRequest()) {
         setAffiliateCommissionOrders([]);
         setAffiliateOrdersError(true);
       }
     }
 
-    // Payout history is loaded independently so order details still render if it is unavailable.
+    // The API derives affiliate ownership from the verified session. A failed or
+    // stale read is unknown, never evidence that no payouts have been recorded.
+    if (!isCurrentRequest()) return;
     try {
-      const payoutRows = await supabaseFetch(
-        `affiliate_payouts?select=amount&affiliate_code=eq.${encodeURIComponent(codeUpper)}`
-      );
-      const totalPaid = Array.isArray(payoutRows)
-        ? payoutRows.reduce((sum, row) => sum + Number(row.amount || 0), 0)
-        : 0;
-      if (requestId === affiliateLoadRequestRef.current) {
-        setAffiliatePaidOut(totalPaid);
-        setAffiliatePayoutError(false);
-      }
+      const summary = await loadOwnedPayoutSummary({ supabase, code: codeUpper, isCurrent: isCurrentRequest });
+      if (!summary || !isCurrentRequest()) return;
+      setAffiliatePaidOut(summary.totalPaid);
+      setAffiliatePayoutError(false);
     } catch (error) {
-      console.error("Failed to load affiliate payouts", error);
-      if (requestId === affiliateLoadRequestRef.current) {
-        setAffiliatePaidOut(0);
+      console.error("Failed to load affiliate payout summary", error);
+      if (isCurrentRequest()) {
+        setAffiliatePaidOut(null);
         setAffiliatePayoutError(true);
       }
     } finally {
-      if (requestId === affiliateLoadRequestRef.current) {
+      if (isCurrentRequest()) {
         setAffiliateDataCode(codeUpper);
         setAffiliateCommissionLoading(false);
       }
@@ -8370,6 +8011,28 @@ export default function App() {
       if (key in oosOverrides) return { ...p, outOfStock: oosOverrides[key] };
       return p;
     }), [oosOverrides]);
+
+  useEffect(() => {
+    setSelectedProduct((current) => current ? resolveProductSelection(products, current) : null);
+  }, [products]);
+
+  useEffect(() => {
+    function restorePublicRoute() {
+      const path = window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase();
+      if (isProductRoute(products, window.location)) {
+        const selected = resolveProductRoute(products, window.location);
+        setSelectedProduct(selected);
+        productOriginPage.current = selected?.fromWarehouse === "us" ? "us-warehouse" : "shop";
+        setCoaPage(0);
+        setCoaLightbox(false);
+        setPage("product");
+      } else if (publicPathToPage[path] || !path) {
+        setPage(publicPathToPage[path] || "home");
+      }
+    }
+    window.addEventListener("popstate", restorePublicRoute);
+    return () => window.removeEventListener("popstate", restorePublicRoute);
+  }, [products]);
 
 
   function toggleOOS(key, value) {
@@ -9231,17 +8894,106 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     ],
   };
 
+  function clearPrivateAccountView() {
+    setCartHydratedFor("");
+    checkoutDraftPendingRef.current = false;
+    checkoutDraftAttemptRef.current = null;
+    privateAccountState.clear();
+    try { purgeLegacyPrivateState(window.localStorage); } catch {}
+    setAllOrders([]);
+    setUserOrders([]);
+    customerOrderRequestRef.current += 1;
+    setCustomerOrderHistory({ status: "idle", orders: [] });
+    setIsRefreshingUserOrders(false);
+    setAffiliateProfiles([]);
+    setAffiliateProfilesLoaded(false);
+    setAffiliateCommissionOrders([]);
+    setAffiliateDataCode("");
+    setAffiliatePaidOut(null);
+    setAffiliateCommissionLoading(false);
+    setAffiliateOrdersError(false);
+    setAffiliatePayoutError(false);
+    setAdminCreditLookup(null);
+    setAdminCreditEmail("");
+    setAdminCreditNote("");
+    setAdminReplyText("");
+    setAdminComposeTo("");
+    setAdminComposeText("");
+    setExpandedThreadEmail(null);
+    setAdminReplyPreview(null);
+    setReplyPreview(null);
+    setEditingMsgText("");
+    setEditingMsgId(null);
+    setChatLightboxUrl(null);
+    setAdminMessages([]);
+    adminMessagesPendingRef.current = null;
+    adminOrdersPendingRef.current = null;
+    userInboxPendingRef.current = null;
+    reactionsRequestRef.current = { pending: false, nextAllowedAt: 0, failures: 0 };
+    setMsgReactions({});
+    setHasUnreadReply(false);
+    setAdminAffiliates([]);
+    setAffPaidMap({});
+    setReadThreadTimestamps(new Map());
+    setAdminInboxLastSeen("");
+    setUserInboxMessages([]);
+    userInboxRequestIdRef.current += 1;
+    affiliateLoadRequestRef.current += 1;
+    orderLoadInitiatedRef.current = false;
+    setStoreCredit(0);
+    setUserPromos([]);
+    setAppliedPromo(null);
+    setSupplierCostConfig(null);
+    setSupplierCostLoadError("");
+    setCostScenarios({});
+    setLineCostEdits({});
+    setPaymentReturnOrder(null);
+    setPaymentReturn(clearAccountHistoryConfirmation);
+    setContactForm({ name: "", email: "", message: "" });
+    setCheckoutForm(current => ({ ...current, email: "", firstName: "", lastName: "", address: "", address2: "", city: "", state: "", postalCode: "", phone: "", taxId: "" }));
+  }
+
+  useLayoutEffect(() => {
+    if (privateAccountState.switchAccount(currentUser?.email || "")) clearPrivateAccountView();
+    try { purgeLegacyPrivateState(window.localStorage); } catch {}
+  }, [currentUser?.email]);
+
+  useEffect(() => {
+    if (page !== "admin" || adminActiveTab !== "charts" || !isAdminUser()) return;
+    const controller = new AbortController();
+    const requestScope = privateAccountState.capture();
+    setSupplierCostLoadError("");
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const token = data?.session?.access_token;
+        if (!token) throw new Error("Sign in with an administrator account to load supplier costs.");
+        const response = await fetch("/api/admin-cost-config", {
+          headers: { Authorization: `Bearer ${token}` }, signal: controller.signal, cache: "no-store",
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || !body.config) throw new Error(body.error || "Supplier costs could not be loaded.");
+        if (privateAccountState.isCurrent(requestScope) && !controller.signal.aborted) setSupplierCostConfig(body.config);
+      } catch (error) {
+        if (!privateAccountState.isCurrent(requestScope) || controller.signal.aborted) return;
+        setSupplierCostConfig(null);
+        setSupplierCostLoadError(error.message || "Supplier costs could not be loaded.");
+      }
+    })();
+    return () => controller.abort();
+  }, [page, adminActiveTab, currentUser?.email]);
+
   useEffect(() => {
     setSearchTerm(inputValue);
   }, [inputValue]);
 
   useEffect(() => {
     try {
-      const savedAffiliates = JSON.parse(localStorage.getItem("tbv-affiliates") || "[]");
+      const savedAffiliates = JSON.parse(privateAccountState.getItem("tbv-affiliates") || "[]");
       const savedAffiliateAttribution = (localStorage.getItem("tbv-active-affiliate") || "").trim().toUpperCase();
       if (Array.isArray(savedAffiliates)) setAffiliateProfiles(normalizeAffiliateRows(savedAffiliates));
       if (savedAffiliateAttribution) setActiveAffiliateCode(savedAffiliateAttribution);
-      const savedOrders = JSON.parse(localStorage.getItem("tbv-orders") || "[]");
+      const savedOrders = JSON.parse(privateAccountState.getItem("tbv-orders") || "[]");
       if (Array.isArray(savedOrders)) setAllOrders(savedOrders);
     } catch (error) {
       console.error("Failed to restore state", error);
@@ -9256,7 +9008,17 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     const hasRecoveryHash = urlHash.includes("type=recovery") || urlHash.includes("type%3Drecovery");
     const hasRecoveryParam = urlSearch.includes("recovery=1");
 
-    if (hasRecoveryHash || hasRecoveryParam) {
+    if (oauthReturnRef.current.status !== "none") {
+      sessionStorage.removeItem("tbv-pw-recovery");
+      sessionStorage.removeItem("tbv-recovery-at");
+      sessionStorage.removeItem("tbv-recovery-rt");
+      setAuthMode("signin");
+      setPage("account");
+      if (oauthReturnRef.current.status !== "pending") {
+        clearOAuthReturn(sessionStorage);
+        setAccountMessage(oauthNotCompletedMessage());
+      }
+    } else if (hasRecoveryHash || hasRecoveryParam) {
       sessionStorage.setItem("tbv-pw-recovery", "1");
       // Clean the ?recovery=1 param from the URL bar so it doesn't confuse users
       if (hasRecoveryParam) {
@@ -9281,18 +9043,27 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       setPage("account");
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // getSession() can preserve an older session after a redirect error. Read
+    // initialize()'s explicit result before any OAuth return can resume checkout.
+    const loadInitialSession = async () => {
+      if (oauthReturnRef.current.status === "pending") {
+        const { error } = await supabase.auth.initialize();
+        if (error) throw error;
+        oauthReturnRef.current.initialized = true;
+      }
+      return supabase.auth.getSession();
+    };
+    loadInitialSession().then(({ data: { session } }) => {
       // Don't restore a regular session while a recovery flow is active
       if (sessionStorage.getItem("tbv-pw-recovery")) { setAuthReady(true); return; }
+      if (finishOAuthCallback(session, true)) { setAuthReady(true); return; }
       if (session?.user) {
         const user = userFromSupabase(session.user);
         setCurrentUser(user);
         setAccountForm({ email: user.email, password: "", confirmPassword: "" });
-        fetchUserPromos(user.email, appliedPromo);
-        loadStoreCredit(user.email);
       }
       setAuthReady(true);
-    });
+    }).catch(() => { finishOAuthCallback(null, true); setAuthReady(true); });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "PASSWORD_RECOVERY") {
@@ -9321,6 +9092,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       if (event === "SIGNED_IN" && requireSignupVerificationRef.current) {
         return;
       }
+      if (finishOAuthCallback(session)) return;
       if (session?.user) {
         const user = userFromSupabase(session.user);
         setCurrentUser(user);
@@ -9337,11 +9109,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   
 
   useEffect(() => {
-    localStorage.setItem("tbv-affiliates", JSON.stringify(affiliateProfiles));
+    privateAccountState.setItem("tbv-affiliates", JSON.stringify(affiliateProfiles));
   }, [affiliateProfiles]);
 
   useEffect(() => {
     loadAffiliateProfilesFromSupabase();
+    if (currentUser?.email) fetchUserPromos(currentUser.email, null);
   }, [currentUser?.email]);
 
   useEffect(() => {
@@ -9357,7 +9130,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   useEffect(() => {
     try {
       const storedOrders = JSON.parse(
-        localStorage.getItem("tbv-orders") || "[]"
+        privateAccountState.getItem("tbv-orders") || "[]"
       );
       const normalizedOrders = Array.isArray(storedOrders) ? storedOrders : [];
       setAllOrders(normalizedOrders);
@@ -9507,18 +9280,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   }, [checkoutStep, paymentMethod]);
 
   useEffect(() => {
-    if (!currentUser?.email) return;
-    if (!ADMIN_EMAILS.includes(normalizeEmail(currentUser.email))) return;
-    const id = window.setInterval(() => { loadOrdersFromSupabase(); }, 30000);
-    return () => window.clearInterval(id);
-  }, [currentUser?.email]);
-
-  useEffect(() => {
-    if (!currentUser?.email) return;
-    if (!ADMIN_EMAILS.includes(normalizeEmail(currentUser.email))) return;
-    if (page === "admin") {
-      loadOrdersFromSupabase();
-    }
+    if (!isAdminUser() || page !== "admin") return;
+    if (!["orders", "charts", "revenue", "affiliates", "analytics"].includes(adminActiveTab)) return;
+    return startVisiblePolling(loadOrdersFromSupabase, { intervalMs: 120000 });
   }, [page, adminActiveTab, currentUser?.email]);
 
   // ── Analytics: track page journeys and product views ────────────────────
@@ -9625,6 +9389,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   }, [page, cart.length, checkoutStep, currentUser?.email]);
 
   async function loadAdminAffiliates() {
+    if (!isAdminUser()) return;
+    const requestScope = privateAccountState.capture();
     setAdminAffiliatesLoading(true);
     setAffPayoutLoadError("");
     const DAY_MS = 24 * 60 * 60 * 1000;
@@ -9665,6 +9431,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       fetchAdminPayoutRows(),
     ]);
 
+    if (!privateAccountState.isCurrent(requestScope)) return;
     setAdminAffiliatesLoading(false);
     if (payoutsResult?.error) {
       const errorMessage = payoutsResult.error?.message;
@@ -9748,7 +9515,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         supabasePaidMap[code] = parseFloat(((supabasePaidMap[code] || 0) + Number(row.amount || 0)).toFixed(2));
       }
       setAffPaidMap(supabasePaidMap);
-      try { localStorage.setItem("tbv-aff-paid", JSON.stringify(supabasePaidMap)); } catch {}
+      try { privateAccountState.setItem("tbv-aff-paid", JSON.stringify(supabasePaidMap)); } catch {}
     }
   }
 
@@ -10052,7 +9819,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   // Snapshot refs — captured at PayPal order-creation time so onPaypalApprove
   // always saves what was actually charged, even if the cart changes mid-flow.
   const paypalSnapshotRef = useRef(null);
-  const storeCreditApplied = (currentUser && storeCredit > 0) ? Math.min(storeCredit, totalWithFee) : 0;
+  // Credit redemption awaits a server-side atomic ledger. Never debit balances in the browser.
+  const storeCreditApplied = 0;
   const finalTotal = Math.max(0, totalWithFee - storeCreditApplied);
 
   // Stripe's $999 cap must be checked against the amount Stripe would actually
@@ -10060,6 +9828,14 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   // specific discount or fee) — not `finalTotal`, which reflects whichever
   // method happens to be selected right now. Otherwise selecting a discounted
   const stripeTemporarilyDisabled = true;
+  const paylioTemporarilyDisabled = true;
+  const paylioUnavailableMessage = tx(
+    "PayLio is temporarily unavailable. Please choose another payment method.",
+    "PayLio временно недоступен. Выберите другой способ оплаты.",
+    "PayLio тимчасово недоступний. Оберіть інший спосіб оплати.",
+    "PayLio ist vorübergehend nicht verfügbar. Bitte wählen Sie eine andere Zahlungsart.",
+    "PayLio no está disponible temporalmente. Elija otro método de pago."
+  );
 
   // Cash App orders are capped at $999, checked against the same
   // pre-discount base amount as Stripe's cap (see comment above) so the
@@ -10073,17 +9849,17 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
   useEffect(() => {
     if (checkoutStep === "payment" && finalTotalRef.current > 0) {
-      setPaymentMethod("cashapp");
+      setPaymentMethod(cashAppOverLimit ? "crypto" : "cashapp");
     }
   }, [checkoutStep]);
 
-  // Same safety net for Cash App's $999 cap: if the order grows past it while
-  // Cash App is selected, fall back to Crypto (the other No-KYC option).
+  // Reconcile stale PayLio selections and Cash App orders above its existing cap.
   useEffect(() => {
-    if (paymentMethod === "cashapp" && cashAppEligibleAmount > CASHAPP_LIMIT) {
-      setPaymentMethod("paylio");
+    if ((paylioTemporarilyDisabled && paymentMethod === "paylio") ||
+        (paymentMethod === "cashapp" && cashAppOverLimit)) {
+      setPaymentMethod("crypto");
     }
-  }, [cashAppEligibleAmount, paymentMethod]);
+  }, [cashAppOverLimit, paymentMethod, paylioTemporarilyDisabled]);
 
   const affiliateCommissionBase = subtotal;
   const affiliateCommission =
@@ -10116,9 +9892,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
   function renderCatalogGroup(variants, isUsWarehouse = false, worldwideStyle = false) {
     const first = variants[0];
-    const normalized = variants.map((item) => isUsWarehouse
-      ? { ...item, price: (item.usPriceBase ?? item.price) + 5, originalPrice: (item.usPriceBase ?? item.price) + 5, fromWarehouse: "us" }
-      : item);
+    const normalized = variants.map((item) => resolveProductSelection(products, item, isUsWarehouse ? "us" : "worldwide")).filter(Boolean);
     const byDose = Object.fromEntries(normalized.map((item) => [item.dose, item]));
     const pricesByDose = Object.fromEntries(normalized.map((item) => [item.dose, { 10: item.price }]));
     const selectedVariant = ({ dose, vials }) => vials === 10 ? byDose[dose] : null;
@@ -10298,29 +10072,28 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     try {
       const payCurrency = activeNetworkOption?.payCurrency || "usdtrx";
       const syncedCF = readCheckoutSnapshot();
-      const email = (syncedCF.email || currentUser?.email || "").trim().toLowerCase();
-      const now = new Date().toISOString();
-
-      // Save order to Supabase before redirect so discount data is never lost
-      const nowMeta = {
-        id: orderNumber,
-        email,
-        status: "checkout",
-        paymentProvider: selectedCrypto && selectedNetwork ? `${selectedCrypto} · ${selectedNetwork}` : selectedCrypto ? `Crypto · ${selectedCrypto}` : "Crypto",
-        checkoutStartedAt: now,
-        total: Number(finalTotal.toFixed(2)),
-        subtotal: Number(subtotal.toFixed(2)),
-        shipping: Number(shipping.toFixed(2)),
-        shippingType: effectiveShippingType,
-        automaticDiscount: Number(automaticDiscount.toFixed(2)),
+      const requestScope = privateAccountState.capture();
+      const paymentSession = await createCheckoutSession({
+        supabase,
+        expectedEmail: currentUser?.email,
+        isCurrent: () => privateAccountState.isCurrent(requestScope),
+      });
+      const email = paymentSession.email;
+      const res = await paymentSession.post("/api/create-payment", {
+        pay_currency: payCurrency,
+        order_id: orderNumber,
+        success_url: `${window.location.origin}/?payment=success&order=${encodeURIComponent(orderNumber)}&provider=nowpayments`,
+        cancel_url: `${window.location.origin}/?payment=cancelled&order=${encodeURIComponent(orderNumber)}`,
+        customer_email: email || "",
         promoDiscount: Number(promoDiscount.toFixed(2)),
         promoCode: appliedPromo?.code || "",
+        promoFreeShipping: Boolean(appliedPromo?.freeShipping || ownerFreeShippingActive),
         affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-         cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
+        cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
+        storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
         affiliateCode: affiliateTrackingCode,
         affiliateOwnerEmail: affiliateTrackingOwnerEmail,
-        affiliateCommission: Number(affiliateCommission.toFixed(2)),
-        storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
+        shippingType: effectiveShippingType,
         firstName: syncedCF.firstName || "",
         lastName: syncedCF.lastName || "",
         country: syncedCF.country || "",
@@ -10332,52 +10105,14 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         phone: syncedCF.phone || "",
         taxId: syncedCF.taxId || "",
         orderNotes: getCheckoutOrderNotes(syncedCF),
-        items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
-      };
-      try {
-        await supabase.from("orders").upsert({ id: orderNumber, email, status: "checkout", total: Number(finalTotal.toFixed(2)), metadata: nowMeta });
-      } catch (e) { console.error("Supabase crypto checkout upsert failed:", e); }
-
-      const res = await fetch("/api/create-payment", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          pay_currency: payCurrency,
-          order_id: orderNumber,
-          success_url: `${window.location.origin}/?payment=success&order=${encodeURIComponent(orderNumber)}`,
-          cancel_url: `${window.location.origin}/?payment=cancelled&order=${encodeURIComponent(orderNumber)}`,
-          customer_email: email || "",
-          promoDiscount: Number(promoDiscount.toFixed(2)),
-          promoCode: appliedPromo?.code || "",
-          promoFreeShipping: Boolean(appliedPromo?.freeShipping || ownerFreeShippingActive),
-          affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-         cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-          storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-          affiliateCode: affiliateTrackingCode,
-          affiliateOwnerEmail: affiliateTrackingOwnerEmail,
-          shippingType: effectiveShippingType,
-          firstName: syncedCF.firstName || "",
-          lastName: syncedCF.lastName || "",
-          country: syncedCF.country || "",
-          address: syncedCF.address || "",
-          address2: syncedCF.address2 || "",
-          city: syncedCF.city || "",
-          state: syncedCF.state || "",
-          postalCode: syncedCF.postalCode || "",
-          phone: syncedCF.phone || "",
-          taxId: syncedCF.taxId || "",
-          orderNotes: getCheckoutOrderNotes(syncedCF),
-          items: cart.map((item) => ({
-            name: item.name,
-            dose: item.dose,
-            noteLabel: item.noteLabel || "",
-            price: item.price,
-            quantity: item.quantity,
-            ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
-          })),
-        }),
+        items: cart.map((item) => ({
+          name: item.name,
+          dose: item.dose,
+          noteLabel: item.noteLabel || "",
+          price: item.price,
+          quantity: item.quantity,
+          ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+        })),
       });
 
       const contentType = res.headers.get("content-type") || "";
@@ -10388,7 +10123,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         data = rawText ? JSON.parse(rawText) : {};
       } else {
         throw new Error(
-          "Payment API route is missing or returned HTML instead of JSON. Make sure /api/create-payment is deployed on Vercel."
+          "Payment API route is missing or returned HTML instead of JSON. Make sure /api/create-payment is deployed on Vercel.",
         );
       }
 
@@ -10397,7 +10132,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           data?.message ||
             data?.error ||
             data?.status_text ||
-            "Failed to create NOWPayments payment."
+            "Failed to create NOWPayments payment.",
         );
       }
 
@@ -10409,16 +10144,16 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         const cryptoLabel = selectedNetwork
           ? `${selectedCrypto} · ${selectedNetwork}`
           : selectedCrypto || "Crypto";
-        try { localStorage.setItem(`tbv-pay-method-${orderNumber}`, cryptoLabel); } catch {}
+        try {
+          sessionStorage.setItem(`tbv-pay-method-${orderNumber}`, cryptoLabel);
+        } catch {}
         window.location.assign(data.invoice_url);
         return;
       }
 
       throw new Error("NOWPayments invoice URL was not returned.");
     } catch (error) {
-      setNowPaymentError(
-        error?.message || "Failed to create NOWPayments payment."
-      );
+      setNowPaymentError(error?.message || "Failed to create NOWPayments payment.");
     } finally {
       setNowPaymentLoading(false);
     }
@@ -10428,85 +10163,50 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     if (catalystPayLoading) return;
     setCatalystPayLoading(true);
     setCatalystPayError("");
-    const syncedCF = readCheckoutSnapshot();
-    const email = (syncedCF.email || currentUser?.email || "").trim().toLowerCase();
-    const now = new Date().toISOString();
-
-    const meta = {
-      id: orderNumber,
-      email,
-      status: "checkout",
-      paymentProvider: "CatalystPay BTC",
-      checkoutStartedAt: now,
-      total: Number(finalTotal.toFixed(2)),
-      subtotal: Number(subtotal.toFixed(2)),
-      shipping: Number(shipping.toFixed(2)),
-      shippingType: effectiveShippingType,
-      automaticDiscount: Number(automaticDiscount.toFixed(2)),
-      promoDiscount: Number(promoDiscount.toFixed(2)),
-      promoCode: appliedPromo?.code || "",
-      affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-         cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-      affiliateCode: affiliateTrackingCode,
-      affiliateOwnerEmail: affiliateTrackingOwnerEmail,
-      affiliateCommission: Number(affiliateCommission.toFixed(2)),
-      storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-      firstName: syncedCF.firstName || "",
-      lastName: syncedCF.lastName || "",
-      country: syncedCF.country || "",
-      address: syncedCF.address || "",
-      address2: syncedCF.address2 || "",
-      city: syncedCF.city || "",
-      state: syncedCF.state || "",
-      postalCode: syncedCF.postalCode || "",
-      phone: syncedCF.phone || "",
+    try {
+      const syncedCF = readCheckoutSnapshot();
+      const requestScope = privateAccountState.capture();
+      const paymentSession = await createCheckoutSession({
+        supabase,
+        expectedEmail: currentUser?.email,
+        isCurrent: () => privateAccountState.isCurrent(requestScope),
+      });
+      const email = paymentSession.email;
+      const res = await paymentSession.post("/api/create-catalystpay-session", {
+        order_id: orderNumber,
+        customer_email: email || "",
+        promoCode: appliedPromo?.code || "",
+        affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
+        cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
+        storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
+        affiliateCode: affiliateTrackingCode,
+        affiliateOwnerEmail: affiliateTrackingOwnerEmail,
+        shippingType: effectiveShippingType,
+        paymentMethod,
+        firstName: syncedCF.firstName || "",
+        lastName: syncedCF.lastName || "",
+        country: syncedCF.country || "",
+        address: syncedCF.address || "",
+        address2: syncedCF.address2 || "",
+        city: syncedCF.city || "",
+        state: syncedCF.state || "",
+        postalCode: syncedCF.postalCode || "",
+        phone: syncedCF.phone || "",
         taxId: syncedCF.taxId || "",
         orderNotes: getCheckoutOrderNotes(syncedCF),
-      items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
-    };
-    try {
-      await supabase.from("orders").upsert({ id: orderNumber, email, status: "checkout", total: Number(finalTotal.toFixed(2)), metadata: meta });
-    } catch (e) { console.error("Supabase catalystpay checkout upsert failed:", e); }
-
-    try {
-      const res = await fetch("/api/create-catalystpay-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          order_id: orderNumber,
-          customer_email: email || "",
-          promoCode: appliedPromo?.code || "",
-          affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-         cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-          storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-          affiliateCode: affiliateTrackingCode,
-          affiliateOwnerEmail: affiliateTrackingOwnerEmail,
-          shippingType: effectiveShippingType,
-          paymentMethod,
-          firstName: syncedCF.firstName || "",
-          lastName: syncedCF.lastName || "",
-          country: syncedCF.country || "",
-          address: syncedCF.address || "",
-          address2: syncedCF.address2 || "",
-          city: syncedCF.city || "",
-          state: syncedCF.state || "",
-          postalCode: syncedCF.postalCode || "",
-          phone: syncedCF.phone || "",
-          taxId: syncedCF.taxId || "",
-          orderNotes: getCheckoutOrderNotes(syncedCF),
-          items: cart.map((item) => ({
-            name: item.name,
-            dose: item.dose,
-            noteLabel: item.noteLabel || "",
-            price: item.price,
-            quantity: item.quantity,
-            ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
-          })),
-        }),
+        items: cart.map((item) => ({
+          name: item.name,
+          dose: item.dose,
+          noteLabel: item.noteLabel || "",
+          price: item.price,
+          quantity: item.quantity,
+          ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+        })),
       });
 
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || data?.message || "Failed to create CatalystPay invoice.");
+      if (!res.ok)
+        throw new Error(data?.error || data?.message || "Failed to create CatalystPay invoice.");
       if (!data?.checkoutLink) throw new Error("CatalystPay checkout link was not returned.");
 
       window.location.assign(data.checkoutLink);
@@ -10517,132 +10217,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     }
   }
 
-  async function createPaylioPayment(provider = "") {
-    if (paylioPaymentLoading) return;
-    setPaylioPaymentLoading(true);
-    setPaylioPaymentError("");
-    const syncedCF = readCheckoutSnapshot();
-    const email = (syncedCF.email || currentUser?.email || "").trim().toLowerCase();
-    try { await markOrderCheckoutStartedById(orderNumber, "Paylio"); } catch (e) { console.error("Failed to mark checkout started (pre)", e); }
-    try {
-      const now = new Date().toISOString();
-      const { error: directErr } = await supabase.from("orders").upsert({
-        id: orderNumber,
-        email,
-        status: "checkout",
-        total: Number(finalTotal.toFixed(2)),
-        metadata: {
-          id: orderNumber,
-          email,
-          status: "checkout",
-          paymentProvider: provider || "Paylio",
-          checkoutStartedAt: now,
-          total: Number(finalTotal.toFixed(2)),
-          subtotal: Number(subtotal.toFixed(2)),
-          shipping: Number(shipping.toFixed(2)),
-          shippingType: effectiveShippingType,
-          automaticDiscount: Number(automaticDiscount.toFixed(2)),
-          promoDiscount: Number(promoDiscount.toFixed(2)),
-          promoCode: appliedPromo?.code || "",
-          affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-         cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-          affiliateCode: affiliateTrackingCode,
-          affiliateOwnerEmail: affiliateTrackingOwnerEmail,
-          affiliateCommission: Number(affiliateCommission.toFixed(2)),
-          storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-          firstName: syncedCF.firstName || "",
-          lastName: syncedCF.lastName || "",
-          country: syncedCF.country || "",
-          address: syncedCF.address || "",
-          address2: syncedCF.address2 || "",
-          city: syncedCF.city || "",
-          state: syncedCF.state || "",
-          postalCode: syncedCF.postalCode || "",
-          phone: syncedCF.phone || "",
-          taxId: syncedCF.taxId || "",
-          orderNotes: getCheckoutOrderNotes(syncedCF),
-          items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
-        },
-      });
-      if (directErr) console.error("Supabase direct checkout upsert failed:", directErr.message);
-    } catch (e) { console.error("Supabase direct checkout upsert threw:", e); }
-    try {
-      const orderDescription = `10BottleValueCo ${orderNumber}`;
-      const res = await fetch("/api/create-paylio-payment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: Number(finalTotal.toFixed(2)),
-          currency: "USD",
-          orderId: orderNumber,
-          note: orderDescription,
-          provider: provider || "",
-          return_url: `${window.location.origin}/?payment=success&order=${encodeURIComponent(orderNumber)}`,
-          cancel_url: `${window.location.origin}/?payment=cancelled&order=${encodeURIComponent(orderNumber)}`,
-          email,
-          customer: {
-            email,
-            first_name: syncedCF.firstName?.trim() || "",
-            last_name: syncedCF.lastName?.trim() || "",
-            country: syncedCF.country?.trim() || "",
-            address: syncedCF.address?.trim() || "",
-            address2: syncedCF.address2?.trim() || "",
-            city: syncedCF.city?.trim() || "",
-            state: syncedCF.state?.trim() || "",
-            postal_code: syncedCF.postalCode?.trim() || "",
-            phone: syncedCF.phone?.trim() || "",
-            tax_id: syncedCF.taxId?.trim() || "",
-            notes: getCheckoutOrderNotes(syncedCF),
-          },
-          items: cart.map((item) => ({
-            name: item.name,
-            dose: item.dose,
-            noteLabel: item.noteLabel || "",
-            price: item.price,
-            quantity: item.quantity,
-            ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
-          })),
-          shippingType: effectiveShippingType,
-          promoCode: appliedPromo?.code || "",
-          promoFreeShipping: Boolean(appliedPromo?.freeShipping || ownerFreeShippingActive),
-          affiliateCode: affiliateTrackingCode || "",
-          affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-         cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-          storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-          metadata: {
-            orderId: orderNumber,
-            email,
-            total: Number(finalTotal.toFixed(2)),
-            storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-            shippingType: effectiveShippingType,
-            paymentProvider: provider || "Paylio",
-            affiliateCode: affiliateTrackingCode,
-            affiliateCommission: Number(affiliateCommission.toFixed(2)),
-            firstName: syncedCF.firstName || "",
-            lastName: syncedCF.lastName || "",
-            country: syncedCF.country || "",
-            address: syncedCF.address || "",
-            address2: syncedCF.address2 || "",
-            city: syncedCF.city || "",
-            state: syncedCF.state || "",
-            postalCode: syncedCF.postalCode || "",
-            phone: syncedCF.phone || "",
-            taxId: syncedCF.taxId || "",
-            orderNotes: getCheckoutOrderNotes(syncedCF),
-          },
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.message || data?.error || "Failed to create Paylio payment link.");
-      const paymentUrl = data?.payment_url;
-      if (!paymentUrl) throw new Error("Paylio payment link was not returned by the server.");
-      try { localStorage.setItem(`tbv-pay-method-${orderNumber}`, "Card"); } catch {}
-      window.location.assign(paymentUrl);
-    } catch (error) {
-      setPaylioPaymentError(error?.message || "Failed to create Paylio card payment.");
-    } finally {
-      setPaylioPaymentLoading(false);
-    }
+  async function createPaylioPayment() {
+    // No browser order writes or provider request while the backend is disabled.
+    setPaylioPaymentError(paylioUnavailableMessage);
+    setShowProviderWarning(false);
+    setShowPaylioGuide(false);
+    setPaymentMethod("crypto");
   }
 
   async function markPaypalCheckoutStarted(checkoutSnapshot = readCheckoutSnapshot()) {
@@ -10698,31 +10278,35 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     setStripeError("");
     try {
       const syncedCF = readCheckoutSnapshot();
-      const email = (syncedCF.email || currentUser?.email || "").trim().toLowerCase();
-      await supabase.from("orders").upsert({
-        id: orderNumber,
+      const requestScope = privateAccountState.capture();
+      const paymentSession = await createCheckoutSession({
+        supabase,
+        expectedEmail: currentUser?.email,
+        isCurrent: () => privateAccountState.isCurrent(requestScope),
+      });
+      const email = paymentSession.email;
+      const res = await paymentSession.post("/api/create-payment-intent", {
+        orderId: orderNumber,
         email,
-        status: "checkout",
-        total: Number(finalTotal.toFixed(2)),
-        subtotal: Number(subtotal.toFixed(2)),
-        items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price })),
+        items: cart.map((item) => ({
+          name: item.name,
+          dose: item.dose,
+          noteLabel: item.noteLabel || "",
+          price: item.price,
+          quantity: item.quantity,
+          ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+        })),
+        affiliateCode: affiliateTrackingCode || "",
+        shippingType: effectiveShippingType,
+        promoCode: appliedPromo?.code || "",
+        promoDiscount: Number(promoDiscount.toFixed(2)),
+        promoFreeShipping: Boolean(appliedPromo?.freeShipping || ownerFreeShippingActive),
+        affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
+        cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
+        storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
         metadata: {
-          id: orderNumber,
+          orderId: orderNumber,
           email,
-          status: "checkout",
-          paymentProvider: "Stripe",
-          checkoutStartedAt: new Date().toISOString(),
-          total: Number(finalTotal.toFixed(2)),
-          subtotal: Number(subtotal.toFixed(2)),
-          shipping: Number(shipping.toFixed(2)),
-          shippingType: effectiveShippingType,
-          automaticDiscount: Number(automaticDiscount.toFixed(2)),
-          promoDiscount: Number(promoDiscount.toFixed(2)),
-          promoCode: appliedPromo?.code || "",
-          affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-         cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-          affiliateCode: affiliateTrackingCode,
-          storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
           firstName: syncedCF.firstName || "",
           lastName: syncedCF.lastName || "",
           country: syncedCF.country || "",
@@ -10734,60 +10318,20 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           phone: syncedCF.phone || "",
           taxId: syncedCF.taxId || "",
           orderNotes: getCheckoutOrderNotes(syncedCF),
-          items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price })),
-        },
-      });
-      const res = await fetch("/api/create-payment-intent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId: orderNumber,
-          email,
-          items: cart.map((item) => ({
-            name: item.name,
-            dose: item.dose,
-            noteLabel: item.noteLabel || "",
-            price: item.price,
-            quantity: item.quantity,
-            ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
-          })),
           affiliateCode: affiliateTrackingCode || "",
           shippingType: effectiveShippingType,
-          promoCode: appliedPromo?.code || "",
+          total: Number(finalTotal.toFixed(2)),
+          subtotal: Number(subtotal.toFixed(2)),
+          shipping: Number(shipping.toFixed(2)),
+          automaticDiscount: Number(automaticDiscount.toFixed(2)),
           promoDiscount: Number(promoDiscount.toFixed(2)),
-          promoFreeShipping: Boolean(appliedPromo?.freeShipping || ownerFreeShippingActive),
           affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
           cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-          storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-          metadata: {
-            orderId: orderNumber,
-            email,
-            firstName: syncedCF.firstName || "",
-            lastName: syncedCF.lastName || "",
-            country: syncedCF.country || "",
-            address: syncedCF.address || "",
-            address2: syncedCF.address2 || "",
-            city: syncedCF.city || "",
-            state: syncedCF.state || "",
-            postalCode: syncedCF.postalCode || "",
-            phone: syncedCF.phone || "",
-            taxId: syncedCF.taxId || "",
-            orderNotes: getCheckoutOrderNotes(syncedCF),
-            affiliateCode: affiliateTrackingCode || "",
-            shippingType: effectiveShippingType,
-            total: Number(finalTotal.toFixed(2)),
-            subtotal: Number(subtotal.toFixed(2)),
-            shipping: Number(shipping.toFixed(2)),
-            automaticDiscount: Number(automaticDiscount.toFixed(2)),
-            promoDiscount: Number(promoDiscount.toFixed(2)),
-            affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-            cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-          },
-        }),
+        },
       });
       const data = await res.json();
       if (!res.ok || !data.clientSecret) throw new Error(data?.error || "Failed to create payment.");
-      // Save order to localStorage so success page can reconstruct details
+      // Keep the checkout draft in memory; returns are reconstructed from the server
       try {
         const localOrder = {
           id: orderNumber,
@@ -10818,12 +10362,17 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           phone: syncedCF.phone || "",
           taxId: syncedCF.taxId || "",
           orderNotes: getCheckoutOrderNotes(syncedCF),
-          items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price })),
+          items: cart.map((item) => ({
+            name: item.name,
+            dose: item.dose,
+            quantity: item.quantity,
+            price: item.price,
+          })),
           createdAt: new Date().toISOString(),
         };
-        const existingOrders = JSON.parse(localStorage.getItem("tbv-orders") || "[]");
+        const existingOrders = JSON.parse(privateAccountState.getItem("tbv-orders") || "[]");
         const filtered = existingOrders.filter((o) => o.id !== orderNumber);
-        localStorage.setItem("tbv-orders", JSON.stringify([localOrder, ...filtered]));
+        privateAccountState.setItem("tbv-orders", JSON.stringify([localOrder, ...filtered]));
       } catch {}
       setStripeClientSecret(data.clientSecret);
       setStripeLoading(false);
@@ -10952,41 +10501,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       const captureId = capture?.purchase_units?.[0]?.payments?.captures?.[0]?.id ?? data.orderID;
       // Use actual captured amount from PayPal response as the source of truth
       const actualTotal = Number(capture?.purchase_units?.[0]?.payments?.captures?.[0]?.amount?.value ?? snapTotal);
-      try {
-        await supabase.from("orders").upsert({
-          id: orderNumber,
-          email,
-          status: "paid",
-          total: actualTotal,
-          metadata: {
-            id: orderNumber, email, status: "paid",
-            paymentProvider: "PayPal", paypalOrderId: data.orderID,
-            paypalCaptureId: captureId, paidAt: new Date().toISOString(),
-            total: actualTotal, subtotal: snapSubtotal, shipping: snapShipping,
-            shippingType: snapShippingType,
-            automaticDiscount: snap?.automaticDiscount ?? Number(automaticDiscount.toFixed(2)),
-            promoDiscount: snap?.promoDiscount ?? Number(promoDiscount.toFixed(2)),
-            promoCode: snap?.promoCode ?? appliedPromo?.code ?? "",
-            affiliateDiscount: snap?.affiliateDiscount ?? Number(affiliateDiscount.toFixed(2)),
-            affiliateCode: snap?.affiliateCode ?? affiliateTrackingCode,
-            affiliateOwnerEmail: snap?.affiliateOwnerEmail ?? affiliateTrackingOwnerEmail,
-            affiliateCommission: snap?.affiliateCommission ?? Number(affiliateCommission.toFixed(2)),
-            storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-            paypalFee: Number(paypalFee.toFixed(2)),
-            firstName: checkoutSnapshot.firstName || "", lastName: checkoutSnapshot.lastName || "",
-            country: checkoutSnapshot.country || "", address: checkoutSnapshot.address || "",
-            address2: checkoutSnapshot.address2 || "",
-            city: checkoutSnapshot.city || "", state: checkoutSnapshot.state || "",
-            postalCode: checkoutSnapshot.postalCode || "",
-            phone: checkoutSnapshot.phone || "", taxId: checkoutSnapshot.taxId || "",
-            orderNotes: getCheckoutOrderNotes(checkoutSnapshot), items: snapItems,
-          },
-        });
-      } catch (e) { console.error("Supabase paid upsert threw:", e); }
-      const nextOrders = markOrderPaidById(orderNumber, "PayPal", captureId);
+      // The provider capture endpoint/webhook must persist payment state.
+      // Browser capture responses cannot authorize database paid-status writes.
+      const nextOrders = await markOrderPaidById(orderNumber);
       if (currentUser?.email) setUserOrders(getPaidOrdersForEmail(currentUser.email, nextOrders));
       setCart([]);
-      setPaymentReturn({ status: "success", order: orderNumber, paymentId: captureId });
+      setPaymentReturn({ status: nextOrders.some(order => order.id === orderNumber && isConfirmedPaidOrder(order)) ? "success" : "pending", order: orderNumber, provider: "paypal", paymentId: captureId });
       setPage("payment-return");
     } catch (error) {
       setPaypalPaymentError(error?.message || "PayPal payment failed.");
@@ -11588,6 +11108,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   }
 
   async function handleCheckout(attestationOverride = null) {
+    if (checkoutDraftPendingRef.current) return;
     const acceptedResearch = attestationOverride?.researchAccepted ?? researchAccepted;
     const acceptedQualified = attestationOverride?.qualifiedAccepted ?? qualifiedAccepted;
     const acceptedTerms = attestationOverride?.termsAccepted ?? termsAccepted;
@@ -11600,8 +11121,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           "Чтобы сделать заказ, пожалуйста, зарегистрируйтесь.",
           "Щоб зробити замовлення, будь ласка, зареєструйтесь.",
           "Um eine Bestellung aufzugeben, registrieren Sie sich bitte.",
-          "Para realizar un pedido, regístrese por favor."
-        )
+          "Para realizar un pedido, regístrese por favor.",
+        ),
       );
       setCheckoutMessage(
         tx(
@@ -11609,8 +11130,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           "Для оформления заказа требуется регистрация.",
           "Для оформлення замовлення потрібна реєстрація.",
           "Für eine Bestellung ist eine Registrierung erforderlich.",
-          "Se requiere registro para realizar un pedido."
-        )
+          "Se requiere registro para realizar un pedido.",
+        ),
       );
       setPage("account");
       if (typeof window !== "undefined") {
@@ -11640,8 +11161,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           "Заполните все обязательные поля корректно.",
           "Заповніть усі обовʼязкові поля коректно.",
           "Bitte füllen Sie alle Pflichtfelder korrekt aus.",
-          "Completa correctamente todos los campos obligatorios."
-        )
+          "Completa correctamente todos los campos obligatorios.",
+        ),
       );
       const firstErrorField = Object.keys(errors)[0];
       const fieldRef = checkoutInputRefs.current[firstErrorField];
@@ -11666,23 +11187,23 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               "Перед продолжением подтвердите, что вам больше 21 года и вы понимаете, что все продукты только для исследовательского использования.",
               "Перед продовженням підтвердіть, що вам більше 21 року і ви розумієте, що всі продукти лише для дослідницького використання.",
               "Bitte bestätigen Sie vor dem Fortfahren, dass Sie über 21 Jahre alt sind und verstehen, dass alle Produkte nur für Forschungszwecke bestimmt sind.",
-              "Antes de continuar, confirma que tienes más de 21 años y entiendes que todos los productos son solo para uso de investigación."
+              "Antes de continuar, confirma que tienes más de 21 años y entiendes que todos los productos son solo para uso de investigación.",
             )
           : !acceptedQualified
-          ? tx(
-              "Please confirm that you are purchasing for laboratory, analytical, or scientific research purposes only and are qualified to handle such materials.",
-              "Подтвердите, что покупаете только для лабораторных, аналитических или научных исследовательских целей и квалифицированы для работы с такими материалами.",
-              "Підтвердіть, що купуєте лише для лабораторних, аналітичних або наукових дослідницьких цілей і кваліфіковані для роботи з такими матеріалами.",
-              "Bitte bestätigen Sie, dass Sie ausschließlich für Labor-, Analyse- oder wissenschaftliche Forschungszwecke kaufen und für den Umgang mit solchen Materialien qualifiziert sind.",
-              "Confirma que compras únicamente para fines de investigación de laboratorio, analíticos o científicos y que estás cualificado para manejar dichos materiales."
-            )
-          : tx(
-              "Please read and agree to the Terms, Privacy, Refund, and Shipping policies before continuing.",
-              "Перед продолжением прочитайте и согласитесь с условиями, политикой конфиденциальности, возврата и доставки.",
-              "Перед продовженням прочитайте та погодьтеся з умовами, політикою конфіденційності, повернення та доставки.",
-              "Bitte lesen und akzeptieren Sie vor dem Fortfahren die Bedingungen, Datenschutz-, Rückerstattungs- und Versandrichtlinien.",
-              "Antes de continuar, lee y acepta los términos, la política de privacidad, reembolso y envío."
-            )
+            ? tx(
+                "Please confirm that you are purchasing for laboratory, analytical, or scientific research purposes only and are qualified to handle such materials.",
+                "Подтвердите, что покупаете только для лабораторных, аналитических или научных исследовательских целей и квалифицированы для работы с такими материалами.",
+                "Підтвердіть, що купуєте лише для лабораторних, аналітичних або наукових дослідницьких цілей і кваліфіковані для роботи з такими матеріалами.",
+                "Bitte bestätigen Sie, dass Sie ausschließlich für Labor-, Analyse- oder wissenschaftliche Forschungszwecke kaufen und für den Umgang mit solchen Materialien qualifiziert sind.",
+                "Confirma que compras únicamente para fines de investigación de laboratorio, analíticos o científicos y que estás cualificado para manejar dichos materiales.",
+              )
+            : tx(
+                "Please read and agree to the Terms, Privacy, Refund, and Shipping policies before continuing.",
+                "Перед продолжением прочитайте и согласитесь с условиями, политикой конфиденциальности, возврата и доставки.",
+                "Перед продовженням прочитайте та погодьтеся з умовами, політикою конфіденційності, повернення та доставки.",
+                "Bitte lesen und akzeptieren Sie vor dem Fortfahren die Bedingungen, Datenschutz-, Rückerstattungs- und Versandrichtlinien.",
+                "Antes de continuar, lee y acepta los términos, la política de privacidad, reembolso y envío.",
+              ),
       );
       if (termsSectionRef.current) {
         setTimeout(() => {
@@ -11694,12 +11215,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       return;
     }
 
-    const generatedOrderNumber = `INV-${Math.random()
-      .toString(36)
-      .slice(2, 10)
-      .toUpperCase()}`;
     const normalizedEmail = currentUser.email.trim().toLowerCase();
-    setOrderNumber(generatedOrderNumber);
     setCheckoutMessage("");
 
     if (currentUser?.email) {
@@ -11718,13 +11234,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       setCurrentUser(updatedUser);
       setRegisteredUsers((current) =>
         current.map((user) =>
-          user.email === currentUser.email ? { ...user, ...updatedUser } : user
-        )
+          user.email === currentUser.email ? { ...user, ...updatedUser } : user,
+        ),
       );
     }
 
     const orderRecord = {
-      id: generatedOrderNumber,
       email: normalizedEmail,
       status: "pending",
       paymentProvider: "pending",
@@ -11757,7 +11272,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       promoDiscount: Number(promoDiscount.toFixed(2)),
       promoCode: appliedPromo?.code || "",
       affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-         cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
+      cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
       storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
       total: Number(finalTotal.toFixed(2)),
       affiliateCode: affiliateTrackingCode,
@@ -11773,14 +11288,44 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       })),
     };
 
+    const requestScope = privateAccountState.capture();
+    checkoutDraftPendingRef.current = true;
     try {
-      const existingOrders = JSON.parse(
-        localStorage.getItem("tbv-orders") || "[]"
+      const paymentSession = await createCheckoutSession({
+        supabase,
+        expectedEmail: currentUser.email,
+        isCurrent: () => privateAccountState.isCurrent(requestScope),
+        draftAttemptRef: checkoutDraftAttemptRef,
+        accountScope: requestScope,
+      });
+      const savedDraft = await paymentSession.saveDraft(orderRecord);
+      if (!privateAccountState.isCurrent(requestScope)) return;
+      Object.assign(orderRecord, savedDraft);
+      setOrderNumber(savedDraft.id);
+    } catch {
+      if (!privateAccountState.isCurrent(requestScope)) return;
+      setCheckoutMessage(
+        tx(
+          "Your order could not be saved. Please sign in and retry checkout.",
+          "Не удалось сохранить заказ. Войдите в аккаунт и повторите оформление.",
+          "Не вдалося зберегти замовлення. Увійдіть в акаунт і повторіть оформлення.",
+          "Ihre Bestellung konnte nicht gespeichert werden. Melden Sie sich an und versuchen Sie es erneut.",
+          "No se pudo guardar tu pedido. Inicia sesión y vuelve a intentarlo.",
+        ),
       );
-      const nextOrders = Array.isArray(existingOrders)
-        ? [orderRecord, ...existingOrders]
-        : [orderRecord];
-      localStorage.setItem("tbv-orders", JSON.stringify(nextOrders));
+      return;
+    } finally {
+      if (privateAccountState.isCurrent(requestScope))
+        checkoutDraftPendingRef.current = false;
+    }
+
+    let alreadyRecordedDraft = false;
+    try {
+      const existingOrders = JSON.parse(privateAccountState.getItem("tbv-orders") || "[]");
+      const previousOrders = Array.isArray(existingOrders) ? existingOrders : [];
+      alreadyRecordedDraft = previousOrders.some(order => order?.id === orderRecord.id);
+      const nextOrders = [orderRecord, ...previousOrders.filter(order => order?.id !== orderRecord.id)];
+      privateAccountState.setItem("tbv-orders", JSON.stringify(nextOrders));
       setAllOrders(nextOrders);
       setUserOrders(getPaidOrdersForEmail(normalizedEmail, nextOrders));
     } catch (error) {
@@ -11793,28 +11338,17 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     setNowPaymentError("");
     setPaypalPaymentError("");
     setCheckoutStep("payment");
-    track("order_placed", { page: "cart", payment_method: paymentMethod, total: orderRecord?.total, items_count: cart?.length });
+    if (!alreadyRecordedDraft) track("order_placed", {
+      page: "cart",
+      payment_method: paymentMethod,
+      total: orderRecord?.total,
+      items_count: cart?.length,
+    });
     // Scroll to the invoice/payment view in a single smooth motion (no jump-then-jump).
     requestAnimationFrame(() => {
       const target = window.innerWidth < 768 ? 640 : 0;
       window.scrollTo({ top: target, behavior: "smooth" });
     });
-
-    supabase
-      .from("orders")
-      .upsert({
-        id: orderRecord.id,
-        email: orderRecord.email,
-        status: orderRecord.status ?? "pending",
-        total: orderRecord.total ?? 0,
-        metadata: orderRecord,
-      })
-      .then(({ error: sbErr }) => {
-        if (sbErr) console.error("Supabase: insert order failed:", sbErr.message);
-      })
-      .catch((e) => {
-        console.error("Supabase: insert order threw:", e);
-      });
   }
 
   async function handlePayWithCredits(attestationOverride = null) {
@@ -11838,94 +11372,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       else if (formSectionRef.current) formSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
-    const generatedOrderNumber = `INV-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
-    const normalizedEmail = currentUser.email.trim().toLowerCase();
-    const paidAt = new Date().toISOString();
-    const orderRecord = {
-      id: generatedOrderNumber,
-      email: normalizedEmail,
-      status: "paid",
-      paymentProvider: "StoreCredit",
-      paymentId: "",
-      paidAt,
-      confirmationEmailSentAt: "",
-      createdAt: paidAt,
-      shippingType: effectiveShippingType,
-      firstName: syncedForm.firstName || "",
-      lastName: syncedForm.lastName || "",
-      country: syncedForm.country || "",
-      address: syncedForm.address || "",
-      address2: syncedForm.address2 || "",
-      city: syncedForm.city || "",
-      state: syncedForm.state || "",
-      postalCode: syncedForm.postalCode || "",
-      phone: syncedForm.phone || "",
-      taxId: syncedForm.taxId || "",
-      purchaserAttestation: {
-        over21AndResearchUseOnly: acceptedResearch,
-        qualifiedResearcherOrLicensedProfessional: acceptedQualified,
-        noHumanOrAnimalUse: acceptedQualified,
-        policiesAccepted: acceptedTerms,
-        acceptedAt: paidAt,
-      },
-      orderNotes: getCheckoutOrderNotes(syncedForm),
-      subtotal: Number(subtotal.toFixed(2)),
-      shipping: Number(shipping.toFixed(2)),
-      automaticDiscount: Number(automaticDiscount.toFixed(2)),
-      promoDiscount: Number(promoDiscount.toFixed(2)),
-      promoCode: appliedPromo?.code || "",
-      affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-         cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-      storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-      total: 0,
-      affiliateCode: affiliateTrackingCode,
-      affiliateOwnerEmail: affiliateTrackingOwnerEmail,
-      affiliateCommission: Number(affiliateCommission.toFixed(2)),
-      items: cart.map((item) => ({
-        name: item.name, dose: item.dose, quantity: item.quantity, price: item.price,
-        ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
-        ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}),
-      })),
-    };
-    try {
-      const existing = JSON.parse(localStorage.getItem("tbv-orders") || "[]");
-      const next = Array.isArray(existing) ? [orderRecord, ...existing] : [orderRecord];
-      localStorage.setItem("tbv-orders", JSON.stringify(next));
-      setAllOrders(next);
-      setUserOrders(getPaidOrdersForEmail(normalizedEmail, next));
-    } catch (e) { console.error("Credit order localStorage failed", e); }
-    try {
-      await supabase.from("orders").upsert({
-        id: orderRecord.id, email: orderRecord.email, status: "paid",
-        paid_at: paidAt, total: 0, metadata: orderRecord,
-      });
-    } catch (e) { console.error("Credit order Supabase failed", e); }
-    try {
-      const { data: creditRow } = await supabase.from("user_credits").select("amount").eq("email", normalizedEmail).order("updated_at", { ascending: false }).limit(1).single();
-      const currentAmt = creditRow ? Number(creditRow.amount) : 0;
-      const newAmt = Math.max(0, currentAmt - Number(storeCreditApplied.toFixed(2)));
-      // Use UPDATE to avoid duplicate-row issues; INSERT only if no row exists
-      const { error: updateErr } = await supabase.from("user_credits").update({ amount: newAmt, updated_at: new Date().toISOString() }).eq("email", normalizedEmail);
-      if (updateErr || !creditRow) {
-        await supabase.from("user_credits").insert({ email: normalizedEmail, amount: newAmt, updated_at: new Date().toISOString() });
-      }
-      // Delete any duplicate rows (keep the one with correct balance, delete extras)
-      const { data: allRows } = await supabase.from("user_credits").select("id, amount, updated_at").eq("email", normalizedEmail).order("updated_at", { ascending: false });
-      if (allRows && allRows.length > 1) {
-        const idsToDelete = allRows.slice(1).map(r => r.id);
-        await supabase.from("user_credits").delete().in("id", idsToDelete);
-      }
-      setStoreCredit(newAmt);
-    } catch (e) { console.error("Credit deduction failed", e); }
-    setCreditPayAmount(Number(storeCreditApplied.toFixed(2)));
-    setCreditPayAnimating(true);
-    setTimeout(() => {
-      setCreditPayAnimating(false);
-      setCart([]);
-      setPaymentReturn({ status: "success", order: generatedOrderNumber });
-      setPage("payment-return");
-      refreshUserOrdersFromSupabase(normalizedEmail);
-    }, 2800);
+    window.alert(tx(
+      "Store credit checkout is temporarily unavailable. Your balance is unchanged; please use another payment method.",
+      "Оплата кредитом магазина временно недоступна. Баланс сохранён; выберите другой способ оплаты.",
+      "Оплата кредитом магазину тимчасово недоступна. Баланс збережено; виберіть інший спосіб оплати.",
+      "Die Zahlung mit Shop-Guthaben ist vorübergehend nicht verfügbar. Ihr Guthaben bleibt unverändert.",
+      "El pago con saldo de tienda no está disponible temporalmente. Tu saldo no cambia; usa otro método."
+    ));
   }
 
   function updateCheckoutField(field, value) {
@@ -11997,22 +11450,29 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     setCountryDropdownRect(null);
   }
 
-  function makeProductSlug(p) {
-    return productSlugFor(p);
+
+  function selectProductVariant(product, warehouse = productWarehouse(product)) {
+    const selected = resolveProductSelection(products, product, warehouse);
+    if (!selected) return;
+    setSelectedProduct(selected);
+    setCoaPage(0);
+    setCoaLightbox(false);
+    window.history.replaceState({}, "", productSelectionPath(selected, window.location.search, currentAffiliateProfile?.code));
+    track("product_selection_changed", { product_name: selected.name, strength: selected.dose, warehouse: productWarehouse(selected) });
   }
 
   function openProduct(product) {
+    const selected = resolveProductSelection(products, product);
+    if (!selected) return;
     savedShopScrollY.current = window.scrollY;
     savedSidebarScrollTop.current = shopSidebarScrollRef.current?.scrollTop ?? 0;
     productOriginPage.current = page;
-    setSelectedProduct(product);
+    setSelectedProduct(selected);
     setCoaPage(0);
     setCoaLightbox(false);
     setPage("product");
     window.scrollTo({ top: 0, behavior: "auto" });
-    const affCode = currentAffiliateProfile?.code;
-    const newPath = "/" + makeProductSlug(product) + (affCode ? "?c=" + affCode.toLowerCase() : "");
-    window.history.replaceState({}, "", newPath);
+    window.history.pushState({}, "", productSelectionPath(selected, window.location.search, currentAffiliateProfile?.code));
   }
 
   async function handleForgotSubmit(e) {
@@ -12072,15 +11532,105 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       sessionStorage.removeItem("tbv-recovery-rt");
       setRecoverySession(null);
       setAuthMode("signin");
+      setAuthMethod("password");
       setResetForm({ code: "", password: "", confirmPassword: "" });
       setForgotEmail("");
       setAccountMessage(tx("Password updated! Sign in with your new password.", "Пароль обновлён! Войдите с новым паролем.", "Пароль оновлено! Увійдіть з новим паролем.", "Passwort aktualisiert! Mit neuem Passwort einloggen.", "¡Contraseña actualizada! Inicia sesión con tu nueva contraseña."));
     } catch { setAccountMessage(tx("Verification failed.", "Ошибка проверки.", "Помилка перевірки.", "Fehler bei der Verifizierung.", "Error de verificación.")); }
   }
 
+  function oauthNotCompletedMessage() {
+    return emailCodeAuthEnabled ? tx(
+      "Sign-in wasn’t completed. Try again or use an email code.",
+      "Вход не завершён. Попробуйте ещё раз или используйте код по email.",
+      "Вхід не завершено. Спробуйте ще раз або скористайтеся кодом на email.",
+      "Die Anmeldung wurde nicht abgeschlossen. Versuchen Sie es erneut oder nutzen Sie einen E-Mail-Code.",
+      "No se completó el inicio de sesión. Inténtalo de nuevo o usa un código por email.",
+    ) : tx(
+      "Sign-in wasn’t completed. Try again or sign in with your email and password.",
+      "Вход не завершён. Попробуйте ещё раз или войдите с email и паролем.",
+      "Вхід не завершено. Спробуйте ще раз або увійдіть з email і паролем.",
+      "Die Anmeldung wurde nicht abgeschlossen. Versuchen Sie es erneut oder melden Sie sich mit E-Mail und Passwort an.",
+      "No se completó el inicio de sesión. Inténtalo de nuevo o accede con tu email y contraseña.",
+    );
+  }
+
+  // No Supabase call here: auth callbacks run while its session lock is held.
+  function finishOAuthCallback(session, final = false) {
+    const state = oauthReturnRef.current;
+    if (state.status !== "pending") return false;
+    if (!state.initialized && !final) return true;
+    const nextPage = confirmedOAuthReturnPage(state, session);
+    if (!nextPage) {
+      if (final) {
+        state.status = "failed";
+        clearOAuthReturn(sessionStorage);
+        setAccountMessage(oauthNotCompletedMessage());
+        setPage("account");
+        window.history.replaceState({}, "", "/account");
+      }
+      return true;
+    }
+    state.status = "complete";
+    clearOAuthReturn(sessionStorage);
+    track("auth_verified", { method: state.provider, stage: "verify" });
+    setPendingCheckoutAfterAuth(false);
+    setAuthMode("signin");
+    setAccountMessage("");
+    setPage(nextPage);
+    window.history.replaceState({}, "", nextPage === "cart" ? "/cart" : "/account");
+    return false;
+  }
+
+  async function handleOAuthSignIn(provider) {
+    if (accountAuthBusyRef.current) return;
+    accountAuthBusyRef.current = true;
+    setAccountAuthBusy(true);
+    setAccountMessage("");
+    track("auth_started", { method: provider, stage: authMode });
+    try {
+      sessionStorage.removeItem("tbv-pw-recovery");
+      sessionStorage.removeItem("tbv-recovery-at");
+      sessionStorage.removeItem("tbv-recovery-rt");
+      setRecoverySession(null);
+      requireSignupVerificationRef.current = false;
+      oauthReturnRef.current.status = "none";
+      await startOAuthSignIn({
+        supabase, provider, enabledProviders: configuredOAuthProviders,
+        supabaseUrl: authSupabaseUrl,
+        origin: window.location.origin, storage: sessionStorage, catalog: PRODUCTS_BASE,
+        cart, returnTo: pendingCheckoutAfterAuth ? "cart" : "account",
+        navigate: url => window.location.assign(url),
+      });
+    } catch (error) {
+      track("auth_failed", { method: provider, stage: authMode });
+      setAccountMessage(error?.message || oauthNotCompletedMessage());
+    } finally {
+      accountAuthBusyRef.current = false;
+      setAccountAuthBusy(false);
+    }
+  }
+
   async function handleAccountSubmit(e) {
     e.preventDefault();
+    if (accountAuthBusyRef.current) return;
+    accountAuthBusyRef.current = true;
+    setAccountAuthBusy(true);
+    track("auth_started", { method: authMethod === "email" ? "email_code" : "password", stage: authMode });
+    try {
+      await submitAccountCredentials();
+    } catch (error) {
+      track("auth_failed", { method: authMethod === "email" ? "email_code" : "password", stage: authMode });
+      setAccountMessage(error?.message || tx("Sign-in is unavailable. Please try again.", "Вход недоступен. Попробуйте ещё раз.", "Вхід недоступний. Спробуйте ще раз.", "Anmeldung nicht verfügbar. Bitte erneut versuchen.", "No se puede iniciar sesión. Inténtalo de nuevo."));
+    } finally {
+      accountAuthBusyRef.current = false;
+      setAccountAuthBusy(false);
+    }
+  }
 
+  async function submitAccountCredentials() {
+    oauthReturnRef.current.status = "none";
+    clearOAuthReturn(sessionStorage);
     const email = accountForm.email.trim().toLowerCase();
     const password = accountForm.password;
     const confirmPassword = accountForm.confirmPassword;
@@ -12090,7 +11640,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       .trim()
       .toUpperCase();
 
-    if (!email || !password) {
+    if (!email || (authMethod === "password" && !password)) {
       setAccountMessage(
         tx(
           "Please fill in all required fields.",
@@ -12113,6 +11663,45 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           "Introduce un email válido."
         )
       );
+      return;
+    }
+
+    if (authMethod === "email") {
+      if (!emailCodeAuthEnabled) { setAuthMethod("password"); return; }
+      if (emailCodeWaitSeconds(emailCodeCooldown, email) > 0) return;
+      if (authMode === "create" && registrationPromoCode && !affiliateProfiles.some((profile) => profile.code === registrationPromoCode && profile.active !== false)) {
+        setAccountMessage(tx("Invalid affiliate code.", "Неверный партнёрский код.", "Недійсний партнерський код.", "Ungültiger Affiliate-Code.", "Código de afiliado no válido."));
+        return;
+      }
+      // Normal email sign-in must not inherit a stale password-recovery intent.
+      sessionStorage.removeItem("tbv-pw-recovery");
+      sessionStorage.removeItem("tbv-recovery-at");
+      sessionStorage.removeItem("tbv-recovery-rt");
+      setRecoverySession(null);
+      requireSignupVerificationRef.current = true;
+      const affiliateCode = authMode === "create" ? String(activeAffiliateCode || browserAffiliateCode || registrationPromoCode || "").trim().toUpperCase() : "";
+      setAccountMessage(tx("Sending your code…", "Отправляем код…", "Надсилаємо код…", "Code wird gesendet…", "Enviando tu código…"));
+      try {
+        await requestEmailCode({ supabase, email, mode: authMode, affiliateCode });
+      } catch (error) {
+        requireSignupVerificationRef.current = false;
+        track("auth_failed", { method: "email_code", stage: authMode });
+        if (isEmailCodeRateLimit(error)) startEmailCodeCooldown(email);
+        setAccountMessage(error?.code === "otp_disabled"
+          ? tx("No account was found for this email. Choose Create Account to register.", "Аккаунт с этим email не найден. Выберите «Создать аккаунт».", "Акаунт із цим email не знайдено. Виберіть «Створити акаунт».", "Für diese E-Mail wurde kein Konto gefunden. Wählen Sie Konto erstellen.", "No encontramos una cuenta con este email. Elige Crear cuenta.")
+          : error?.message || tx("Could not send a code. Please try again.", "Не удалось отправить код. Попробуйте ещё раз.", "Не вдалося надіслати код. Спробуйте ще раз.", "Code konnte nicht gesendet werden. Bitte erneut versuchen.", "No se pudo enviar el código. Inténtalo de nuevo."));
+        return;
+      }
+      track("auth_code_sent", { method: "email_code", stage: authMode });
+      setVerificationKind("email");
+      setVerificationEntryMode(authMode);
+      setSignupVerificationEmail(email);
+      setSignupVerificationCode("");
+      setPendingRegistrationPromoCode(affiliateCode);
+      setAccountForm({ email, password: "", confirmPassword: "" });
+      startEmailCodeCooldown(email);
+      setAuthMode("verify");
+      setAccountMessage(tx("A six-digit code was sent. Check your inbox and spam folder.", "Отправили код из шести цифр. Проверьте входящие и папку со спамом.", "Надіслали код із шести цифр. Перевірте вхідні та папку зі спамом.", "Ein sechsstelliger Code wurde gesendet. Prüfen Sie Ihren Posteingang und Spam-Ordner.", "Enviamos un código de seis dígitos. Revisa tu bandeja de entrada y correo no deseado."));
       return;
     }
 
@@ -12177,6 +11766,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         }));
       } catch (error) {
         requireSignupVerificationRef.current = false;
+        track("auth_failed", { method: "password", stage: "create" });
         setAccountMessage(error?.message || tx(
           "Could not create the account. Please try again.",
           "Не удалось создать аккаунт. Попробуйте ещё раз.",
@@ -12188,12 +11778,14 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       }
 
       if (signUpError) {
+        track("auth_failed", { method: "password", stage: "create" });
         requireSignupVerificationRef.current = false;
         setAccountMessage(signUpError.message);
         return;
       }
 
       if (signUpData?.session) {
+        track("auth_failed", { method: "password", stage: "create" });
         await supabase.auth.signOut();
         setAccountMessage(tx(
           "Email confirmation is not enabled for this site. Please contact support before signing in.",
@@ -12205,6 +11797,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         return;
       }
 
+      track("auth_code_sent", { method: "password", stage: "create" });
+      setVerificationKind("signup");
+      setVerificationEntryMode("create");
+      startEmailCodeCooldown(email);
       setSignupVerificationEmail(email);
       setSignupVerificationCode("");
       setPendingRegistrationPromoCode(registrationPromoCode);
@@ -12236,7 +11832,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       ) {
         const { error: resendError } = await supabase.auth.resend({ type: "signup", email });
         if (!resendError) {
+          track("auth_code_sent", { method: "password", stage: "signin" });
           requireSignupVerificationRef.current = true;
+          setVerificationKind("signup");
+          setVerificationEntryMode("signin");
+          startEmailCodeCooldown(email);
           setSignupVerificationEmail(email);
           setSignupVerificationCode("");
           setPendingRegistrationPromoCode("");
@@ -12251,6 +11851,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           return;
         }
       }
+      track("auth_failed", { method: "password", stage: "signin" });
       setAccountMessage(tx(
         "Invalid email or password.",
         "Неверный email или пароль.",
@@ -12262,6 +11863,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     }
 
     const loggedInUser = userFromSupabase(signInData.user);
+    track("auth_verified", { method: "password", stage: "signin" });
     setCurrentUser(loggedInUser);
     syncUserPaidOrders(loggedInUser.email);
     fetchUserPromos(loggedInUser.email, appliedPromo);
@@ -12292,43 +11894,21 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       return;
     }
 
+    if (signupVerificationBusyRef.current) return;
+    signupVerificationBusyRef.current = true;
     setSignupVerificationBusy(true);
     setAccountMessage(tx("Verifying code…", "Проверяем код…", "Перевіряємо код…", "Code wird geprüft…", "Verificando código…"));
-    requireSignupVerificationRef.current = false;
+    // Let the handler validate the returned identity before exposing an account.
+    requireSignupVerificationRef.current = true;
 
     try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        email,
-        token,
-        type: "signup",
-      });
-
-      if (error) {
-        requireSignupVerificationRef.current = true;
-        setAccountMessage(error.message);
-        return;
-      }
-
-      const verifiedUser = data?.user || data?.session?.user;
-      const emailConfirmed = Boolean(
-        verifiedUser?.email_confirmed_at || verifiedUser?.confirmed_at
-      );
-      if (!data?.session || !verifiedUser || !emailConfirmed) {
-        requireSignupVerificationRef.current = true;
-        await supabase.auth.signOut();
-        setAccountMessage(tx(
-          "The code could not confirm this email. Request a new code and try again.",
-          "Не удалось подтвердить email этим кодом. Запросите новый код и попробуйте ещё раз.",
-          "Не вдалося підтвердити email цим кодом. Запросіть новий код і спробуйте ще раз.",
-          "Die E-Mail konnte mit diesem Code nicht bestätigt werden. Fordern Sie einen neuen Code an und versuchen Sie es erneut.",
-          "No se pudo confirmar el email con este código. Solicita otro e inténtalo de nuevo."
-        ));
-        return;
-      }
+      const verifiedUser = await confirmEmailCode({ supabase, email, token, type: verificationKind });
+      requireSignupVerificationRef.current = false;
+      track("auth_verified", { method: verificationKind === "email" ? "email_code" : "password", stage: "verify" });
 
       const newUser = userFromSupabase(verifiedUser);
       const affiliateCode = String(
-        pendingRegistrationPromoCode || newUser?.affiliateCode || ""
+        newUser?.affiliateCode || ""
       ).trim().toUpperCase();
       setCurrentUser(newUser);
       setAccountForm({ email: newUser.email, password: "", confirmPassword: "" });
@@ -12354,6 +11934,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       }
     } catch (error) {
       requireSignupVerificationRef.current = true;
+      track("auth_failed", { method: verificationKind === "email" ? "email_code" : "password", stage: "verify" });
       setAccountMessage(error?.message || tx(
         "Verification failed. Please try again.",
         "Не удалось подтвердить email. Попробуйте ещё раз.",
@@ -12362,22 +11943,27 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         "La verificación falló. Inténtalo de nuevo."
       ));
     } finally {
+      signupVerificationBusyRef.current = false;
       setSignupVerificationBusy(false);
     }
   }
 
   async function handleResendSignupCode() {
     const email = signupVerificationEmail.trim().toLowerCase();
-    if (!email) return;
+    if (!email || signupVerificationBusyRef.current || emailCodeWaitSeconds(emailCodeCooldown, email) > 0) return;
 
+    signupVerificationBusyRef.current = true;
     setSignupVerificationBusy(true);
     setAccountMessage(tx("Sending a new code…", "Отправляем новый код…", "Надсилаємо новий код…", "Neuer Code wird gesendet…", "Enviando un nuevo código…"));
     try {
-      const { error } = await supabase.auth.resend({ type: "signup", email });
-      if (error) {
-        setAccountMessage(error.message);
-        return;
+      if (verificationKind === "email") {
+        await requestEmailCode({ supabase, email, mode: verificationEntryMode, affiliateCode: pendingRegistrationPromoCode });
+      } else {
+        const { error } = await supabase.auth.resend({ type: "signup", email });
+        if (error) throw error;
       }
+      startEmailCodeCooldown(email);
+      track("auth_code_sent", { method: verificationKind === "email" ? "email_code" : "password", stage: "resend" });
       setSignupVerificationCode("");
       setAccountMessage(tx(
         "A new code was sent. Check your inbox and spam folder.",
@@ -12387,6 +11973,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         "Enviamos un código nuevo. Revisa tu bandeja de entrada y correo no deseado."
       ));
     } catch (error) {
+      if (isEmailCodeRateLimit(error)) startEmailCodeCooldown(email);
+      track("auth_failed", { method: verificationKind === "email" ? "email_code" : "password", stage: "resend" });
       setAccountMessage(error?.message || tx(
         "Could not resend the code. Please try again.",
         "Не удалось отправить код повторно. Попробуйте ещё раз.",
@@ -12395,13 +11983,16 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         "No se pudo reenviar el código. Inténtalo de nuevo."
       ));
     } finally {
+      signupVerificationBusyRef.current = false;
       setSignupVerificationBusy(false);
     }
   }
 
   async function handleSignOut() {
-    if (currentUser?.email && cart.length > 0) {
-      await supabase.auth.updateUser({ data: { savedCart: cart } });
+    clearPrivateAccountView();
+    if (currentUser?.email && cart.length > 0 && cartHydratedFor === normalizeEmail(currentUser.email)) {
+      try { await supabase.auth.updateUser({ data: { savedCart: cart } }); }
+      catch { /* Cart persistence must not prevent an explicit sign-out. */ }
     }
     await supabase.auth.signOut();
     setCurrentUser(null);
@@ -14223,6 +13814,14 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           </main>
         )}
 
+        {page === "product" && !selectedProduct && (
+          <main className="mx-auto max-w-3xl px-5 py-16 text-white">
+            <h1 className="text-3xl font-semibold">{tx("This selection is unavailable", "Этот вариант недоступен", "Цей варіант недоступний", "Diese Auswahl ist nicht verfügbar", "Esta selección no está disponible")}</h1>
+            <p className="mt-4 text-base leading-7 text-white/70">{tx("The product, strength, or warehouse in this link is not available. Choose an available selection from the catalog.", "Товар, дозировка или склад из этой ссылки недоступны. Выберите доступный вариант в каталоге.", "Товар, дозування або склад із цього посилання недоступні. Виберіть доступний варіант у каталозі.", "Produkt, Stärke oder Lager in diesem Link ist nicht verfügbar. Wählen Sie eine verfügbare Variante im Katalog.", "El producto, la concentración o el almacén de este enlace no está disponible. Elige una opción disponible en el catálogo.")}</p>
+            <button type="button" onClick={() => setPage("shop")} className="mt-6 rounded-full bg-white px-6 py-3 font-semibold text-black">{tx("View catalog", "Открыть каталог", "Відкрити каталог", "Katalog ansehen", "Ver catálogo")}</button>
+          </main>
+        )}
+
         {page === "product" && selectedProduct && (
           <main className="mx-auto max-w-7xl px-4 pt-1 pb-36 md:px-10 md:pt-2 md:pb-14">
             <button
@@ -14285,7 +13884,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     />
                   )}
                   {/* US warehouse badge */}
-                  {productOriginPage.current === "us-warehouse" && coaPage === 0 && (
+                  {selectedProduct.fromWarehouse === "us" && coaPage === 0 && (
                      <span className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 rounded-md border border-white/60 bg-[#a32133] px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-white shadow-[0_0_12px_rgba(163,33,51,0.35)]"><UsFlag />US</span>
                   )}
                   {/* COA badge when on COA slide */}
@@ -14332,6 +13931,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     </div>
                   )}
                 </div>
+                {!selectedProduct?.coaImages?.length && (
+                  <p className="mt-3 text-center text-xs leading-5 text-white/65">{tx("COA unavailable for this selection.", "COA для этого варианта недоступен.", "COA для цього варіанта недоступний.", "COA für diese Auswahl nicht verfügbar.", "COA no disponible para esta selección.")}</p>
+                )}
                 {/* Dot indicators */}
                 {selectedProduct?.coaImages?.length > 0 && (
                   <div className="mt-3 flex justify-center gap-1.5">
@@ -14392,7 +13994,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           <div key={`${v.dose}-${v.noteLabel ?? ""}-${v.warehouse ?? "ww"}`} className="flex items-center gap-1.5">
                             <button
                               type="button"
-                              onClick={() => { if (!isActive) { setSelectedProduct(isUs ? { ...v, fromWarehouse: "us" } : v); setCoaPage(0); setCoaLightbox(false); } }}
+                              onClick={() => { if (!isActive) selectProductVariant(v, isUs ? "us" : "worldwide"); }}
                               aria-label={`${v.dose.toUpperCase()}${v.outOfStock ? ", OUT OF STOCK" : ""}`}
                               className={`rounded-full px-4 py-1.5 text-[12px] font-bold uppercase tracking-[0.14em] border transition-none ${
                                 isActive
@@ -14408,6 +14010,25 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     </div>
                   );
                 })()}
+
+                <div className="mt-5" aria-label={tx("Shipping warehouse", "Склад отправки", "Склад відправлення", "Versandlager", "Almacén de envío")}>
+                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/60">{tx("Ships from", "Отправка со склада", "Відправлення зі складу", "Versand ab", "Envío desde")}</div>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      ["worldwide", tx("International", "Международный", "Міжнародний", "International", "Internacional")],
+                      ["us", tx("US warehouse", "Склад США", "Склад США", "US-Lager", "Almacén de EE. UU.")],
+                    ].map(([warehouse, label]) => {
+                      const variant = resolveProductSelection(products, selectedProduct, warehouse);
+                      const active = productWarehouse(selectedProduct) === warehouse;
+                      return <button key={warehouse} type="button" disabled={!variant} aria-pressed={active}
+                        onClick={() => selectProductVariant(selectedProduct, warehouse)}
+                        className={`rounded-full border px-4 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-35 ${active ? "border-white bg-white text-black" : "border-white/25 bg-white/5 text-white hover:bg-white/10"}`}>
+                        {label}{!variant ? ` — ${tx("unavailable", "недоступно", "недоступно", "nicht verfügbar", "no disponible")}` : ""}
+                      </button>;
+                    })}
+                  </div>
+                  {selectedProduct.fromWarehouse === "us" && <p className="mt-2 text-xs leading-5 text-white/60">{tx("US warehouse items ship to US addresses.", "Товары со склада США отправляются на адреса в США.", "Товари зі складу США надсилаються на адреси у США.", "Artikel aus dem US-Lager werden an US-Adressen versandt.", "Los productos del almacén de EE. UU. se envían a direcciones de EE. UU.")}</p>}
+                </div>
 
                 <ProductPackSelector language={language} price={selectedProduct.price} />
 
@@ -16179,6 +15800,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               <div className="mb-6 flex gap-2 flex-wrap">
                 {[
                   { key: "orders", label: "Orders" },
+                  { key: "operations", label: "Operations" },
                   { key: "charts", label: "Charts" },
                   { key: "inbox", label: adminUnreadCount > 0 ? `Inbox (${adminUnreadCount})` : "Inbox", unread: adminUnreadCount > 0 },
                   { key: "promo", label: "Promo" },
@@ -16206,6 +15828,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </button>
                 ))}
               </div>
+              {adminActiveTab === "operations" && isAdminUser() && (
+                <Suspense fallback={<p role="status">Loading operations…</p>}>
+                  <OperationsStudio supabase={supabase} expectedEmail={currentUser?.email} />
+                </Suspense>
+              )}
               {adminActiveTab === "orders" && (
               <section className="rounded-[2rem] border border-white/20 bg-black/10 p-5 md:p-6">
                 {/* Stats + action buttons row */}
@@ -17098,7 +16725,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           const isOpen = expandedThreadEmail === email;
                           return (
                             <div key={email} className={`rounded-2xl border overflow-hidden ${hasNew ? "border-red-400/40 bg-red-500/[0.07]" : "border-white/20 bg-black/20"}`}>
-                              <button type="button" className="w-full text-left px-5 py-4 hover:bg-white/[0.02] transition" onClick={() => { setExpandedThreadEmail(isOpen ? null : email); if (!isOpen) setReadThreadTimestamps(prev => { const next = new Map(prev); next.set(email, Date.now()); try { localStorage.setItem("tbv_read_thread_ts", JSON.stringify(Object.fromEntries(next))); } catch {} return next; }); }}>
+                              <button type="button" className="w-full text-left px-5 py-4 hover:bg-white/[0.02] transition" onClick={() => { setExpandedThreadEmail(isOpen ? null : email); if (!isOpen) setReadThreadTimestamps(prev => { const next = new Map(prev); next.set(email, Date.now()); try { privateAccountState.setItem("tbv_read_thread_ts", JSON.stringify(Object.fromEntries(next))); } catch {} return next; }); }}>
                                 <div className="flex items-center gap-3">
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
@@ -17673,7 +17300,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   <h2 className="mt-2 text-xl font-semibold text-white">Restore Hidden Order</h2>
                   <p className="mt-1 text-sm text-white/50">
                     {(() => {
-                      const ids = JSON.parse(localStorage.getItem("tbv-deleted-order-ids") || "[]");
+                      const ids = JSON.parse(privateAccountState.getItem("tbv-deleted-order-ids") || "[]");
                       return `${ids.length} order${ids.length !== 1 ? "s" : ""} hidden from admin view.`;
                     })()}
                   </p>
@@ -17690,12 +17317,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         const input = document.getElementById("restore-order-id-input");
                         const id = (input?.value || "").trim().toUpperCase();
                         if (!id) return;
-                        const ids = JSON.parse(localStorage.getItem("tbv-deleted-order-ids") || "[]");
+                        const ids = JSON.parse(privateAccountState.getItem("tbv-deleted-order-ids") || "[]");
                         if (!ids.includes(id)) {
                           alert(`Order ${id} is not in the hidden list.`);
                           return;
                         }
-                        localStorage.setItem("tbv-deleted-order-ids", JSON.stringify(ids.filter(x => x !== id)));
+                        privateAccountState.setItem("tbv-deleted-order-ids", JSON.stringify(ids.filter(x => x !== id)));
                         if (input) input.value = "";
                         await loadOrdersFromSupabase();
                       }}
@@ -17709,181 +17336,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               )}
 
               {adminActiveTab === "charts" && isAdminUser() && (() => {
-                // ── Supplier cost tables ─────────────────────────────────────
-                // China warehouse: cost per kit (10 vials). Key = "NormalizedName|dose"
-                const CHINA_COST = {
-                  "Semaglutide|5mg":35,"Semaglutide|10mg":45,"Semaglutide|15mg":60,"Semaglutide|20mg":70,"Semaglutide|30mg":90,
-                  "Tirzepatide|5mg":40,"Tirzepatide|10mg":50,"Tirzepatide|15mg":65,"Tirzepatide|20mg":75,"Tirzepatide|30mg":95,"Tirzepatide|40mg":115,"Tirzepatide|50mg":145,"Tirzepatide|60mg":170,
-                  "Retatrutide|5mg":55,"Retatrutide|10mg":80,"Retatrutide|15mg":105,"Retatrutide|20mg":130,"Retatrutide|30mg":170,"Retatrutide|40mg":210,"Retatrutide|50mg":255,"Retatrutide|60mg":290,
-                  "BPC+TB|10mg":95,"BPC+TB|20mg":170,
-                  "TB-500 + BPC-157|10mg":95,"TB-500 + BPC-157|20mg":170,
-                  "TB-500 + BPC-157|10mg each":95,"TB-500 + BPC-157|20mg each":170,
-                  "Semax|5mg":40,"Semax|10mg":50,
-                  "Selank|5mg":40,"Selank|10mg":50,
-                  "CJC-1295|5mg":85,"CJC-1295|10mg":150,
-                  "MT-2|10mg":45,"Melanotan|10mg":45,"Melanotan-2|10mg":45,
-                  "PT-141|10mg":60,
-                  "BPC-157|5mg":40,"BPC-157|10mg":70,
-                  "TB-500|5mg":75,"TB-500|10mg":140,
-                  "KLOW|80mg":195,"Klow|80mg":195,"KLOW80|80mg":195,
-                  "GLOW|70mg":195,"Glow|70mg":195,"GLOW70|70mg":195,
-                  "HGH|10iu":55,"HGH|15iu":80,"HGH|24iu":130,"HGH|36iu":180,"HGH|10IU":55,"HGH|15IU":80,"HGH|24IU":130,"HGH|36IU":180,
-                  "Cagrilintide|5mg":105,"Cagrilintide|10mg":185,
-                  "Cagrilintide+Semaglutide|10mg":190,"Cagrilintide + Semaglutide|10mg each":190,
-                  "Mazdutide|10mg":195,
-                  "Survodutide|10mg":270,
-                  "GHK-CU|50mg":30,"GHK-CU|100mg":45,"GHK-Cu|50mg":30,"GHK-Cu|100mg":45,
-                  "KPV|10mg":60,
-                  "DSIP|5mg":45,"DSIP|15mg":85,
-                  "Ipamorelin|5mg":45,"Ipamorelin|10mg":80,
-                  "AOD|5mg":105,"AOD 9604|5mg":105,
-                  "Tesamorelin|5mg":110,"Tesamorelin|10mg":185,
-                  "Semorelin|5mg":70,"Semorelin|10mg":120,"Semorelin Acetate|5mg":70,"Semorelin Acetate|10mg":120,"Sermorelin|5mg":70,"Sermorelin|10mg":120,
-                  "IGF-1LR3|0.1mg":40,"IGF-1LR3|1mg":188,"IGF-1 LR3|0.1mg":40,"IGF-1 LR3|1mg":188,
-                  "GHRP-2|5mg":45,"GHRP-2|10mg":70,
-                  "GHRP-6|5mg":70,"GHRP-6|10mg":94,
-                  "HCG|5000iu":85,"HCG|10000iu":160,
-                  "HMG|75iu":60,
-                  "SS-31|10mg":86,"SS-31|50mg":285,
-                  "MOTS-C|10mg":65,"MOTS-C|40mg":185,
-                  "Oxytocin|2mg":25,
-                  "Epithalon|10mg":48,"Epithalon|50mg":150,"Epitalon|10mg":48,"Epitalon|50mg":150,
-                  "CJC-1295 + Ipamorelin|10mg each":95,"CJC-1295 + Ipamorelin|5mg each":95,
-                  "ARA290 (Cibinetide)|10mg":80,
-                  "Cartalax|20mg":95,
-                  "MT-1|10mg":45,
-                  "Eloralintide|5mg":148,"Eloralintide|10mg":220,
-                  "PEG-MGF|2mg":80,
-                  "MGF|2mg":50,
-                  "GDF-8|10mg":170,
-                  "FOXO4-DRI|10mg":280,
-                  "ACE-031|10mg":190,
-                  "Gonadorelin|2mg":33,"Gonadorelin|5mg":33,"Gonadorelin|10mg":33,
-                  "Hexarelin Acetate|5mg":60,"Hexarelin Acetate|10mg":110,"Hexarelin|5mg":60,"Hexarelin|10mg":110,
-                  "PNC-27|5mg":120,"PNC-27|10mg":200,"PNC-27|50mg":200,
-                  "IGF-DES|2mg":55,
-                  "AHK-CU|100mg":45,
-                  "Triptorelin|2mg":50,
-                  "AICAR|50mg":62,
-                  "Adipotide|2mg":70,"Adipotide|5mg":150,
-                  "KissPeptin-10|5mg":50,"KissPeptin-10|10mg":85,
-                  "Thymosin Alpha-1|5mg":80,"Thymosin Alpha-1|10mg":145,
-                  "LL37|10mg":95,
-                  "Melatonin|10mg":55,
-                  "NAD+|100mg":40,"NAD+|500mg":80,"NAD+|1000mg":130,
-                  "Dermorphin|5mg":55,
-                  "Glutathione|1500mg":80,
-                  "5-Amino-1MQ|5mg":45,"5-Amino-1MQ|10mg":60,"5-Amino-1MQ|50mg":110,"5-amino-1mq|5mg":45,"5-amino-1mq|10mg":60,"5-amino-1mq|50mg":110,
-                  "Cerebroprotein|60mg":29,
-                  "Snap-8|10mg":40,"SNAP-8|10mg":40,
-                  "LC120|10mg":60,
-                  "Lipo-C|10mg":75,"Lipo-C (with B12)|10ml":75,
-                  "B12|10mg":35,
-                  "L-Carnitine|10mg":80,"L-Carnitine (600mg/ml)|10ml":80,
-                  "Pinealon|5mg":55,"Pinealon|10mg":70,"Pinealon|20mg":100,
-                  "Lemon Bottle|10ml":100,
-                  "VIP|5mg":75,"VIP|10mg":145,
-                  "SLU-PP-322|5mg":100,"SLU-PP-332|5mg":100,
-                  "Bacteriostatic Water|3ml":8,"Bacteriostatic Water|10ml":10,"BAC Water|3ml":8,"BAC Water|10ml":10,
-                  "Acetic Acid|3ml":5,"Acetic Acid|10ml":10,
-                  "PBS|3ml":5,"PBS|10ml":10,
-                };
-                // US warehouse costs (no supplier shipping fee). Same key format.
-                const US_COST = {
-                  "Tirzepatide|10mg":90,"Tirzepatide|30mg":135,"Tirzepatide|40mg":155,"Tirzepatide|60mg":210,
-                  "Retatrutide|5mg":95,"Retatrutide|10mg":120,"Retatrutide|20mg":170,"Retatrutide|30mg":210,"Retatrutide|40mg":250,"Retatrutide|50mg":295,
-                  "GHK-CU|50mg":70,"GHK-CU|100mg":85,"GHK-Cu|50mg":70,"GHK-Cu|100mg":85,
-                  "GHRP-2|5mg":85,
-                  "Tesamorelin|10mg":225,
-                  "HCG|5000iu":125,"HCG|10000iu":200,
-                  "BPC-157|10mg":110,
-                  "TB-500|5mg":115,
-                  "BPC+TB|10mg":135,"BPC+TB|20mg":210,"TB-500 + BPC-157|10mg":135,"TB-500 + BPC-157|20mg":210,
-                  "TB-500 + BPC-157|10mg each":135,"TB-500 + BPC-157|20mg each":210,
-                  "GLOW|70mg":235,"Glow|70mg":235,"GLOW70|70mg":235,
-                  "AOD|5mg":145,"AOD 9604|5mg":145,
-                  "MOTS-C|10mg":105,"NAD+|500mg":120,"MOTS-C|40mg":225,
-                  "Epithalon|10mg":88,"Epitalon|10mg":88,
-                  "KPV|10mg":100,
-                  "Semax|10mg":90,
-                  "Selank|10mg":90,
-                  "Ipamorelin|5mg":85,
-                  "CJC-1295 + Ipamorelin|10mg each":135,"CJC-1295 + Ipamorelin|5mg each":135,
-                  "5-Amino-1MQ|5mg":85,"5-amino-1mq|5mg":85,
-                  "KLOW|80mg":235,"Klow|80mg":235,"KLOW80|80mg":235,
-                  "SS-31|10mg":126,
-                  "DSIP|10mg":105,
-                };
-                const CHINA_SHIP = 60; // $60 per order from China
-
-                // Normalize product name (strip "/ GLP-N" variants)
-                const normName = (n) => (n||"").replace(/\s*\/\s*GLP-\d+/i,"").trim();
-                // Normalize dose: "5 mg" → "5mg", "10 iu" → "10iu", etc.
-                const normDose = (d) => String(d||"").trim().replace(/(\d)\s+([a-zA-Z])/g,"$1$2");
-
-                // Calculate cost + profit for one order
-                const calcOrder = (order) => {
-                  const items = Array.isArray(order.items) ? order.items : [];
-                  // After loading from Supabase the order is spread from metadata,
-                  // so lineCostOverrides lives at the top level, not under .metadata
-                  const overrides = (typeof order.lineCostOverrides === "object" && order.lineCostOverrides)
-                    ? order.lineCostOverrides
-                    : (typeof order.metadata?.lineCostOverrides === "object" && order.metadata.lineCostOverrides)
-                    ? order.metadata.lineCostOverrides
-                    : {};
-                  let cogs = 0;
-                  let hasChinaItem = false;
-                  let hasUnknown = false;
-                  const lines = items.map((it, idx) => {
-                    const qty = Number(it.quantity || it.qty || 1);
-                    const isUS = String(it.fromWarehouse||"").toLowerCase() === "us";
-                    const key = normName(it.name) + "|" + normDose(it.dose);
-                    const unitCost = isUS
-                      ? (US_COST[key] ?? null)
-                      : (CHINA_COST[key] ?? null);
-                    if (!isUS) hasChinaItem = true;
-                    const catalogLineCost = unitCost !== null ? unitCost * qty : null;
-                    // Apply admin override if present
-                    const hasOverride = overrides[idx] != null;
-                    const lineCost = hasOverride ? Number(overrides[idx]) : catalogLineCost;
-                    if (lineCost !== null && !hasUnknown) {}
-                    if (!hasOverride && unitCost === null) hasUnknown = true;
-                    if (lineCost !== null) cogs += lineCost;
-                    return { name: publicProductName(it.name), dose: normDose(it.dose), qty, isUS, unitCost, lineCost, hasOverride, salePrice: Number(it.price||0) };
-                  });
-                  const isExpress = String(order.shippingType||"").toLowerCase().includes("express");
-                  const supplierShippingOverride = order.supplierShippingOverride ?? order.metadata?.supplierShippingOverride;
-                  const supplierShipping = supplierShippingOverride != null
-                    ? Number(supplierShippingOverride)
-                    : hasChinaItem ? (isExpress ? 100 : 60) : 0;
-                  const customerShipping = Number(order.shipping || 0);
-                  const itemRevenue = lines.reduce((s, ln) => s + ln.salePrice * ln.qty, 0);
-                  // Revenue = order.total (actual money received, already includes customer shipping)
-                  // Fall back to itemRevenue only if total is missing
-                  const revenue = (order.total != null && order.total !== "") ? Number(order.total) : itemRevenue;
-                  // Affiliate payout: adjustment override → stored commission → 10% of subtotal
-                  const affiliateCode = String(order.affiliateCode || "").trim();
-                  const affiliatePayout = affiliateCode
-                    ? (Number(order.affiliateCommissionAdjustment) > 0
-                        ? Number(order.affiliateCommissionAdjustment)
-                        : Number(order.affiliateCommission) || Number(order.subtotal || order.total || 0) * 0.1)
-                    : 0;
-                  // Payment processing fees: Stripe 2.5%, CatalystPay 4%, Paylio Card 8%
-                  const providerRaw = String(order.paymentProvider || "");
-                  const providerLower = providerRaw.toLowerCase();
-                  const paymentFeeRate = providerLower.includes("catalystpay") ? 0.04
-                    : (providerRaw === "Paylio Card" || providerRaw === "Card (Paylio)") ? 0.08
-                    : providerLower.includes("stripe") ? 0.025
-                    : 0;
-                  const paymentFee = Math.round(revenue * paymentFeeRate * 100) / 100;
-                  const totalCogs = cogs + supplierShipping + affiliatePayout + paymentFee;
-                  const profit = hasUnknown ? null : revenue - totalCogs;
-                  return { lines, cogs, supplierShipping, customerShipping, isExpress, affiliateCode, affiliatePayout, paymentFee, paymentFeeRate, totalCogs, revenue, profit, hasUnknown };
-                };
+                const calcOrder = order => calculateOrderContribution(order, supplierCostConfig, costScenarios[order.id] || {}, publicProductName);
 
                 const paid = allOrders.filter(o => {
                   const s = String(o.status||"").toLowerCase();
                   if (s!=="paid" && s!=="done") return false;
+                  if (String(o.id || "").startsWith("TEST-")) return false;
                   // Exclude test/admin orders placed by the store owner
                   if (ADMIN_EMAILS.includes(normalizeEmail(o.email))) return false;
                   return true;
@@ -17917,7 +17375,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
                 const sortedPaid = [...filteredEnriched].sort((a,b)=>(b.paidAt||b.createdAt||"").localeCompare(a.paidAt||a.createdAt||""));
 
-                const totalRev = filteredEnriched.reduce((s,o)=>s+o._calc.revenue,0);
+                const totalRev = filteredEnriched.some(o=>o._calc.revenue===null) ? null : filteredEnriched.reduce((s,o)=>s+o._calc.revenue,0);
                 const totalProfit = filteredEnriched.filter(o=>o._calc.profit!==null).reduce((s,o)=>s+o._calc.profit,0);
                 const totalCogs = filteredEnriched.filter(o=>o._calc.profit!==null).reduce((s,o)=>s+o._calc.totalCogs,0);
                 const margin = totalRev > 0 ? (totalProfit/totalRev*100) : 0;
@@ -17928,16 +17386,17 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 for (const o of filteredEnriched) {
                   const day = (o.paidAt||o.createdAt||"").slice(0,10);
                   if (!day) continue;
-                  if (!dayMap[day]) dayMap[day] = { date: day, profit: 0, revenue: 0, orders: 0 };
+                  if (!dayMap[day]) dayMap[day] = { date: day, profit: 0, revenue: 0, orders: 0, incomplete: false };
                   dayMap[day].revenue += o._calc.revenue;
                   if (o._calc.profit !== null) dayMap[day].profit += o._calc.profit;
+                  else dayMap[day].incomplete = true;
                   dayMap[day].orders += 1;
                 }
-                const chartDays = Object.values(dayMap).sort((a,b)=>a.date.localeCompare(b.date));
+                const chartDays = Object.values(dayMap).map(day => ({ ...day, profit: day.incomplete ? null : day.profit })).sort((a,b)=>a.date.localeCompare(b.date));
                 const tickInterval = Math.max(0, Math.floor(chartDays.length/8)-1);
 
                 const fmtDay = (d) => { const dt=new Date(d+"T12:00:00Z"); return dt.toLocaleDateString("en-US",{month:"short",day:"numeric"}); };
-                const fmtMoney = (v,dec=2) => `$${Number(v||0).toLocaleString("en-US",{minimumFractionDigits:dec,maximumFractionDigits:dec})}`;
+                const fmtMoney = (v,dec=2) => v == null || !Number.isFinite(Number(v)) ? "Unknown" : `$${Number(v).toLocaleString("en-US",{minimumFractionDigits:dec,maximumFractionDigits:dec})}`;
                 const fmtDateTime = (iso) => {
                   if (!iso) return "—";
                   const dt=new Date(iso);
@@ -17946,6 +17405,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
                 return (
                   <div className="flex flex-col gap-5">
+                    <div className="rounded-xl border border-amber-300/20 bg-amber-400/5 p-4 text-xs leading-6 text-amber-100" role="status">
+                      {supplierCostLoadError || (supplierCostConfig ? `Cost schedule ${supplierCostConfig.version}, effective ${supplierCostConfig.effectiveAt}.` : "Supplier costs are loading; missing values remain unknown.")}
+                      <p>Contribution estimates exclude unrecorded refunds, disputes, FX and fixed overhead. Supplier shipping thresholds, threshold basis and US warehouse surcharges must be confirmed in the private cost schedule or recorded per order; missing rules remain unknown. Edits below are temporary scenarios in this tab and are not saved to orders or the cost schedule.</p>
+                      {Object.keys(costScenarios).length > 0 && <button type="button" className="mt-2 underline" onClick={() => setCostScenarios({})}>Clear scenarios</button>}
+                    </div>
                     {/* Date range filter bar */}
                     <div className="rounded-2xl px-4 py-3 flex flex-wrap items-center gap-3" style={{background:"#0d1117"}}>
                       <div className="flex gap-1.5 flex-wrap">
@@ -17979,10 +17443,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     {/* Summary cards */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       {[
-                        {label:"Net Profit",value:fmtMoney(totalProfit),color:"#16c784"},
+                        {label:"Contribution estimate",value:unknownCount ? "Incomplete" : fmtMoney(totalProfit),color:"#16c784"},
                         {label:"Revenue",value:fmtMoney(totalRev),color:"#fff"},
-                        {label:"COGS + Shipping",value:fmtMoney(totalCogs),color:"#f87171"},
-                        {label:"Margin",value:`${margin.toFixed(1)}%`,color:"#f59e0b"},
+                        {label:"Variable costs",value:unknownCount ? "Incomplete" : fmtMoney(totalCogs),color:"#f87171"},
+                        {label:"Contribution margin",value:unknownCount ? "Unknown" : `${margin.toFixed(1)}%`,color:"#f59e0b"},
                       ].map(c=>(
                         <div key={c.label} className="rounded-2xl px-5 py-4" style={{background:"#0d1117"}}>
                           <div className="text-[10px] uppercase tracking-[0.18em] mb-1" style={{color:"rgba(255,255,255,0.3)"}}>{c.label}</div>
@@ -17992,15 +17456,15 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     </div>
                     {unknownCount > 0 && (
                       <div className="rounded-xl px-4 py-2.5 text-[11px]" style={{background:"rgba(251,191,36,0.08)",border:"1px solid rgba(251,191,36,0.2)",color:"#fbbf24"}}>
-                        ⚠ {unknownCount} order{unknownCount!==1?"s":""} have items with unknown supplier cost — profit shown may be understated for those.
+                        ⚠ {unknownCount} order{unknownCount!==1?"s":""} have missing costs, fees or revenue. Contribution totals are incomplete; unknown values are not zero.
                       </div>
                     )}
 
                     {/* Net Profit chart */}
                     <div className="rounded-2xl overflow-hidden" style={{background:"#0d1117"}}>
                       <div className="px-5 pt-5 pb-1 flex items-baseline justify-between">
-                        <div className="text-[10px] uppercase tracking-[0.2em]" style={{color:"rgba(255,255,255,0.3)"}}>Net Profit · by Day</div>
-                        <div className="text-[11px]" style={{color:"#16c784"}}>{fmtMoney(totalProfit)} total</div>
+                        <div className="text-[10px] uppercase tracking-[0.2em]" style={{color:"rgba(255,255,255,0.3)"}}>Contribution estimate · by Day</div>
+                        <div className="text-[11px]" style={{color:"#16c784"}}>{unknownCount ? "Incomplete" : fmtMoney(totalProfit)} total</div>
                       </div>
                       <Suspense fallback={<div style={{ height: 240 }} aria-busy="true" />}>
                         <AdminChart
@@ -18022,7 +17486,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         <table className="w-full text-xs" style={{borderCollapse:"collapse"}}>
                           <thead>
                             <tr style={{borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
-                              {["Date","Order #","Customer","Items","Revenue","COGS","Net Profit","Method"].map(h=>(
+                              {["Date","Order #","Customer","Items","Revenue","Costs","Contribution","Method"].map(h=>(
                                 <th key={h} className="px-4 py-2.5 text-left font-semibold" style={{color:"rgba(255,255,255,0.35)",whiteSpace:"nowrap"}}>{h}</th>
                               ))}
                             </tr>
@@ -18051,7 +17515,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                     <td className="px-4 py-2.5 whitespace-nowrap" style={{color:"rgba(255,255,255,0.7)"}}>{fmtMoney(calc.revenue)}</td>
                                     <td className="px-4 py-2.5 whitespace-nowrap" style={{color:"#f87171"}}>{fmtMoney(calc.totalCogs)}</td>
                                     <td className="px-4 py-2.5 whitespace-nowrap font-bold" style={{color: calc.profit===null?"#fbbf24": calc.profit>=0?"#16c784":"#f87171"}}>
-                                      {calc.profit===null?"?"+ fmtMoney(calc.revenue - calc.totalCogs) :fmtMoney(calc.profit)}
+                                      {calc.profit===null?"Unknown":fmtMoney(calc.profit)}
                                       {calc.hasUnknown && <span title="Some items have unknown cost" style={{color:"#fbbf24",marginLeft:4}}>⚠</span>}
                                     </td>
                                     <td className="px-4 py-2.5 whitespace-nowrap" style={{color:"rgba(255,255,255,0.4)"}}>{o.paymentProvider||"—"}</td>
@@ -18075,7 +17539,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                                 const lineProfit = ln.lineCost !== null ? lineSale - ln.lineCost : null;
                                                 return (
                                                   <tr key={li} style={{borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
-                                                    <td className="py-1.5 pr-4" style={{color:"rgba(255,255,255,0.75)"}}>{normName(ln.name)}</td>
+                                                    <td className="py-1.5 pr-4" style={{color:"rgba(255,255,255,0.75)"}}>{ln.name}</td>
                                                     <td className="py-1.5 pr-4" style={{color:"rgba(255,255,255,0.5)"}}>{ln.dose||"—"}</td>
                                                     <td className="py-1.5 pr-4" style={{color:"rgba(255,255,255,0.5)"}}>×{ln.qty}</td>
                                                     <td className="py-1.5 pr-4">
@@ -18091,28 +17555,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                                       {(() => {
                                                         const editKey = `${o.id}-${li}`;
                                                         const isEditing = lineCostEdits[editKey] !== undefined;
-                                                        const saveLineCost = async (rawVal) => {
-                                                          const parsed = parseFloat(String(rawVal).replace(/[^0-9.]/g,""));
-                                                          setLineCostEdits(p => { const n={...p}; delete n[editKey]; return n; });
-                                                          if (isNaN(parsed)) return;
-                                                          // Save override to order metadata in Supabase + local state.
-                                                          // After Supabase load, order is spread from metadata so
-                                                          // lineCostOverrides lives at top level (not under .metadata).
-                                                          const existingOverrides = (typeof o.lineCostOverrides === "object" && o.lineCostOverrides)
-                                                            ? o.lineCostOverrides
-                                                            : (typeof o.metadata?.lineCostOverrides === "object" && o.metadata.lineCostOverrides)
-                                                            ? o.metadata.lineCostOverrides : {};
-                                                          const newOverrides = { ...existingOverrides, [li]: parsed };
-                                                          // Update top-level field in local state so UI reflects immediately
-                                                          setAllOrders(prev => prev.map(row => row.id !== o.id ? row : {
-                                                            ...row,
-                                                            lineCostOverrides: newOverrides,
-                                                          }));
-                                                          try {
-                                                            const { data: rd } = await supabase.from("orders").select("metadata").eq("id", o.id).single();
-                                                            const base = (typeof rd?.metadata === "object" && rd.metadata) ? rd.metadata : {};
-                                                            await supabase.from("orders").update({ metadata: { ...base, lineCostOverrides: newOverrides } }).eq("id", o.id);
-                                                          } catch(e) { console.error("lineCost save failed", e); }
+                                                        const saveLineCost = (rawVal) => {
+                                                          const parsed = rawVal.trim() === "" ? null : Number(rawVal);
+                                                          setLineCostEdits(current => { const next = { ...current }; delete next[editKey]; return next; });
+                                                          if (parsed === null || !Number.isFinite(parsed) || parsed < 0) return;
+                                                          setCostScenarios(current => ({ ...current, [o.id]: { ...current[o.id], lineCosts: { ...current[o.id]?.lineCosts, [li]: parsed } } }));
                                                         };
                                                         if (isEditing) return (
                                                           <input
@@ -18152,27 +17599,23 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                                 type="number"
                                                 min="0"
                                                 step="1"
-                                                defaultValue={calc.supplierShipping}
+                                                defaultValue={calc.supplierShipping ?? ""}
                                                 key={`ship-${o.id}-${calc.supplierShipping}`}
-                                                onBlur={async (e) => {
+                                                onBlur={(e) => {
+                                                  if (e.target.value.trim() === "") return;
                                                   const val = Number(e.target.value);
-                                                  if (isNaN(val) || val < 0) return;
-                                                  setAllOrders(prev => prev.map(row => row.id !== o.id ? row : { ...row, supplierShippingOverride: val }));
-                                                  try {
-                                                    const { data: rd } = await supabase.from("orders").select("metadata").eq("id", o.id).single();
-                                                    const base = (typeof rd?.metadata === "object" && rd.metadata) ? rd.metadata : {};
-                                                    await supabase.from("orders").update({ metadata: { ...base, supplierShippingOverride: val } }).eq("id", o.id);
-                                                  } catch(err) { console.error("shipping save failed", err); }
+                                                  if (!Number.isFinite(val) || val < 0) return;
+                                                  setCostScenarios(current => ({ ...current, [o.id]: { ...current[o.id], supplierShipping: val } }));
                                                 }}
                                                 style={{width:52,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:4,color:"#f87171",fontWeight:700,padding:"1px 4px",fontSize:11,outline:"none"}}
                                               />
                                               {calc.customerShipping>0&&<> / client paid: <span style={{color:"#4ade80"}}>+{fmtMoney(calc.customerShipping)}</span></>}
                                             </span>
                                             {calc.affiliatePayout>0&&<span style={{color:"rgba(255,255,255,0.4)"}}>🤝 Affiliate (<span style={{color:"rgba(255,255,255,0.6)"}}>{calc.affiliateCode}</span>): <span style={{color:"#f87171"}}>−{fmtMoney(calc.affiliatePayout)}</span></span>}
-                                            {calc.paymentFee>0&&<span style={{color:"rgba(255,255,255,0.4)"}}>💳 {calc.paymentFeeRate===0.04?"CatalystPay fee (4%)":calc.paymentFeeRate===0.08?"Paylio Card fee (8%)":"Stripe fee (2.5%)"}: <span style={{color:"#f87171"}}>−{fmtMoney(calc.paymentFee)}</span></span>}
+                                            {calc.paymentFee>0&&<span style={{color:"rgba(255,255,255,0.4)"}}>💳 {"Payment fee (recorded/configured)"}: <span style={{color:"#f87171"}}>−{fmtMoney(calc.paymentFee)}</span></span>}
                                             <span style={{color:"rgba(255,255,255,0.4)"}}>Total COGS: <span style={{color:"#f87171"}}>{fmtMoney(calc.totalCogs)}</span></span>
                                             <span style={{color:"rgba(255,255,255,0.4)"}}>Revenue: <span style={{color:"rgba(255,255,255,0.75)"}}>{fmtMoney(calc.revenue)}</span></span>
-                                            <span style={{color:"rgba(255,255,255,0.4)"}}>Net Profit: <span style={{color:"#16c784",fontWeight:700}}>{calc.profit===null?"?"+fmtMoney(calc.revenue-calc.totalCogs):fmtMoney(calc.profit)}</span></span>
+                                            <span style={{color:"rgba(255,255,255,0.4)"}}>Contribution estimate: <span style={{color:"#16c784",fontWeight:700}}>{calc.profit===null?"Unknown":fmtMoney(calc.profit)}</span></span>
                                           </div>
                                         </div>
                                       </td>
@@ -18575,7 +18018,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                                 }
                                                 const next = { ...affPaidMap, [aff.code]: (Number(affPaidMap[aff.code]) || 0) + amount };
                                                 setAffPaidMap(next);
-                                                try { localStorage.setItem("tbv-aff-paid", JSON.stringify(next)); } catch {}
+                                                try { privateAccountState.setItem("tbv-aff-paid", JSON.stringify(next)); } catch {}
                                                 setAffPayErrors(p => { const n = { ...p }; delete n[aff.code]; return n; });
                                                 setAffPayInput(p => { const n = { ...p }; delete n[aff.code]; return n; });
                                               } catch (e) {
@@ -18829,10 +18272,16 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   : "box-border min-w-0 w-full rounded-[2rem] border border-white/30 bg-black/40 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.3)] backdrop-blur-2xl sm:p-8 md:mx-auto md:w-4/5 md:[zoom:0.8] md:p-14"
               }
             >
+              {currentUser && accountMessage && ["cancelled", "failed"].includes(oauthReturnRef.current.status) && (
+                <div role="alert" className="mb-5 rounded-xl border border-white/20 bg-black/30 px-4 py-3 text-sm leading-6 text-white">
+                  {accountMessage}
+                </div>
+              )}
               {currentUser && authMode !== "reset" ? (
                 <AccountDashboard
                   user={currentUser}
-                  orders={userOrders}
+                  orders={accountOrders}
+                  ordersReadStatus={accountOrdersReadStatus}
                   storeCredit={storeCredit}
                   hasUnreadReply={hasUnreadReply}
                   activeSection={activeAccountSection}
@@ -18845,7 +18294,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   onRefreshOrders={() => refreshUserOrdersFromSupabase(currentUser.email)}
                   onTrackOrder={() => setPage("track")}
                   onViewOrderConfirmation={(order) => {
-                    setPaymentReturn({ status: "success", order: order.id });
+                    if (!canViewAccountOrderConfirmation(order)) return;
+                    setPaymentReturn({ status: "success", order: order.id, origin: "account-history" });
                     setPaymentReturnOrder({
                       id: order.id,
                       email: order.email,
@@ -18863,6 +18313,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       total: order.total,
                       subtotal: order.subtotal,
                       shipping: order.shipping,
+                      shippingType: order.shippingType,
                       paymentProvider: order.paymentProvider,
                     });
                     setPage("payment-return");
@@ -18885,7 +18336,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     affiliateDataCode ===
                     String(currentAffiliateProfile?.code || "").trim().toUpperCase()
                       ? affiliatePaidOut
-                      : 0
+                      : null
                   }
                   affiliateLoading={
                     affiliateCommissionLoading ||
@@ -19181,11 +18632,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               className="rounded-full bg-white !text-black px-6 py-2 text-[11px] font-extrabold uppercase tracking-[0.22em] shadow-[0_8px_25px_rgba(0,0,0,0.25)] transition hover:bg-white/90"
                             >
                               {tx(
-                                "Change password",
-                                "Изменить пароль",
-                                "Змінити пароль",
-                                "Passwort ändern",
-                                "Cambiar contraseña"
+                                "Set or change password",
+                                "Установить или изменить пароль",
+                                "Встановити або змінити пароль",
+                                "Passwort festlegen oder ändern",
+                                "Crear o cambiar contraseña"
                               )}
                             </button>
                           </>
@@ -19370,8 +18821,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   {isChangingPassword && (
                     <div id="account-security-details" className="mt-4 rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-5">
                       <div className="mb-4 text-[11px] font-bold uppercase tracking-[0.22em] text-white/70">
-                        {tx("Change password", "Изменить пароль", "Змінити пароль", "Passwort ändern", "Cambiar contraseña")}
+                        {tx("Set or change password", "Установить или изменить пароль", "Встановити або змінити пароль", "Passwort festlegen oder ändern", "Crear o cambiar contraseña")}
                       </div>
+                      {emailCodeAuthEnabled && <p className="mb-4 text-sm leading-6 text-white/70">
+                        {tx("A password is optional. You can always sign in with an email code.", "Пароль необязателен. Вы всегда можете войти с помощью кода по email.", "Пароль необов’язковий. Ви завжди можете увійти за допомогою коду на email.", "Ein Passwort ist optional. Sie können sich jederzeit mit einem E-Mail-Code anmelden.", "La contraseña es opcional. Siempre puedes iniciar sesión con un código por email.")}
+                      </p>}
                       <div className="grid gap-3">
                         <input
                           type="password"
@@ -19586,7 +19040,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             (sum, row) => sum + (row.available ? row.amount : 0),
                             0
                           );
-                          const remainingTotal = Math.max(0, availableTotal - affiliatePaidOut);
+                          const payoutUnavailable = affiliatePayoutError || affiliatePaidOut === null;
+                          const remainingTotal = payoutUnavailable ? null : Math.max(0, availableTotal - affiliatePaidOut);
 
                           const dateLocale =
                             language === "RU"
@@ -19641,13 +19096,18 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                     {tx("Available earnings", "Доступный заработок", "Доступний заробіток", "Verfügbarer Verdienst", "Ganancias disponibles")}
                                   </div>
                                   <div className="mt-1 text-lg font-semibold text-white">
-                                    {affiliateCommissionLoading ? "…" : formatPricePrecise(Math.max(0, availableTotal - affiliatePaidOut))}
+                                    {affiliateCommissionLoading ? "…" : payoutUnavailable ? "—" : formatPricePrecise(remainingTotal)}
                                   </div>
                                   <div className="mt-1 text-[11px] leading-5 text-white/60">
                                     {tx("Return window has closed — counted as real earnings.", "Окно возврата закрыто — засчитано как реальный заработок.", "Вікно повернення закрито — зараховано як реальний заробіток.", "Rückgabefrist ist abgelaufen — als echter Verdienst gezählt.", "La ventana de devolución se cerró — se cuenta como ganancias reales.")}
                                   </div>
                                 </div>
-                                {affiliatePaidOut > 0 && (
+                                {payoutUnavailable && !affiliateCommissionLoading && (
+                                  <p role="status" className="text-sm text-amber-200">
+                                    {tx("Payout history is unavailable. Refresh to verify the available balance.", "История выплат недоступна. Обновите данные, чтобы проверить доступный баланс.", "Історія виплат недоступна. Оновіть дані, щоб перевірити доступний баланс.", "Auszahlungsverlauf nicht verfügbar. Aktualisieren Sie die Daten, um das verfügbare Guthaben zu prüfen.", "El historial de pagos no está disponible. Actualiza para verificar el saldo disponible.")}
+                                  </p>
+                                )}
+                                {!payoutUnavailable && affiliatePaidOut > 0 && (
                                   <div className="rounded-xl border border-sky-400/20 bg-sky-400/8 px-4 py-3">
                                     <div className="text-[10px] uppercase tracking-[0.2em] text-sky-300/70">Paid out</div>
                                     <div className="mt-1 text-lg font-semibold text-sky-300">{formatPricePrecise(affiliatePaidOut)}</div>
@@ -19726,7 +19186,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         {tx("Refresh orders", "Обновить заказы", "Оновити замовлення", "Bestellungen aktualisieren", "Actualizar pedidos")}
                       </button>
                     </div>
-                    {userOrders.length === 0 ? (
+                    {accountOrdersReadStatus !== "complete" ? (
+                      <AccountOrderReadStatus status={accountOrdersReadStatus} tx={tx} />
+                    ) : accountOrders.length === 0 ? (
                       <div style={{opacity: isRefreshingUserOrders ? 0.4 : 1, transition: "opacity 0.3s"}}>
                         <div className="mt-3 text-base leading-8 text-white/70">
                           {t("noSavedOrders")}
@@ -19745,7 +19207,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       </div>
                     ) : (
                       <div style={{opacity: isRefreshingUserOrders ? 0.4 : 1, transition: "opacity 0.3s"}} className="mt-4 space-y-4">
-                        {userOrders.map((order) => {
+                        {accountOrders.map((order) => {
                           const isExpanded = expandedOrders.has(order.id);
                           return (
                           <div
@@ -19786,7 +19248,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                       </span>
                                     </div>
                                     <div className="flex items-center gap-2 shrink-0">
-                                      <div className="text-base font-semibold text-white">{formatPricePrecise(order.total)}</div>
+                                      <div className="text-base font-semibold text-white">{order.total == null ? "—" : formatPricePrecise(order.total)}</div>
                                       <svg className={`h-3.5 w-3.5 text-white/60 ${isExpanded ? "rotate-180" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
                                     </div>
                                     </div>
@@ -19794,10 +19256,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                       <div className="flex items-center gap-2 flex-wrap">
                                         <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-300"><span className="w-1.5 h-1.5 rounded-full bg-emerald-300 inline-block"/>PAID</span>
                                         <span className="text-white/20">·</span>
-                                        <span className="text-[11px] text-white/60 capitalize">{order.shippingType === "us-warehouse" ? "US Warehouse" : (order.shippingType || "standard") + " shipping"}</span>
+                                        <span className="text-[11px] text-white/60 capitalize">{!order.shippingType ? tx("Shipping method unavailable", "Способ доставки неизвестен", "Спосіб доставки невідомий", "Versandart nicht verfügbar", "Método de envío no disponible") : order.shippingType === "us-warehouse" ? "US Warehouse" : order.shippingType + " shipping"}</span>
                                       </div>
                                       <div className="flex items-center justify-between gap-2 mt-0.5">
-                                        {(order.paidAt || order.createdAt) ? <span className="text-[11px] text-white/60">{new Date(order.paidAt || order.createdAt).toLocaleString(language === "RU" ? "ru-RU" : language === "UA" ? "uk-UA" : "en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span> : <span/>}
+                                        {(order.paidAt || order.createdAt) ? <span className="text-[11px] text-white/60">{new Date(order.paidAt || order.createdAt).toLocaleString(language === "RU" ? "ru-RU" : language === "UA" ? "uk-UA" : "en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span> : <span className="text-[11px] text-white/60">—</span>}
                                         {order.trackingNumber && (
                                           <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-300 bg-emerald-400/15 rounded-full px-2 py-1 shrink-0">
                                             <span className="w-1 h-1 rounded-full bg-emerald-400 inline-block"/>Tracked
@@ -19943,10 +19405,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
                                         {tx("Got questions? Message us","Есть вопросы? Напишите нам","Є питання? Напишіть нам","Fragen? Schreiben Sie uns","¿Preguntas? Escríbenos")}
                                       </button>
-                                      <button
+                                      {canViewAccountOrderConfirmation(order) ? <button
                                         type="button"
                                         onClick={() => {
-                                          setPaymentReturn({ status: "success", order: order.id });
+                                          setPaymentReturn({ status: "success", order: order.id, origin: "account-history" });
                                           setPaymentReturnOrder({
                                             id: order.id,
                                             email: order.email,
@@ -19962,6 +19424,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                             total: order.total,
                                             subtotal: order.subtotal,
                                             shipping: order.shipping,
+                                            shippingType: order.shippingType,
                                             paymentProvider: order.paymentProvider,
                                           });
                                           setPage("payment-return");
@@ -19971,7 +19434,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                       >
                                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="m9 12 2 2 4-4"/></svg>
                                         {tx("View order confirmation","Подтверждение заказа","Підтвердження замовлення","Bestellbestätigung","Ver confirmación")}
-                                      </button>
+                                      </button> : <span role="status" className="text-[11px] text-white/60">{tx("Order confirmation is unavailable because price details are missing.", "Подтверждение заказа недоступно: отсутствуют данные о ценах.", "Підтвердження замовлення недоступне: відсутні дані про ціни.", "Die Bestellbestätigung ist wegen fehlender Preisangaben nicht verfügbar.", "La confirmación del pedido no está disponible porque faltan los precios.")}</span>}
                                     </div>
                                   </div>
                                 )}
@@ -20146,8 +19609,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       <div
                         role="status"
                         aria-live="polite"
-                        className="pointer-events-none absolute left-full top-0 z-30 ml-3 w-max break-words rounded-2xl border border-white/20 bg-black/90 px-2 py-2 text-left text-[10px] font-semibold uppercase leading-tight tracking-[0.08em] text-white shadow-[0_12px_36px_rgba(0,0,0,0.3)] animate-account-fade sm:top-1/2 sm:-translate-y-1/2 sm:px-3 md:text-[11px]"
-                        style={{ maxWidth: "min(18rem, calc(100vw - 15rem))" }}
+                        className="mt-5 w-full break-words rounded-xl border border-white/20 bg-black/30 px-4 py-3 text-left text-sm leading-6 text-white"
                       >
                         {accountMessage}
                       </div>
@@ -20192,6 +19654,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
                   <div className={`mt-8 flex flex-wrap gap-4 ${authMode === "verify" ? "hidden" : ""}`}>
                     <button
+                      disabled={accountAuthBusy}
                       onClick={() => {
                         requireSignupVerificationRef.current = false;
                         setSignupVerificationEmail("");
@@ -20200,12 +19663,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         sessionStorage.removeItem("tbv-recovery-at");
                         sessionStorage.removeItem("tbv-recovery-rt");
                         setAuthMode("signin");
+                        setAuthMethod(defaultAuthMethod);
                         setAccountMessage("");
-                        setAccountForm({
-                          email: "",
+                        setAccountForm((current) => ({
+                          email: current.email,
                           password: "",
                           confirmPassword: "",
-                        });
+                        }));
                         setShowAccountPassword(false);
                         setShowAccountConfirmPassword(false);
                         setAccountPromoCodeInput("");
@@ -20220,17 +19684,19 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       {tx("Sign In", "Войти", "Увійти", "Anmelden", "Iniciar sesión")}
                     </button>
                     <button
+                      disabled={accountAuthBusy}
                       onClick={() => {
                         requireSignupVerificationRef.current = false;
                         setSignupVerificationEmail("");
                         setSignupVerificationCode("");
                         setAuthMode("create");
+                        setAuthMethod(defaultAuthMethod);
                         setAccountMessage("");
-                        setAccountForm({
-                          email: "",
+                        setAccountForm((current) => ({
+                          email: current.email,
                           password: "",
                           confirmPassword: "",
-                        });
+                        }));
                         setShowAccountPassword(false);
                         setShowAccountConfirmPassword(false);
                         setAccountPromoCodeInput("");
@@ -20250,6 +19716,35 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     </button>
                   </div>
 
+                  {(authMode === "signin" || authMode === "create") && emailCodeAuthEnabled && (
+                    <div className="mt-6 flex flex-wrap gap-3" aria-label={tx("Sign-in method", "Способ входа", "Спосіб входу", "Anmeldemethode", "Método de inicio de sesión")}>
+                      {[
+                        ["email", tx("Email code", "Код по email", "Код на email", "E-Mail-Code", "Código por email")],
+                        ["password", tx("Password (optional)", "Пароль (необязательно)", "Пароль (необов’язково)", "Passwort (optional)", "Contraseña (opcional)")],
+                      ].map(([method, label]) => (
+                        <button key={method} type="button" disabled={accountAuthBusy} aria-pressed={authMethod === method}
+                          onClick={() => { setAuthMethod(method); setAccountMessage(""); setAccountForm((current) => ({ ...current, password: "", confirmPassword: "" })); }}
+                          className={`rounded-full border px-5 py-3 text-xs font-semibold transition-colors disabled:opacity-50 ${authMethod === method ? "border-white/50 bg-white/15 text-white" : "border-white/20 text-white/70 hover:text-white"}`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {(authMode === "signin" || authMode === "create") && configuredOAuthProviders.length > 0 && (
+                    <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                      {configuredOAuthProviders.map(provider => (
+                        <button key={provider} type="button" disabled={accountAuthBusy}
+                          onClick={() => handleOAuthSignIn(provider)}
+                          className="inline-flex min-h-[56px] items-center justify-center rounded-full border border-white/30 bg-white/10 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-white/20 disabled:cursor-wait disabled:opacity-50">
+                          {provider === "google"
+                            ? tx("Continue with Google", "Продолжить с Google", "Продовжити з Google", "Mit Google fortfahren", "Continuar con Google")
+                            : tx("Continue with Apple", "Продолжить с Apple", "Продовжити з Apple", "Mit Apple fortfahren", "Continuar con Apple")}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                   <form
                     onSubmit={handleAccountSubmit}
                     className={`box-border min-w-0 mt-7 grid w-full max-w-4xl gap-4 sm:gap-5 ${authMode === "forgot" || authMode === "reset" || authMode === "verify" ? "hidden" : ""}`}
@@ -20258,6 +19753,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       <Mail aria-hidden="true" className="h-7 w-7 shrink-0 text-white/90" strokeWidth={1.8} />
                       <input
                         type="email"
+                        required
+                        disabled={accountAuthBusy}
                         placeholder={t("email")}
                         aria-label={t("email")}
                         autoComplete="email"
@@ -20273,9 +19770,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         className="min-w-0 flex-1 bg-transparent text-base text-white placeholder:text-white/75 outline-none sm:text-lg"
                       />
                     </label>
-                    <div className="box-border min-w-0 flex min-h-[72px] w-full items-center gap-4 rounded-[1.5rem] border border-white/25 bg-white/[0.04] px-5 transition-colors focus-within:border-white/45 focus-within:bg-white/[0.07] sm:min-h-[84px] sm:px-8">
+                    {authMethod === "password" && (<div className="box-border min-w-0 flex min-h-[72px] w-full items-center gap-4 rounded-[1.5rem] border border-white/25 bg-white/[0.04] px-5 transition-colors focus-within:border-white/45 focus-within:bg-white/[0.07] sm:min-h-[84px] sm:px-8">
                       <LockKeyhole aria-hidden="true" className="h-7 w-7 shrink-0 text-white/90" strokeWidth={1.8} />
                       <input
+                        required
+                        disabled={accountAuthBusy}
                         type={showAccountPassword ? "text" : "password"}
                         placeholder={t("password")}
                         aria-label={t("password")}
@@ -20301,8 +19800,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           ? <EyeOff aria-hidden="true" className="h-6 w-6" strokeWidth={1.8} />
                           : <Eye aria-hidden="true" className="h-6 w-6" strokeWidth={1.8} />}
                       </button>
-                    </div>
-                    {authMode === "signin" && (
+                    </div>)}
+                    {authMode === "signin" && authMethod === "password" && (
                       <button
                         type="button"
                         onClick={() => { setForgotEmail(accountForm.email); setAuthMode("forgot"); setAccountMessage(""); }}
@@ -20313,9 +19812,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     )}
                     {authMode === "create" && (
                       <>
-                        <div className="flex min-h-[72px] w-full items-center gap-4 rounded-[1.5rem] border border-white/25 bg-white/[0.04] px-5 transition-colors focus-within:border-white/45 focus-within:bg-white/[0.07] sm:min-h-[84px] sm:px-8">
+                        {authMethod === "password" && (<div className="flex min-h-[72px] w-full items-center gap-4 rounded-[1.5rem] border border-white/25 bg-white/[0.04] px-5 transition-colors focus-within:border-white/45 focus-within:bg-white/[0.07] sm:min-h-[84px] sm:px-8">
                           <LockKeyhole aria-hidden="true" className="h-7 w-7 shrink-0 text-white/90" strokeWidth={1.8} />
                           <input
+                        required
+                        disabled={accountAuthBusy}
                             type={showAccountConfirmPassword ? "text" : "password"}
                             placeholder={t("confirmPassword")}
                             aria-label={t("confirmPassword")}
@@ -20341,13 +19842,14 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               ? <EyeOff aria-hidden="true" className="h-6 w-6" strokeWidth={1.8} />
                               : <Eye aria-hidden="true" className="h-6 w-6" strokeWidth={1.8} />}
                           </button>
-                        </div>
+                        </div>)}
                         <label className="box-border min-w-0 flex min-h-[72px] w-full items-center gap-4 rounded-[1.5rem] border border-white/25 bg-white/[0.04] px-5 transition-colors focus-within:border-white/45 focus-within:bg-white/[0.07] sm:min-h-[84px] sm:px-8">
                           <Tag aria-hidden="true" className="h-7 w-7 shrink-0 text-white/90" strokeWidth={1.8} />
                           <input
                             type="text"
                             value={accountPromoCodeInput}
-                            placeholder={t("promoCode")}
+                            disabled={accountAuthBusy}
+                            placeholder={tx("Affiliate code (optional)", "Партнёрский код (необязательно)", "Партнерський код (необов’язково)", "Affiliate-Code (optional)", "Código de afiliado (opcional)")}
                             aria-label={t("promoCode")}
                             onFocus={(e) => {
                               e.target.placeholder = "";
@@ -20364,8 +19866,17 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         </label>
                       </>
                     )}
-                    <button className="box-border min-w-0 mt-2 inline-flex min-h-[68px] w-full items-center justify-center gap-4 rounded-full bg-black px-8 py-5 text-[11px] font-black uppercase tracking-[0.22em] text-white shadow-[0_10px_30px_rgba(0,0,0,0.18)] transition-colors hover:bg-black/90 sm:w-fit sm:min-w-[300px] sm:min-h-[76px] sm:px-10">
-                      {authMode === "signin"
+                    {authMethod === "email" && (
+                      <p className="text-sm leading-6 text-white/70">
+                        {tx("We’ll email you a six-digit code. No password needed.", "Мы отправим код из шести цифр на вашу почту. Пароль не нужен.", "Ми надішлемо шестизначний код на вашу пошту. Пароль не потрібен.", "Wir senden Ihnen einen sechsstelligen Code per E-Mail. Kein Passwort nötig.", "Te enviaremos un código de seis dígitos por email. No necesitas contraseña.")}
+                      </p>
+                    )}
+                    <button type="submit" disabled={accountAuthBusy || (authMethod === "email" && emailCodeWait > 0)} className="disabled:opacity-50 disabled:cursor-wait box-border min-w-0 mt-2 inline-flex min-h-[68px] w-full items-center justify-center gap-4 rounded-full bg-black px-8 py-5 text-[11px] font-black uppercase tracking-[0.22em] text-white shadow-[0_10px_30px_rgba(0,0,0,0.18)] transition-colors hover:bg-black/90 sm:w-fit sm:min-w-[300px] sm:min-h-[76px] sm:px-10">
+                      {accountAuthBusy
+                        ? tx("Please wait…", "Подождите…", "Зачекайте…", "Bitte warten…", "Espera…")
+                        : authMethod === "email"
+                        ? (emailCodeWait > 0 ? `${tx("Resend in", "Повтор через", "Повтор через", "Erneut in", "Reenviar en")} ${emailCodeWait}s` : tx("Send email code", "Получить код по email", "Отримати код на email", "E-Mail-Code senden", "Enviar código por email"))
+                        : authMode === "signin"
                         ? tx("Continue", "Продолжить", "Продовжити", "Weiter", "Continuar")
                         : tx(
                             "Create account",
@@ -20390,6 +19901,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         <input
                           type="text"
                           inputMode="numeric"
+                          required
+                          disabled={signupVerificationBusy}
                           autoComplete="one-time-code"
                           pattern="[0-9]{6}"
                           maxLength={6}
@@ -20414,11 +19927,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
                         <button
                           type="button"
-                          disabled={signupVerificationBusy}
+                          disabled={signupVerificationBusy || emailCodeWait > 0}
                           onClick={handleResendSignupCode}
                           className="w-fit text-[11px] font-bold uppercase tracking-[0.18em] text-white/80 transition-colors hover:text-white disabled:cursor-wait disabled:opacity-50"
                         >
-                          {tx("Resend code", "Отправить код ещё раз", "Надіслати код ще раз", "Code erneut senden", "Reenviar código")}
+                          {emailCodeWait > 0
+                            ? `${tx("Resend in", "Повтор через", "Повтор через", "Erneut in", "Reenviar en")} ${emailCodeWait}s`
+                            : tx("Resend code", "Отправить код ещё раз", "Надіслати код ще раз", "Code erneut senden", "Reenviar código")}
                         </button>
                         <button
                           type="button"
@@ -20426,7 +19941,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           onClick={() => {
                             requireSignupVerificationRef.current = false;
                             setSignupVerificationCode("");
-                            setAuthMode("create");
+                            setAuthMode(verificationEntryMode);
                             setAccountMessage("");
                           }}
                           className="w-fit text-[11px] font-bold uppercase tracking-[0.18em] text-white/55 transition-colors hover:text-white disabled:cursor-wait disabled:opacity-50"
@@ -20726,10 +20241,14 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
 
                   <div className="mt-5 text-[10px] font-black uppercase tracking-[0.35em] text-emerald-400/80">
-                    {tx("Payment received", "Оплата получена", "Оплату отримано", "Zahlung erhalten", "Pago recibido")}
+                    {isHistoryConfirmation
+                      ? tx("Order history", "История заказов", "Історія замовлень", "Bestellverlauf", "Historial de pedidos")
+                      : tx("Payment received", "Оплата получена", "Оплату отримано", "Zahlung erhalten", "Pago recibido")}
                   </div>
                   <h1 className="mt-3 text-3xl font-black uppercase tracking-[0.08em] text-white md:text-4xl">
-                    {tx("Order Confirmed", "Заказ подтверждён", "Замовлення підтверджено", "Bestellung bestätigt", "Pedido confirmado")}
+                    {isHistoryConfirmation
+                      ? tx("Recorded order", "Запись о заказе", "Запис про замовлення", "Erfasste Bestellung", "Pedido registrado")
+                      : tx("Order Confirmed", "Заказ подтверждён", "Замовлення підтверджено", "Bestellung bestätigt", "Pedido confirmado")}
                   </h1>
 
                   {paymentReturn.order && (
@@ -20748,8 +20267,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       color: "text-emerald-400",
                       bg: "bg-emerald-400/10",
                       border: "border-emerald-400/20",
-                      label: tx("Completed", "Выполнено", "Виконано", "Abgeschlossen", "Completado"),
-                      title: tx("Payment confirmed", "Оплата подтверждена", "Оплату підтверджено", "Zahlung bestätigt", "Pago confirmado"),
+                      label: isHistoryConfirmation
+                        ? tx("Recorded", "В истории", "В історії", "Erfasst", "Registrado")
+                        : tx("Completed", "Выполнено", "Виконано", "Abgeschlossen", "Completado"),
+                      title: isHistoryConfirmation
+                        ? tx("Recorded status: paid", "Статус в истории: оплачен", "Статус в історії: оплачено", "Erfasster Status: bezahlt", "Estado registrado: pagado")
+                        : tx("Payment confirmed", "Оплата подтверждена", "Оплату підтверджено", "Zahlung bestätigt", "Pago confirmado"),
                     },
                     {
                       icon: "⏱",
@@ -20767,8 +20290,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       label: tx("Upcoming", "Скоро", "Незабаром", "Demnächst", "Próximamente"),
                       title: tx("Shipping & tracking", "Отправка и трекинг", "Відправка та трекінг", "Versand & Tracking", "Envío y seguimiento"),
                     },
-                  ].map((step, i) => (
-                    <div key={i} className={`flex items-start gap-4 px-5 py-4 ${i < 2 ? "border-b border-white/15" : ""}`}>
+                  ].filter((_, index) => !isHistoryConfirmation || index === 0).map((step, i) => (
+                    <div key={i} className={`flex items-start gap-4 px-5 py-4 ${!isHistoryConfirmation && i < 2 ? "border-b border-white/15" : ""}`}>
                       <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-sm ${step.bg} ${step.border}`}>
                         <span className={step.color}>{step.icon}</span>
                       </div>
@@ -20827,9 +20350,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         );
                       });
                     })()}
-                    {Number(paymentReturnOrder.total) > 0 && (
+                    {(isHistoryConfirmation ? paymentReturnOrder.total != null : Number(paymentReturnOrder.total) > 0) && (
                       <div className="flex items-center justify-between px-5 py-3 border-t border-white/15 bg-white/[0.06]">
-                        <div className="text-[11px] font-black uppercase tracking-[0.15em] text-white">{tx("Total paid", "Итого оплачено", "Разом сплачено", "Gesamt bezahlt", "Total pagado")}</div>
+                        <div className="text-[11px] font-black uppercase tracking-[0.15em] text-white">{isHistoryConfirmation
+                          ? tx("Recorded total", "Сумма в истории", "Сума в історії", "Erfasster Gesamtbetrag", "Total registrado")
+                          : tx("Total paid", "Итого оплачено", "Разом сплачено", "Gesamt bezahlt", "Total pagado")}</div>
                         <div className="text-sm font-black text-white">${Number(paymentReturnOrder.total).toFixed(2)}</div>
                       </div>
                     )}
@@ -20843,6 +20368,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       {tx("Your shipping method", "Ваш способ доставки", "Ваш спосіб доставки", "Ihre Versandart", "Tu método de envío")}
                     </div>
                     {(() => {
+                      if (isHistoryConfirmation && !paymentReturnOrder.shippingType) return (
+                        <div className="text-center text-sm text-white/70">{tx("Shipping method unavailable", "Способ доставки неизвестен", "Спосіб доставки невідомий", "Versandart nicht verfügbar", "Método de envío no disponible")}</div>
+                      );
                       const hasUSWarehouse = Array.isArray(paymentReturnOrder.items) && paymentReturnOrder.items.some(i => i.fromWarehouse === "us");
                       const hasRegular = Array.isArray(paymentReturnOrder.items) && paymentReturnOrder.items.some(i => !i.fromWarehouse);
                       const isExpress = String(paymentReturnOrder.shippingType || "standard").toLowerCase() === "express";
@@ -20962,7 +20490,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
                 </div>
               </section>
-            ) : (catalystPayPending && paymentReturn.status !== "cancelled") ? (
+            ) : paymentReturn.status === "pending" ? (
               <section className="overflow-hidden rounded-[2.4rem] border border-white/15 bg-black/25 shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
                 <div className="h-1 w-full bg-gradient-to-r from-amber-400 via-orange-300 to-amber-400" />
                 <div className="px-8 pt-12 pb-10 text-center md:px-12">
@@ -20974,14 +20502,14 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     </svg>
                   </div>
                   <div className="mt-5 text-[10px] font-black uppercase tracking-[0.35em] text-amber-400/80">
-                    {tx("Bitcoin payment", "Bitcoin оплата", "Bitcoin оплата", "Bitcoin-Zahlung", "Pago Bitcoin")}
+                    {tx("Payment verification", "Проверка оплаты", "Перевірка оплати", "Zahlungsprüfung", "Verificación del pago")}
                   </div>
                   <h1 className="mt-3 text-3xl font-black uppercase tracking-[0.08em] text-white md:text-4xl">
                     {tx("Processing Payment", "Обработка платежа", "Обробка платежу", "Zahlung wird verarbeitet", "Procesando pago")}
                   </h1>
                   <p className="mx-auto mt-5 max-w-sm text-sm leading-7 text-white/60">
-                    {tx("Please wait while we confirm your payment. This usually takes a few seconds.",
-                      "Подождите, мы проверяем ваш платёж. Обычно это занимает несколько секунд.",
+                    {tx("Your payment is awaiting confirmation. Check your account or contact support if it remains pending.",
+                      "Платёж ожидает подтверждения. Проверьте личный кабинет или обратитесь в поддержку, если статус не меняется.",
                       "Зачекайте, ми перевіряємо ваш платіж.",
                       "Bitte warten, wir prüfen Ihre Zahlung.",
                       "Espere, estamos verificando su pago.")}
@@ -21385,6 +20913,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   )}
 
                   {/* Store credit */}
+                  {currentUser && storeCredit > 0 && <p className="text-xs leading-5 text-amber-200" role="status">{tx(
+                    "Store credit checkout is temporarily unavailable. Your balance is unchanged; the total below uses your selected payment method.",
+                    "Оплата кредитом магазина временно недоступна. Баланс сохранён; сумма ниже оплачивается выбранным способом.",
+                    "Оплата кредитом магазину тимчасово недоступна. Баланс збережено.",
+                    "Shop-Guthaben kann vorübergehend nicht eingelöst werden. Ihr Guthaben bleibt unverändert.",
+                    "El saldo de tienda no se puede usar temporalmente. Tu saldo no cambia."
+                  )}</p>}
                   {storeCreditApplied > 0 && (
                     <div className="flex items-center justify-between text-[13px] text-emerald-300">
                       <span className="uppercase tracking-[0.1em]">{tx("Store credit", "Кредит магазина", "Кредит магазину", "Store-Guthaben", "Crédito de tienda")}</span>
@@ -21643,6 +21178,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             type="button"
                             onClick={() => {
                               setAuthMode("signin");
+                              setAuthMethod(defaultAuthMethod);
+                              setPendingCheckoutAfterAuth(true);
                               setAccountMessage("");
                               setPage("account");
                             }}
@@ -22249,20 +21786,19 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             );
                           })()}
 
-                          {/* M4 — Paylio */}
-                          <button type="button" onClick={() => setPaymentMethod("paylio")}
-                            className={`relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border px-4 py-3.5 md:py-1 text-left ${paymentMethod === "paylio" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                          {/* M4 — Paylio: backend remains unavailable. */}
+                          <button type="button" disabled={paylioTemporarilyDisabled}
+                            className="relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border border-black/10 bg-white/60 px-4 py-3.5 md:py-1 text-left cursor-not-allowed"
                           >
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white opacity-40">
                               <img src={getPreloadedDisplayImageUrl(paypalMark)} alt="" className="h-9 w-9 object-contain" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="text-[14px] font-semibold leading-snug md:text-[12px]">PayPal (US), Apple Pay,<br/>Google Pay, Cards</div>
-                              <div className="mt-1.5 md:mt-0.5 flex flex-nowrap items-center gap-1.5">
-                                <span className="shrink-0 inline-flex rounded-md bg-sky-500 px-1.5 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] text-white">KYC Required</span>
+                              <div className="text-[14px] font-semibold leading-snug text-black/40 md:text-[12px]">PayPal (US), Apple Pay,<br/>Google Pay, Cards</div>
+                              <div className="mt-1 text-[11px] font-semibold text-black/60">
+                                {tx("Temporarily unavailable", "Временно недоступно", "Тимчасово недоступно", "Vorübergehend nicht verfügbar", "Temporalmente no disponible")}
                               </div>
                             </div>
-                            {paymentMethod === "paylio" && <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500"><svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>}
                           </button>
 
                           {/* M5 — Wire */}
@@ -22406,25 +21942,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               </button>
                             );
                           })()}
-                          {/* 4 — Paylio (Apple Pay / PayPal / Cards) */}
-                          <button
-                            type="button"
-                            onClick={() => setPaymentMethod("paylio")}
-                            className={`relative flex flex-col items-center justify-start text-center rounded-[1.3rem] border px-2.5 pt-6 pb-3 md:px-3 md:pt-7 md:pb-3 min-h-[148px] md:min-h-[160px] ${
-                              paymentMethod === "paylio"
-                                ? "border-black bg-black text-white"
-                                : "border-black/10 bg-white text-black hover:bg-black/5"
-                            }`}
+                          {/* 4 — Paylio: keep the legacy layout unavailable too. */}
+                          <button type="button" disabled={paylioTemporarilyDisabled}
+                            className="relative flex flex-col items-center justify-start text-center rounded-[1.3rem] border border-black/10 bg-white/60 px-2.5 pt-6 pb-3 md:px-3 md:pt-7 md:pb-3 min-h-[148px] md:min-h-[160px] cursor-not-allowed"
                           >
-                            <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">KYC Required</span>
-                            <div className="text-[10px] uppercase tracking-[0.18em] opacity-70 md:text-[11px] md:tracking-[0.2em]">
-                              {t("method")}
-                            </div>
-                            <div className="mt-1.5 leading-snug flex flex-col items-center gap-0.5">
-                              <div className={`text-sm font-semibold md:text-base ${paymentMethod === "paylio" ? "text-white" : "text-black"}`}>PayPal (US)</div>
-                              <div className={`text-sm font-semibold md:text-base ${paymentMethod === "paylio" ? "text-white" : "text-black"}`}>Apple Pay</div>
-                              <div className={`text-sm font-semibold md:text-base ${paymentMethod === "paylio" ? "text-white" : "text-black"}`}>Google Pay</div>
-                              <div className={`text-sm font-semibold md:text-base ${paymentMethod === "paylio" ? "text-white" : "text-black"}`}>Cards</div>
+                            <div className="text-sm font-semibold text-black/40">PayPal (US) · Apple Pay · Google Pay · Cards</div>
+                            <div className="mt-2 text-[11px] font-semibold text-black/60">
+                              {tx("Temporarily unavailable", "Временно недоступно", "Тимчасово недоступно", "Vorübergehend nicht verfügbar", "Temporalmente no disponible")}
                             </div>
                           </button>
                           {/* 5 — Wire Transfer */}
@@ -22448,8 +21972,23 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           </button>
                         </div>
 
+                        {cashAppOverLimit && (
+                          <p role="status" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] leading-5 text-amber-900">
+                            {tx(
+                              "Cash App is limited to $999. Please choose Crypto or Wire for this order.",
+                              "Лимит Cash App — $999. Для этого заказа выберите Crypto или Wire.",
+                              "Ліміт Cash App — $999. Для цього замовлення оберіть Crypto або Wire.",
+                              "Das Cash-App-Limit beträgt $999. Bitte wählen Sie Crypto oder Wire für diese Bestellung.",
+                              "El límite de Cash App es de $999. Elija Crypto o Wire para este pedido."
+                            )}
+                          </p>
+                        )}
+                        {paylioPaymentError && (
+                          <p role="status" className="mt-4 rounded-xl border border-black/10 bg-black/5 px-4 py-3 text-[13px] leading-5 text-black/70">{paylioPaymentError}</p>
+                        )}
+
                         {/* cashapp / CatalystPay BTC section */}
-                        {paymentMethod === "cashapp" && (
+                        {paymentMethod === "cashapp" && !cashAppOverLimit && (
                           <div className="mt-6 rounded-[1.8rem] border border-black/10 bg-white p-4 shadow-[0_20px_50px_rgba(0,0,0,0.05)] md:p-5">
                             <div className="flex items-center gap-3 mb-4">
                               <img src={getPreloadedDisplayImageUrl(cashAppLogo)} alt="" className="h-10 w-10 shrink-0 rounded-2xl shadow-[0_10px_30px_rgba(0,214,79,0.25)] md:h-11 md:w-11" />
@@ -22483,8 +22022,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           </div>
                         )}
 
-                        {/* Always render so paylio section is already in DOM; hidden when not selected */}
-                        <div style={{ display: paymentMethod === "paylio" ? undefined : "none" }}>
+                        {/* Do not mount unavailable payment controls, even for stale selections. */}
+                        {!paylioTemporarilyDisabled && <div style={{ display: paymentMethod === "paylio" ? undefined : "none" }}>
                           <div>
                             <div className="mt-6 rounded-[1.4rem] border border-black/10 bg-black/[0.03] p-4 md:p-5">
                               {/* Mobile: 3-column compact grid */}
@@ -22553,7 +22092,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               </div>
                             </div>
                           </div>
-                        </div>
+                        </div>}
 
                         {/* Always render so PayPal SDK loads & buttons mount in background; hidden when not selected */}
                         <div style={paymentMethod === "paypal" ? {} : { visibility: "hidden", height: 0, overflow: "hidden" }}>
@@ -23490,7 +23029,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
             )}
 
             {/* Paylio payment guide modal */}
-            {showPaylioGuide && (
+            {!paylioTemporarilyDisabled && showPaylioGuide && (
               <div
                 className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 backdrop-blur-sm px-0 pb-0 sm:items-center sm:px-4 sm:pb-4"
                 onClick={(e) => { if (e.target === e.currentTarget) setShowPaylioGuide(false); }}
@@ -23729,7 +23268,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         )}
       </div>
 
-      {showProviderWarning && (
+      {!paylioTemporarilyDisabled && showProviderWarning && (
         <div
           className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 px-4 py-6"
           onClick={(e) => { if (e.target === e.currentTarget) setShowProviderWarning(false); }}

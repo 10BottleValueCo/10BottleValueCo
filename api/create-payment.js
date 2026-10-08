@@ -1,8 +1,15 @@
+import { requireCheckoutOrder, persistCheckoutPricing } from "./_checkout-order.js";
+import { requireCheckoutIdentity } from "./_checkout-auth.js";
+import { rejectUnverifiedStoreCredit } from "./_payment-guard.js";
 import { validateAndPriceItems, getShippingPrice, getAutomaticDiscountRate } from "./_catalog.js";
 import { verifyPromoCode } from "./_promo.js";
 
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
-const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+const SB_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  "";
 const sbH = () => ({
   apikey: SB_KEY,
   Authorization: `Bearer ${SB_KEY}`,
@@ -10,7 +17,10 @@ const sbH = () => ({
 });
 
 export default async function handler(req, res) {
+  if (rejectUnverifiedStoreCredit(req.body, res)) return;
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const checkoutIdentity = await requireCheckoutIdentity(req, res);
+  if (!checkoutIdentity) return;
 
   try {
     const apiKey = process.env.NOWPAYMENTS_API_KEY || process.env.NOW_PAYMENTS_API_KEY || "";
@@ -38,12 +48,24 @@ export default async function handler(req, res) {
       postalCode = "",
       phone = "",
       taxId = "",
+      orderNotes = "",
       items = [],
-    } = req.body || {};
+    } = { ...req.body, customer_email: checkoutIdentity.email };
 
     if (!order_id) {
       return res.status(400).json({ error: "Missing order_id" });
     }
+
+    const checkoutOrder = await requireCheckoutOrder(
+      {
+        orderId: order_id,
+        identity: checkoutIdentity,
+        sbUrl: SB_URL,
+        sbKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+      },
+      res,
+    );
+    if (!checkoutOrder) return;
 
     // ---- SERVER-SIDE PRICE & STOCK VALIDATION ----
     // Same rule as create-stripe-session.js: never trust a client-submitted
@@ -84,7 +106,7 @@ export default async function handler(req, res) {
       try {
         const checkResp = await fetch(
           `${SB_URL}/rest/v1/orders?email=eq.${encodeURIComponent(String(customer_email).toLowerCase().trim())}&status=in.(paid,done)&select=id&limit=1`,
-          { headers: sbH() }
+          { headers: sbH() },
         );
         if (checkResp.ok) {
           const rows = await checkResp.json();
@@ -94,35 +116,45 @@ export default async function handler(req, res) {
     }
 
     let affiliateDiscount = 0;
-    if (!promoDiscount && isFirstTimeBuyer && String(affiliateCode || "").trim() && Number(clientAffiliateDiscount) > 0) {
+    if (
+      !promoDiscount &&
+      isFirstTimeBuyer &&
+      String(affiliateCode || "").trim() &&
+      Number(clientAffiliateDiscount) > 0
+    ) {
       const impliedRate = Number(clientAffiliateDiscount) / (subtotal || 1);
-      affiliateDiscount = impliedRate <= MAX_AFFILIATE_RATE
-        ? Math.min(Number(clientAffiliateDiscount), subtotal)
-        : Math.round(subtotal * MAX_AFFILIATE_RATE * 100) / 100;
+      affiliateDiscount =
+        impliedRate <= MAX_AFFILIATE_RATE
+          ? Math.min(Number(clientAffiliateDiscount), subtotal)
+          : Math.round(subtotal * MAX_AFFILIATE_RATE * 100) / 100;
     }
 
-    const finalAutomaticDiscount = promoDiscount > 0 || affiliateDiscount > 0 ? 0 : automaticDiscount;
+    const finalAutomaticDiscount =
+      promoDiscount > 0 || affiliateDiscount > 0 ? 0 : automaticDiscount;
     const finalAffiliateDiscount = promoDiscount > 0 ? 0 : affiliateDiscount;
 
     const shipping =
       pricedItems.length === 0
         ? 0
         : verifiedPromoFreeShipping || regularSubtotal === 0
-        ? 0
-        : getShippingPrice(regularSubtotal, shippingType === "express" ? "express" : "standard");
+          ? 0
+          : getShippingPrice(regularSubtotal, shippingType === "express" ? "express" : "standard");
 
     // storeCreditUsed is capped server-side to the recomputed pre-credit total so
     // it can't be inflated to zero out or exceed the real order value.
     const preCreditTotal = Math.max(
       0,
-      subtotal - finalAutomaticDiscount - promoDiscount - finalAffiliateDiscount + shipping
+      subtotal - finalAutomaticDiscount - promoDiscount - finalAffiliateDiscount + shipping,
     );
 
     // 2.5% discount for crypto payments
     const cryptoDiscount = Math.round(preCreditTotal * 0.025 * 100) / 100;
     const totalAfterCryptoDiscount = preCreditTotal - cryptoDiscount;
 
-    const safeStoreCreditUsed = Math.min(Math.max(Number(storeCreditUsed) || 0, 0), totalAfterCryptoDiscount);
+    const safeStoreCreditUsed = Math.min(
+      Math.max(Number(storeCreditUsed) || 0, 0),
+      totalAfterCryptoDiscount,
+    );
 
     const price_amount = Math.round((totalAfterCryptoDiscount - safeStoreCreditUsed) * 100) / 100;
 
@@ -140,63 +172,48 @@ export default async function handler(req, res) {
     // only needs the order_id to look them up.
     const orderDescription = String(order_id);
 
-    // Mark order as checkout started in Supabase.
-    // NEVER overwrite an already-paid order: if the customer re-opens/retries the
-    // NOWPayments invoice creation after their payment was already confirmed by the
-    // IPN webhook (e.g. double-clicking "Pay", reloading the checkout tab), this
-    // used to unconditionally reset status back to "checkout (clicked pay)",
-    // making a genuinely paid order look pending again in the admin panel even
-    // though the confirmation email had already gone out.
-    if (SB_URL && SB_KEY && order_id) {
-      try {
-        const existing = await fetch(
-          `${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(order_id))}&select=status,metadata`,
-          { headers: sbH() }
-        );
-        const rows = existing.ok ? await existing.json() : [];
-        const currentStatus = String(rows?.[0]?.status || "").toLowerCase();
-        const existingMeta = (rows?.[0]?.metadata && typeof rows[0].metadata === "object") ? rows[0].metadata : {};
-        if (currentStatus !== "paid") {
-          await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(order_id))}`, {
-            method: "PATCH",
-            headers: { ...sbH(), Prefer: "return=minimal" },
-            body: JSON.stringify({
-              status: "checkout (clicked pay)",
-              // Persisted explicitly (not just relying on a prior client-side
-              // upsert) so customer/shipping/pricing details survive even if
-              // that earlier client write raced with or lost to this
-              // server-side PATCH — mirrors the CatalystPay session fix.
-              metadata: {
-                ...existingMeta,
-                total: Number(price_amount),
-                subtotal: Number(subtotal),
-                shipping: Number(shipping),
-                automaticDiscount: Number(finalAutomaticDiscount),
-                promoDiscount: Number(promoDiscount),
-                promoCode: String(promoCode || ""),
-                affiliateDiscount: Number(finalAffiliateDiscount),
-                cryptoDiscount: Number(cryptoDiscount),
-                storeCreditUsed: Number(safeStoreCreditUsed),
-                affiliateCode: String(affiliateCode || "").trim().toUpperCase(),
-                affiliateOwnerEmail: String(affiliateOwnerEmail || ""),
-                shippingType: String(shippingType),
-                items: pricedItems,
-                firstName: String(firstName || existingMeta.firstName || ""),
-                lastName: String(lastName || existingMeta.lastName || ""),
-                country: String(country || existingMeta.country || ""),
-                address: String(address || existingMeta.address || ""),
-                address2: String(address2 || existingMeta.address2 || ""),
-                city: String(city || existingMeta.city || ""),
-                state: String(state || existingMeta.state || ""),
-                postalCode: String(postalCode || existingMeta.postalCode || ""),
-                phone: String(phone || existingMeta.phone || ""),
-                taxId: String(taxId || existingMeta.taxId || ""),
-              },
-            }),
-          }).catch(() => {});
-        }
-      } catch {}
-    }
+    if (
+      !(await persistCheckoutPricing(
+        checkoutOrder,
+        {
+          total: Number(price_amount),
+          items: pricedItems,
+          metadata: {
+            ...checkoutOrder.order.metadata,
+            total: Number(price_amount),
+            paymentProvider: "NOWPayments",
+            checkoutStartedAt: new Date().toISOString(),
+            subtotal: Number(subtotal),
+            shipping: Number(shipping),
+            automaticDiscount: Number(finalAutomaticDiscount),
+            promoDiscount: Number(promoDiscount),
+            promoCode: String(promoCode || ""),
+            affiliateDiscount: Number(finalAffiliateDiscount),
+            cryptoDiscount: Number(cryptoDiscount),
+            storeCreditUsed: Number(safeStoreCreditUsed),
+            affiliateCode: String(affiliateCode || "")
+              .trim()
+              .toUpperCase(),
+            affiliateOwnerEmail: String(affiliateOwnerEmail || ""),
+            shippingType: String(shippingType),
+            items: pricedItems,
+            orderNotes: String(orderNotes || checkoutOrder.order.metadata.orderNotes || ""),
+            firstName: String(firstName || checkoutOrder.order.metadata.firstName || ""),
+            lastName: String(lastName || checkoutOrder.order.metadata.lastName || ""),
+            country: String(country || checkoutOrder.order.metadata.country || ""),
+            address: String(address || checkoutOrder.order.metadata.address || ""),
+            address2: String(address2 || checkoutOrder.order.metadata.address2 || ""),
+            city: String(city || checkoutOrder.order.metadata.city || ""),
+            state: String(state || checkoutOrder.order.metadata.state || ""),
+            postalCode: String(postalCode || checkoutOrder.order.metadata.postalCode || ""),
+            phone: String(phone || checkoutOrder.order.metadata.phone || ""),
+            taxId: String(taxId || checkoutOrder.order.metadata.taxId || ""),
+          },
+        },
+        res,
+      ))
+    )
+      return;
 
     const nowRes = await fetch("https://api.nowpayments.io/v1/invoice", {
       method: "POST",
@@ -208,8 +225,10 @@ export default async function handler(req, res) {
         order_id,
         order_description: orderDescription,
         ipn_callback_url: ipnCallbackUrl,
-        success_url: success_url || `${baseUrl}/?payment=success&order=${encodeURIComponent(order_id)}`,
-        cancel_url: cancel_url || `${baseUrl}/?payment=cancelled&order=${encodeURIComponent(order_id)}`,
+        success_url:
+          success_url || `${baseUrl}/?payment=success&order=${encodeURIComponent(order_id)}`,
+        cancel_url:
+          cancel_url || `${baseUrl}/?payment=cancelled&order=${encodeURIComponent(order_id)}`,
         customer_email,
         is_fixed_rate: false,
         is_fee_paid_by_user: false,
@@ -221,11 +240,15 @@ export default async function handler(req, res) {
     try {
       data = rawText ? JSON.parse(rawText) : {};
     } catch {
-      return res.status(502).json({ error: "NOWPayments returned non-JSON", raw: rawText.slice(0, 300) });
+      return res
+        .status(502)
+        .json({ error: "NOWPayments returned non-JSON", raw: rawText.slice(0, 300) });
     }
 
     if (!nowRes.ok) {
-      return res.status(nowRes.status).json({ error: data.message || "NOWPayments error", ...data });
+      return res
+        .status(nowRes.status)
+        .json({ error: data.message || "NOWPayments error", ...data });
     }
 
     return res.status(200).json(data);

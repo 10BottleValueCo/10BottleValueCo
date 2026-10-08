@@ -292,6 +292,7 @@ function validateAndPriceItems(items) {
       dose: catalogProduct.dose,
       quantity,
       price: unitPrice,
+      ...(catalogProduct.noteLabel ? { noteLabel: catalogProduct.noteLabel } : {}),
       ...(fromWarehouse ? { fromWarehouse } : {}),
     });
   }

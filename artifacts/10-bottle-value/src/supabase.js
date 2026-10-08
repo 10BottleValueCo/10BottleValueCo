@@ -55,6 +55,8 @@ function createPreviewClient() {
       getSession: async () => ({ data: { session: null }, error: null }),
       getUser: async () => ({ data: { user: null }, error: null }),
       onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+      signInWithOtp: async () => ({ data: { user: null, session: null }, error: { message: "Supabase credentials are not configured." } }),
+      signInWithOAuth: async () => ({ data: { provider: null, url: null }, error: { message: "Supabase credentials are not configured." } }),
       signInWithPassword: async () => ({ data: { user: null, session: null }, error: { message: "Supabase credentials are not configured." } }),
       signUp: async () => ({ data: { user: null, session: null }, error: { message: "Supabase credentials are not configured." } }),
       verifyOtp: async () => ({ data: { user: null, session: null }, error: { message: "Supabase credentials are not configured." } }),

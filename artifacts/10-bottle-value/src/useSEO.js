@@ -5,7 +5,8 @@
  * Zero user-visible changes.
  */
 import { useEffect } from "react";
-import { productSlug, publicProductName } from "./productNames.js";
+import { publicProductName } from "./productNames.js";
+import { productSelectionPath } from "./product-selection.js";
 
 const SITE_NAME  = "10BottleValue.co";
 const SITE_URL   = "https://10bottlevalue.co";
@@ -22,11 +23,6 @@ function productImage(name) {
   if (n.includes("bac water"))
     return `${SITE_URL}/bottle-water.png`;
   return `${SITE_URL}/bottle-white.png`;
-}
-
-// Slug formula — must mirror makeProductSlug() in App.jsx
-function makeSlug(p) {
-  return productSlug(p);
 }
 
 // Strictly pharmacological/biochemical class labels.
@@ -220,8 +216,9 @@ export function useSEO({ page, product }) {
       }
     } else if (page === "product" && product) {
       // ── Product page ────────────────────────────────────────────────────────
-      const slug      = makeSlug(product);
-      const canonical = `${SITE_URL}/${slug}`;
+      const selectionPath = productSelectionPath(product);
+      const canonical = `${SITE_URL}${selectionPath}`;
+      const sku = selectionPath.slice(1);
       const name      = publicProductName(product.name);
       const dose      = product.dose;
       const price     = product.price;
@@ -235,7 +232,8 @@ export function useSEO({ page, product }) {
 
       // Description: strictly factual — name, dose, kit size, price, shipping, disclaimer.
       // No health claims, no inferred effects.
-      const desc = `${name} ${dose} research peptide kit — 10 vials (${total}), from $${price}. Ships worldwide. For laboratory research use only. | ${SITE_NAME}`;
+      const shipping = product.fromWarehouse === "us" ? "Ships from the US warehouse to US addresses." : "Ships worldwide.";
+      const desc = `${name} ${dose} research peptide kit — 10 vials (${total}), from $${price}. ${shipping} For laboratory research use only. | ${SITE_NAME}`;
 
       document.title = title;
       setCanonical(canonical);
@@ -259,7 +257,7 @@ export function useSEO({ page, product }) {
         "@type": "Product",
         "name": `${name} ${dose}`,
         "description": `${name} ${dose} ${cls}. Kit of 10 vials (${total}). For laboratory and research use only. Not for human or animal consumption.`,
-        "sku": slug,
+        "sku": sku,
         "brand": { "@type": "Brand", "name": "10BottleValue" },
         "category": "Research Peptides",
         "url": canonical,
@@ -289,6 +287,27 @@ export function useSEO({ page, product }) {
       removeJsonLd("webpage");
       removeJsonLd("organization");
 
+    } else if (page === "product") {
+      // An explicit warehouse/variant mismatch is unavailable, not a home page
+      // or a purchasable offer. Clear metadata left by the previous selection.
+      const title = `Product Selection Unavailable | ${SITE_NAME}`;
+      const desc = "This product selection is unavailable. Choose an available product, strength and warehouse from the catalog.";
+      document.title = title;
+      document.querySelector('link[rel="canonical"]')?.remove();
+      document.querySelector('meta[property="og:url"]')?.remove();
+      setMeta("name", "robots", "noindex, follow");
+      setMeta("name", "description", desc);
+      setMeta("property", "og:title", title);
+      setMeta("property", "og:description", desc);
+      setMeta("property", "og:type", "website");
+      setMeta("property", "og:image", SITE_IMAGE);
+      setMeta("name", "twitter:title", title);
+      setMeta("name", "twitter:description", desc);
+      setMeta("name", "twitter:image", SITE_IMAGE);
+      removeJsonLd("product");
+      removeJsonLd("breadcrumb");
+      removeJsonLd("webpage");
+      removeJsonLd("organization");
     } else {
       // ── Home / other pages ──────────────────────────────────────────────────
       const canonical = SITE_URL + "/";

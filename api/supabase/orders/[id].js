@@ -1,3 +1,4 @@
+import { requireAdmin } from "../../_auth.js";
 const SUPABASE_URL = "https://danpkqqzcptamojrnrmk.supabase.co";
 const ALLOWED_ORDER_STATUSES = new Set(["pending","paid","done","refunded","cancelled"]);
 
@@ -27,6 +28,7 @@ async function supabaseAdmin(path, options = {}) {
 }
 
 export default async function handler(req, res) {
+  if (!(await requireAdmin(req, res))) return;
   if (req.method !== "PATCH") {
     res.setHeader("Allow", "PATCH");
     return res.status(405).json({ ok: false, error: "Method not allowed" });

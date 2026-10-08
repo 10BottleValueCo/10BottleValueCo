@@ -1,3 +1,4 @@
+import { requireUser } from "./_auth.js";
 const FROM_EMAIL = "10BottleValueCo <support@10bottlevalue.co>";
 const SITE_URL = "https://10bottlevalue.co";
 const TRUSTPILOT_URL = "https://www.trustpilot.com/review/10bottlevalue.co";
@@ -25,9 +26,12 @@ function emailShell(bodyHtml) {
 }
 
 export default async function handler(req, res) {
+  const user = await requireUser(req, res);
+  if (!user) return;
   if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
 
-  const { email } = req.body || {};
+  const email = user.email;
+  if (!user.email_confirmed_at) return res.status(403).json({ ok: false, error: "Verify your email before requesting an account email." });
   if (!email) return res.status(400).json({ ok: false, error: "email required" });
 
   const safeEmail = String(email).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");

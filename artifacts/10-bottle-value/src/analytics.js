@@ -3,7 +3,9 @@
  * browser never needs database write permissions or the Supabase service key.
  */
 
-const SESSION_KEY = "tbv-sid";
+const SESSION_KEY = "tbv-analytics-session-v2";
+const SESSION_IDLE_MS = 30 * 60 * 1000;
+let memorySession = null;
 
 function createSessionId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -23,21 +25,24 @@ function createSessionId() {
 
 const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function getSessionId() {
+export function getSessionId(rotate = true) {
   if (typeof window === "undefined") return createSessionId();
+  const now = Date.now();
+  let session = memorySession;
   try {
-    let id = window.localStorage.getItem(SESSION_KEY);
-    if (!id || !SESSION_ID_PATTERN.test(id)) {
-      id = createSessionId();
-      window.localStorage.setItem(SESSION_KEY, id);
-    }
-    return id;
-  } catch {
-    return createSessionId();
+    window.localStorage.removeItem("tbv-sid");
+    session = JSON.parse(window.sessionStorage.getItem(SESSION_KEY) || "null") || session;
+  } catch { /* Keep a stable in-memory session when browser storage is unavailable. */ }
+  if (!session || !SESSION_ID_PATTERN.test(session.id || "") || !Number.isFinite(session.lastActivity)
+    || (rotate && (now - session.lastActivity >= SESSION_IDLE_MS || now < session.lastActivity))) {
+    session = { id: createSessionId(), lastActivity: now };
+  } else if (rotate) {
+    session.lastActivity = now;
   }
+  memorySession = session;
+  try { window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(session)); } catch { /* Optional storage. */ }
+  return session.id;
 }
-
-export const SESSION_ID = getSessionId();
 
 function getDeviceType() {
   if (typeof navigator === "undefined") return "desktop";
@@ -60,7 +65,7 @@ function getSafeReferrer() {
   try {
     const url = new URL(document.referrer);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-    return `${url.origin}${url.pathname}`.slice(0, 500);
+    return url.origin.slice(0, 500);
   } catch {
     return null;
   }
@@ -74,7 +79,7 @@ async function sendEvent(payload, keepalive = false) {
       body: JSON.stringify(payload),
       keepalive,
     });
-    if (!response.ok && import.meta.env.DEV) {
+    if (!response.ok && import.meta.env?.DEV) {
       console.debug("[analytics] event was not accepted:", response.status);
     }
   } catch {
@@ -84,7 +89,10 @@ async function sendEvent(payload, keepalive = false) {
 
 function makePayload(eventType, properties = {}) {
   return {
-    session_id: SESSION_ID,
+    schema_version: 2,
+    event_id: createSessionId(),
+    occurred_at: new Date().toISOString(),
+    session_id: getSessionId(eventType !== "page_exit"),
     event_type: eventType,
     page: typeof properties.page === "string" ? properties.page : null,
     referrer: getSafeReferrer(),

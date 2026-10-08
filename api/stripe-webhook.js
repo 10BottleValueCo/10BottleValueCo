@@ -22,17 +22,35 @@ async function sbSelectOne(table, params) {
   return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
 }
 
-async function sbUpsert(table, body, onConflict) {
-  const qs = onConflict ? `?on_conflict=${onConflict}` : "";
-  const r = await fetch(`${SB_URL}/rest/v1/${table}${qs}`, {
-    method: "POST",
-    headers: { ...sbH(), Prefer: "resolution=merge-duplicates,return=minimal" },
+function paymentDecision(order, { paymentId, email, currency, amount, paid }) {
+  if (!order) return { error: "Order unavailable for reconciliation.", code: 503 };
+  const status = String(order.status || "").toLowerCase();
+  if (["done", "refunded", "cancelled"].includes(status)) return { skip: "terminal_order" };
+  if (status === "paid") return String(order.payment_id || "") === paymentId
+    ? { skip: "already_processed" } : { error: "Order already has another payment.", code: 409 };
+  const expectedCents = Math.round(Number(order.total) * 100);
+  const expectedEmail = String(order.email || "").trim().toLowerCase();
+  if (!paid) return { skip: "payment_not_paid" };
+  if (!["pending", "checkout", "checkout (clicked pay)"].includes(status)
+    || !paymentId || currency !== "usd" || !Number.isSafeInteger(amount) || amount <= 0
+    || !Number.isSafeInteger(expectedCents) || expectedCents <= 0 || amount !== expectedCents
+    || !expectedEmail || expectedEmail !== String(email || "").trim().toLowerCase()
+    || (order.payment_id && String(order.payment_id) !== paymentId)) {
+    return { error: "Payment does not match the order.", code: 409 };
+  }
+  return { total: amount / 100 };
+}
+
+async function markExistingOrderPaid(orderId, existing, body) {
+  const existingPayment = existing.payment_id == null ? "is.null" : `eq.${encodeURIComponent(String(existing.payment_id))}`;
+  const params = `id=eq.${encodeURIComponent(orderId)}&status=in.(pending,checkout,%22checkout%20(clicked%20pay)%22)&total=eq.${encodeURIComponent(String(existing.total))}&email=eq.${encodeURIComponent(String(existing.email))}&payment_id=${existingPayment}`;
+  const response = await fetch(`${SB_URL}/rest/v1/orders?${params}`, {
+    method: "PATCH",
+    headers: { ...sbH(), Prefer: "return=representation" },
     body: JSON.stringify(body),
   });
-  if (!r.ok) {
-    const text = await r.text().catch(() => "");
-    throw new Error(`Supabase upsert into ${table} failed: ${r.status} ${text}`);
-  }
+  const rows = response.ok ? await response.json().catch(() => null) : null;
+  if (!Array.isArray(rows) || rows.length !== 1) throw new Error("No eligible order payment transition was committed.");
 }
 
 export const config = { api: { bodyParser: false } };
@@ -225,7 +243,7 @@ export default async function handler(req, res) {
       }
 
       const email = session.customer_email || session.metadata?.email || "";
-      const paymentId = session.id;
+      const paymentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || session.id;
       const paidAt = new Date().toISOString();
 
       // Fetch existing order from Supabase for full metadata (address, items, etc.)
@@ -236,18 +254,15 @@ export default async function handler(req, res) {
       // fields only ever live inside the `metadata` JSON column.
       const existingRow = await sbSelectOne(
         "orders",
-        `id=eq.${encodeURIComponent(orderId)}&select=metadata,items,status,payment_id`
+        `id=eq.${encodeURIComponent(orderId)}&select=metadata,items,status,payment_id,total,email`
       );
 
-      // Idempotency guard: Stripe can and does redeliver the same
-      // checkout.session.completed event (retries on timeout/5xx, or
-      // duplicate delivery). Without this guard, every redelivery would
-      // re-upsert the order (resurrecting it after an admin deletion) and
-      // re-send the confirmation email. If we already recorded this exact
-      // payment as paid, treat the event as already handled and stop here.
-      if (existingRow?.status === "paid" && existingRow?.payment_id === paymentId) {
-        return res.status(200).json({ received: true, note: "already processed" });
-      }
+      const decision = paymentDecision(existingRow, {
+        paymentId, email, currency: session.currency, amount: session.amount_total,
+        paid: session.payment_status === "paid",
+      });
+      if (decision.skip) return res.status(200).json({ received: true, skipped: decision.skip });
+      if (decision.error) return res.status(decision.code).json({ error: decision.error });
 
       const prevMeta =
         existingRow?.metadata &&
@@ -280,6 +295,7 @@ export default async function handler(req, res) {
       // Merge metadata: existing (full checkout data) takes priority for address fields
       const updatedMeta = {
         ...prevMeta,
+        total: decision.total,
         status: "paid",
         paymentProvider: "Stripe",
         paymentId,
@@ -323,27 +339,22 @@ export default async function handler(req, res) {
         } catch {}
       }
 
-      // Update Supabase
-      // NOTE: the `orders` table has no `affiliate_code` / `affiliate_owner_email`
-      // columns (confirmed against the live schema) — those fields only live
-      // inside the `metadata` JSON column (already included via updatedMeta).
-      // Writing them as top-level columns makes PostgREST reject the whole
-      // upsert with PGRST204 ("Could not find the column..."), silently
-      // failing to mark the order paid.
-      await sbUpsert("orders", {
+      // Claim only this existing, unchanged pending order. A replay or a
+      // concurrent cancellation cannot recreate or reopen it.
+      await markExistingOrderPaid(orderId, existingRow, {
         id: orderId,
         email: (email || prevMeta.email || "").toLowerCase(),
         status: "paid",
         payment_provider: "Stripe",
         payment_id: paymentId,
         paid_at: paidAt,
-        total: Number(prevMeta.total || session.amount_total / 100 || 0),
+        total: decision.total,
         items: items.length > 0 ? items : (existingRow?.items || []),
         metadata: updatedMeta,
       });
 
       // Affiliate commission
-      // NOTE: deliberately NOT using sbUpsert's on_conflict/merge-duplicates path
+      // NOTE: deliberately NOT using an on_conflict/merge-duplicates path
       // here. Postgres requires UPDATE privilege on the table for an
       // "ON CONFLICT DO UPDATE" upsert to even plan, regardless of whether a
       // real conflict happens at runtime. The `service_role` key was only
@@ -395,7 +406,7 @@ export default async function handler(req, res) {
       // Deduct spent store credit server-side — same rationale as above: this used
       // to happen only in the frontend's markOrderPaidById tied to the payment-return
       // page still being open, so a closed/abandoned tab left the credit un-deducted.
-      const storeCreditUsedAmt = Number(prevMeta.storeCreditUsed || session.metadata?.storeCreditUsed || 0);
+      const storeCreditUsedAmt = Number(session.metadata?.storeCreditUsed ?? 0);
       if (storeCreditUsedAmt > 0 && email) {
         try {
           const creditEmail = email.toLowerCase();
@@ -411,7 +422,7 @@ export default async function handler(req, res) {
         }
       }
 
-      // Send confirmation email (single email — frontend guard prevents duplicate)
+      // Send after this handler commits the conditional paid transition.
       if (email) {
         try {
           await sendConfirmationEmail({
@@ -452,13 +463,15 @@ export default async function handler(req, res) {
 
       const existingRow = await sbSelectOne(
         "orders",
-        `id=eq.${encodeURIComponent(orderId)}&select=metadata,items,status,payment_id`
+        `id=eq.${encodeURIComponent(orderId)}&select=metadata,items,status,payment_id,total,email`
       );
 
-      // Idempotency: already processed this exact payment
-      if (existingRow?.status === "paid" && existingRow?.payment_id === paymentId) {
-        return res.status(200).json({ received: true, note: "already processed" });
-      }
+      const decision = paymentDecision(existingRow, {
+        paymentId, email, currency: intent.currency, amount: intent.amount_received,
+        paid: intent.status === "succeeded" && intent.amount_received === intent.amount,
+      });
+      if (decision.skip) return res.status(200).json({ received: true, skipped: decision.skip });
+      if (decision.error) return res.status(decision.code).json({ error: decision.error });
 
       const prevMeta =
         existingRow?.metadata && typeof existingRow.metadata === "object" && !Array.isArray(existingRow.metadata)
@@ -480,6 +493,7 @@ export default async function handler(req, res) {
 
       const updatedMeta = {
         ...prevMeta,
+        total: decision.total,
         status: "paid",
         paymentProvider: "Stripe",
         paymentId,
@@ -494,14 +508,14 @@ export default async function handler(req, res) {
           ? existingRow.items
           : [];
 
-      await sbUpsert("orders", {
+      await markExistingOrderPaid(orderId, existingRow, {
         id: orderId,
         email: (email || prevMeta.email || "").toLowerCase(),
         status: "paid",
         payment_provider: "Stripe",
         payment_id: paymentId,
         paid_at: paidAt,
-        total: Number(prevMeta.total || intent.amount / 100 || 0),
+        total: decision.total,
         items: orderItems,
         metadata: updatedMeta,
       });
@@ -544,7 +558,7 @@ export default async function handler(req, res) {
       }
 
       // Deduct store credit
-      const storeCreditUsedAmt = Number(prevMeta.storeCreditUsed || intent.metadata?.storeCreditUsed || 0);
+      const storeCreditUsedAmt = Number(intent.metadata?.storeCreditUsed ?? 0);
       if (storeCreditUsedAmt > 0 && email) {
         try {
           const creditEmail = email.toLowerCase();

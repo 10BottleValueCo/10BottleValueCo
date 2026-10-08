@@ -1,4 +1,5 @@
-const ADMIN_EMAIL = "support@10bottlevalue.co";
+import { requireAdmin } from "./_auth.js";
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ALLOWED_EVENTS = new Set([
   "page_view",
   "page_exit",
@@ -9,11 +10,17 @@ const ALLOWED_EVENTS = new Set([
   "order_placed",
   "ui_click",
   "form_submit",
+  "auth_started",
+  "auth_code_sent",
+  "auth_verified",
+  "auth_failed",
+  "product_selection_changed",
 ]);
 const DEVICE_TYPES = new Set(["phone", "tablet", "desktop"]);
 const STRING_PROPERTIES = new Set([
   "product_name",
   "product_dose",
+  "strength",
   "payment_method",
   "action",
   "element_type",
@@ -21,6 +28,11 @@ const STRING_PROPERTIES = new Set([
   "form",
   "step",
 ]);
+const ENUM_PROPERTIES = {
+  method: new Set(["email_code", "password", "google", "apple"]),
+  stage: new Set(["signin", "create", "verify", "resend"]),
+  warehouse: new Set(["us", "worldwide"]),
+};
 const NUMBER_PROPERTIES = new Set([
   "product_price",
   "total",
@@ -57,7 +69,7 @@ function cleanText(value, maxLength = 120) {
 
 function cleanPage(value) {
   if (typeof value !== "string") return null;
-  const page = value.trim().replace(/[?#].*$/, "").slice(0, 160);
+  const page = cleanText(value.trim().replace(/[?#].*$/, ""), 160);
   return page || null;
 }
 
@@ -66,7 +78,7 @@ function cleanReferrer(value) {
   try {
     const referrer = new URL(value);
     if (referrer.protocol !== "http:" && referrer.protocol !== "https:") return null;
-    return `${referrer.origin}${referrer.pathname}`.slice(0, 500);
+    return referrer.origin.slice(0, 500);
   } catch {
     return null;
   }
@@ -78,6 +90,10 @@ function cleanProperties(value) {
 
   for (const [key, property] of Object.entries(value)) {
     if (key === "device_type" || key === "page") continue;
+    if (Object.hasOwn(ENUM_PROPERTIES, key)) {
+      if (ENUM_PROPERTIES[key].has(property)) result[key] = property;
+      continue;
+    }
     if (STRING_PROPERTIES.has(key) && typeof property === "string") {
       const cleaned = cleanText(property, key === "product_name" ? 100 : 120);
       if (cleaned) result[key] = cleaned;
@@ -92,36 +108,20 @@ function takeSessionRateLimit(sessionId) {
   const now = Date.now();
   const existing = sessionRateLimits.get(sessionId);
   if (!existing || existing.expiresAt <= now) {
-    sessionRateLimits.set(sessionId, { count: 1, expiresAt: now + RATE_WINDOW_MS });
-    if (sessionRateLimits.size > 10_000) {
+    if (sessionRateLimits.size >= 10_000) {
       for (const [id, entry] of sessionRateLimits) {
         if (entry.expiresAt <= now) sessionRateLimits.delete(id);
       }
     }
+    // Bound memory even when attackers continuously rotate session IDs.
+    // This is per-instance load shedding, not a distributed bot defense.
+    if (!sessionRateLimits.has(sessionId) && sessionRateLimits.size >= 10_000) return false;
+    sessionRateLimits.set(sessionId, { count: 1, expiresAt: now + RATE_WINDOW_MS });
     return true;
   }
   if (existing.count >= MAX_EVENTS_PER_SESSION) return false;
   existing.count += 1;
   return true;
-}
-
-async function authenticateAdmin(authorization, config) {
-  const token = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
-  if (!token) return false;
-
-  const response = await fetch(`${config.url}/auth/v1/user`, {
-    headers: {
-      apikey: config.anonKey,
-      Authorization: `Bearer ${token}`,
-    },
-    signal: AbortSignal.timeout(8_000),
-  });
-  if (!response.ok) return false;
-
-  const user = await response.json();
-  return isRecord(user)
-    && typeof user.email === "string"
-    && user.email.trim().toLowerCase() === ADMIN_EMAIL;
 }
 
 async function getSupabaseError(response) {
@@ -170,7 +170,7 @@ async function handlePost(req, res, config) {
 
   const sessionId = typeof body.session_id === "string" ? body.session_id.trim() : "";
   const eventType = typeof body.event_type === "string" ? body.event_type : "";
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionId)) {
+  if (!UUID_PATTERN.test(sessionId)) {
     res.status(400).json({ error: "Invalid session" });
     return;
   }
@@ -183,13 +183,25 @@ async function handlePost(req, res, config) {
     return;
   }
 
+  const eventId = typeof body.event_id === "string" ? body.event_id : null;
+  if ((eventId !== null && !UUID_PATTERN.test(eventId)) || (body.schema_version === 2 && !eventId)) {
+    res.status(400).json({ error: "Invalid event ID" });
+    return;
+  }
   const properties = cleanProperties(body.properties);
+  properties.schema_version = body.schema_version === 2 ? 2 : 1;
+  properties.session_definition = body.schema_version === 2 ? "tab_30min_inactivity" : "legacy_persistent_browser_id";
+  const occurredAt = typeof body.occurred_at === "string" ? Date.parse(body.occurred_at) : NaN;
+  if (Number.isFinite(occurredAt) && Math.abs(Date.now() - occurredAt) <= 86_400_000) {
+    properties.occurred_at = new Date(occurredAt).toISOString();
+  }
   const deviceType = isRecord(body.properties) ? body.properties.device_type : null;
   properties.device_type = typeof deviceType === "string" && DEVICE_TYPES.has(deviceType)
     ? deviceType
     : "unknown";
 
   const event = {
+    ...(eventId ? { id: eventId } : {}),
     session_id: sessionId,
     event_type: eventType,
     page: cleanPage(body.page),
@@ -198,13 +210,13 @@ async function handlePost(req, res, config) {
   };
 
   try {
-    const response = await fetch(`${config.url}/rest/v1/analytics_events`, {
+    const response = await fetch(`${config.url}/rest/v1/analytics_events?on_conflict=id`, {
       method: "POST",
       headers: {
         apikey: config.serviceKey,
         Authorization: `Bearer ${config.serviceKey}`,
         "Content-Type": "application/json",
-        Prefer: "return=minimal",
+        Prefer: "return=minimal,resolution=ignore-duplicates",
       },
       body: JSON.stringify(event),
       signal: AbortSignal.timeout(8_000),
@@ -227,16 +239,7 @@ async function handlePost(req, res, config) {
 }
 
 async function handleGet(req, res, config) {
-  try {
-    if (!(await authenticateAdmin(req.headers.authorization, config))) {
-      res.status(403).json({ error: "Admin access is required" });
-      return;
-    }
-  } catch (error) {
-    console.error("Could not verify Funnel admin access", error instanceof Error ? error.message : "unknown error");
-    res.status(503).json({ error: "Could not verify admin access" });
-    return;
-  }
+  if (!(await requireAdmin(req, res))) return;
 
   const rawDays = Array.isArray(req.query.days) ? req.query.days[0] : req.query.days;
   const days = Number(rawDays || 7);
@@ -245,15 +248,17 @@ async function handleGet(req, res, config) {
     return;
   }
 
-  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const until = new Date().toISOString();
+  const since = new Date(Date.parse(until) - days * 86_400_000).toISOString();
+  const readLimit = MAX_EVENTS_TO_READ + 1; // Sentinel makes truncation explicit.
   const events = [];
   try {
-    for (let offset = 0; offset < MAX_EVENTS_TO_READ; offset += PAGE_SIZE) {
+    for (let offset = 0; offset < readLimit; offset += PAGE_SIZE) {
       const endpoint = new URL(`${config.url}/rest/v1/analytics_events`);
       endpoint.searchParams.set("select", "id,session_id,event_type,page,properties,created_at");
-      endpoint.searchParams.set("created_at", `gte.${since}`);
-      endpoint.searchParams.set("order", "created_at.desc");
-      endpoint.searchParams.set("limit", String(Math.min(PAGE_SIZE, MAX_EVENTS_TO_READ - offset)));
+      endpoint.searchParams.set("and", `(created_at.gte.${since},created_at.lte.${until})`);
+      endpoint.searchParams.set("order", "created_at.desc,id.desc");
+      endpoint.searchParams.set("limit", String(Math.min(PAGE_SIZE, readLimit - offset)));
       endpoint.searchParams.set("offset", String(offset));
 
       const response = await fetch(endpoint, {
@@ -279,10 +284,20 @@ async function handleGet(req, res, config) {
         return;
       }
       events.push(...rows);
-      if (rows.length < Math.min(PAGE_SIZE, MAX_EVENTS_TO_READ - offset)) break;
+      if (rows.length < Math.min(PAGE_SIZE, readLimit - offset)) break;
     }
     res.setHeader("Cache-Control", "private, no-store");
-    res.status(200).json({ events });
+    const truncated = events.length > MAX_EVENTS_TO_READ;
+    const returned = events.slice(0, MAX_EVENTS_TO_READ);
+    res.status(200).json({ events: returned, metadata: {
+      schema_version: 2, source: "browser_events_untrusted", timezone: "UTC",
+      since, until, received_at: new Date().toISOString(), returned_events: returned.length,
+      limit: MAX_EVENTS_TO_READ, truncated, coverage: truncated ? "partial_latest_events" : "complete_for_requested_window",
+      legacy_events: returned.filter(event => event.properties?.schema_version !== 2).length,
+      session_definition: "v2: per-tab, 30 minutes inactivity; v1: persistent browser identifier",
+      orders_definition: "order_placed is browser-reported submission, not verified payment",
+      ordering_basis: "server_received_created_at",
+    } });
   } catch (error) {
     console.error("Could not load Funnel events", error instanceof Error ? error.message : "unknown error");
     res.status(502).json({ error: "Funnel events could not be loaded" });

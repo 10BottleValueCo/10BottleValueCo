@@ -32,23 +32,8 @@ async function resolveAffiliate(email, code) {
 // pay_currency, actually_paid, payment_id, invoice_id).
 export async function processNowPaymentsStatus(data) {
   const status = String(data.payment_status || "").toLowerCase();
-  const shouldEmail = ["confirming", "confirmed", "sending", "finished"].includes(status);
-  const isPaid = ["confirming", "confirmed", "sending", "finished"].includes(status);
-
-  // Log the raw payload for EVERY call, before any early return. Without this,
-  // a call that bails out early (e.g. missing order_id/email in this specific
-  // status update) leaves zero trace in Vercel logs — "no outgoing requests"
-  // and 0 errors — making it impossible to tell "bailed out early" apart from
-  // "never got invoked" or "crashed silently". console.error (not .log) so it
-  // is visible even when only the Error filter is checked in Vercel's UI.
-  console.error("NOWPayments webhook raw payload:", JSON.stringify({
-    payment_status: data.payment_status,
-    order_id: data.order_id,
-    payment_id: data.payment_id,
-    invoice_id: data.invoice_id,
-    pay_currency: data.pay_currency,
-    order_description: typeof data.order_description === "string" ? data.order_description.slice(0, 500) : data.order_description,
-  }));
+  const shouldEmail = ["confirmed", "sending", "finished"].includes(status);
+  const isPaid = ["confirmed", "sending", "finished"].includes(status);
 
   if (!shouldEmail) return { received: true, skipped: "not_relevant", status };
 
@@ -70,11 +55,13 @@ export async function processNowPaymentsStatus(data) {
   let sbEmail = "";
   let alreadyEmailSent = false;
   let alreadyPaidInDb = false;
+  let currentOrder = null;
   if (SB_URL && SB_KEY) {
     try {
-      const sbRes = await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(orderId))}&select=metadata,items,status,email`, { headers: sbH() });
+      const sbRes = await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(orderId))}&select=metadata,items,status,email,total,payment_id`, { headers: sbH() });
       if (sbRes.ok) {
         const sbRows = await sbRes.json();
+        currentOrder = sbRows?.[0] || null;
         if (sbRows?.length && sbRows[0].metadata && typeof sbRows[0].metadata === "object") {
           sbMeta = sbRows[0].metadata;
           if (sbMeta.confirmationEmailSentAt) alreadyEmailSent = true;
@@ -88,6 +75,18 @@ export async function processNowPaymentsStatus(data) {
     } catch {}
   }
 
+  if (!currentOrder) return { received: false, dbWriteError: "order_unavailable" };
+  const orderStatus = String(currentOrder.status || "").toLowerCase();
+  if (["done", "refunded", "cancelled"].includes(orderStatus)) {
+    return { received: true, skipped: "terminal_order", dbMarkedPaid: false };
+  }
+  const expectedAmount = Math.round(Number(sbMeta.total ?? currentOrder.total) * 100);
+  if (!Number.isSafeInteger(expectedAmount) || expectedAmount <= 0
+    || String(data.price_currency || "").toLowerCase() !== "usd"
+    || Math.round(Number(data.price_amount) * 100) !== expectedAmount
+    || (currentOrder.payment_id && String(currentOrder.payment_id) !== String(data.payment_id))) {
+    return { received: false, dbWriteError: "payment_order_mismatch" };
+  }
   // NOWPayments truncates order_description past its own length limit, which silently
   // breaks the JSON.parse above (and thus drops customer_email) for any order with a
   // long enough address/items/promo/affiliate payload — this is exactly what stranded
@@ -142,35 +141,6 @@ export async function processNowPaymentsStatus(data) {
   const finalAffiliateCommission = Number(finalSubtotal || finalTotal) * 0.1;
   const finalShippingType = String(sbMeta.shippingType || metadata.shippingType || "standard");
 
-  if (!alreadyEmailSent) {
-    await fetch(`${baseUrl}/api/send-payment-confirmed-email`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email, orderId,
-        total: finalTotal, subtotal: finalSubtotal, shipping: finalShipping,
-        automaticDiscount: finalAutoDiscount, promoDiscount: finalPromoDiscount,
-        affiliateDiscount: finalAffiliateDiscount, storeCreditUsed: finalStoreCreditUsed, affiliateCode,
-        affiliateOwnerEmail: finalAffiliateOwnerEmail, affiliateCommission: finalAffiliateCommission,
-        shippingType: finalShippingType,
-        paymentProvider: `NOWPayments ${currency}`.trim(),
-        paymentId: data.payment_id || data.invoice_id || orderId,
-        items,
-        firstName, lastName, address, address2, city, state, postalCode, phone, country,
-      }),
-    }).catch(() => {});
-
-    // Persist that the email was sent so a later duplicate status update (e.g. the
-    // real IPN webhook arriving after our own fallback already handled it, or vice
-    // versa) doesn't send a second confirmation email for the same order.
-    if (SB_URL && SB_KEY) {
-      await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(orderId))}`, {
-        method: "PATCH",
-        headers: { ...sbH(), Prefer: "return=minimal" },
-        body: JSON.stringify({ metadata: { ...sbMeta, confirmationEmailSentAt: new Date().toISOString() } }),
-      }).catch(() => {});
-    }
-  }
 
   let dbMarkedPaid = alreadyPaidInDb;
   let dbWriteError = null;
@@ -185,18 +155,19 @@ export async function processNowPaymentsStatus(data) {
     // real success back, so the frontend knows to keep retrying if the DB write failed.
     const patchOrderPaid = async () => {
       try {
-        const r = await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(orderId))}`, {
+        const r = await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(orderId))}&status=in.(pending,checkout,%22checkout%20(clicked%20pay)%22)`, {
           method: "PATCH",
           headers: { ...sbH(), Prefer: "return=representation" },
           body: JSON.stringify({
             status: "paid",
+            total: expectedAmount / 100,
             payment_provider: `NOWPayments ${currency}`.trim(),
             payment_id: data.payment_id || data.invoice_id || orderId,
             paid_at: new Date().toISOString(),
           }),
         });
         if (!r.ok) {
-          dbWriteError = `HTTP ${r.status}: ${await r.text().catch(() => "")}`;
+          dbWriteError = `HTTP ${r.status}`;
           console.error("NOWPayments: failed to PATCH order paid:", orderId, dbWriteError);
           return false;
         }
@@ -206,7 +177,7 @@ export async function processNowPaymentsStatus(data) {
           // row doesn't actually exist under this id. Silently "succeeding" here is
           // exactly what caused this to go undetected before: the promo/affiliate
           // side effects ran as if paid, while the order itself stayed unpaid forever.
-          dbWriteError = `matched 0 rows for id=${orderId}`;
+          dbWriteError = "no_eligible_order_transition";
           console.error("NOWPayments: order PATCH matched 0 rows:", orderId);
           return false;
         }
@@ -219,7 +190,7 @@ export async function processNowPaymentsStatus(data) {
     };
 
     dbMarkedPaid = await patchOrderPaid();
-    if (!dbMarkedPaid) dbMarkedPaid = await patchOrderPaid();
+    if (!dbMarkedPaid) return { received: false, dbMarkedPaid: false, dbWriteError };
 
     // NOTE: deliberately not using on_conflict/merge-duplicates here — Postgres
     // requires UPDATE privilege on the table for "ON CONFLICT DO UPDATE" to even
@@ -282,6 +253,36 @@ export async function processNowPaymentsStatus(data) {
       } catch (e) {
         console.error("NOWPayments: store credit deduction threw:", e?.message || e);
       }
+    }
+  }
+
+  if (dbMarkedPaid && !alreadyEmailSent) {
+    const emailResponse = await fetch(`${baseUrl}/api/send-payment-confirmed-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-internal-api-secret": process.env.INTERNAL_API_SECRET || "" },
+      body: JSON.stringify({
+        email, orderId,
+        total: finalTotal, subtotal: finalSubtotal, shipping: finalShipping,
+        automaticDiscount: finalAutoDiscount, promoDiscount: finalPromoDiscount,
+        affiliateDiscount: finalAffiliateDiscount, storeCreditUsed: finalStoreCreditUsed, affiliateCode,
+        affiliateOwnerEmail: finalAffiliateOwnerEmail, affiliateCommission: finalAffiliateCommission,
+        shippingType: finalShippingType,
+        paymentProvider: `NOWPayments ${currency}`.trim(),
+        paymentId: data.payment_id || data.invoice_id || orderId,
+        items,
+        firstName, lastName, address, address2, city, state, postalCode, phone, country,
+      }),
+    }).catch(() => null);
+
+    // Persist that the email was sent so a later duplicate status update (e.g. the
+    // real IPN webhook arriving after our own fallback already handled it, or vice
+    // versa) doesn't send a second confirmation email for the same order.
+    if (emailResponse?.ok && SB_URL && SB_KEY) {
+      await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(orderId))}`, {
+        method: "PATCH",
+        headers: { ...sbH(), Prefer: "return=minimal" },
+        body: JSON.stringify({ metadata: { ...sbMeta, confirmationEmailSentAt: new Date().toISOString() } }),
+      }).catch(() => {});
     }
   }
 
