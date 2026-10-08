@@ -16465,7 +16465,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
                               {/* Shipping address */}
                               {(order.firstName || order.lastName || order.address || order.city || order.state || order.postalCode || order.country || order.phone || order.taxId) && (
-                                <div className="mt-2 rounded-lg border-2 border-white/70 bg-black/15 px-3 py-2 text-xs grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                                <div className="mt-2 rounded-lg admin-order-panel-outline bg-black/15 px-3 py-2 text-xs grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
                                   {(order.firstName || order.lastName) && (<><span className="text-white/50 uppercase tracking-[0.12em]">Name</span><span className="text-white/85 font-semibold">{[order.firstName, order.lastName].filter(Boolean).join(" ")}</span></>)}
                                   {order.address && (<><span className="text-white/50 uppercase tracking-[0.12em]">Address</span><span className="text-white/70">{order.address}</span></>)}
                                   <><span className="text-white/50 uppercase tracking-[0.12em]">Apt/Suite</span><span className={order.address2 ? "text-white/70" : "text-white/30"}>{order.address2 || "—"}</span></>
@@ -16661,7 +16661,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                   />
                                 );
                                 return (
-                              <div className="mt-3 rounded-lg border-2 border-white/70 bg-black/15 px-3 py-2 text-xs grid grid-cols-[auto_auto] gap-x-4 gap-y-1.5 items-center w-fit">
+                              <div className="mt-3 rounded-lg admin-order-panel-outline bg-black/15 px-3 py-2 text-xs grid grid-cols-[auto_auto] gap-x-4 gap-y-1.5 items-center w-fit">
                                 <span className="text-white/50 uppercase tracking-[0.12em]">Subtotal</span>
                                 {priceInput("subtotal", displaySubtotal)}
                                 <span className="text-white/50 uppercase tracking-[0.12em]">Shipping</span>
