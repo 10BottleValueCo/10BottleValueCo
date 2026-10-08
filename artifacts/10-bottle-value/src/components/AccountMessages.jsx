@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   Smile,
 } from "lucide-react";
+import { BufferedTextarea } from "./BufferedTextField.jsx";
 import supportAvatarImage from "@assets/photo_2026-05-08_18-24-58_1791221846737.jpg";
 import { getAccountAvatar } from "../account-avatars.js";
 import "./AccountMessages.css";
@@ -77,15 +78,18 @@ export default function AccountMessages({
   attachmentUploading = false,
   scrollRef,
   onDraftChange = () => {},
+  onTyping = () => {},
   onSend = () => {},
   onSendAttachment = () => {},
   onRetry = () => {},
   renderMessageContent,
   messageDomId,
   highlightedMsgKey,
+  tx = (en) => en,
 }) {
   const entries = useMemo(() => (Array.isArray(timeline) ? timeline : []), [timeline]);
   const draftInputRef = useRef(null);
+  const sendButtonRef = useRef(null);
   const mediaInputRef = useRef(null);
   const fileInputRef = useRef(null);
   const emojiButtonRef = useRef(null);
@@ -111,14 +115,23 @@ export default function AccountMessages({
 
   function handleSubmit(event) {
     event.preventDefault();
-    if (!draft.trim() || composerBusy) return;
-    onSend();
+    const currentDraft = draftInputRef.current?.value ?? draft;
+    if (!currentDraft.trim() || composerBusy) return;
+    onSend(currentDraft);
+  }
+
+  function handleDraftImmediateInput(value, event) {
+    if (sendButtonRef.current) {
+      sendButtonRef.current.disabled = composerBusy || !value.trim();
+    }
+    onTyping(value, event);
   }
 
   function handleKeyDown(event) {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent?.isComposing) {
       event.preventDefault();
-      if (draft.trim() && !composerBusy) onSend();
+      const currentDraft = draftInputRef.current?.value ?? draft;
+      if (currentDraft.trim() && !composerBusy) onSend(currentDraft);
     }
   }
 
@@ -131,9 +144,10 @@ export default function AccountMessages({
 
   function insertEmoji(emoji) {
     const input = draftInputRef.current;
-    const start = input?.selectionStart ?? draft.length;
-    const end = input?.selectionEnd ?? draft.length;
-    const nextDraft = `${draft.slice(0, start)}${emoji}${draft.slice(end)}`;
+    const currentDraft = input?.value ?? draft;
+    const start = input?.selectionStart ?? currentDraft.length;
+    const end = input?.selectionEnd ?? currentDraft.length;
+    const nextDraft = `${currentDraft.slice(0, start)}${emoji}${currentDraft.slice(end)}`;
 
     if (nextDraft.length <= 1000) onDraftChange(nextDraft);
     setEmojiPickerOpen(false);
@@ -168,6 +182,15 @@ export default function AccountMessages({
           <div>
             <p className="account-messages__eyebrow">Researcher support</p>
             <h2 id="account-messages-title" data-testid="text-messages-title">Messages</h2>
+            <p className="account-messages__response-time">
+              {tx(
+                "You will receive a reply within 12 hours in 100% of cases.",
+                "В 100% случаев вы получите ответ в течение 12 часов.",
+                "У 100% випадків ви отримаєте відповідь протягом 12 годин.",
+                "Sie erhalten in 100 % der Fälle innerhalb von 12 Stunden eine Antwort.",
+                "Recibirás una respuesta en un plazo de 12 horas en el 100 % de los casos."
+              )}
+            </p>
           </div>
         </div>
         <div className="account-messages__assurance" data-testid="status-private-support">
@@ -242,7 +265,13 @@ export default function AccountMessages({
                         className={`account-message__content${emojiOnly ? " account-message__content--emoji-only" : ""}`}
                         data-testid={`text-message-content-${uniqueId}`}
                       >
-                        {typeof renderMessageContent === "function" ? renderMessageContent(content) : content}
+                        {typeof renderMessageContent === "function"
+                          ? renderMessageContent(
+                              content,
+                              msg.id,
+                              isReceived ? "admin_reply" : "message",
+                            )
+                          : content}
                       </div>
                     </div>
                   </article>
@@ -287,11 +316,12 @@ export default function AccountMessages({
         />
         <div className="account-messages__compose-row">
           <div className="account-messages__compose-main">
-            <textarea
+            <BufferedTextarea
               ref={draftInputRef}
               id="account-message-draft"
               value={draft}
-              onChange={(event) => onDraftChange(event.target.value)}
+              onValueChange={onDraftChange}
+              onImmediateInput={handleDraftImmediateInput}
               onKeyDown={handleKeyDown}
               placeholder="How can we help?"
               rows={2}
@@ -373,6 +403,7 @@ export default function AccountMessages({
             </div>
           </div>
           <button
+            ref={sendButtonRef}
             type="submit"
             className="account-messages__send"
             disabled={!draft.trim() || composerBusy}

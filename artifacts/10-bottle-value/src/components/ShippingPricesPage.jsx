@@ -57,7 +57,11 @@ function PriceTable({ rows, tx }) {
   );
 }
 
-export default function ShippingPricesPage({ tx, getPublicImageUrl = (src) => src }) {
+export default function ShippingPricesPage({
+  tx,
+  getPublicImageUrl = (src) => src,
+  onVialImageLoad,
+}) {
   const shippingImage = (name) =>
     getPublicImageUrl(`${assetBase}shipping/${name}.jpg`);
   const shippingPageBackground =
@@ -362,6 +366,7 @@ export default function ShippingPricesPage({ tx, getPublicImageUrl = (src) => sr
                 key={name}
                 src={src}
                 alt={name}
+                onLoad={onVialImageLoad}
                 className={index === 1
                   ? "relative z-10 h-[122px] w-auto object-contain drop-shadow-[0_10px_18px_rgba(0,0,0,.65)] sm:h-[200px] 2xl:h-[270px]"
                   : `h-[94px] w-auto ${index === 0 ? "-mr-4" : "-ml-4"} translate-y-3 object-contain drop-shadow-[0_8px_14px_rgba(0,0,0,.55)] sm:h-[156px] ${index === 0 ? "sm:-mr-6" : "sm:-ml-6"} 2xl:h-[190px] ${index === 0 ? "2xl:-mr-8" : "2xl:-ml-8"}`}

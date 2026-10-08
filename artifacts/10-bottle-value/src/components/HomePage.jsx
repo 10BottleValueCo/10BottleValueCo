@@ -1,20 +1,24 @@
 import "./HomePage.css";
-import { ArrowRight, UserRound } from "lucide-react";
-import { useRef, useState } from "react";
+import { ArrowRight, RefreshCw, UserRound } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import PeptigrityMark from "./PeptigrityMark.jsx";
 
 export default function HomePage({
   language,
   tx,
   featuredProducts = [],
+  usWarehouseProducts = [],
   productsReady = true,
   onOpenShop,
   onOpenUsWarehouse,
   onOpenRegister,
   getPublicImageUrl = (src) => src,
 }) {
-  const featured = featuredProducts;
+  const [isShowingUsProducts, setIsShowingUsProducts] = useState(false);
+  const featured = isShowingUsProducts ? usWarehouseProducts : featuredProducts;
   const heroFeatured = featuredProducts.slice(0, 5);
   const heroProduct = heroFeatured[0];
+  const productsTrackRef = useRef(null);
   const productsDragRef = useRef(null);
   const suppressProductsClickRef = useRef(false);
   const [isDraggingProducts, setIsDraggingProducts] = useState(false);
@@ -32,10 +36,17 @@ export default function HomePage({
     shopWorldwide: tx("Shop worldwide", "Магазин по всему миру", "Магазин по всьому світу", "Weltweit einkaufen", "Comprar en todo el mundo"),
     usWarehouse: tx("Shop US warehouse", "Магазин со склада США", "Магазин зі складу США", "US-Lager entdecken", "Comprar desde almacén de EE. UU."),
     variants: tx("Popular research peptides", "Популярные исследовательские пептиды", "Популярні дослідницькі пептиди", "Beliebte Forschungspeptide", "Péptidos populares para investigación"),
-    allProducts: tx("View all products", "Все продукты", "Усі продукти", "Alle Produkte", "Ver todos los productos"),
+    usVariants: tx("US Warehouse products", "Товары со склада США", "Товари зі складу США", "Produkte aus dem US-Lager", "Productos del almacén de EE. UU."),
+    showUsProducts: tx("Switch to US products", "Переключить на товары из США", "Перемкнути на товари зі США", "Zu US-Produkten wechseln", "Cambiar a productos de EE. UU."),
+    showWorldwideProducts: tx("Switch to worldwide", "Переключить на товары со всего мира", "Перемкнути на товари з усього світу", "Zu weltweiten Produkten wechseln", "Cambiar a productos de todo el mundo"),
+    showUsProductsAction: tx("To US products", "На товары из США", "На товари зі США", "Zu US-Produkten", "A productos de EE. UU."),
+    showWorldwideProductsAction: tx("To worldwide", "На товары со всего мира", "На товари з усього світу", "Zu weltweiten Produkten", "A productos de todo el mundo"),
+    showUsProductsShort: tx("Switch to US", "В США", "У США", "Zu US", "A EE. UU."),
+    showWorldwideProductsShort: tx("Switch to global", "В МИР", "У СВІТ", "Weltweit", "Global"),
+    showAllProducts: tx("Show all products", "Показать все товары", "Показати всі товари", "Alle Produkte anzeigen", "Mostrar todos los productos"),
     register: tx("Register", "Регистрация", "Реєстрація", "Registrieren", "Registrarse"),
     socialTitle: tx("Our social channels", "Наши социальные сети", "Наші соціальні мережі", "Unsere Social-Media-Kanäle", "Nuestras redes sociales"),
-    reviews: tx("4.6 · 21 reviews", "4,6 · 21 отзыв", "4,6 · 21 відгук", "4,6 · 21 Bewertungen", "4,6 · 21 reseñas"),
+    reviews: tx("4.6 · 23 reviews", "4,6 · 23 отзыва", "4,6 · 23 відгуки", "4,6 · 23 Bewertungen", "4,6 · 23 reseñas"),
     followers: tx("1200+ followers", "Более 1200 подписчиков", "Понад 1200 підписників", "Über 1200 Follower", "Más de 1200 seguidores"),
     readReviews: tx("Read reviews", "Читать отзывы", "Читати відгуки", "Bewertungen lesen", "Leer reseñas"),
     followUs: tx("Follow us", "Подписаться", "Стежити", "Folgen", "Síguenos"),
@@ -47,6 +58,12 @@ export default function HomePage({
       "La selección destacada está en preparación. Visita la tienda para explorar el catálogo."
     ),
   };
+
+  useEffect(() => {
+    productsTrackRef.current?.scrollTo({ left: 0 });
+    productsDragRef.current = null;
+    setIsDraggingProducts(false);
+  }, [isShowingUsProducts]);
 
   const publicImage = (path) =>
     getPublicImageUrl(`${import.meta.env.BASE_URL}${path}`);
@@ -280,21 +297,45 @@ export default function HomePage({
         <div className="tbv-home__container tbv-home__container--featured">
           <div className="tbv-home__section-head">
             <div>
-              <h2 id="tbv-home-featured-heading">{copy.variants}</h2>
+              <h2 id="tbv-home-featured-heading">
+                {isShowingUsProducts ? copy.usVariants : copy.variants}
+              </h2>
             </div>
-            <button
-              className="tbv-home__text-link"
-              type="button"
-              data-testid="button-home-view-all"
-              onClick={() => onOpenShop()}
-            >
-              {copy.allProducts}<span className="tbv-home__arrow" aria-hidden="true">→</span>
-            </button>
+            <div className="tbv-home__section-actions">
+              <button
+                className="tbv-home__text-link tbv-home__text-link--warehouse-switch"
+                type="button"
+                data-testid="button-home-show-us-products"
+                aria-label={isShowingUsProducts ? copy.showWorldwideProducts : copy.showUsProducts}
+                aria-pressed={isShowingUsProducts}
+                onClick={() => setIsShowingUsProducts((showingUs) => !showingUs)}
+              >
+                <span className="tbv-home__warehouse-switch-label tbv-home__warehouse-switch-label--full">
+                  <span>Switch</span>
+                  {isShowingUsProducts ? copy.showWorldwideProductsAction : copy.showUsProductsAction}
+                  <RefreshCw className="tbv-home__switch-icon tbv-home__switch-icon--full" size={14} strokeWidth={1.8} aria-hidden="true" />
+                </span>
+                <span className="tbv-home__warehouse-switch-label--short">
+                  {isShowingUsProducts ? copy.showWorldwideProductsShort : copy.showUsProductsShort}
+                </span>
+                <RefreshCw className="tbv-home__switch-icon tbv-home__switch-icon--short" size={14} strokeWidth={1.8} aria-hidden="true" />
+              </button>
+              <button
+                className="tbv-home__text-link"
+                type="button"
+                data-testid="button-home-show-all-products"
+                onClick={() => onOpenShop()}
+              >
+                {copy.showAllProducts}
+                <span className="tbv-home__arrow tbv-home__arrow--show-all" aria-hidden="true">→</span>
+              </button>
+            </div>
           </div>
           <div
+            ref={productsTrackRef}
             className="tbv-home__products"
             role="region"
-            aria-label={copy.variants}
+            aria-label={isShowingUsProducts ? copy.usVariants : copy.variants}
             tabIndex={0}
             data-testid="list-home-featured-products"
             data-dragging={isDraggingProducts ? "true" : undefined}
@@ -309,7 +350,17 @@ export default function HomePage({
                 {product.card}
               </div>
             )) : (
-              <div className="tbv-home__empty" data-testid="empty-home-featured-products">{copy.empty}</div>
+              <div className="tbv-home__empty" data-testid="empty-home-featured-products">
+                {isShowingUsProducts
+                  ? tx(
+                    "US Warehouse products are being prepared. Visit the US shop to browse the catalog.",
+                    "Товары со склада США готовятся. Откройте магазин США, чтобы посмотреть каталог.",
+                    "Товари зі складу США готуються. Відкрийте магазин США, щоб переглянути каталог.",
+                    "US-Lager-Produkte werden vorbereitet. Im US-Shop können Sie den Katalog ansehen.",
+                    "Los productos del almacén de EE. UU. se están preparando. Visita la tienda US para ver el catálogo."
+                  )
+                  : copy.empty}
+              </div>
             )}
           </div>
         </div>
@@ -325,7 +376,22 @@ export default function HomePage({
           <h2 id="tbv-home-social-heading">{copy.socialTitle}</h2>
           <div className="tbv-home__social-links">
             <a
-              className="tbv-home__social-link"
+              className="tbv-home__social-link tbv-home__social-link--x"
+              href="https://x.com/10BottleValueCo"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`X (Twitter), ${copy.followers}`}
+              data-testid="link-home-x"
+            >
+              <span className="tbv-home__social-mark tbv-home__social-mark--x" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.9 2h3.1l-6.8 7.8L23 22h-6.1l-4.8-8.4L4.8 22H1.6l7.3-8.4L1 2h6.3l4.3 7.8L18.9 2Zm-1.1 18h1.7L6.1 3.9H4.3L17.8 20Z" /></svg>
+              </span>
+              <span className="tbv-home__social-name">X (Twitter)</span>
+              <span className="tbv-home__social-meta">{copy.followers}</span>
+              <span className="tbv-home__social-button">{copy.followUs}<ArrowRight size={12} aria-hidden="true" /></span>
+            </a>
+            <a
+              className="tbv-home__social-link tbv-home__social-link--trustpilot"
               href="https://www.trustpilot.com/review/10bottlevalue.co"
               target="_blank"
               rel="noopener noreferrer"
@@ -344,21 +410,23 @@ export default function HomePage({
               <span className="tbv-home__social-meta">{copy.reviews}</span>
               <span className="tbv-home__social-button">{copy.readReviews}<ArrowRight size={12} aria-hidden="true" /></span>
             </a>
-            <a
-              className="tbv-home__social-link"
-              href="https://x.com/10BottleValueCo"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`X (Twitter), ${copy.followers}`}
-              data-testid="link-home-x"
+            <div
+              className="tbv-home__social-link tbv-home__social-link--peptigrity"
+              data-testid="card-home-peptigrity"
             >
-              <span className="tbv-home__social-mark tbv-home__social-mark--x" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.9 2h3.1l-6.8 7.8L23 22h-6.1l-4.8-8.4L4.8 22H1.6l7.3-8.4L1 2h6.3l4.3 7.8L18.9 2Zm-1.1 18h1.7L6.1 3.9H4.3L17.8 20Z" /></svg>
-              </span>
-              <span className="tbv-home__social-name">X (Twitter)</span>
-              <span className="tbv-home__social-meta">{copy.followers}</span>
-              <span className="tbv-home__social-button">{copy.followUs}<ArrowRight size={12} aria-hidden="true" /></span>
-            </a>
+              <PeptigrityMark />
+              <span className="tbv-home__social-name">Peptigrity</span>
+              <a
+                className="tbv-home__social-button"
+                href="https://peptigrity.com/add/review?shopId=279"
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="link-home-peptigrity-review"
+              >
+                REVIEW US ON PEPTERGITY
+                <ArrowRight size={12} aria-hidden="true" />
+              </a>
+            </div>
           </div>
         </div>
       </section>

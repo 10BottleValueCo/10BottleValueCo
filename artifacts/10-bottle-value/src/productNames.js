@@ -8,6 +8,9 @@ const legacySlugNames = {
 };
 
 const labelNames = {
+  "melanotan-2": "MT-2",
+  melanotan2: "MT-2",
+  "melanotan 2": "MT-2",
   "bac water": "Reconstitution Solution",
   "ara290 (cibinetide)": "ARA290",
   "cagrilintide + semaglutide": "Cagrilintide + GLP SG-1",
@@ -20,6 +23,10 @@ const labelNames = {
 };
 
 const catalogNames = {
+  "mt-2": "Melanotan-2",
+  mt2: "Melanotan-2",
+  melanotan2: "Melanotan-2",
+  "melanotan 2": "Melanotan-2",
   "reconstitution solution": "BAC Water",
   ara290: "ARA290 (Cibinetide)",
   "cagrilintide + glp sg-1": "Cagrilintide + Semaglutide",
@@ -54,11 +61,17 @@ export function productSlug(product, legacy = false) {
 
 export function matchesProductSearch(product, searchTerm) {
   const normalize = (value) => String(value || "").toLowerCase().replace(/\s+/g, "");
-  const aliases = { mt: "melanotan", mt1: "melanotan1", mt2: "melanotan2" };
+  const aliases = {
+    mt: "melanotan",
+    mt1: "melanotan1",
+    mt2: "melanotan2",
+    "mt-2": "melanotan2",
+    "melanotan-2": "melanotan2",
+  };
   const query = aliases[normalize(searchTerm)] || normalize(searchTerm);
   const publicName = publicProductName(product.name);
   const oldDisplayName = legacySlugNames[String(product.name || "").trim().toLowerCase()];
-  return [
+  const searchValues = [
     `${publicName} ${product.dose}`,
     oldDisplayName && `${oldDisplayName} ${product.dose}`,
     `${product.name} ${product.dose}`,
@@ -68,5 +81,7 @@ export function matchesProductSearch(product, searchTerm) {
     product.dose,
     product.total,
     product.note,
-  ].some((value) => normalize(value).includes(query));
+  ];
+  if (publicName === "MT-2") searchValues.push("Melanotan2");
+  return searchValues.some((value) => normalize(value).includes(query));
 }

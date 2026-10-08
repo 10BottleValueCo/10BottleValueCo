@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Trophy } from "lucide-react";
 import "./BpcCatalogCard.css";
 import UsFlag from "./UsFlag.jsx";
@@ -46,7 +46,7 @@ export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLab
     }
   }, [storedDose, firstAvailableDose, doses.join("|")]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const title = titleRef.current;
     const measure = titleMeasureRef.current;
     if (!title || !measure) return;
@@ -230,8 +230,8 @@ export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLab
           <div className="flex h-full w-full items-center justify-center rounded-full border border-white/20 bg-white/10 px-3 text-[10px] font-black uppercase tracking-[0.18em] text-white/50 cursor-not-allowed md:px-5 md:text-[13px] md:tracking-[0.26em]">{labels.outOfStock}</div>
         ) : cartQuantity > 0 ? (
           <div className="flex h-full w-full overflow-hidden rounded-full border border-black shadow-[0_6px_20px_rgba(0,0,0,0.15)]">
-            <button type="button" className="flex items-center justify-center bg-black px-3 py-2 hover:bg-black/80 transition-colors md:px-5" onClick={() => onDecrementCart(selection)} aria-label={`− 1 ${name} ${dose}, ${selectedVials} ${labels.vials}`}>
-              <span className="select-none text-[10px] font-black leading-[1.5] text-white md:text-[13px]">−</span>
+            <button type="button" className="flex items-center justify-center bg-black px-3 py-2 text-white hover:bg-black/80 transition-colors md:px-5" onClick={() => onDecrementCart(selection)} aria-label={`− 1 ${name} ${dose}, ${selectedVials} ${labels.vials}`}>
+              <span aria-hidden="true" className="select-none text-[14px] font-black leading-none">−</span>
             </button>
             <button type="button" className="bpc-catalog-card__cart-primary flex flex-1 items-center justify-center gap-1 bg-white px-2 py-2 text-[11px] font-black uppercase tracking-[0.06em] text-black hover:bg-white/90 transition-none md:px-5 md:text-[14px] md:tracking-[0.16em]" onClick={add}>
               <span className="bpc-catalog-card__cart-label whitespace-nowrap">

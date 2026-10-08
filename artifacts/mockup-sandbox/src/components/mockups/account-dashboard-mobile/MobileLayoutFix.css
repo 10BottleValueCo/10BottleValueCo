@@ -1,0 +1,111 @@
+@media (max-width: 760px) {
+  .mobile-layout-fix .lab-dashboard {
+    width: calc(100% - 20px);
+    box-sizing: border-box;
+    min-width: 0;
+    align-items: stretch;
+  }
+
+  .mobile-layout-fix .lab-sidebar {
+    align-self: stretch;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .mobile-layout-fix .lab-sidenav {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+  }
+
+  .mobile-layout-fix .lab-sidenav__item {
+    white-space: nowrap;
+    scroll-snap-align: start;
+  }
+
+  .mobile-layout-fix .lab-content,
+  .mobile-layout-fix .lab-content > *,
+  .mobile-layout-fix .lab-panel {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .mobile-layout-fix .lab-info-card__body > :last-child {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .mobile-layout-fix .lab-dark-button {
+    max-width: 100%;
+    white-space: normal;
+    line-height: 1.25;
+  }
+}
+
+@media (max-width: 480px) {
+  .mobile-layout-fix .lab-sidenav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+    scroll-snap-type: none;
+  }
+
+  .mobile-layout-fix .lab-sidenav__item {
+    width: 100%;
+    min-width: 0;
+    justify-content: flex-start;
+    white-space: normal;
+  }
+
+  .mobile-layout-fix .lab-sidenav__item span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 400px) {
+  .mobile-layout-fix .lab-dashboard {
+    width: calc(100% - 20px);
+    margin-top: 12px;
+    gap: 12px;
+  }
+
+  .mobile-layout-fix .lab-sidebar {
+    padding: 10px;
+  }
+
+  .mobile-layout-fix .lab-sidenav {
+    gap: 5px;
+  }
+
+  .mobile-layout-fix .lab-sidenav__item {
+    min-height: 44px;
+    padding: 0 10px;
+    gap: 6px;
+  }
+
+  .mobile-layout-fix .lab-content {
+    gap: 12px;
+  }
+
+  .mobile-layout-fix .lab-welcome {
+    padding: 18px;
+    min-height: unset;
+  }
+
+  .mobile-layout-fix .lab-welcome h1 {
+    font-size: 22px;
+  }
+
+  .mobile-layout-fix .lab-orders,
+  .mobile-layout-fix .lab-info-card {
+    padding: 18px;
+  }
+}

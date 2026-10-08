@@ -1,10 +1,9 @@
 // @ts-nocheck
 // cache-bust
 // @ts-nocheck
-import { Fragment, lazy, startTransition, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Eye, EyeOff, Info, LockKeyhole, Mail, Search, Tag, UserRound, X } from "lucide-react";
+import { Fragment, lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, Search, Tag, UserRound, X } from "lucide-react";
 import worldwideCatalogBackground from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791141018882.webp";
-import confetti from "canvas-confetti";
 import { supabase, userFromSupabase } from "./supabase.js";
 import { ACCOUNT_AVATARS, getAccountAvatar } from "./account-avatars.js";
 import { track, trackPageView } from "./analytics.js";
@@ -12,14 +11,13 @@ import { useSEO } from "./useSEO.js";
 import { catalogProductName, matchesProductSearch, productSlug as productSlugFor, publicProductName } from "./productNames.js";
 import { buildSupportTimeline } from "./support-timeline.js";
 import BpcCatalogCard from "./components/BpcCatalogCard.jsx";
+import { BufferedInput, BufferedTextarea } from "./components/BufferedTextField.jsx";
+import CatalogSearchInput from "./components/CatalogSearchInput.jsx";
 import HomePage from "./components/HomePage.jsx";
-import AccountDashboard from "./components/AccountDashboard.jsx";
-import AccountMessages from "./components/AccountMessages.jsx";
 import ProductPackSelector from "./components/ProductPackSelector.jsx";
-import ShippingPricesPage from "./components/ShippingPricesPage.jsx";
-import AffiliateProgramPage from "./components/AffiliateProgramPage.jsx";
 import UsFlag from "./components/UsFlag.jsx";
 import ResearcherEntryGate, { hasResearcherEntryAcceptance } from "./components/ResearcherEntryGate.jsx";
+import PeptigrityMark from "./components/PeptigrityMark.jsx";
 import vialCManifest from "./data/vialCManifest.json";
 import publicImagePaths from "./data/publicImagePaths.json";
 import cashAppLogo from "./assets/payment-logos/cash-app.svg";
@@ -29,12 +27,127 @@ import faqBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_34_
 import laboratoryBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791041778846.webp";
 import legalPolicyBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791210990340.webp";
 
+const importAccountDashboard = () => import("./components/AccountDashboard.jsx");
+const importAccountMessages = () => import("./components/AccountMessages.jsx");
+const importShippingPricesPage = () => import("./components/ShippingPricesPage.jsx");
+const importAffiliateProgramPage = () => import("./components/AffiliateProgramPage.jsx");
+const importPublicInfoPages = () => import("./components/PublicInfoPages.jsx");
+const importShippingRefundPolicyPages = () => import("./components/ShippingRefundPolicyPages.jsx");
+const importPrivacyPolicyPage = () => import("./components/PrivacyPolicyPage.jsx");
+const importTermsConditionsPage = () => import("./components/TermsConditionsPage.jsx");
+
+const AccountDashboard = lazy(importAccountDashboard);
+const AccountMessages = lazy(importAccountMessages);
+const ShippingPricesPage = lazy(importShippingPricesPage);
+const AffiliateProgramPage = lazy(importAffiliateProgramPage);
+const PublicInfoPages = lazy(importPublicInfoPages);
+const ShippingRefundPolicyPages = lazy(importShippingRefundPolicyPages);
+const PrivacyPolicyPage = lazy(importPrivacyPolicyPage);
+const TermsConditionsPage = lazy(importTermsConditionsPage);
 const StripeCheckoutPanel = lazy(() => import("./components/StripeCheckoutPanel.jsx"));
 const AdminChart = lazy(() => import("./components/AdminChart.jsx"));
+const publicPolicyPageFallback = (
+  <main className="mx-auto max-w-5xl px-4 pt-8 pb-16 md:px-10 md:pt-12">
+    <div className="min-h-[50vh] rounded-[1.5rem] border border-white/20 bg-black/20" aria-busy="true" />
+  </main>
+);
+
+const publicPathToPage = {
+  "terms-and-conditions": "terms",
+  "privacy-policy": "privacy",
+  "shipping-policy": "shipping",
+  "refund-policy": "refund",
+  shop: "shop",
+  "us-warehouse": "us-warehouse",
+  "shipping-prices": "bonuses",
+  affiliate: "affiliate",
+  about: "about",
+  faq: "faq",
+  contact: "contact",
+  "researcher-attestation": "attestation",
+  "track-order": "track",
+  account: "account",
+  cart: "cart",
+  "cart/confirmation": "cart",
+};
+
+const publicPageToPath = {
+  home: "/",
+  terms: "/terms-and-conditions",
+  privacy: "/privacy-policy",
+  shipping: "/shipping-policy",
+  refund: "/refund-policy",
+  shop: "/shop",
+  "us-warehouse": "/us-warehouse",
+  bonuses: "/shipping-prices",
+  affiliate: "/affiliate",
+  about: "/about",
+  faq: "/faq",
+  contact: "/contact",
+  attestation: "/researcher-attestation",
+  track: "/track-order",
+  account: "/account",
+  cart: "/cart",
+};
+
+const routeChunkLoaders = {
+  account: () => Promise.all([importAccountDashboard(), importAccountMessages()]),
+  bonuses: importShippingPricesPage,
+  affiliate: importAffiliateProgramPage,
+  shipping: importShippingRefundPolicyPages,
+  refund: importShippingRefundPolicyPages,
+  privacy: importPrivacyPolicyPage,
+  terms: importTermsConditionsPage,
+  faq: importPublicInfoPages,
+  about: importPublicInfoPages,
+  attestation: importPublicInfoPages,
+};
+const prefetchedRouteChunks = new Set();
+const pendingRouteChunkPrefetches = new Map();
+
+function prefetchRouteChunks(page) {
+  const loadChunks = routeChunkLoaders[page];
+  if (!loadChunks || prefetchedRouteChunks.has(page) || pendingRouteChunkPrefetches.has(page)) return;
+
+  const prefetch = loadChunks()
+    .then(() => prefetchedRouteChunks.add(page))
+    .catch((error) => {
+      console.error(`Failed to prefetch the ${page} page:`, error);
+    })
+    .finally(() => pendingRouteChunkPrefetches.delete(page));
+  pendingRouteChunkPrefetches.set(page, prefetch);
+}
 
 const topProductNames = new Set(["Retatrutide / GLP-3", "10-GH", "KLOW80"]);
 const isTopProduct = (product) =>
   product.name !== "MOTS-C" && (topProductNames.has(product.name) || Boolean(product.isHot));
+
+const homeUsPopularityOrder = [
+  "GLP RT-3",
+  "Reconstitution Solution",
+  "GHK-CU",
+  "TB-500 + BPC-157",
+  "BPC-157",
+  "MOTS-C",
+  "GLP TZ-2",
+  "10-GH",
+  "KLOW80",
+  "CJC-1295 + Ipamorelin",
+  "NAD+",
+  "Tesamorelin",
+  "Semax",
+  "Selank",
+  "TB-500",
+  "SS-31",
+  "KPV",
+  "Epithalon",
+  "CJC-1295",
+  "HCG",
+  "5-Amino-1MQ",
+];
+const homeUsPopularityRank = new Map(
+  homeUsPopularityOrder.map((name, index) => [name.toLowerCase(), index]),
+);
 
 const hiddenCatalogProductNames = new Set([
   "PEG-MGF",
@@ -156,13 +269,13 @@ function preloadImage(src, fetchPriority, retainForDisplay = false) {
   return cachedLoad;
 }
 
-function preloadPublicImages(extraSources = []) {
+function preloadPublicImages(extraSources = [], includeManifest = true) {
   const base = import.meta.env.BASE_URL;
-  const sources = new Set([
-    ...extraSources,
-    ...Object.values(vialCManifest).map((file) => `${base}vials-c/${file}`),
-    ...publicImagePaths.map((path) => `${base}${path}`),
-  ]);
+  const sources = new Set(extraSources);
+  if (includeManifest) {
+    Object.values(vialCManifest).forEach((file) => sources.add(`${base}vials-c/${file}`));
+    publicImagePaths.forEach((path) => sources.add(`${base}${path}`));
+  }
 
   const sourceList = [...sources];
   let nextIndex = 0;
@@ -178,6 +291,15 @@ function preloadPublicImages(extraSources = []) {
   return Promise.all(
     Array.from({ length: Math.min(2, sourceList.length) }, () => worker()),
   );
+}
+
+function cacheDisplayedPublicImage(event) {
+  const image = event.currentTarget;
+  const source = image.dataset.originalSrc || image.currentSrc || image.src;
+  const originalSource = getOriginalImageSource(source);
+  if (!originalSource || getPreloadedDisplayImageUrl(originalSource) !== originalSource) return;
+
+  void preloadImage(originalSource, "low", true).catch(() => {});
 }
 
 function retryVialImage(event) {
@@ -209,6 +331,7 @@ function StableVialImage({ src, baseSrc, alt, large = false }) {
         loading={large ? "eager" : "lazy"}
         fetchPriority={large ? "high" : undefined}
         decoding={large ? "sync" : "async"}
+        onLoad={cacheDisplayedPublicImage}
         onError={retryVialImage}
       />
       {src !== baseSrc && (
@@ -223,6 +346,7 @@ function StableVialImage({ src, baseSrc, alt, large = false }) {
           loading={large ? "eager" : "lazy"}
           fetchPriority={large ? "high" : undefined}
           decoding={large ? "sync" : "async"}
+          onLoad={cacheDisplayedPublicImage}
           onError={retryVialImage}
         />
       )}
@@ -434,6 +558,43 @@ function PayPalButton({ createOrder, onApprove, onError, disabled, autoClickCard
         </div>
       )}
       <div ref={containerRef} style={{ visibility: sdkStatus === "ready" ? "visible" : "hidden", minHeight: sdkStatus === "ready" ? undefined : 55 }} />
+    </div>
+  );
+}
+
+function AffiliatePayoutEditor({ saving, onSave, onCancel }) {
+  const [amount, setAmount] = useState("");
+
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-1">
+      <div className="flex min-w-0 items-center gap-1">
+        <span className="text-xs text-white/75">$</span>
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={amount}
+          onChange={(event) => setAmount(event.target.value)}
+          className="w-[68px] rounded-md border border-white/30 bg-white/10 px-2 py-1.5 text-xs text-white outline-none focus:border-white/70 focus:ring-2 focus:ring-white/20 [appearance:textfield]"
+          placeholder="0.00"
+          autoFocus
+        />
+      </div>
+      <button
+        type="button"
+        onClick={() => onSave(amount)}
+        disabled={saving}
+        className="min-h-8 rounded-md border border-white/30 bg-white px-2.5 py-1.5 text-[8px] font-bold uppercase tracking-[0.08em] text-[#454545] transition hover:bg-white/90 disabled:opacity-50"
+      >
+        {saving ? "Saving…" : "Save"}
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="min-h-8 rounded-md border border-white/25 bg-white/[0.03] px-2.5 py-1.5 text-[8px] font-semibold uppercase tracking-[0.08em] text-white transition hover:bg-white/10"
+      >
+        Cancel
+      </button>
     </div>
   );
 }
@@ -858,11 +1019,12 @@ function UPSTrackBlock() {
   );
 }
 
-function TrackOrderPage({ t, supabase }) {
+function TrackOrderPage({ t, supabase, currentUser }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [notFound, setNotFound] = useState(false);
+  const [accessMessage, setAccessMessage] = useState("");
   const [trackInput, setTrackInput] = useState("");
   const [trackUrl, setTrackUrl] = useState("");
 
@@ -877,14 +1039,23 @@ function TrackOrderPage({ t, supabase }) {
     e.preventDefault();
     const query = input.trim().toUpperCase();
     if (!query) return;
+    const ownerEmail = currentUser?.email?.trim().toLowerCase();
+    if (!ownerEmail) {
+      setResult(null);
+      setNotFound(false);
+      setAccessMessage(t("trackOrderSignInRequired"));
+      return;
+    }
     setLoading(true);
     setResult(null);
     setNotFound(false);
+    setAccessMessage("");
     try {
       const { data, error } = await supabase
         .from("orders")
         .select("*")
         .ilike("id", query)
+        .eq("email", ownerEmail)
         .limit(1);
       if (error) throw error;
       if (!data || data.length === 0) {
@@ -930,7 +1101,7 @@ function TrackOrderPage({ t, supabase }) {
           <input
             type="text"
             value={input}
-            onChange={(e) => { setInput(e.target.value); setResult(null); setNotFound(false); }}
+            onChange={(e) => { setInput(e.target.value); setResult(null); setNotFound(false); setAccessMessage(""); }}
             placeholder={t("trackOrderPlaceholder")}
             className="flex-1 rounded-full border border-white/20 bg-white/10 px-5 py-3 text-[14px] font-semibold uppercase tracking-[0.06em] text-white placeholder:text-white/50 outline-none focus:border-white/50"
             autoComplete="off"
@@ -944,6 +1115,12 @@ function TrackOrderPage({ t, supabase }) {
             {loading ? t("trackOrderChecking") : t("trackOrderBtn")}
           </button>
         </form>
+
+        {accessMessage && (
+          <p className="mt-6 text-center text-[14px] font-semibold text-white/60">
+            {accessMessage}
+          </p>
+        )}
 
         {notFound && (
           <p className="mt-6 text-center text-[14px] font-semibold text-white/60 uppercase tracking-wide">
@@ -1140,18 +1317,20 @@ function TrackOrderPage({ t, supabase }) {
 function ContactPage({ copySupportEmail, copiedEmail, t, language, onNewMessage }) {
   const socialLinks = [
     {
-      name: "Trustpilot",
-      icon: SOCIAL_ICONS.Trustpilot,
-      url: "https://www.trustpilot.com/review/10bottlevalue.co",
-      rating: { score: 4.6, count: 21 },
-    },
-    {
       name: "X",
       icon: SOCIAL_ICONS.X,
       url: "https://x.com/10BottleValueCo",
       sub: "1200+ followers",
     },
+    {
+      name: "Trustpilot",
+      icon: SOCIAL_ICONS.Trustpilot,
+      url: "https://www.trustpilot.com/review/10bottlevalue.co",
+      rating: { score: 4.6, count: 23 },
+    },
   ];
+  const socialCardClassName =
+    "group relative z-20 flex min-h-[190px] w-full flex-col items-center justify-center rounded-[1.25rem] border border-white/15 bg-black/65 px-5 py-5 shadow-[0_10px_28px_rgba(0,0,0,0.32)] transition duration-300 hover:border-white/25 hover:bg-black/75";
 
   return (
     <main className="mx-auto max-w-7xl px-4 pt-4 pb-8 md:px-10 md:pt-14 md:pb-20">
@@ -1204,7 +1383,7 @@ function ContactPage({ copySupportEmail, copiedEmail, t, language, onNewMessage 
         </div>
       </section>
 
-      <section className="mt-2 rounded-[1.6rem] border border-white/20 bg-black/40 px-5 py-10 text-center shadow-[0_10px_30px_rgba(0,0,0,0.06)] md:mt-5 md:rounded-[2.5rem] md:px-12 md:py-14">
+      <section className="mt-2 px-5 py-10 text-center md:mt-5 md:px-0 md:py-14">
         <h2 className="text-[18px] uppercase tracking-[0.28em] text-white/80 md:text-[28px]">
           {language === "RU"
             ? "НАШИ СОЦИАЛЬНЫЕ КАНАЛЫ"
@@ -1217,56 +1396,83 @@ function ContactPage({ copySupportEmail, copiedEmail, t, language, onNewMessage 
             : "Our Social Channels"}
         </h2>
 
-        <div className="mt-8 flex flex-wrap items-start justify-center gap-x-6 gap-y-6 md:mt-14 md:gap-x-16 md:gap-y-10">
+        <div className="mx-auto mt-8 grid w-full max-w-[1180px] grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 md:mt-14">
           {socialLinks.map((item) => {
             const inner = (
               <>
-                <div className={`flex h-16 w-16 items-center justify-center rounded-full bg-white/10 shadow-[0_14px_30px_rgba(0,0,0,0.12)] transition-all duration-300 md:h-24 md:w-24 ${item.disabled ? "opacity-40" : "group-hover:bg-white/20 group-hover:scale-110"}`}>
+                <div className={`flex h-14 w-14 items-center justify-center rounded-full bg-white/10 shadow-[0_14px_30px_rgba(0,0,0,0.12)] transition-all duration-300 ${item.disabled ? "opacity-40" : "group-hover:bg-white/20 group-hover:scale-110"}`}>
                   {SOCIAL_ICONS[item.name] || item.icon}
                 </div>
-                <div className={`mt-3 text-[13px] uppercase tracking-widest transition md:mt-5 md:text-[16px] ${item.disabled ? "text-white/40" : "text-white/80 group-hover:text-white"}`}>
-                  {item.name}
+                <div className={`mt-3 text-[11px] uppercase tracking-[0.2em] transition ${item.disabled ? "text-white/40" : "text-white/80 group-hover:text-white"}`}>
+                  {item.name === "X" ? "X (Twitter)" : item.name}
                 </div>
                 {item.rating && (
-                  <div className="mt-3 flex flex-col items-center gap-[6px]">
+                  <div className="mt-2 flex flex-col items-center gap-1">
                     <div className="flex items-center gap-[3px]">
                       {[1,2,3,4].map(i => (
-                        <div key={i} className="flex h-[26px] w-[26px] items-center justify-center rounded-[3px]" style={{background:"#00b67a"}}>
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="white">
+                        <div key={i} className="flex h-5 w-5 items-center justify-center rounded-[3px]" style={{background:"#00b67a"}}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
                             <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z"/>
                           </svg>
                         </div>
                       ))}
-                      <div className="relative flex h-[26px] w-[26px] items-center justify-center overflow-hidden rounded-[3px]">
+                      <div className="relative flex h-5 w-5 items-center justify-center overflow-hidden rounded-[3px]">
                         <div className="absolute inset-0 flex">
                           <div className="h-full w-1/2" style={{background:"#00b67a"}}/>
                           <div className="h-full w-1/2" style={{background:"#dcdce6"}}/>
                         </div>
-                        <svg className="relative z-10" width="15" height="15" viewBox="0 0 24 24" fill="white">
+                        <svg className="relative z-10" width="12" height="12" viewBox="0 0 24 24" fill="white">
                           <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z"/>
                         </svg>
                       </div>
                     </div>
-                    <div className="text-[11px] font-semibold text-white tracking-wide">{item.rating.score} <span className="text-white font-normal">· {item.rating.count} {language === "RU" ? "отзывов" : language === "UA" ? "відгуків" : language === "DE" ? "Bewertungen" : language === "ES" ? "reseñas" : "reviews"}</span></div>
+                    <div className="text-[10px] font-semibold tracking-wide text-white">{item.rating.score} <span className="font-normal text-white">· {item.rating.count} {language === "RU" ? "отзывов" : language === "UA" ? "відгуків" : language === "DE" ? "Bewertungen" : language === "ES" ? "reseñas" : "reviews"}</span></div>
                   </div>
                 )}
                 {item.sub && (
-                  <div className="mt-1 text-[10px] text-white tracking-wide md:text-[11px]">
+                  <div className="mt-2 text-[10px] uppercase tracking-wide text-white">
                     {item.sub}
                   </div>
                 )}
+                <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-white/25 px-3 py-1.5 text-[8px] font-bold uppercase tracking-[0.16em] text-white/90 transition group-hover:border-white/45 group-hover:bg-white/5">
+                  {item.name === "Trustpilot"
+                    ? language === "RU" ? "Читать отзывы" : language === "UA" ? "Читати відгуки" : language === "DE" ? "Bewertungen lesen" : language === "ES" ? "Leer reseñas" : "Read reviews"
+                    : language === "RU" ? "Подписаться" : language === "UA" ? "Підписатися" : language === "DE" ? "Folgen" : language === "ES" ? "Seguir" : "Follow us"}
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+                  </svg>
+                </div>
               </>
             );
             return item.disabled ? (
-              <div key={item.name} className="group relative z-20 flex w-[100px] cursor-not-allowed flex-col items-center md:w-[140px]" aria-label={item.name}>
+              <div key={item.name} className={`${socialCardClassName} cursor-not-allowed opacity-50`} aria-label={item.name}>
                 {inner}
               </div>
             ) : (
-              <a key={item.name} href={item.url} target="_blank" rel="noopener noreferrer" className="group relative z-20 flex w-[100px] cursor-pointer flex-col items-center md:w-[140px]" aria-label={item.name}>
+              <a key={item.name} href={item.url} target="_blank" rel="noopener noreferrer" className={`${socialCardClassName} cursor-pointer`} aria-label={item.name}>
                 {inner}
               </a>
             );
           })}
+          <div
+            data-testid="card-peptigrity"
+            className={`${socialCardClassName} cursor-default`}
+          >
+            <PeptigrityMark />
+            <div className="mt-3 text-[11px] uppercase tracking-[0.2em] text-white/80">
+              Peptigrity
+            </div>
+            <a
+              href="https://peptigrity.com/add/review?shopId=279"
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid="link-peptigrity-review"
+              className="mt-3 inline-flex min-h-[34px] items-center gap-2 rounded-full border border-white/25 px-4 py-2 text-[8px] font-bold uppercase tracking-[0.12em] text-white/90 transition hover:border-white/45 hover:bg-white/5"
+            >
+              REVIEW US ON PEPTERGITY
+              <ArrowRight size={11} aria-hidden="true" />
+            </a>
+          </div>
         </div>
       </section>
     </main>
@@ -2284,6 +2490,7 @@ const PRODUCTS_BASE = [
       total: "100 IU total",
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
+      outOfStock: false,
     },
     {
       name: "10-GH",
@@ -3029,43 +3236,6 @@ function FunnelTab({ supabase }) {
 
 export default function App() {
   const orderLoadInitiatedRef = useRef(false);
-  const publicPathToPage = {
-    "terms-and-conditions": "terms",
-    "privacy-policy": "privacy",
-    "shipping-policy": "shipping",
-    "refund-policy": "refund",
-    "shop": "shop",
-    "us-warehouse": "us-warehouse",
-    "shipping-prices": "bonuses",
-    "affiliate": "affiliate",
-    "about": "about",
-    "faq": "faq",
-    "contact": "contact",
-    "researcher-attestation": "attestation",
-    "track-order": "track",
-    "account": "account",
-    "cart": "cart",
-    "cart/confirmation": "cart",
-  };
-  const publicPageToPath = {
-    home: "/",
-    terms: "/terms-and-conditions",
-    privacy: "/privacy-policy",
-    shipping: "/shipping-policy",
-    refund: "/refund-policy",
-    shop: "/shop",
-    "us-warehouse": "/us-warehouse",
-    bonuses: "/shipping-prices",
-    affiliate: "/affiliate",
-    about: "/about",
-    faq: "/faq",
-    contact: "/contact",
-    attestation: "/researcher-attestation",
-    track: "/track-order",
-    account: "/account",
-    cart: "/cart",
-  };
-
   function fallbackCopyText(text) {
     try {
       const textarea = document.createElement("textarea");
@@ -3525,9 +3695,11 @@ export default function App() {
     const productSlugFromQuery = (params.get("product") || "").toLowerCase().trim();
     const productSlugFromPath = pathSlug;
     const productSlug = productSlugFromPath || productSlugFromQuery;
+    const usWarehouseRoute = (params.get("warehouse") || "").toLowerCase() === "us";
     if (productSlug) {
       const hit = PRODUCTS_BASE.find(p =>
-        productSlug === productSlugFor(p) || productSlug === productSlugFor(p, true)
+        (productSlug === productSlugFor(p) || productSlug === productSlugFor(p, true)) &&
+        (!usWarehouseRoute || p.warehouse === "us")
       );
       if (hit) return "product";
     }
@@ -3540,6 +3712,37 @@ export default function App() {
   const [publicImageRetry, setPublicImageRetry] = useState(0);
   const researcherEntryGateActive =
     !researcherEntryAccepted && page !== "terms" && page !== "privacy";
+
+  useEffect(() => {
+    if (researcherEntryGateActive) return undefined;
+
+    const prefetchFromIntent = (event) => {
+      const target = event.target;
+      const link = target instanceof Element ? target.closest("a[href]") : null;
+      if (!link) return;
+
+      const destination = new URL(link.href, window.location.href);
+      if (destination.origin !== window.location.origin) return;
+
+      const basePath = import.meta.env.BASE_URL === "/"
+        ? ""
+        : import.meta.env.BASE_URL.replace(/\/$/, "");
+      let routePath = destination.pathname;
+      if (basePath && (routePath === basePath || routePath.startsWith(`${basePath}/`))) {
+        routePath = routePath.slice(basePath.length) || "/";
+      }
+
+      const pathSlug = routePath.replace(/^\/+|\/+$/g, "").toLowerCase();
+      prefetchRouteChunks(publicPathToPage[pathSlug]);
+    };
+
+    document.addEventListener("pointerover", prefetchFromIntent, { passive: true });
+    document.addEventListener("focusin", prefetchFromIntent);
+    return () => {
+      document.removeEventListener("pointerover", prefetchFromIntent);
+      document.removeEventListener("focusin", prefetchFromIntent);
+    };
+  }, [researcherEntryGateActive]);
 
   // Keep every public section on a stable, crawlable URL.
   useEffect(() => {
@@ -3554,13 +3757,19 @@ export default function App() {
 
   const handlePublicPageLink = (event, nextPage) => {
     event.preventDefault();
+    prefetchRouteChunks(nextPage);
     setAccountPromoCodeInput("");
     setPage(nextPage);
   };
   const [searchTerm, setSearchTerm] = useState("");
   const [shopTab, setShopTab] = useState("all");
-  const [inputValue, setInputValue] = useState("");
   const [selectedShopName, setSelectedShopName] = useState("");
+  const updateShopSearch = useCallback((value) => {
+    startTransition(() => {
+      setSelectedShopName("");
+      setSearchTerm(value);
+    });
+  }, []);
   const [isScrolled, setIsScrolled] = useState(false);
   const [showCookieBanner, setShowCookieBanner] = useState(false);
   useEffect(() => {
@@ -3596,9 +3805,20 @@ export default function App() {
     const productSlugFromPath2 = window.location.pathname.replace(/^\//, "").toLowerCase().trim();
     const productSlug = productSlugFromPath2 || productSlugFromQuery2;
     if (!productSlug) return null;
-    return PRODUCTS_BASE.find(p =>
-      productSlug === productSlugFor(p) || productSlug === productSlugFor(p, true)
-    ) ?? null;
+    const usWarehouseRoute = (params2.get("warehouse") || "").toLowerCase() === "us";
+    const product = PRODUCTS_BASE.find(p =>
+      (productSlug === productSlugFor(p) || productSlug === productSlugFor(p, true)) &&
+      (!usWarehouseRoute || p.warehouse === "us")
+    );
+    if (!product) return null;
+    return usWarehouseRoute
+      ? {
+        ...product,
+        price: (product.usPriceBase ?? product.price) + 5,
+        originalPrice: (product.usPriceBase ?? product.price) + 5,
+        fromWarehouse: "us",
+      }
+      : product;
   });
   // ── SEO: dynamic meta/title/JSON-LD per page (invisible to users) ────────
   useSEO({ page, product: selectedProduct });
@@ -3667,6 +3887,9 @@ export default function App() {
   const [storeCredit, setStoreCredit] = useState(0);
   const [creditPayAnimating, setCreditPayAnimating] = useState(false);
   const [creditPayAmount, setCreditPayAmount] = useState(0);
+  const [isCreditCheckoutSubmitting, setIsCreditCheckoutSubmitting] = useState(false);
+  const creditCheckoutInFlightRef = useRef(false);
+  const storeCreditOrderAttemptRef = useRef(null);
   const [adminCreditEmail, setAdminCreditEmail] = useState("");
   const [adminCreditAmount, setAdminCreditAmount] = useState("");
   const [adminCreditNote, setAdminCreditNote] = useState("");
@@ -3893,10 +4116,9 @@ export default function App() {
   const productOriginPage = useRef("shop");
   const productDetailOverlayClass =
     productOriginPage.current === "shop" ? "bg-black/60" : "bg-black/50";
-  const selectedProductUnavailable = Boolean(
-    selectedProduct?.outOfStock &&
-    (selectedProduct?.warehouse !== "us" || page === "us-warehouse" || productOriginPage.current === "us-warehouse")
-  );
+  const selectedProductIsUs =
+    selectedProduct?.fromWarehouse === "us" || selectedProduct?.warehouse === "us";
+  const selectedProductUnavailable = Boolean(selectedProduct?.outOfStock);
   const selectedProductCartItem = selectedProduct
     ? cart.find((item) => getProductId(item) === getProductId(selectedProduct))
     : null;
@@ -3908,13 +4130,17 @@ export default function App() {
   const savedSidebarScrollTop = useRef(0);
   const usWhSidebarScrollRef = useRef(null);
   const usWhSidebarThumbRef = useRef(null);
-  const [usWhInputValue, setUsWhInputValue] = useState("");
   const [usWhSearchTerm, setUsWhSearchTerm] = useState("");
   const [selectedUsWhName, setSelectedUsWhName] = useState("");
+  const updateUsWhSearch = useCallback((value) => {
+    startTransition(() => {
+      setSelectedUsWhName("");
+      setUsWhSearchTerm(value);
+    });
+  }, []);
   const [fadingOutAddedId, setFadingOutAddedId] = useState("");
   const [shopPrimed, setShopPrimed] = useState(false);
   const [cartHighlight, setCartHighlight] = useState(false);
-  const [faqSearchInput, setFaqSearchInput] = useState("");
   const [openFaqs, setOpenFaqs] = useState({
     shipping: -1,
     orders: -1,
@@ -4030,56 +4256,9 @@ export default function App() {
   });
   const [paymentReturnOrder, setPaymentReturnOrder] = useState(null);
   useEffect(() => {
-    if (paymentReturn.status === "success" && paymentReturn.order === "INV-TEST2025") {
-      setPaymentReturnOrder({ id: "INV-TEST2025", email: "john.carter@gmail.com", status: "paid", total: 348, subtotal: 296, shipping: 52, shippingType: "standard", paymentProvider: "Stripe", firstName: "John", lastName: "Carter", country: "United States", address: "4812 Oak Ridge Drive", city: "Austin", state: "TX", postalCode: "78701", items: [{ name: "BPC-157", dose: "5mg", quantity: 2, price: 78 }, { name: "TB-500", dose: "5mg", quantity: 1, price: 82 }, { name: "Semaglutide", dose: "3mg", quantity: 1, price: 58 }] });
-      return;
-    }
-    if (paymentReturn.status === "success" && paymentReturn.order === "INV-MIX") {
-      setPaymentReturnOrder({ id: "INV-MIX", email: "sarah.kim@gmail.com", status: "paid", total: 498, subtotal: 438, shipping: 60, shippingType: "standard", paymentProvider: "Stripe", firstName: "Sarah", lastName: "Kim", country: "United States", address: "320 Sunset Blvd", city: "Los Angeles", state: "CA", postalCode: "90028", items: [{ name: "Retatrutide", dose: "20mg", quantity: 2, price: 119, fromWarehouse: "us" }, { name: "GHK-Cu", dose: "50mg", quantity: 1, price: 89, fromWarehouse: "us" }, { name: "BPC-157", dose: "5mg", quantity: 2, price: 78 }, { name: "TB-500", dose: "5mg", quantity: 1, price: 82 }] });
-      return;
-    }
     if (paymentReturn.status === "success" && paymentReturn.provider === "stripe" && paymentReturn.order) {
       (async () => {
         try {
-          const { data } = await supabase
-            .from("orders")
-            .select("metadata,affiliate_code,affiliate_owner_email")
-            .eq("id", paymentReturn.order)
-            .single();
-          // localStorage has full order data saved before Stripe redirect.
-          // Use it as a fallback when Supabase SELECT returns sparse/empty metadata (RLS blocks user_id=null rows).
-          const storedOrder = getStoredOrders().find((o) => o.id === paymentReturn.order);
-          const storedMeta = storedOrder
-            ? {
-                email: storedOrder.email,
-                total: storedOrder.total,
-                subtotal: storedOrder.subtotal,
-                shipping: storedOrder.shipping,
-                shippingType: storedOrder.shippingType,
-                automaticDiscount: storedOrder.automaticDiscount,
-                promoDiscount: storedOrder.promoDiscount,
-                promoCode: storedOrder.promoCode,
-                affiliateDiscount: storedOrder.affiliateDiscount,
-                affiliateCode: storedOrder.affiliateCode,
-                affiliateOwnerEmail: storedOrder.affiliateOwnerEmail,
-                affiliateCommission: storedOrder.affiliateCommission,
-                storeCreditUsed: storedOrder.storeCreditUsed,
-                firstName: storedOrder.firstName,
-                lastName: storedOrder.lastName,
-                country: storedOrder.country,
-                address: storedOrder.address,
-                address2: storedOrder.address2,
-                city: storedOrder.city,
-                state: storedOrder.state,
-                postalCode: storedOrder.postalCode,
-                phone: storedOrder.phone,
-                items: storedOrder.items,
-              }
-            : {};
-          // Supabase data overrides localStorage where available
-          const prev = { ...storedMeta, ...(data?.metadata || {}) };
-          const affCode = String(prev.affiliateCode || data?.affiliate_code || "").trim().toUpperCase();
-
           // ── Server-side Stripe verification + Supabase status update ──────
           // The server verifies the payment intent with Stripe's API and writes
           // status="paid" using the service role key — bypasses any RLS issues.
@@ -4102,28 +4281,9 @@ export default function App() {
             console.error("confirm-stripe-payment fetch failed:", confirmErr);
           }
 
-          // ── Affiliate order sync ──────────────────────────────────────────
-          let ownerEmail = prev.affiliateOwnerEmail || data?.affiliate_owner_email || "";
-          if (!ownerEmail && affCode) {
-            const { data: affRow } = await supabase
-              .from("affiliates")
-              .select("email")
-              .eq("code", affCode)
-              .maybeSingle();
-            if (affRow?.email) ownerEmail = String(affRow.email).trim().toLowerCase();
-          }
-
-          const commission = Number(prev.affiliateCommission) || Number(prev.subtotal || prev.total || 0) * 0.1;
-
-          if (affCode) {
-            const { error: affErr } = await supabase.from("affiliate_orders").upsert({
-              order_id: paymentReturn.order,
-              affiliate_code: affCode,
-              commission_amount: commission,
-              shipping_type: String(prev.shippingType || "standard").toLowerCase(),
-            }, { onConflict: "order_id" });
-            if (affErr) console.error("Stripe success: affiliate_orders upsert failed:", affErr.message);
-          }
+          // Affiliate order details are read from the paid order through the
+          // authenticated affiliate-account endpoint; the browser does not
+          // write to the affiliate ledger.
         } catch (e) {
           console.error("Stripe success handler failed:", e);
         }
@@ -4132,83 +4292,83 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (page !== "payment-return" || paymentReturn.status !== "success") return;
-    const isMobile = window.matchMedia("(max-width: 767px)").matches;
-    const colors = ["#ff0000", "#ff8800", "#ffe600", "#9d00ff", "#00ff2a"];
+    let isActive = true;
 
-    if (isMobile) {
-      // Lighter celebratory burst tuned for small screens: a single centered
-      // pop plus a short confetti rain, instead of the desktop side-cannons.
-      confetti({
-        particleCount: 70,
-        spread: 80,
-        startVelocity: 38,
-        gravity: 1.1,
-        scalar: 0.9,
-        origin: { x: 0.5, y: 0.3 },
-        colors,
-        zIndex: 9999,
-      });
-      const end = Date.now() + 1800;
-      const rain = () => {
-        confetti({
-          particleCount: 3,
-          angle: 90,
-          spread: 100,
-          startVelocity: 20,
-          gravity: 0.9,
-          scalar: 0.8,
-          origin: { x: Math.random(), y: -0.05 },
-          colors,
-          zIndex: 9999,
-        });
-        if (Date.now() < end) requestAnimationFrame(rain);
-      };
-      rain();
-      return;
-    }
+    void import("canvas-confetti")
+      .then(({ default: confetti }) => {
+        if (!isActive) return;
 
-    const end = Date.now() + 3000;
-    const frame = () => {
-      confetti({
-        particleCount: 5,
-        angle: 60,
-        spread: 55,
-        startVelocity: 55,
-        origin: { x: 0, y: 0.6 },
-        colors,
-        zIndex: 9999,
-      });
-      confetti({
-        particleCount: 5,
-        angle: 120,
-        spread: 55,
-        startVelocity: 55,
-        origin: { x: 1, y: 0.6 },
-        colors,
-        zIndex: 9999,
-      });
-      if (Date.now() < end) requestAnimationFrame(frame);
+        const isMobile = window.matchMedia("(max-width: 767px)").matches;
+        const colors = ["#ff0000", "#ff8800", "#ffe600", "#9d00ff", "#00ff2a"];
+
+        if (isMobile) {
+          // Lighter celebratory burst tuned for small screens: a single centered
+          // pop plus a short confetti rain, instead of the desktop side-cannons.
+          confetti({
+            particleCount: 70,
+            spread: 80,
+            startVelocity: 38,
+            gravity: 1.1,
+            scalar: 0.9,
+            origin: { x: 0.5, y: 0.3 },
+            colors,
+            zIndex: 9999,
+          });
+          const end = Date.now() + 1800;
+          const rain = () => {
+            if (!isActive) return;
+            confetti({
+              particleCount: 3,
+              angle: 90,
+              spread: 100,
+              startVelocity: 20,
+              gravity: 0.9,
+              scalar: 0.8,
+              origin: { x: Math.random(), y: -0.05 },
+              colors,
+              zIndex: 9999,
+            });
+            if (Date.now() < end) requestAnimationFrame(rain);
+          };
+          rain();
+          return;
+        }
+
+        const end = Date.now() + 3000;
+        const frame = () => {
+          if (!isActive) return;
+          confetti({
+            particleCount: 5,
+            angle: 60,
+            spread: 55,
+            startVelocity: 55,
+            origin: { x: 0, y: 0.6 },
+            colors,
+            zIndex: 9999,
+          });
+          confetti({
+            particleCount: 5,
+            angle: 120,
+            spread: 55,
+            startVelocity: 55,
+            origin: { x: 1, y: 0.6 },
+            colors,
+            zIndex: 9999,
+          });
+          if (Date.now() < end) requestAnimationFrame(frame);
+        };
+        frame();
+      })
+      .catch((error) => console.error("Failed to load the payment celebration:", error));
+
+    return () => {
+      isActive = false;
     };
-    frame();
   }, [page, paymentReturn.status]);
   useEffect(() => {
     if (paymentReturn.status === "success" && paymentReturn.order) {
       const stored = getStoredOrders().find(o => o.id === paymentReturn.order);
       if (stored) setPaymentReturnOrder(stored);
-      supabase.from("orders").select("metadata,items").eq("id", paymentReturn.order).single().then(({ data }) => {
-        if (data?.metadata && typeof data.metadata === "object" && !Array.isArray(data.metadata)) {
-          const sbMeta = data.metadata;
-          const sbItems = Array.isArray(sbMeta.items) && sbMeta.items.length > 0
-            ? sbMeta.items
-            : Array.isArray(data.items) && data.items.length > 0
-            ? data.items
-            : null;
-          const stored = getStoredOrders().find(o => o.id === paymentReturn.order);
-          const storedItems = Array.isArray(stored?.items) && stored.items.length > 0 ? stored.items : null;
-          const bestItems = sbItems || storedItems || [];
-          setPaymentReturnOrder({ ...sbMeta, items: bestItems });
-        }
-      });
     }
   }, [paymentReturn.order]);
   const [pendingCheckoutAfterAuth, setPendingCheckoutAfterAuth] = useState(false);
@@ -4221,32 +4381,47 @@ export default function App() {
   const [analyticsCopied, setAnalyticsCopied] = useState(false);
   const [analyticsSort, setAnalyticsSort] = useState("units");
   const [analyticsSortDir, setAnalyticsSortDir] = useState("desc");
-  const [salesRanking, setSalesRanking] = useState(null);
-  const [usSalesRanking, setUsSalesRanking] = useState(null);
+  const [salesRanking, setSalesRanking] = useState([]);
+  const [usSalesRanking, setUsSalesRanking] = useState([]);
   useEffect(() => {
     if (researcherEntryGateActive) return undefined;
 
     let active = true;
     setPublicImagesState("loading");
-    const startPreload = () => {
+    const base = import.meta.env.BASE_URL;
+    const routeBackgrounds = [
+      worldwideCatalogBackground,
+      faqBackgroundImage,
+      laboratoryBackgroundImage,
+      legalPolicyBackgroundImage,
+      `${base}images/homepage-hero-background.webp`,
+      `${base}images/homepage-hero-mobile-vial.webp`,
+      `${base}images/homepage-lower-background.webp`,
+      `${base}images/affiliate-lab-background.webp`,
+      `${base}images/shipping-prices-warehouse-background.webp`,
+    ];
+    const startPreload = async () => {
       if (!active) return;
-      preloadPublicImages(
-        [
-          `${import.meta.env.BASE_URL}vials-c/tb-500-bpc-157-3ab3e8693952.webp`,
-          `${import.meta.env.BASE_URL}vials-c/bpc-157-4a596acd979f.webp`,
-          `${import.meta.env.BASE_URL}vials-c/retatrutide-glp-3-0efb04b0071d.webp`,
-          cashAppLogo,
-          bitcoinLogo,
-          paypalMark,
-        ],
-      )
-        .then(() => {
-          if (active) setPublicImagesState("ready");
-        })
-        .catch((error) => {
-          console.error("Could not preload all public images.", error);
-          if (active) setPublicImagesState("error");
-        });
+      try {
+        await preloadPublicImages(routeBackgrounds, false);
+        if (!active) return;
+        setPublicImagesState("ready");
+        try {
+          await preloadPublicImages([
+            `${import.meta.env.BASE_URL}vials-c/tb-500-bpc-157-3ab3e8693952.webp`,
+            `${import.meta.env.BASE_URL}vials-c/bpc-157-4a596acd979f.webp`,
+            `${import.meta.env.BASE_URL}vials-c/retatrutide-glp-3-0efb04b0071d.webp`,
+            cashAppLogo,
+            bitcoinLogo,
+            paypalMark,
+          ]);
+        } catch (error) {
+          console.warn("Could not warm all optional public images; they will load when needed.", error);
+        }
+      } catch (error) {
+        console.error("Could not preload all public images.", error);
+        if (active) setPublicImagesState("error");
+      }
     };
     let idleHandle = null;
     let preloadTimer = null;
@@ -4311,11 +4486,22 @@ export default function App() {
   const [affPaySaving, setAffPaySaving] = useState({});
   const [affPayErrors, setAffPayErrors] = useState({});
   const [affPayoutLoadError, setAffPayoutLoadError] = useState("");
-  const [affPayInput, setAffPayInput] = useState({});
+  const [affPayEditorOpen, setAffPayEditorOpen] = useState({});
   const [adminSearch, setAdminSearch] = useState("");
   const [adminInboxSearch, setAdminInboxSearch] = useState("");
   const [oosOverrides, setOosOverrides] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("tbv-oos") || "{}"); } catch { return {}; }
+    try {
+      const overrides = JSON.parse(localStorage.getItem("tbv-oos") || "{}");
+      const migrationKey = "tbv-oos-10-gh-10-iu-available-v1";
+      if (localStorage.getItem(migrationKey) !== "done") {
+        delete overrides["10-GH|10 IU"];
+        localStorage.setItem("tbv-oos", JSON.stringify(overrides));
+        localStorage.setItem(migrationKey, "done");
+      }
+      return overrides;
+    } catch {
+      return {};
+    }
   });
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [inventoryOosOnly, setInventoryOosOnly] = useState(false);
@@ -4336,11 +4522,32 @@ export default function App() {
   const supportConversationOpenRef = useRef(false);
   supportConversationOpenRef.current = supportConversationOpen;
   const [contactForm, setContactForm] = useState({ name: "", email: "", message: "" });
+  const contactMessageInputRef = useRef(null);
+  const contactMessageSendButtonRef = useRef(null);
   const [userEmojiOpen, setUserEmojiOpen] = useState(false);
   const [adminEmojiOpen, setAdminEmojiOpen] = useState(false);
   const [contactSending, setContactSending] = useState(false);
   const [chatAttachmentUploading, setChatAttachmentUploading] = useState(false);
   const [chatLightboxUrl, setChatLightboxUrl] = useState(null);
+  const [chatAttachmentUrls, setChatAttachmentUrls] = useState({});
+  const chatAttachmentObjectUrlsRef = useRef(new Set());
+  const chatAttachmentIdentityRef = useRef(currentUser?.email?.toLowerCase() || "");
+  useEffect(() => () => {
+    for (const objectUrl of chatAttachmentObjectUrlsRef.current) {
+      URL.revokeObjectURL(objectUrl);
+    }
+    chatAttachmentObjectUrlsRef.current.clear();
+  }, []);
+  useEffect(() => {
+    const identity = currentUser?.email?.toLowerCase() || "";
+    if (chatAttachmentIdentityRef.current === identity) return;
+    chatAttachmentIdentityRef.current = identity;
+    for (const objectUrl of chatAttachmentObjectUrlsRef.current) {
+      URL.revokeObjectURL(objectUrl);
+    }
+    chatAttachmentObjectUrlsRef.current.clear();
+    setChatAttachmentUrls({});
+  }, [currentUser?.email]);
   const [adminIsTyping, setAdminIsTyping] = useState(false);
   const [userIsTyping, setUserIsTyping] = useState(false);
   const [contactSent, setContactSent] = useState(false);
@@ -4350,6 +4557,7 @@ export default function App() {
   const adminSendingRef = useRef(false);
   const [adminReplyingId, setAdminReplyingId] = useState(null);
   const [adminReplyText, setAdminReplyText] = useState("");
+  const adminReplyInputRef = useRef(null);
   const [expandedThreadEmail, setExpandedThreadEmail] = useState(null);
   const [hasUnreadReply, setHasUnreadReply] = useState(false);
   const [adminComposeTo, setAdminComposeTo] = useState("");
@@ -4359,6 +4567,7 @@ export default function App() {
   const [userInboxMessages, setUserInboxMessages] = useState([]);
   const [editingMsgId, setEditingMsgId] = useState(null);
   const [editingMsgText, setEditingMsgText] = useState("");
+  const editingMessageInputRef = useRef(null);
   const [replyPreview, setReplyPreview] = useState(null);
   const [adminReplyPreview, setAdminReplyPreview] = useState(null);
   const [highlightedMsgKey, setHighlightedMsgKey] = useState(null);
@@ -4693,7 +4902,104 @@ export default function App() {
     window.__tbvHighlightTimeout = setTimeout(() => setHighlightedMsgKey(null), 1600);
   }
 
-  function renderMsgContent(text) {
+  function getChatAttachmentReferences(text) {
+    const references = [];
+    if (typeof text !== "string") return references;
+    const tagPattern =
+      /\[(?:IMAGE|VIDEO):([^\]]+)\]|\[FILE:(.+):([^\]]*)\]/g;
+    for (const match of text.matchAll(tagPattern)) {
+      const reference = match[1] || match[2];
+      if (reference) references.push(reference);
+    }
+    return references;
+  }
+
+  const chatAttachmentRequestKey = useMemo(() => {
+    const requestItems = [];
+    const seen = new Set();
+    for (const message of [...userInboxMessages, ...adminMessages]) {
+      const messageId = Number(message?.id);
+      if (!Number.isSafeInteger(messageId) || messageId < 1) continue;
+      for (const field of ["message", "admin_reply"]) {
+        for (const path of getChatAttachmentReferences(message?.[field])) {
+          const key = `${messageId}:${field}:${path}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          requestItems.push({ path, messageId, field });
+        }
+      }
+    }
+    return JSON.stringify(requestItems);
+  }, [adminMessages, userInboxMessages]);
+
+  useEffect(() => {
+    let active = true;
+    const requestItems = JSON.parse(chatAttachmentRequestKey);
+    if (!requestItems.length) return undefined;
+
+    let loading = false;
+    async function loadPrivateAttachmentUrls() {
+      if (loading || !active || document.visibilityState !== "visible") return;
+      loading = true;
+      try {
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+      if (!active || sessionError || !session?.access_token) return;
+
+      for (let offset = 0; offset < requestItems.length; offset += 100) {
+        const batch = requestItems.slice(offset, offset + 100);
+        const response = await fetch("/api/support-attachments/access-urls", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ attachments: batch }),
+        });
+        if (!response.ok) continue;
+        const result = await response.json().catch(() => null);
+        if (!active || !Array.isArray(result?.attachments)) continue;
+        setChatAttachmentUrls((previous) => {
+          const next = { ...previous };
+          for (const attachment of result.attachments) {
+            if (
+              typeof attachment?.reference === "string" &&
+              typeof attachment?.url === "string"
+            ) {
+              next[attachment.reference] = attachment.url;
+            }
+          }
+          return next;
+        });
+      }
+      } finally {
+        loading = false;
+      }
+    }
+
+    loadPrivateAttachmentUrls().catch((error) => {
+      console.error("Support attachment links could not be refreshed:", error);
+    });
+    const refreshWhenVisible = () => {
+      loadPrivateAttachmentUrls().catch((error) => {
+        console.error("Support attachment links could not be refreshed:", error);
+      });
+    };
+    const refreshTimer = window.setInterval(refreshWhenVisible, 45 * 60 * 1000);
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      active = false;
+      window.clearInterval(refreshTimer);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [chatAttachmentRequestKey, currentUser?.email]);
+
+  function renderMsgContent(text, messageId, field = "message") {
     if (!text) return null;
     const quoted = extractQuoteSnippet(text);
     const body = quoted !== null ? stripQuoteMarker(text) : text;
@@ -4708,7 +5014,7 @@ export default function App() {
         <span className="truncate">{quoted.text}</span>
       </div>
     ) : null;
-    return [quoteBlock, ...renderMsgBody(body)];
+    return [quoteBlock, ...renderMsgBody(body, messageId, field)];
   }
 
   function renderLinkedMessageText(text) {
@@ -4736,20 +5042,22 @@ export default function App() {
     return nodes;
   }
 
-  function renderMsgBody(text) {
+  function renderMsgBody(text, messageId, field) {
     if (!text) return [];
     const parts = text.split(/(\[IMAGE:[^\]]+\]|\[FILE:[^\]]+\]|\[VIDEO:[^\]]+\])/g);
     return parts.map((part, i) => {
       const imgM = part.match(/^\[IMAGE:(.+)\]$/);
       if (imgM) {
+        const attachmentUrl = chatAttachmentUrls[imgM[1]] || "";
         return (
-          <img key={i} src={imgM[1]} alt="" className="mt-1.5 max-w-[240px] max-h-[200px] rounded-xl object-cover cursor-pointer block" onClick={() => setChatLightboxUrl(imgM[1])} />
+          <img key={i} src={attachmentUrl || undefined} alt="" className="mt-1.5 max-w-[240px] max-h-[200px] rounded-xl object-cover cursor-pointer block" onClick={attachmentUrl ? () => setChatLightboxUrl(attachmentUrl) : undefined} />
         );
       }
       const videoM = part.match(/^\[VIDEO:(.+)\]$/);
       if (videoM) {
+        const attachmentUrl = chatAttachmentUrls[videoM[1]] || "";
         return (
-          <video key={i} src={videoM[1]} controls playsInline className="mt-1.5 max-w-[280px] rounded-xl block" style={{maxHeight: "200px"}} />
+          <video key={i} src={attachmentUrl || undefined} controls playsInline className="mt-1.5 max-w-[280px] rounded-xl block" style={{maxHeight: "200px"}} />
         );
       }
       const fileM = part.match(/^\[FILE:(.+):([^\]]*)\]$/);
@@ -4761,10 +5069,11 @@ export default function App() {
         } catch {
           // Older attachment messages may contain unescaped names.
         }
+        const attachmentUrl = chatAttachmentUrls[url] || "";
         return (
-          <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="mt-1.5 flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/15 max-w-[240px]">
+          <a key={i} href={attachmentUrl || undefined} onClick={!attachmentUrl ? (event) => event.preventDefault() : undefined} target="_blank" rel="noopener noreferrer" aria-disabled={!attachmentUrl} className="mt-1.5 flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/15 max-w-[240px]">
             <svg className="w-5 h-5 shrink-0 text-red-400" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM8.5 17h7v1h-7v-1zm0-3h7v1h-7v-1zm0-3H11v1H8.5v-1z"/></svg>
-            <span className="truncate text-xs">{name || "document.pdf"}</span>
+            <span className="truncate text-xs">{attachmentUrl ? (name || "document.pdf") : "Loading attachment…"}</span>
           </a>
         );
       }
@@ -4773,6 +5082,10 @@ export default function App() {
   }
 
   async function uploadAndSendAttachment(file, sendFn) {
+    if (!currentUser?.email) {
+      setUserInboxError("Sign in to send support messages.");
+      return;
+    }
     const fileExtension = file?.name?.match(/\.([^.]+)$/)?.[1]?.toLowerCase() || "";
     const supportedDocumentExtensions = new Set(["pdf", "txt", "csv", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "rtf", "odt", "ods"]);
     const isImage = Boolean(file?.type?.startsWith('image/'));
@@ -4782,15 +5095,56 @@ export default function App() {
       if (file) alert('Choose an image, video, or supported document file.');
       return;
     }
-    if (isVideo && file.size > 100 * 1024 * 1024) { alert('Video must be under 100 MB'); return; }
+    if (file.size > 100 * 1024 * 1024) { alert('Attachment must be under 100 MB'); return; }
     setChatAttachmentUploading(true);
     try {
-      const ext = (fileExtension || (isFile ? 'pdf' : isVideo ? 'mp4' : 'jpg')).replace(/[^a-z0-9]/g, '').slice(0, 4) || 'bin';
-      const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error } = await supabase.storage.from('chat-images').upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false });
-      if (error) throw new Error(error.message);
-      const { data: { publicUrl } } = supabase.storage.from('chat-images').getPublicUrl(path);
-      await sendFn(publicUrl, file.name, isFile, isVideo);
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+      if (sessionError) throw new Error("Could not verify your support session.");
+      const uploadHeaders = { "Content-Type": "application/json" };
+      if (session?.access_token) {
+        uploadHeaders.Authorization = `Bearer ${session.access_token}`;
+      }
+      const uploadUrlResponse = await fetch(
+        "/api/support-attachments/upload-url",
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: uploadHeaders,
+          body: JSON.stringify({
+            fileName: file.name,
+            contentType: file.type || "",
+            size: file.size,
+          }),
+        },
+      );
+      const uploadDetails = await uploadUrlResponse.json().catch(() => null);
+      if (!uploadUrlResponse.ok || !uploadDetails?.uploadUrl || !uploadDetails?.path) {
+        throw new Error(uploadDetails?.error || "Could not prepare the attachment upload.");
+      }
+
+      const storageResponse = await fetch(uploadDetails.uploadUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Type": uploadDetails.contentType,
+          "cache-control": "max-age=3600",
+          "x-upsert": "false",
+        },
+        body: file,
+      });
+      if (!storageResponse.ok) {
+        throw new Error("The attachment could not be uploaded. Please try again.");
+      }
+
+      const previewUrl = URL.createObjectURL(file);
+      chatAttachmentObjectUrlsRef.current.add(previewUrl);
+      setChatAttachmentUrls((previous) => ({
+        ...previous,
+        [uploadDetails.path]: previewUrl,
+      }));
+      await sendFn(uploadDetails.path, file.name, isFile, isVideo);
     } catch (err) {
       alert('Upload failed: ' + err.message);
     } finally {
@@ -4799,6 +5153,10 @@ export default function App() {
   }
 
   async function sendAttachmentAsUserMessage(url, fileName, isFile, isVideo) {
+    if (!currentUser?.email) {
+      setUserInboxError("Sign in to send support messages.");
+      return;
+    }
     const name = contactForm.name.trim() || (currentUser?.email || "Anonymous");
     const email = (currentUser?.email || contactForm.email.trim() || "").toLowerCase();
     const tag = isVideo ? `[VIDEO:${url}]` : isFile ? `[FILE:${url}:${encodeURIComponent(fileName || 'attachment')}]` : `[IMAGE:${url}]`;
@@ -4868,23 +5226,26 @@ export default function App() {
     typingChannelRef.current.send({ type: 'broadcast', event: 'typing', payload: { role } });
   }
 
-  async function sendContactMessage() {
-    if (!contactForm.message.trim()) return;
+  async function sendContactMessage(messageDraft = contactForm.message) {
+    if (!currentUser?.email) {
+      setUserInboxError("Sign in to send support messages.");
+      return false;
+    }
+    const messageText = String(messageDraft ?? "").slice(0, 1000);
+    if (!messageText.trim()) return false;
     setContactSending(true);
     const name = contactForm.name.trim() || (currentUser?.email || "Anonymous");
     // Logged-in account email always wins — a stale/typed value in contactForm.email
     // (e.g. left over from a guest session) must never override the real account.
     const email = (currentUser?.email || contactForm.email.trim() || "").toLowerCase();
     const quotePrefix = replyPreview ? `[QUOTE:${encodeURIComponent(JSON.stringify(replyPreview))}]` : "";
-    const message = quotePrefix + contactForm.message.trim();
+    const message = quotePrefix + messageText.trim();
     const { error } = await supabase.from("contact_messages").insert({ name, email, message });
     setContactSending(false);
     if (error) {
       alert("Send failed: " + error.message);
-      return;
+      return false;
     }
-    // Remember this email so guest users (not logged in) can still reload their own thread later
-    if (email) { try { window.localStorage.setItem("tbv_guest_email", email); } catch {} }
     // Clear input and add optimistic message immediately
     setContactForm((f) => ({ ...f, message: "" }));
     setReplyPreview(null);
@@ -4892,6 +5253,7 @@ export default function App() {
     setUserInboxMessages((prev) => [...prev, optimistic]);
     // Then sync from server to get the real id
     loadUserInbox();
+    return true;
   }
 
   async function loadAdminMessages() {
@@ -5020,12 +5382,13 @@ export default function App() {
     });
   }
 
-  async function sendAdminReply(id, { isEdit = false } = {}) {
-    if (!adminReplyText.trim() || adminSendingRef.current) return;
+  async function sendAdminReply(id, { isEdit = false, messageText } = {}) {
+    const replyDraft = messageText ?? adminReplyInputRef.current?.value ?? adminReplyText;
+    if (!replyDraft.trim() || adminSendingRef.current) return;
     adminSendingRef.current = true;
     try {
       const quotePrefix = (!isEdit && adminReplyPreview) ? `[QUOTE:${encodeURIComponent(JSON.stringify(adminReplyPreview))}]` : "";
-      const reply = quotePrefix + adminReplyText.trim();
+      const reply = quotePrefix + replyDraft.trim();
       const change = { admin_reply: reply, replied_at: new Date().toISOString(), ...(!isEdit && { user_read_at: null }) };
       const { data, error: patchErr } = await supabase
         .from("contact_messages")
@@ -5048,12 +5411,13 @@ export default function App() {
     }
   }
 
-  async function sendAdminFollowUp(toEmail) {
-    if (!adminReplyText.trim() || adminSendingRef.current) return;
+  async function sendAdminFollowUp(toEmail, messageText) {
+    const replyDraft = messageText ?? adminReplyInputRef.current?.value ?? adminReplyText;
+    if (!replyDraft.trim() || adminSendingRef.current) return;
     adminSendingRef.current = true;
     try {
       const quotePrefix = adminReplyPreview ? `[QUOTE:${encodeURIComponent(JSON.stringify(adminReplyPreview))}]` : "";
-      const reply = quotePrefix + adminReplyText.trim();
+      const reply = quotePrefix + replyDraft.trim();
       const { data, error } = await supabase.from("contact_messages").insert({
         name: "Support",
         email: toEmail.trim().toLowerCase(),
@@ -5093,8 +5457,9 @@ export default function App() {
     }
   }
 
-  async function editUserMessage(id) {
-    const trimmed = editingMsgText.trim();
+  async function editUserMessage(id, messageText) {
+    const currentText = messageText ?? editingMessageInputRef.current?.value ?? editingMsgText;
+    const trimmed = currentText.trim();
     if (!trimmed) return;
     try {
       const { error } = await supabase.from("contact_messages").update({ message: trimmed }).eq("id", id);
@@ -5176,21 +5541,16 @@ export default function App() {
   }
 
   async function loadUserInbox(silent = false, markVisibleRead = false) {
-    // Logged-in users use their account email; guests use the entered email,
-    // falling back to the last saved guest email after a reload.
-    let email = currentUser?.email || contactForm.email.trim();
-    if (!email) {
-      try { email = window.localStorage.getItem("tbv_guest_email") || ""; } catch {}
-    }
+    const email = currentUser?.email?.trim().toLowerCase() || "";
     if (!email) {
       userInboxRequestIdRef.current += 1;
       userInboxEmailRef.current = "";
       setUserInboxMessages([]);
-      setUserInboxError("");
+      setHasUnreadReply(false);
+      setUserInboxError("Sign in to view your support messages.");
       setUserInboxLoading(false);
       return;
     }
-    email = email.trim().toLowerCase();
     if (userInboxEmailRef.current !== email) {
       userInboxEmailRef.current = email;
       setUserInboxMessages([]);
@@ -5338,17 +5698,15 @@ export default function App() {
   async function fetchUserPromos(email, currentAppliedPromo) {
     if (!email) return;
     try {
-      const [{ data, error }, { data: pubData }] = await Promise.all([
-        supabase.from("user_promos").select("*").eq("email", String(email).trim().toLowerCase()),
-        supabase.from("user_promos").select("*").eq("email", "__PUBLIC__"),
-      ]);
+      const { data, error } = await supabase
+        .from("user_promos")
+        .select("*")
+        .eq("email", String(email).trim().toLowerCase());
       if (!error && Array.isArray(data)) {
-        const publicPromoRows = Array.isArray(pubData) ? pubData : [];
-        const activePromos = [...data.filter((p) => !p.used), ...publicPromoRows];
+        const activePromos = data.filter((p) => !p.used);
         setUserPromos(activePromos);
-        const autoApplyPromos = activePromos.filter((p) => p.email !== "__PUBLIC__");
-        if (autoApplyPromos.length > 0 && !currentAppliedPromo) {
-          const first = autoApplyPromos[0];
+        if (activePromos.length > 0 && !currentAppliedPromo) {
+          const first = activePromos[0];
           setAppliedPromo({
             code: first.code,
             rate: first.rate,
@@ -6371,6 +6729,21 @@ export default function App() {
     }
   }
 
+  async function persistOrderToServer(order) {
+    const response = await fetch("/api/order-checkout", {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result?.ok !== true) {
+      throw new Error(result?.error || "Could not save this checkout.");
+    }
+    return result;
+  }
+
   async function markOrderCheckoutStartedById(orderId, paymentProvider = "Paylio") {
     if (!orderId) return;
     const orders = getStoredOrders();
@@ -6394,18 +6767,16 @@ export default function App() {
     setAllOrders(nextOrders);
     if (updatedOrder) {
       try {
-        const { error } = await supabase
-          .from("orders")
-          .upsert({
-            id: updatedOrder.id,
-            email: updatedOrder.email,
-            status: "checkout",
-            total: updatedOrder.total ?? 0,
-            metadata: { ...updatedOrder, status: "checkout" },
-          });
-        if (error) console.error("Supabase: checkout upsert failed:", error.message);
+        await persistOrderToServer({
+          id: updatedOrder.id,
+          email: updatedOrder.email,
+          status: "checkout",
+          total: updatedOrder.total ?? 0,
+          metadata: { ...updatedOrder, status: "checkout" },
+        });
       } catch (e) {
-        console.error("Supabase: checkout upsert threw:", e);
+        console.error("Checkout order save failed:", e);
+        throw e;
       }
     }
   }
@@ -6438,18 +6809,6 @@ export default function App() {
       // Status in Supabase is set ONLY by server-side webhooks (Stripe / Paylio / NOWPayments).
       // The frontend must not write status:"paid" — it creates false positives when the
       // payment provider redirects to the success URL before the payment is confirmed.
-
-      if (paidOrder.affiliateCode) {
-        supabase
-          .from("affiliate_orders")
-          .upsert({
-            order_id: paidOrder.id,
-            affiliate_code: String(paidOrder.affiliateCode).trim().toUpperCase(),
-            commission_amount: Number(paidOrder.affiliateCommission) || Number(paidOrder.subtotal || paidOrder.total || 0) * 0.1,
-            shipping_type: String(paidOrder.shippingType || "standard").toLowerCase(),
-          })
-          .then(({ error }) => { if (error) console.error("Supabase: insert affiliate_orders failed:", error.message); });
-      }
 
       // Store credit is now deducted server-side by the payment webhooks
       // (Stripe / CatalystPay / NOWPayments / Paylio), right when they mark
@@ -6517,7 +6876,11 @@ export default function App() {
         setCatalystPayPending(true);
         const upgradeCatalystPayIfPaid = async (attempt) => {
           try {
-            const { data } = await supabase.from("orders").select("status").eq("id", order).single();
+            const response = await fetch(
+              `/api/order-checkout?orderId=${encodeURIComponent(order)}`,
+              { credentials: "same-origin", cache: "no-store" }
+            );
+            const data = response.ok ? await response.json().catch(() => null) : null;
             if (String(data?.status || "").toLowerCase() === "paid") {
               let payProvider = "CatalystPay BTC";
               try {
@@ -6657,6 +7020,7 @@ export default function App() {
       trackOrderBtn: "CHECK STATUS",
       trackOrderChecking: "Checking...",
       trackOrderNotFound: "Order not found. Check the number and try again.",
+      trackOrderSignInRequired: "Sign in with the email used for this order to view its status.",
       trackOrderPaid: "PAID",
       trackOrderPending: "AWAITING PAYMENT",
       trackOrderDate: "Date",
@@ -6779,6 +7143,7 @@ export default function App() {
       trackOrderBtn: "ПРОВЕРИТЬ СТАТУС",
       trackOrderChecking: "Проверяем...",
       trackOrderNotFound: "Заказ не найден. Проверьте номер и попробуйте снова.",
+      trackOrderSignInRequired: "Войдите с адресом электронной почты, указанным для этого заказа, чтобы увидеть его статус.",
       trackOrderPaid: "ОПЛАЧЕН",
       trackOrderPending: "ОЖИДАЕТ ОПЛАТЫ",
       trackOrderDate: "Дата",
@@ -6902,6 +7267,7 @@ export default function App() {
       trackOrderBtn: "VERIFICAR ESTADO",
       trackOrderChecking: "Verificando...",
       trackOrderNotFound: "Pedido no encontrado. Revisa el número e intenta de nuevo.",
+      trackOrderSignInRequired: "Inicia sesión con el correo electrónico usado para este pedido para ver su estado.",
       trackOrderPaid: "PAGADO",
       trackOrderPending: "ESPERANDO PAGO",
       trackOrderDate: "Fecha",
@@ -7025,6 +7391,7 @@ export default function App() {
       trackOrderBtn: "STATUS PRÜFEN",
       trackOrderChecking: "Wird geprüft...",
       trackOrderNotFound: "Bestellung nicht gefunden. Nummer prüfen und erneut versuchen.",
+      trackOrderSignInRequired: "Melde dich mit der E-Mail-Adresse dieses Auftrags an, um seinen Status zu sehen.",
       trackOrderPaid: "BEZAHLT",
       trackOrderPending: "ZAHLUNG AUSSTEHEND",
       trackOrderDate: "Datum",
@@ -7148,6 +7515,7 @@ export default function App() {
       trackOrderBtn: "ПЕРЕВІРИТИ СТАТУС",
       trackOrderChecking: "Перевіряємо...",
       trackOrderNotFound: "Замовлення не знайдено. Перевірте номер і спробуйте ще раз.",
+      trackOrderSignInRequired: "Увійдіть з адресою електронної пошти, вказаною для цього замовлення, щоб переглянути його статус.",
       trackOrderPaid: "ОПЛАЧЕНО",
       trackOrderPending: "ОЧІКУЄ ОПЛАТИ",
       trackOrderDate: "Дата",
@@ -8016,37 +8384,12 @@ export default function App() {
     : 0;
 
   const SITE_URL = "https://10bottlevalue.co";
-  const SUPABASE_URL = "https://danpkqqzcptamojrnrmk.supabase.co";
-  const SUPABASE_ANON_KEY = "sb_publishable_gOi1ydrIb2e86NM-uEBNRg_KawnIBN0";
-
-  async function supabaseFetch(path, options = {}) {
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-      ...options,
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        "Content-Type": "application/json",
-        ...(options.headers || {}),
-      },
-    });
-
-    const text = await response.text();
-    let data = null;
-
-    try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
-      data = text;
-    }
-
-    if (!response.ok) {
-      throw new Error(
-        data?.message || data?.error || `Supabase request failed: ${response.status}`
-      );
-    }
-
-    return data;
-  }
+  const SUPABASE_URL =
+    import.meta.env.VITE_SUPABASE_URL ||
+    "https://danpkqqzcptamojrnrmk.supabase.co";
+  const SUPABASE_ANON_KEY =
+    import.meta.env.VITE_SUPABASE_ANON_KEY ||
+    "sb_publishable_gOi1ydrIb2e86NM-uEBNRg_KawnIBN0";
 
   function normalizeAffiliateRows(rows = []) {
     return (Array.isArray(rows) ? rows : [])
@@ -8064,10 +8407,31 @@ export default function App() {
   }
 
   async function loadAffiliateProfilesFromSupabase() {
+    setAffiliateProfiles([]);
+    setAffiliateProfilesLoaded(false);
     try {
-      const rows = await supabaseFetch(
-        "affiliates?select=email,code,active,created_at&order=created_at.desc"
-      );
+      let rows = [];
+      if (isAdminUser()) {
+        const { data, error } = await supabase
+          .from("affiliates")
+          .select("email,code,active,created_at")
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        rows = data;
+      } else if (currentUser?.email) {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+        if (!session?.access_token) throw new Error("Sign in to load affiliate access.");
+
+        const response = await fetch("/api/affiliate-account", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || result?.ok !== true) {
+          throw new Error(result?.error || "Affiliate profile could not be loaded.");
+        }
+        rows = result.affiliate ? [result.affiliate] : [];
+      }
       const normalized = normalizeAffiliateRows(rows);
       setAffiliateProfiles(normalized);
       setAffiliateProfilesLoaded(true);
@@ -8098,6 +8462,34 @@ export default function App() {
     }
   }
 
+  async function lookupPublicAffiliateCode(code) {
+    const normalizedCode = String(code || "").trim().toUpperCase();
+    if (!normalizedCode) return null;
+
+    const response = await fetch(
+      `/api/affiliate-account?code=${encodeURIComponent(normalizedCode)}`
+    );
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result?.ok !== true) {
+      throw new Error(result?.error || "Affiliate code could not be verified.");
+    }
+    return result.affiliate || null;
+  }
+
+  async function lookupPublicPromoCode(code) {
+    const normalizedCode = String(code || "").trim().toUpperCase();
+    if (!normalizedCode) return null;
+
+    const response = await fetch(
+      `/api/public-promo-code?code=${encodeURIComponent(normalizedCode)}`
+    );
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result?.ok !== true) {
+      throw new Error(result?.error || "Promo code could not be verified.");
+    }
+    return result.promo || null;
+  }
+
   async function loadAffiliateCommissionOrders(affiliateCode) {
     const codeUpper = String(affiliateCode || "").trim().toUpperCase();
     if (!codeUpper) return;
@@ -8110,53 +8502,46 @@ export default function App() {
     setAffiliateOrdersError(false);
     setAffiliatePayoutError(false);
 
-    const orderReadErrors = [];
-    const readAllPages = async (buildQuery) => {
-      const rows = [];
-      const pageSize = 500;
-      for (let offset = 0; ; offset += pageSize) {
-        const { data, error } = await buildQuery().range(offset, offset + pageSize - 1);
-        if (error) throw error;
-        const page = Array.isArray(data) ? data : [];
-        rows.push(...page);
-        if (page.length < pageSize) break;
-      }
-      return rows;
-    };
-    const safelyReadPages = async (buildQuery) => {
-      try {
-        return await readAllPages(buildQuery);
-      } catch (error) {
-        orderReadErrors.push(error);
-        return [];
-      }
-    };
-
     try {
-      const orderSelect = "id,status,created_at,total,metadata,affiliate_code";
-      const [ledgerRows, codeColumnOrders, codeMetadataOrders] = await Promise.all([
-        safelyReadPages(() =>
-          supabase
-            .from("affiliate_orders")
-            .select("order_id,affiliate_code,commission_amount,shipping_type,created_at")
-            .eq("affiliate_code", codeUpper)
-            .order("created_at", { ascending: false })
-        ),
-        safelyReadPages(() =>
-          supabase
-            .from("orders")
-            .select(orderSelect)
-            .eq("affiliate_code", codeUpper)
-            .order("created_at", { ascending: false })
-        ),
-        safelyReadPages(() =>
-          supabase
-            .from("orders")
-            .select(orderSelect)
-            .filter("metadata->>affiliateCode", "eq", codeUpper)
-            .order("created_at", { ascending: false })
-        ),
-      ]);
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      if (!session?.access_token) throw new Error("Sign in to load affiliate orders.");
+
+      const ledgerRows = [];
+      const codeColumnOrders = [];
+      const codeMetadataOrders = [];
+      let pageOffset = 0;
+      let hasMore = true;
+      let totalPaidOut = 0;
+      let payoutReadFailed = false;
+      while (hasMore) {
+        const response = await fetch(
+          `/api/affiliate-account?orders=1&offset=${pageOffset}`,
+          { headers: { Authorization: `Bearer ${session.access_token}` } }
+        );
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || result?.ok !== true) {
+          throw new Error(result?.error || "Affiliate orders could not be loaded.");
+        }
+        if (String(result?.affiliate?.code || "").trim().toUpperCase() !== codeUpper) {
+          throw new Error("Affiliate profile changed while loading its order history.");
+        }
+        ledgerRows.push(...(Array.isArray(result.ledgerRows) ? result.ledgerRows : []));
+        codeColumnOrders.push(...(Array.isArray(result.codeColumnOrders) ? result.codeColumnOrders : []));
+        codeMetadataOrders.push(...(Array.isArray(result.codeMetadataOrders) ? result.codeMetadataOrders : []));
+        if (pageOffset === 0) {
+          payoutReadFailed = result.payoutsTotal == null;
+          totalPaidOut = Number(result.payoutsTotal) || 0;
+        }
+        hasMore = result.hasMore === true;
+        if (!hasMore) break;
+        pageOffset += 100;
+        if (pageOffset > 100000) throw new Error("Affiliate order history exceeds the supported limit.");
+      }
+      if (requestId === affiliateLoadRequestRef.current) {
+        setAffiliatePaidOut(totalPaidOut);
+        setAffiliatePayoutError(payoutReadFailed);
+      }
 
       const orderDetailsById = new Map();
       const addOrderDetails = (row) => {
@@ -8315,32 +8700,13 @@ export default function App() {
       );
       if (requestId === affiliateLoadRequestRef.current) {
         setAffiliateCommissionOrders(commissionRows);
-        setAffiliateOrdersError(orderReadErrors.length > 0);
+        setAffiliateOrdersError(false);
       }
     } catch (error) {
       console.error("Failed to load affiliate commission orders", error);
       if (requestId === affiliateLoadRequestRef.current) {
         setAffiliateCommissionOrders([]);
         setAffiliateOrdersError(true);
-      }
-    }
-
-    // Payout history is loaded independently so order details still render if it is unavailable.
-    try {
-      const payoutRows = await supabaseFetch(
-        `affiliate_payouts?select=amount&affiliate_code=eq.${encodeURIComponent(codeUpper)}`
-      );
-      const totalPaid = Array.isArray(payoutRows)
-        ? payoutRows.reduce((sum, row) => sum + Number(row.amount || 0), 0)
-        : 0;
-      if (requestId === affiliateLoadRequestRef.current) {
-        setAffiliatePaidOut(totalPaid);
-        setAffiliatePayoutError(false);
-      }
-    } catch (error) {
-      console.error("Failed to load affiliate payouts", error);
-      if (requestId === affiliateLoadRequestRef.current) {
-        setAffiliatePaidOut(0);
         setAffiliatePayoutError(true);
       }
     } finally {
@@ -8386,463 +8752,6 @@ export default function App() {
     localStorage.setItem("tbv-oos", JSON.stringify(next));
   }
 
-  const faqs = [
-    {
-      q: tx(
-        "What will show on my card or PayPal statement?",
-        "ЧТО БУДЕТ ОТОБРАЖАТЬСЯ В ВЫПИСКЕ ПО КАРТЕ ИЛИ PAYPAL?",
-        "ЩО ВІДОБРАЖАТИМЕТЬСЯ У ВИПИСЦІ ПО КАРТІ АБО PAYPAL?",
-        "WAS ERSCHEINT AUF MEINER KARTEN- ODER PAYPAL-ABRECHNUNG?",
-        "¿QUÉ APARECERÁ EN MI ESTADO DE CUENTA DE TARJETA O PAYPAL?"
-      ),
-      id: "billing-descriptor",
-      a: tx(
-        "Charges from this website appear on your card or PayPal statement as \"10BottleValueCo\". This matches our business name so you can always recognize the charge and avoid unnecessary disputes.",
-        "Списания с этого сайта отображаются в выписке по карте или PayPal как «10BottleValueCo». Это совпадает с названием нашей компании, чтобы вы всегда могли узнать платёж и избежать ненужных споров.",
-        "Списання з цього сайту відображаються у виписці по карті або PayPal як «10BottleValueCo». Це збігається з назвою нашої компанії, щоб ви завжди могли впізнати платіж і уникнути зайвих суперечок.",
-        "Belastungen von dieser Website erscheinen auf Ihrer Karten- oder PayPal-Abrechnung als „10BottleValueCo“. Dies entspricht unserem Firmennamen, damit Sie die Belastung stets erkennen und unnötige Reklamationen vermeiden können.",
-        "Los cargos de este sitio web aparecen en su estado de cuenta de tarjeta o PayPal como «10BottleValueCo». Esto coincide con el nombre de nuestra empresa para que siempre pueda reconocer el cargo y evitar disputas innecesarias."
-      ),
-    },
-    {
-      q: tx(
-        "Can I combine discounts or promo codes?",
-        "МОЖНО ЛИ СОВМЕЩАТЬ СКИДКИ ИЛИ ПРОМОКОДЫ?",
-        "ЧИ МОЖНА ПОЄДНУВАТИ ЗНИЖКИ АБО ПРОМОКОДИ?",
-        undefined,
-        "¿PUEDO COMBINAR DESCUENTOS O CÓDIGOS PROMOCIONALES?"
-      ),
-      id: "combine-discounts",
-      a: tx(
-        `No, discounts and promo codes cannot be combined.
-
-If multiple discounts apply (such as order-based discounts or promo codes), only one can be used per order. We recommend using the highest available discount.`,
-        `Нет, скидки и промокоды нельзя совмещать.
-
-Если применяется несколько скидок (например, скидки по сумме заказа или промокоды), можно использовать только одну на заказ. Рекомендуем использовать самую большую доступную скидку.`,
-        `Ні, знижки та промокоди не можна поєднувати.
-
-Якщо застосовується кілька знижок (наприклад, знижки за сумою замовлення або промокоди), можна використати лише одну на замовлення. Рекомендуємо використовувати найбільшу доступну знижку.`,
-        undefined,
-        `No, los descuentos y los códigos promocionales no se pueden combinar.
-
-Si se aplican varios descuentos, como descuentos por valor del pedido o códigos promocionales, solo se puede usar uno por pedido. Recomendamos usar el descuento más alto disponible.`
-      ),
-    },
-    {
-      q: tx(
-        "Are you the cheapest?",
-        "ВЫ САМЫЕ ДЕШЁВЫЕ?",
-        "ВИ НАЙДЕШЕВШІ?",
-        undefined,
-        "¿SON LOS MÁS BARATOS?"
-      ),
-      id: "cheapest",
-      a: tx(
-        "Our 10-vial kit model is designed for cost-efficient research purchasing. By selling only in bundled kits, we reduce unnecessary packaging and single-vial handling costs while maintaining consistent quality standards.",
-        "Наша модель наборов по 10 флаконов создана для экономически эффективных исследовательских закупок. Продавая только наборы, мы сокращаем лишнюю упаковку и расходы на обработку одиночных флаконов, сохраняя стабильные стандарты качества.",
-        "Наша модель наборів по 10 флаконів створена для економічно ефективних дослідницьких закупівель. Продаючи лише набори, ми зменшуємо зайве пакування та витрати на обробку одиничних флаконів, зберігаючи стабільні стандарти якості.",
-        undefined,
-        "Nuestro modelo de kits de 10 viales está diseñado para compras de investigación eficientes en coste. Al vender únicamente kits agrupados, reducimos costes innecesarios de embalaje y manipulación de viales individuales, manteniendo estándares de calidad consistentes."
-      ),
-    },
-    {
-      q: tx(
-        "Why only 10-vial kits?",
-        "ПОЧЕМУ ТОЛЬКО НАБОРЫ ПО 10 ФЛАКОНОВ?",
-        "ЧОМУ ЛИШЕ НАБОРИ ПО 10 ФЛАКОНІВ?",
-        undefined,
-        "¿POR QUÉ SOLO KITS DE 10 VIALES?"
-      ),
-      id: "ten-vial-kits",
-      a: tx(
-        "Single vials are the most expensive way to buy. Our 10-vial kit model lowers the cost per vial and keeps the process simple.",
-        "Одиночные флаконы — самый дорогой способ покупки. Наша модель наборов по 10 флаконов снижает стоимость за флакон и сохраняет процесс простым.",
-        "Одиничні флакони — найдорожчий спосіб покупки. Наша модель наборів по 10 флаконів знижує вартість за флакон і зберігає процес простим.",
-        undefined,
-        "Los viales individuales son la forma más cara de comprar. Nuestro modelo de kits de 10 viales reduce el coste por vial y mantiene el proceso simple."
-      ),
-    },
-    {
-      q: tx(
-        "Do you ship worldwide?",
-        "ВЫ ДОСТАВЛЯЕТЕ ПО ВСЕМУ МИРУ?",
-        "ВИ ДОСТАВЛЯЄТЕ ПО ВСЬОМУ СВІТУ?",
-        undefined,
-        "¿REALIZAN ENVÍOS A TODO EL MUNDO?"
-      ),
-      id: "ship-worldwide",
-      a: tx(
-        "Yes. All orders are fulfilled by trusted international supply partners. Products are shipped directly from our partners to the customer. We periodically restock our US warehouse, making select items available for faster domestic shipping.",
-        "Да. Все заказы выполняются проверенными международными партнёрами-поставщиками. Продукты отправляются напрямую от наших партнёров клиенту. Время от времени мы пополняем наш склад в США, что позволяет предлагать отдельные товары с более быстрой доставкой по стране.",
-        "Так. Усі замовлення виконуються перевіреними міжнародними партнерами-постачальниками. Продукти відправляються напряму від наших партнерів клієнту. Час від часу ми поповнюємо наш склад у США, що дозволяє пропонувати окремі товари з швидшою доставкою по країні.",
-        undefined,
-        "Sí. Todos los pedidos son gestionados por socios internacionales de suministro de confianza. Los productos se envían directamente desde nuestros socios al cliente. Periódicamente reabastecemos nuestro almacén en EE. UU., lo que permite una entrega más rápida en algunos productos."
-      ),
-    },
-    {
-      q: tx(
-        "How long does shipping take?",
-        "СКОЛЬКО ЗАНИМАЕТ ДОСТАВКА?",
-        "СКІЛЬКИ ТРИВАЄ ДОСТАВКА?",
-        undefined,
-        "¿CUÁNTO TARDA EL ENVÍO?"
-      ),
-      id: "shipping-time",
-      a: tx(
-        `Standard worldwide shipping takes approximately 8–12 business days. Express shipping takes approximately 5–7 business days (worldwide).
-
-US Warehouse shipping (within the USA) takes approximately 2–5 business days.
-
-Delivery times may vary depending on customs and local postal services.`,
-        `Стандартная доставка по всему миру занимает примерно 8–12 рабочих дней. Экспресс-доставка занимает примерно 5–7 рабочих дней (по всему миру).
-
-Доставка со склада в США (по территории США) занимает примерно 2–5 рабочих дней.
-
-Сроки доставки могут отличаться в зависимости от таможни и местных почтовых служб.`,
-        `Стандартна доставка по всьому світу займає приблизно 8–12 робочих днів. Експрес-доставка займає приблизно 5–7 робочих днів (по всьому світу).
-
-Доставка зі складу в США (по території США) займає приблизно 2–5 робочих днів.
-
-Терміни доставки можуть відрізнятися залежно від митниці та місцевих поштових служб.`,
-        undefined,
-        `El envío estándar a todo el mundo tarda aproximadamente 8–12 días hábiles. El envío exprés tarda aproximadamente 5–7 días hábiles (en todo el mundo).
-
-El envío desde el almacén de EE. UU. (dentro de EE. UU.) tarda aproximadamente 2–5 días hábiles.
-
-Los tiempos de entrega pueden variar según aduanas y los servicios postales locales.`
-      ),
-    },
-    {
-      q: tx(
-        "Can I modify or cancel my order?",
-        "МОЖНО ЛИ ИЗМЕНИТЬ ИЛИ ОТМЕНИТЬ ЗАКАЗ?",
-        "ЧИ МОЖНА ЗМІНИТИ АБО СКАСУВАТИ ЗАМОВЛЕННЯ?",
-        undefined,
-        "¿PUEDO MODIFICAR O CANCELAR MI PEDIDO?"
-      ),
-      id: "modify-cancel-order",
-      a: tx(
-        "If your order has already been shipped, it can no longer be cancelled or returned.",
-        "Если ваш заказ уже отправлен, отменить или вернуть его невозможно.",
-        "Якщо ваше замовлення вже відправлено, скасувати або повернути його неможливо.",
-        undefined,
-        "Si tu pedido ya ha sido enviado, no es posible cancelarlo ni devolverlo."
-      ),
-    },
-    {
-      q: tx(
-        "What if I entered the wrong shipping address?",
-        "ЧТО ЕСЛИ Я УКАЗАЛ НЕПРАВИЛЬНЫЙ АДРЕС ДОСТАВКИ?",
-        "ЩО ЯКЩО Я ВКАЗАВ НЕПРАВИЛЬНУ АДРЕСУ ДОСТАВКИ?",
-        undefined,
-        "¿QUÉ PASA SI INTRODUJE UNA DIRECCIÓN DE ENVÍO INCORRECTA?"
-      ),
-      id: "wrong-shipping-address",
-      a: tx(
-        `If you entered an incorrect shipping address, please contact support@10bottlevalue.co as soon as possible - ideally within 8 hours of placing your order.
-
-We can update the address before the order is shipped. Once the order has been dispatched, changes are no longer possible, but we’ll assist you with tracking or redirecting the package if supported by the carrier.`,
-        `Если вы указали неправильный адрес доставки, свяжитесь с support@10bottlevalue.co как можно скорее — желательно в течение 8 часов после оформления заказа.
-
-Мы можем обновить адрес до отправки заказа. После отправки изменения больше невозможны, но мы поможем с отслеживанием или перенаправлением посылки, если это поддерживается перевозчиком.`,
-        `Якщо ви вказали неправильну адресу доставки, звʼяжіться з support@10bottlevalue.co якнайшвидше — бажано протягом 8 годин після оформлення замовлення.
-
-Ми можемо оновити адресу до відправлення замовлення. Після відправлення зміни більше неможливі, але ми допоможемо з відстеженням або перенаправленням посилки, якщо це підтримується перевізником.`,
-        undefined,
-        `Si introdujiste una dirección de envío incorrecta, contacta con support@10bottlevalue.co lo antes posible, idealmente dentro de las 8 horas posteriores a realizar tu pedido.
-
-Podemos actualizar la dirección antes de que el pedido sea enviado. Una vez que el pedido ha sido despachado, ya no es posible realizar cambios, pero te ayudaremos con el seguimiento o la redirección del paquete si el transportista lo permite.`
-      ),
-    },
-    {
-      q: tx(
-        "What payment methods do you accept?",
-        "КАКИЕ СПОСОБЫ ОПЛАТЫ ВЫ ПРИНИМАЕТЕ?",
-        "ЯКІ СПОСОБИ ОПЛАТИ ВИ ПРИЙМАЄТЕ?",
-        undefined,
-        "¿QUÉ MÉTODOS DE PAGO ACEPTAN?"
-      ),
-      id: "payment-methods",
-      a: tx(
-        "We currently accept cryptocurrency payments through secure checkout. Card payments are under review and will be available after approval.",
-        "Сейчас мы принимаем криптовалютные платежи через безопасный checkout. Оплата картой находится на рассмотрении и будет доступна после одобрения.",
-        "Зараз ми приймаємо криптовалютні платежі через безпечний checkout. Оплата карткою перебуває на розгляді та буде доступна після схвалення.",
-        undefined,
-        "Actualmente aceptamos pagos con criptomonedas mediante checkout seguro. Los pagos con tarjeta están en revisión y estarán disponibles después de la aprobación."
-      ),
-    },
-    {
-      q: tx(
-        "Why is the price lower?",
-        "ПОЧЕМУ ЦЕНА НИЖЕ?",
-        "ЧОМУ ЦІНА НИЖЧА?",
-        undefined,
-        "¿POR QUÉ EL PRECIO ES MÁS BAJO?"
-      ),
-      id: "lower-price",
-      a: tx(
-        "The price is lower because of our bulk model. We do not sell single vials, which allows us to reduce cost without lowering quality.",
-        "Цена ниже благодаря нашей bulk-модели. Мы не продаём одиночные флаконы, что позволяет снижать стоимость без снижения качества.",
-        "Ціна нижча завдяки нашій bulk-моделі. Ми не продаємо одиничні флакони, що дозволяє знижувати вартість без зниження якості.",
-        undefined,
-        "El precio es más bajo gracias a nuestro modelo de volumen. No vendemos viales individuales, lo que nos permite reducir el coste sin reducir la calidad."
-      ),
-    },
-    {
-      q: tx(
-        "How can I be sure the products are high quality?",
-        "КАК УБЕДИТЬСЯ, ЧТО ПРОДУКТЫ ВЫСОКОГО КАЧЕСТВА?",
-        "ЯК ПЕРЕКОНАТИСЯ, ЩО ПРОДУКТИ ВИСОКОЇ ЯКОСТІ?",
-        undefined,
-        "¿CÓMO PUEDO ASEGURARME DE QUE LOS PRODUCTOS SON DE ALTA CALIDAD?"
-      ),
-      id: "high-quality",
-      a: tx(
-        `We partner with vetted manufacturers and maintain strict quality control across all batches.
-
-COA reports for our most popular peptides are available directly on the product pages. For other products, COAs are available upon request at support@10bottlevalue.co. Not every peptide undergoes third-party COA testing — this is what allows us to keep our prices so low.
-
-We guarantee 97%+ purity. If an independent lab test shows otherwise, you get a full refund. Refunds are issued in cryptocurrency only.
-
-Please note: when submitting vials for COA testing, a photo of our vials is required. Without it, we cannot confirm the vials were ours and will be unable to process a refund.
-
-We will also request proof of payment to the lab — or proof of a free submission — to confirm that you were the one who sent the vials.`,
-        `Мы работаем с проверенными производителями и поддерживаем строгий контроль качества по всем партиям.
-
-COA-отчёты для самых популярных пептидов доступны прямо на страницах товаров. Для остальных продуктов COA можно запросить по email support@10bottlevalue.co. Не все пептиды проходят стороннее COA-тестирование — именно это позволяет нам держать такие низкие цены.
-
-Мы гарантируем чистоту 97%+. Если это не подтвердится в независимой лаборатории — вернём деньги за заказ. Возврат средств осуществляется только в криптовалюте.
-
-Обратите внимание: при отправке флаконов на COA-тестирование обязательно приложите фотографию наших флаконов. Без неё мы не сможем убедиться, что флаконы были именно нашими, и не сможем оформить возврат.
-
-Также мы запросим у вас подтверждение оплаты в лабораторию — либо подтверждение бесплатной отправки — чтобы убедиться, что именно вы отослали эти флаконы.`,
-        `Ми працюємо з перевіреними виробниками та підтримуємо суворий контроль якості по всіх партіях.
-
-COA-звіти для найпопулярніших пептидів доступні безпосередньо на сторінках товарів. Для інших продуктів COA можна запросити на email support@10bottlevalue.co. Не всі пептиди проходять стороннє COA-тестування — саме це дозволяє нам тримати такі низькі ціни.
-
-Ми гарантуємо чистоту 97%+. Якщо це не підтвердиться в незалежній лабораторії — повернемо кошти за замовлення. Повернення коштів здійснюється лише в криптовалюті.
-
-Зверніть увагу: при відправці флаконів на COA-тестування обов'язково додайте фотографію наших флаконів. Без неї ми не зможемо підтвердити, що флакони були саме нашими, і не зможемо оформити повернення.
-
-Також ми запросимо у вас підтвердження оплати в лабораторію — або підтвердження безкоштовної відправки — щоб переконатися, що саме ви відіслали ці флакони.`,
-        undefined,
-        `Trabajamos con fabricantes verificados y mantenemos un estricto control de calidad en todos los lotes.
-
-Los informes COA de los péptidos más populares están disponibles directamente en las páginas de producto. Para otros productos, los COA están disponibles bajo solicitud en support@10bottlevalue.co. No todos los péptidos pasan por pruebas COA de terceros — esto es lo que nos permite mantener precios tan bajos.
-
-Garantizamos una pureza del 97%+. Si esto no es confirmado por un laboratorio independiente, realizaremos el reembolso completo de su pedido. Los reembolsos se realizan únicamente en criptomoneda.
-
-Tenga en cuenta: al enviar los viales para pruebas COA, se requiere una fotografía de nuestros viales. Sin ella, no podremos confirmar que los viales eran nuestros y no podremos procesar el reembolso.
-
-También le solicitaremos un comprobante de pago al laboratorio — o confirmación de envío gratuito — para verificar que usted fue quien envió los viales.`
-      ),
-    },
-    {
-      q: tx(
-        "Is this legit?",
-        "ЭТО ЛЕГИТИМНО?",
-        "ЦЕ ЛЕГІТИМНО?",
-        undefined,
-        "¿ESTO ES LEGÍTIMO?"
-      ),
-      id: "legit",
-      a: tx(
-        "Yes. The brand is built around long-term trust, consistent quality controls, transparent policies, and a straightforward research purchasing experience.",
-        "Да. Бренд построен вокруг долгосрочного доверия, стабильного контроля качества, прозрачных политик и понятного опыта исследовательской покупки.",
-        "Так. Бренд побудований навколо довгострокової довіри, стабільного контролю якості, прозорих політик і зрозумілого досвіду дослідницької покупки.",
-        undefined,
-        "Sí. La marca está construida sobre confianza a largo plazo, controles de calidad consistentes, políticas transparentes y una experiencia de compra para investigación clara y directa."
-      ),
-    },
-    {
-      q: tx(
-        "What if there is an issue with my order?",
-        "ЧТО ЕСЛИ С МОИМ ЗАКАЗОМ ЕСТЬ ПРОБЛЕМА?",
-        "ЩО ЯКЩО З МОЇМ ЗАМОВЛЕННЯМ Є ПРОБЛЕМА?",
-        undefined,
-        "¿QUÉ PASA SI HAY UN PROBLEMA CON MI PEDIDO?"
-      ),
-      id: "order-issue",
-      a: tx(
-        "Due to the nature of our products, all sales are final and items cannot be returned once shipped. However, if you receive a damaged, defective, or incorrect item, please contact our support team within 7 days of delivery. We will review your case and arrange a replacement where appropriate.",
-        "Из-за характера наших продуктов все продажи являются окончательными, и товары нельзя вернуть после отправки. Однако если вы получили повреждённый, дефектный или неправильный товар, свяжитесь с нашей поддержкой в течение 7 дней после доставки. Мы рассмотрим ваш случай и при необходимости организуем замену.",
-        "Через характер наших продуктів усі продажі є остаточними, і товари не можна повернути після відправлення. Однак якщо ви отримали пошкоджений, дефектний або неправильний товар, звʼяжіться з нашою підтримкою протягом 7 днів після доставки. Ми розглянемо ваш випадок і за потреби організуємо заміну.",
-        undefined,
-        "Debido a la naturaleza de nuestros productos, todas las ventas son finales y los artículos no pueden devolverse una vez enviados. Sin embargo, si recibes un artículo dañado, defectuoso o incorrecto, contacta con nuestro equipo de soporte dentro de los 7 días posteriores a la entrega. Revisaremos tu caso y organizaremos un reemplazo cuando corresponda."
-      ),
-    },
-    {
-      q: tx(
-        "Are these products for human use?",
-        "ЭТИ ПРОДУКТЫ ДЛЯ ИСПОЛЬЗОВАНИЯ ЧЕЛОВЕКОМ?",
-        "ЦІ ПРОДУКТИ ДЛЯ ВИКОРИСТАННЯ ЛЮДИНОЮ?",
-        undefined,
-        "¿ESTOS PRODUCTOS SON PARA USO HUMANO?"
-      ),
-      id: "human-use",
-      a: tx(
-        "No. All products are sold strictly for laboratory research purposes only and are not intended for human or animal use.",
-        "Нет. Все продукты продаются строго только для лабораторных исследовательских целей и не предназначены для использования людьми или животными.",
-        "Ні. Усі продукти продаються суворо лише для лабораторних дослідницьких цілей і не призначені для використання людьми або тваринами.",
-        undefined,
-        "No. Todos los productos se venden estrictamente solo para fines de investigación de laboratorio y no están destinados para uso humano o animal."
-      ),
-    },
-    {
-      q: tx(
-        "How can I track my order?",
-        "КАК Я МОГУ ОТСЛЕДИТЬ ЗАКАЗ?",
-        "ЯК Я МОЖУ ВІДСТЕЖИТИ ЗАМОВЛЕННЯ?",
-        undefined,
-        "¿CÓMO PUEDO RASTREAR MI PEDIDO?"
-      ),
-      id: "track-order",
-      a: tx(
-        "Within 2 business days after payment, your tracking number will appear in your account in the 'Orders' section. You can use it to track your shipment directly.",
-        "В течение 2 рабочих дней после оплаты в вашем личном кабинете в разделе «Orders» появится трекинг-номер. С его помощью вы сможете отслеживать посылку.",
-        "Протягом 2 робочих днів після оплати у вашому особистому кабінеті в розділі «Orders» з'явиться трекінг-номер. За ним ви зможете відстежувати відправлення.",
-        undefined,
-        "Dentro de los 2 días hábiles posteriores al pago, tu número de seguimiento aparecerá en tu cuenta en el apartado 'Orders'. Con él podrás rastrear tu envío directamente."
-      ),
-    },
-    {
-      q: tx(
-        "What if my package tracking stops updating?",
-        "ЧТО ЕСЛИ ТРЕКИНГ ПОСЫЛКИ ПЕРЕСТАЛ ОБНОВЛЯТЬСЯ?",
-        "ЩО ЯКЩО ТРЕКІНГ ПОСИЛКИ ПЕРЕСТАВ ОНОВЛЮВАТИСЯ?",
-        undefined,
-        "¿QUÉ PASA SI EL SEGUIMIENTO DE MI PAQUETE DEJA DE ACTUALIZARSE?"
-      ),
-      id: "tracking-stops",
-      a: tx(
-        "If your package tracking hasn’t updated for an extended period, please contact our support team. You are welcome to reach out at any time to inquire about the status and progress of your shipment — we are always happy to help and will provide an update as quickly as possible. Each case is reviewed individually to ensure a fast resolution.",
-        "Если трекинг посылки долго не обновляется, свяжитесь с нашей поддержкой. Вы можете обратиться к нам в любое время, чтобы узнать о статусе и прогрессе вашей посылки — мы всегда рады помочь и предоставим информацию как можно скорее. Каждый случай рассматривается индивидуально для быстрого решения.",
-        "Якщо трекінг посилки довго не оновлюється, зверніться до нашої підтримки. Ви можете звернутись до нас у будь-який час, щоб дізнатися про статус і прогрес вашої посилки — ми завжди раді допомогти та надамо інформацію якнайшвидше. Кожен випадок розглядається індивідуально для швидкого вирішення.",
-        undefined,
-        "Si el seguimiento de tu paquete no se ha actualizado durante un período prolongado, contacta con nuestro equipo de soporte. Puedes escribirnos en cualquier momento para consultar el estado y el progreso de tu envío — siempre estamos encantados de ayudar y te daremos una actualización lo antes posible. Cada caso se revisa individualmente para garantizar una resolución rápida."
-      ),
-    },
-    {
-      q: tx(
-        "I didn’t receive an order confirmation email. What should I do?",
-        "Я НЕ ПОЛУЧИЛ ПИСЬМО ПОДТВЕРЖДЕНИЯ ЗАКАЗА. ЧТО ДЕЛАТЬ?",
-        "Я НЕ ОТРИМАВ ЛИСТ ПІДТВЕРДЖЕННЯ ЗАМОВЛЕННЯ. ЩО РОБИТИ?",
-        undefined,
-        "NO RECIBÍ EL EMAIL DE CONFIRMACIÓN DEL PEDIDO. ¿QUÉ DEBO HACER?"
-      ),
-      id: "confirmation-email",
-      a: tx(
-        `If you don’t see a confirmation email within a few minutes, please check your spam or junk folder first.
-
-If it’s not there, the email address may have been entered incorrectly. Contact our support team at support@10bottlevalue.co and we’ll resend your confirmation and verify your order details.`,
-        `Если вы не видите письмо подтверждения в течение нескольких минут, сначала проверьте папку спам или junk.
-
-Если его там нет, email мог быть введён неправильно. Свяжитесь с нашей поддержкой по адресу support@10bottlevalue.co, и мы повторно отправим подтверждение и проверим детали заказа.`,
-        `Якщо ви не бачите лист підтвердження протягом кількох хвилин, спочатку перевірте папку спам або junk.
-
-Якщо його там немає, email міг бути введений неправильно. Звʼяжіться з нашою підтримкою за адресою support@10bottlevalue.co, і ми повторно надішлемо підтвердження та перевіримо деталі замовлення.`,
-        undefined,
-        `Si no ves un email de confirmación en unos minutos, revisa primero tu carpeta de spam o correo no deseado.
-
-Si no está allí, es posible que la dirección de email se haya introducido incorrectamente. Contacta con nuestro equipo de soporte en support@10bottlevalue.co y volveremos a enviar tu confirmación y verificar los detalles de tu pedido.`
-      ),
-    },
-    {
-      q: tx(
-        "Are all your peptides lyophilized?",
-        "ВСЕ ВАШИ ПЕПТИДЫ ЛИОФИЛИЗИРОВАНЫ?",
-        "УСІ ВАШІ ПЕПТИДИ ЛІОФІЛІЗОВАНІ?",
-        undefined,
-        "¿TODOS SUS PÉPTIDOS ESTÁN LIOFILIZADOS?"
-      ),
-      id: "lyophilized",
-      a: tx(
-        "Yes — peptide materials are supplied in lyophilized (freeze-dried) form unless otherwise stated. Reconstitution Solution is provided as a liquid and is not lyophilized. Product format details are listed for identification and research documentation purposes only.",
-        "Да — пептидные материалы поставляются в лиофилизированной (freeze-dried) форме, если не указано иное. Reconstitution Solution поставляется как жидкость и не является лиофилизированным. Детали формата продукта указаны только для идентификации и исследовательской документации.",
-        "Так — пептидні матеріали постачаються у ліофілізованій (freeze-dried) формі, якщо не зазначено інше. Reconstitution Solution постачається як рідина і не є ліофілізованим. Деталі формату продукту вказані лише для ідентифікації та дослідницької документації.",
-        undefined,
-        "Sí — los materiales peptídicos se suministran en forma liofilizada (freeze-dried), salvo que se indique lo contrario. Reconstitution Solution se proporciona como líquido y no está liofilizada. Los detalles del formato del producto se indican únicamente para identificación y documentación de investigación."
-      ),
-    },
-    {
-      q: tx(
-        "Do you provide COA reports?",
-        "ВЫ ПРЕДОСТАВЛЯЕТЕ COA-ОТЧЁТЫ?",
-        "ВИ НАДАЄТЕ COA-ЗВІТИ?",
-        undefined,
-        "¿PROPORCIONAN INFORMES COA?"
-      ),
-      id: "coa-reports",
-      a: tx(
-        "Yes — COAs are available upon request. We don’t publish full reports publicly as they may contain supplier-sensitive information. However, all reports include purity and content verification.",
-        "Да — COA доступны по запросу. Мы не публикуем полные отчёты публично, так как они могут содержать конфиденциальную информацию поставщика. Однако все отчёты включают проверку чистоты и содержания.",
-        "Так — COA доступні за запитом. Ми не публікуємо повні звіти публічно, оскільки вони можуть містити конфіденційну інформацію постачальника. Однак усі звіти включають перевірку чистоти та вмісту.",
-        undefined,
-        "Sí — los COA están disponibles bajo solicitud. No publicamos informes completos públicamente, ya que pueden contener información sensible del proveedor. Sin embargo, todos los informes incluyen verificación de pureza y contenido."
-      ),
-    },
-    {
-      q: tx(
-        "Do you provide usage instructions for products?",
-        "ВЫ ПРЕДОСТАВЛЯЕТЕ ИНСТРУКЦИИ ПО ИСПОЛЬЗОВАНИЮ ПРОДУКТОВ?",
-        "ВИ НАДАЄТЕ ІНСТРУКЦІЇ З ВИКОРИСТАННЯ ПРОДУКТІВ?",
-        undefined,
-        "¿PROPORCIONAN INSTRUCCIONES DE USO PARA LOS PRODUCTOS?"
-      ),
-      id: "usage-instructions",
-      a: tx(
-        "No. All products are sold strictly for research purposes only. We do not provide any guidance or instructions for human or animal use.",
-        "Нет. Все продукты продаются строго только для исследовательских целей. Мы не предоставляем никаких рекомендаций или инструкций для использования людьми или животными.",
-        "Ні. Усі продукти продаються суворо лише для дослідницьких цілей. Ми не надаємо жодних рекомендацій або інструкцій для використання людьми чи тваринами.",
-        undefined,
-        "No. Todos los productos se venden estrictamente solo para fines de investigación. No proporcionamos ninguna orientación ni instrucciones para uso humano o animal."
-      ),
-    },
-    {
-      q: tx(
-        "Do all products have a Certificate of Analysis (COA)?",
-        "НА ВСЕ ПОЗИЦИИ ЕСТЬ СОА?",
-        "НА ВСІ ПОЗИЦІЇ Є СОА?",
-        undefined,
-        "¿TODOS LOS PRODUCTOS TIENEN CERTIFICADO DE ANÁLISIS (COA)?"
-      ),
-      id: "coa",
-      a: tx(
-        `No. We currently carry 117 peptide positions, and obtaining a Certificate of Analysis for each one is extremely costly. However, rest assured — our peptide manufacturing facility guarantees quality and high purity for every product.`,
-        `Нет. На данный момент у нас 117 позиций пептидов, и сделать СОА на каждый из них стоит больших денег. Но не сомневайтесь — наша фабрика по производству пептидов гарантирует вам качество и высокую чистоту (purity) каждого продукта.`,
-        `Ні. На даний момент у нас 117 позицій пептидів, і зробити СОА на кожну з них коштує великих грошей. Але не сумнівайтесь — наша фабрика з виробництва пептидів гарантує вам якість і високу чистоту (purity) кожного продукту.`,
-        undefined,
-        `No. Actualmente contamos con 117 posiciones de péptidos y obtener un Certificado de Análisis para cada uno resulta muy costoso. Sin embargo, tenga la seguridad de que nuestra fábrica de fabricación de péptidos garantiza la calidad y la alta pureza de cada producto.`
-      ),
-    },
-    {
-      q: tx(
-        "Are all the products you sell listed in the catalog?",
-        "В КАТАЛОГЕ ВСЕ ПРОДУКТЫ, ЧТО ВЫ ПРОДАЁТЕ?",
-        "У КАТАЛОЗІ ВСІ ПРОДУКТИ, ЩО ВИ ПРОДАЄТЕ?",
-        undefined,
-        "¿ESTÁN TODOS LOS PRODUCTOS QUE VENDEN EN EL CATÁLOGO?"
-      ),
-      id: "not-all-products-in-catalog",
-      a: tx(
-        "No, not all the products we sell are listed in the catalog. If you have a specific product in mind that you don't see, reach out to us — we may be able to find a solution for you.",
-        "Нет, в каталоге не все продукты, которые мы продаём. Если у вас есть желание по конкретному продукту, которого вы не видите в каталоге, напишите нам — возможно, мы найдём решение.",
-        "Ні, у каталозі не всі продукти, які ми продаємо. Якщо у вас є бажання щодо конкретного продукту, якого ви не бачите в каталозі, напишіть нам — можливо, ми знайдемо рішення.",
-        undefined,
-        "No, no todos los productos que vendemos están listados en el catálogo. Si tiene en mente un producto específico que no ve, contáctenos — es posible que encontremos una solución para usted."
-      ),
-    },
-  ];
-
-  const faqSearchQuery = faqSearchInput.trim().toLocaleLowerCase();
-  const faqSearchMatchIds = new Set(
-    faqs
-      .filter((faq) =>
-        `${faq.q} ${faq.a}`.toLocaleLowerCase().includes(faqSearchQuery),
-      )
-      .map((faq) => faq.id),
-  );
 
   const productBenefits = {
     "BPC-157": [
@@ -9240,10 +9149,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   };
 
   useEffect(() => {
-    setSearchTerm(inputValue);
-  }, [inputValue]);
-
-  useEffect(() => {
     try {
       const savedAffiliates = JSON.parse(localStorage.getItem("tbv-affiliates") || "[]");
       const savedAffiliateAttribution = (localStorage.getItem("tbv-active-affiliate") || "").trim().toUpperCase();
@@ -9442,14 +9347,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   useEffect(() => {
     if (page !== "shop") {
       setSearchTerm("");
-      setInputValue("");
       setSelectedShopName("");
     }
   }, [page]);
 
   useEffect(() => {
     if (page !== "us-warehouse" && selectedUsWhName) {
-      setUsWhInputValue("");
       setUsWhSearchTerm("");
       setSelectedUsWhName("");
     }
@@ -10205,7 +10108,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     .map((name) => shopProductGroups.find(
       (group) => publicProductName(group[0]?.name).toLowerCase() === name.toLowerCase()
     ))
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((group) => group.some((item) => !item.outOfStock));
   const homeFeaturedProducts = homeFeaturedGroups.map((group) => {
     const product = group.find((item) => !item.outOfStock) || group[0];
     return {
@@ -10217,11 +10121,26 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       card: renderCatalogGroup(group, false, true),
     };
   });
+  const homeUsWarehouseProducts = page === "home"
+    ? usWarehouseProductGroups
+      .filter((group) => group.some((item) => !item.outOfStock))
+      .sort((a, b) => {
+        const rankA = homeUsPopularityRank.get(publicProductName(a[0]?.name).toLowerCase());
+        const rankB = homeUsPopularityRank.get(publicProductName(b[0]?.name).toLowerCase());
+        if (rankA === undefined) return rankB === undefined ? 0 : 1;
+        if (rankB === undefined) return -1;
+        return rankA - rankB;
+      })
+      .map((group) => ({
+        id: `us-${group[0].name}-${group[0].noteLabel ?? ""}`,
+        name: publicProductName(group[0].name),
+        card: renderCatalogGroup(group, true, true),
+      }))
+    : [];
 
   function openHomeShop(productName = "") {
     setAccountPromoCodeInput("");
     const name = productName ? publicProductName(productName) : "";
-    setInputValue(name);
     setSearchTerm(name);
     setSelectedShopName(name);
     setPage("shop");
@@ -10344,9 +10263,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         orderNotes: getCheckoutOrderNotes(syncedCF),
         items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
       };
-      try {
-        await supabase.from("orders").upsert({ id: orderNumber, email, status: "checkout", total: Number(finalTotal.toFixed(2)), metadata: nowMeta });
-      } catch (e) { console.error("Supabase crypto checkout upsert failed:", e); }
+      await persistOrderToServer({
+        id: orderNumber,
+        email,
+        status: "checkout",
+        total: Number(finalTotal.toFixed(2)),
+        metadata: nowMeta,
+      });
 
       const res = await fetch("/api/create-payment", {
         method: "POST",
@@ -10475,10 +10398,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
     };
     try {
-      await supabase.from("orders").upsert({ id: orderNumber, email, status: "checkout", total: Number(finalTotal.toFixed(2)), metadata: meta });
-    } catch (e) { console.error("Supabase catalystpay checkout upsert failed:", e); }
-
-    try {
+      await persistOrderToServer({
+        id: orderNumber,
+        email,
+        status: "checkout",
+        total: Number(finalTotal.toFixed(2)),
+        metadata: meta,
+      });
       const res = await fetch("/api/create-catalystpay-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -10533,49 +10459,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     setPaylioPaymentError("");
     const syncedCF = readCheckoutSnapshot();
     const email = (syncedCF.email || currentUser?.email || "").trim().toLowerCase();
-    try { await markOrderCheckoutStartedById(orderNumber, "Paylio"); } catch (e) { console.error("Failed to mark checkout started (pre)", e); }
-    try {
-      const now = new Date().toISOString();
-      const { error: directErr } = await supabase.from("orders").upsert({
-        id: orderNumber,
-        email,
-        status: "checkout",
-        total: Number(finalTotal.toFixed(2)),
-        metadata: {
-          id: orderNumber,
-          email,
-          status: "checkout",
-          paymentProvider: provider || "Paylio",
-          checkoutStartedAt: now,
-          total: Number(finalTotal.toFixed(2)),
-          subtotal: Number(subtotal.toFixed(2)),
-          shipping: Number(shipping.toFixed(2)),
-          shippingType: effectiveShippingType,
-          automaticDiscount: Number(automaticDiscount.toFixed(2)),
-          promoDiscount: Number(promoDiscount.toFixed(2)),
-          promoCode: appliedPromo?.code || "",
-          affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-         cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-          affiliateCode: affiliateTrackingCode,
-          affiliateOwnerEmail: affiliateTrackingOwnerEmail,
-          affiliateCommission: Number(affiliateCommission.toFixed(2)),
-          storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-          firstName: syncedCF.firstName || "",
-          lastName: syncedCF.lastName || "",
-          country: syncedCF.country || "",
-          address: syncedCF.address || "",
-          address2: syncedCF.address2 || "",
-          city: syncedCF.city || "",
-          state: syncedCF.state || "",
-          postalCode: syncedCF.postalCode || "",
-          phone: syncedCF.phone || "",
-          taxId: syncedCF.taxId || "",
-          orderNotes: getCheckoutOrderNotes(syncedCF),
-          items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
-        },
-      });
-      if (directErr) console.error("Supabase direct checkout upsert failed:", directErr.message);
-    } catch (e) { console.error("Supabase direct checkout upsert threw:", e); }
+    try { await markOrderCheckoutStartedById(orderNumber, provider || "Paylio"); } catch (e) { setPaylioPaymentError(e?.message || "Could not save this checkout."); setPaylioPaymentLoading(false); return; }
     try {
       const orderDescription = `10BottleValueCo ${orderNumber}`;
       const res = await fetch("/api/create-paylio-payment", {
@@ -10655,51 +10539,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     }
   }
 
-  async function markPaypalCheckoutStarted(checkoutSnapshot = readCheckoutSnapshot()) {
-    const email = (checkoutSnapshot.email || currentUser?.email || "").trim().toLowerCase();
-    try { await markOrderCheckoutStartedById(orderNumber, "PayPal"); } catch (e) { console.error("Failed to mark checkout started", e); }
-    try {
-      const now = new Date().toISOString();
-      const { error: directErr } = await supabase.from("orders").upsert({
-        id: orderNumber,
-        email,
-        status: "checkout",
-        total: Number(finalTotal.toFixed(2)),
-        metadata: {
-          id: orderNumber,
-          email,
-          status: "checkout",
-          paymentProvider: "PayPal",
-          checkoutStartedAt: now,
-          total: Number(finalTotal.toFixed(2)),
-          subtotal: Number(subtotal.toFixed(2)),
-          shipping: Number(shipping.toFixed(2)),
-          shippingType: effectiveShippingType,
-          automaticDiscount: Number(automaticDiscount.toFixed(2)),
-          promoDiscount: Number(promoDiscount.toFixed(2)),
-          promoCode: appliedPromo?.code || "",
-          affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-         cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-          affiliateCode: affiliateTrackingCode,
-          affiliateOwnerEmail: affiliateTrackingOwnerEmail,
-          affiliateCommission: Number(affiliateCommission.toFixed(2)),
-          storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-          firstName: checkoutSnapshot.firstName || "",
-          lastName: checkoutSnapshot.lastName || "",
-          country: checkoutSnapshot.country || "",
-          address: checkoutSnapshot.address || "",
-          address2: checkoutSnapshot.address2 || "",
-          city: checkoutSnapshot.city || "",
-          state: checkoutSnapshot.state || "",
-          postalCode: checkoutSnapshot.postalCode || "",
-          phone: checkoutSnapshot.phone || "",
-          taxId: checkoutSnapshot.taxId || "",
-          orderNotes: getCheckoutOrderNotes(checkoutSnapshot),
-          items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
-        },
-      });
-      if (directErr) console.error("Supabase checkout upsert failed:", directErr.message);
-    } catch (e) { console.error("Supabase checkout upsert threw:", e); }
+  async function markPaypalCheckoutStarted() {
+    await markOrderCheckoutStartedById(orderNumber, "PayPal");
   }
 
   async function handleStripePayment() {
@@ -10709,13 +10550,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     try {
       const syncedCF = readCheckoutSnapshot();
       const email = (syncedCF.email || currentUser?.email || "").trim().toLowerCase();
-      await supabase.from("orders").upsert({
+      await persistOrderToServer({
         id: orderNumber,
         email,
         status: "checkout",
         total: Number(finalTotal.toFixed(2)),
-        subtotal: Number(subtotal.toFixed(2)),
-        items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price })),
         metadata: {
           id: orderNumber,
           email,
@@ -10884,7 +10723,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         orderNotes: getCheckoutOrderNotes(syncedCF),
         items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
       };
-      await supabase.from("orders").upsert({ id: orderNumber, email, status: "wire_pending", total: Number(finalTotal.toFixed(2)), metadata: meta });
+      await persistOrderToServer({
+        id: orderNumber,
+        email,
+        status: "wire_pending",
+        total: Number(finalTotal.toFixed(2)),
+        metadata: meta,
+      });
       await fetch("/api/send-wire-confirmation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -10912,7 +10757,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     const email = (checkoutSnapshot.email || currentUser?.email || "").trim().toLowerCase();
     // Save a "pending" record BEFORE capture so we have a trace even if capture fails
     try {
-      await supabase.from("orders").upsert({
+      await persistOrderToServer({
         id: orderNumber,
         email,
         status: "pending",
@@ -10960,39 +10805,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         throw new Error(friendly);
       }
       const captureId = capture?.purchase_units?.[0]?.payments?.captures?.[0]?.id ?? data.orderID;
-      // Use actual captured amount from PayPal response as the source of truth
-      const actualTotal = Number(capture?.purchase_units?.[0]?.payments?.captures?.[0]?.amount?.value ?? snapTotal);
-      try {
-        await supabase.from("orders").upsert({
-          id: orderNumber,
-          email,
-          status: "paid",
-          total: actualTotal,
-          metadata: {
-            id: orderNumber, email, status: "paid",
-            paymentProvider: "PayPal", paypalOrderId: data.orderID,
-            paypalCaptureId: captureId, paidAt: new Date().toISOString(),
-            total: actualTotal, subtotal: snapSubtotal, shipping: snapShipping,
-            shippingType: snapShippingType,
-            automaticDiscount: snap?.automaticDiscount ?? Number(automaticDiscount.toFixed(2)),
-            promoDiscount: snap?.promoDiscount ?? Number(promoDiscount.toFixed(2)),
-            promoCode: snap?.promoCode ?? appliedPromo?.code ?? "",
-            affiliateDiscount: snap?.affiliateDiscount ?? Number(affiliateDiscount.toFixed(2)),
-            affiliateCode: snap?.affiliateCode ?? affiliateTrackingCode,
-            affiliateOwnerEmail: snap?.affiliateOwnerEmail ?? affiliateTrackingOwnerEmail,
-            affiliateCommission: snap?.affiliateCommission ?? Number(affiliateCommission.toFixed(2)),
-            storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-            paypalFee: Number(paypalFee.toFixed(2)),
-            firstName: checkoutSnapshot.firstName || "", lastName: checkoutSnapshot.lastName || "",
-            country: checkoutSnapshot.country || "", address: checkoutSnapshot.address || "",
-            address2: checkoutSnapshot.address2 || "",
-            city: checkoutSnapshot.city || "", state: checkoutSnapshot.state || "",
-            postalCode: checkoutSnapshot.postalCode || "",
-            phone: checkoutSnapshot.phone || "", taxId: checkoutSnapshot.taxId || "",
-            orderNotes: getCheckoutOrderNotes(checkoutSnapshot), items: snapItems,
-          },
-        });
-      } catch (e) { console.error("Supabase paid upsert threw:", e); }
       const nextOrders = markOrderPaidById(orderNumber, "PayPal", captureId);
       if (currentUser?.email) setUserOrders(getPaidOrdersForEmail(currentUser.email, nextOrders));
       setCart([]);
@@ -11045,7 +10857,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     }
   }
 
-  function applyPromoCode() {
+  async function applyPromoCode() {
     const normalizedCode = promoInput.trim().toUpperCase();
 
     if (!normalizedCode) {
@@ -11075,13 +10887,41 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       );
       return;
     }
-    const matchedAffiliate = affiliateProfiles.find(
+    let matchedAffiliate = affiliateProfiles.find(
       (profile) => profile.code === normalizedCode && profile.active !== false
     );
 
-    const matchedUserPromo = !promo && !matchedAffiliate
+    let matchedUserPromo = !promo && !matchedAffiliate
       ? userPromos.find((p) => p.code === normalizedCode && (!p.used || p.email === "__PUBLIC__"))
       : null;
+
+    if (!promo && !matchedAffiliate && !matchedUserPromo) {
+      try {
+        const publicPromo = await lookupPublicPromoCode(normalizedCode);
+        if (publicPromo) {
+          matchedUserPromo = {
+            ...publicPromo,
+            id: null,
+            email: "__PUBLIC__",
+            used: false,
+          };
+        } else {
+          const publicAffiliate = await lookupPublicAffiliateCode(normalizedCode);
+          if (publicAffiliate?.active !== false) matchedAffiliate = publicAffiliate;
+        }
+      } catch {
+        setPromoMessage(
+          tx(
+            "Could not verify this code right now. Please try again.",
+            "Не удалось проверить код. Попробуйте ещё раз.",
+            "Не вдалося перевірити код. Спробуйте ще раз.",
+            "Der Code konnte gerade nicht geprüft werden. Bitte versuchen Sie es erneut.",
+            "No se pudo verificar el código. Inténtalo de nuevo."
+          )
+        );
+        return;
+      }
+    }
 
     if (!promo && !matchedAffiliate && !matchedUserPromo) {
       setPromoMessage(
@@ -11234,27 +11074,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       localStorage.removeItem("tbv-active-affiliate");
     } catch {}
     setAppliedPromo(promo);
-    if (currentUser?.email && promo.type === "general") {
-      const userEmail = currentUser.email.trim().toLowerCase();
-      supabase
-        .from("user_promos")
-        .select("id")
-        .eq("email", userEmail)
-        .eq("code", promo.code)
-        .eq("used", false)
-        .then(({ data }) => {
-          if (!data || data.length === 0) {
-            supabase.from("user_promos").insert({
-              email: userEmail,
-              code: promo.code,
-              rate: promo.rate,
-              used: false,
-            }).then(({ error }) => {
-              if (error) console.error("Failed to save promo to Supabase:", error.message);
-            });
-          }
-        });
-    }
     setPromoInput("");
     setPromoMessage(
       tx(
@@ -11797,6 +11616,28 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       console.error("Failed to save order", error);
     }
 
+    try {
+      await persistOrderToServer({
+        id: orderRecord.id,
+        email: orderRecord.email,
+        status: orderRecord.status,
+        total: orderRecord.total,
+        metadata: orderRecord,
+      });
+    } catch (error) {
+      console.error("Checkout order save failed:", error);
+      setCheckoutMessage(
+        tx(
+          "Could not save your order. Please try again.",
+          "Не удалось сохранить заказ. Повторите попытку.",
+          "Не вдалося зберегти замовлення. Спробуйте ще раз.",
+          "Ihre Bestellung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+          "No se pudo guardar el pedido. Inténtalo de nuevo."
+        )
+      );
+      return;
+    }
+
     setPaymentTimer(59 * 60 + 45);
     setNowPaymentData(null);
     setNowPaymentStatus("waiting");
@@ -11810,21 +11651,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       window.scrollTo({ top: target, behavior: "smooth" });
     });
 
-    supabase
-      .from("orders")
-      .upsert({
-        id: orderRecord.id,
-        email: orderRecord.email,
-        status: orderRecord.status ?? "pending",
-        total: orderRecord.total ?? 0,
-        metadata: orderRecord,
-      })
-      .then(({ error: sbErr }) => {
-        if (sbErr) console.error("Supabase: insert order failed:", sbErr.message);
-      })
-      .catch((e) => {
-        console.error("Supabase: insert order threw:", e);
-      });
   }
 
   async function handlePayWithCredits(attestationOverride = null) {
@@ -11832,6 +11658,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     const acceptedQualified = attestationOverride?.qualifiedAccepted ?? qualifiedAccepted;
     const acceptedTerms = attestationOverride?.termsAccepted ?? termsAccepted;
     if (!currentUser?.email) return;
+    if (creditCheckoutInFlightRef.current || isCreditCheckoutSubmitting || creditPayAnimating) return;
     if (!acceptedResearch || !acceptedQualified || !acceptedTerms) {
       setCheckboxHighlight(true);
       setTimeout(() => setCheckboxHighlight(false), 900);
@@ -11848,94 +11675,225 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       else if (formSectionRef.current) formSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
-    const generatedOrderNumber = `INV-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
     const normalizedEmail = currentUser.email.trim().toLowerCase();
-    const paidAt = new Date().toISOString();
-    const orderRecord = {
-      id: generatedOrderNumber,
-      email: normalizedEmail,
-      status: "paid",
-      paymentProvider: "StoreCredit",
-      paymentId: "",
-      paidAt,
-      confirmationEmailSentAt: "",
-      createdAt: paidAt,
-      shippingType: effectiveShippingType,
-      firstName: syncedForm.firstName || "",
-      lastName: syncedForm.lastName || "",
-      country: syncedForm.country || "",
-      address: syncedForm.address || "",
-      address2: syncedForm.address2 || "",
-      city: syncedForm.city || "",
-      state: syncedForm.state || "",
-      postalCode: syncedForm.postalCode || "",
-      phone: syncedForm.phone || "",
-      taxId: syncedForm.taxId || "",
-      purchaserAttestation: {
-        over21AndResearchUseOnly: acceptedResearch,
-        qualifiedResearcherOrLicensedProfessional: acceptedQualified,
-        noHumanOrAnimalUse: acceptedQualified,
-        policiesAccepted: acceptedTerms,
-        acceptedAt: paidAt,
-      },
-      orderNotes: getCheckoutOrderNotes(syncedForm),
-      subtotal: Number(subtotal.toFixed(2)),
-      shipping: Number(shipping.toFixed(2)),
-      automaticDiscount: Number(automaticDiscount.toFixed(2)),
-      promoDiscount: Number(promoDiscount.toFixed(2)),
-      promoCode: appliedPromo?.code || "",
-      affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-         cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-      storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-      total: 0,
-      affiliateCode: affiliateTrackingCode,
-      affiliateOwnerEmail: affiliateTrackingOwnerEmail,
-      affiliateCommission: Number(affiliateCommission.toFixed(2)),
+    if (cart.length === 0) {
+      setCheckoutMessage(t("cartEmpty"));
+      return;
+    }
+    if (hasOutOfStockInCart) {
+      setCheckoutMessage(
+        tx(
+          "Your cart contains an out-of-stock item.",
+          "В корзине есть товар, которого нет в наличии.",
+          "У кошику є товар, якого немає в наявності.",
+          "Der Warenkorb enthält einen nicht verfügbaren Artikel.",
+          "Tu carrito contiene un artículo agotado."
+        )
+      );
+      return;
+    }
+    if (finalTotal > 0 || storeCreditApplied <= 0) {
+      setCheckoutMessage(
+        tx(
+          "Store Credit must cover the full order to use this option.",
+          "Для этого способа Store Credit должен покрывать заказ полностью.",
+          "Для цього способу Store Credit має повністю покривати замовлення.",
+          "Das Store-Guthaben muss den gesamten Bestellwert abdecken.",
+          "El crédito debe cubrir el pedido completo para usar esta opción."
+        )
+      );
+      return;
+    }
+
+    const checkoutPayload = {
       items: cart.map((item) => ({
-        name: item.name, dose: item.dose, quantity: item.quantity, price: item.price,
+        name: item.name,
+        dose: item.dose,
+        quantity: item.quantity,
         ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
         ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}),
       })),
+      checkoutForm: {
+        firstName: syncedForm.firstName || "",
+        lastName: syncedForm.lastName || "",
+        country: syncedForm.country || "",
+        address: syncedForm.address || "",
+        address2: syncedForm.address2 || "",
+        city: syncedForm.city || "",
+        state: syncedForm.state || "",
+        postalCode: syncedForm.postalCode || "",
+        phone: syncedForm.phone || "",
+        taxId: syncedForm.taxId || "",
+      },
+      shippingType: effectiveShippingType,
+      paymentMethod: checkoutStep === "payment" ? paymentMethod : "",
+      promoCode: appliedPromo?.code || "",
+      ownerFreeShipping: Boolean(ownerFreeShippingActive),
+      affiliateCode: affiliateTrackingCode || "",
+      affiliateDiscountDisabled: Boolean(affiliateDiscountDisabled),
+      storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
+      orderNotes: getCheckoutOrderNotes(syncedForm),
+      purchaserAttestation: {
+        over21AndResearchUseOnly: Boolean(acceptedResearch),
+        qualifiedResearcherOrLicensedProfessional: Boolean(acceptedQualified),
+        noHumanOrAnimalUse: Boolean(acceptedQualified),
+        policiesAccepted: Boolean(acceptedTerms),
+      },
     };
+    const attemptStorageKey = "tbv-store-credit-attempt";
+    let orderId = storeCreditOrderAttemptRef.current;
+    if (!/^INV-[A-F0-9]{32}$/i.test(orderId || "")) {
+      try {
+        const savedOrderId = window.sessionStorage.getItem(attemptStorageKey);
+        if (/^INV-[A-F0-9]{32}$/i.test(savedOrderId || "")) orderId = savedOrderId;
+      } catch {}
+    }
+    if (!/^INV-[A-F0-9]{32}$/i.test(orderId || "")) {
+      const secureUuid = window.crypto?.randomUUID?.();
+      if (!secureUuid) {
+        setCheckoutMessage(
+          tx(
+            "Secure checkout could not start. Refresh the page and try again.",
+            "Не удалось запустить безопасное оформление. Обновите страницу и попробуйте снова.",
+            "Не вдалося запустити безпечне оформлення. Оновіть сторінку й спробуйте ще раз.",
+            "Der sichere Checkout konnte nicht gestartet werden. Bitte aktualisieren Sie die Seite.",
+            "No se pudo iniciar el pago seguro. Actualiza la página e inténtalo de nuevo."
+          )
+        );
+        return;
+      }
+      orderId = `INV-${secureUuid.replace(/-/g, "").toUpperCase()}`;
+    }
+    storeCreditOrderAttemptRef.current = orderId;
     try {
-      const existing = JSON.parse(localStorage.getItem("tbv-orders") || "[]");
-      const next = Array.isArray(existing) ? [orderRecord, ...existing] : [orderRecord];
-      localStorage.setItem("tbv-orders", JSON.stringify(next));
-      setAllOrders(next);
-      setUserOrders(getPaidOrdersForEmail(normalizedEmail, next));
-    } catch (e) { console.error("Credit order localStorage failed", e); }
+      window.sessionStorage.setItem(attemptStorageKey, orderId);
+    } catch {}
+
+    creditCheckoutInFlightRef.current = true;
+    setIsCreditCheckoutSubmitting(true);
+    setCheckoutMessage(
+      tx(
+        "Processing Store Credit order…",
+        "Обрабатываем заказ с использованием Store Credit…",
+        "Обробляємо замовлення з використанням Store Credit…",
+        "Store-Credit-Bestellung wird verarbeitet…",
+        "Procesando el pedido con Store Credit…"
+      )
+    );
     try {
-      await supabase.from("orders").upsert({
-        id: orderRecord.id, email: orderRecord.email, status: "paid",
-        paid_at: paidAt, total: 0, metadata: orderRecord,
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+      if (sessionError || !session?.access_token) {
+        throw new Error(
+          tx(
+            "Your sign-in has expired. Sign in again and retry.",
+            "Срок входа истёк. Войдите снова и повторите попытку.",
+            "Термін входу минув. Увійдіть знову й повторіть спробу.",
+            "Ihre Anmeldung ist abgelaufen. Melden Sie sich erneut an.",
+            "Tu sesión expiró. Inicia sesión e inténtalo de nuevo."
+          )
+        );
+      }
+
+      const response = await fetch("/api/store-credit-checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          ...checkoutPayload,
+          orderId,
+        }),
       });
-    } catch (e) { console.error("Credit order Supabase failed", e); }
-    try {
-      const { data: creditRow } = await supabase.from("user_credits").select("amount").eq("email", normalizedEmail).order("updated_at", { ascending: false }).limit(1).single();
-      const currentAmt = creditRow ? Number(creditRow.amount) : 0;
-      const newAmt = Math.max(0, currentAmt - Number(storeCreditApplied.toFixed(2)));
-      // Use UPDATE to avoid duplicate-row issues; INSERT only if no row exists
-      const { error: updateErr } = await supabase.from("user_credits").update({ amount: newAmt, updated_at: new Date().toISOString() }).eq("email", normalizedEmail);
-      if (updateErr || !creditRow) {
-        await supabase.from("user_credits").insert({ email: normalizedEmail, amount: newAmt, updated_at: new Date().toISOString() });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || result?.ok !== true) {
+        throw new Error(
+          result?.error ||
+            tx(
+              "Store Credit checkout could not be completed.",
+              "Не удалось оформить заказ с использованием Store Credit.",
+              "Не вдалося оформити замовлення з використанням Store Credit.",
+              "Die Store-Credit-Bestellung konnte nicht abgeschlossen werden.",
+              "No se pudo completar el pedido con Store Credit."
+            )
+        );
       }
-      // Delete any duplicate rows (keep the one with correct balance, delete extras)
-      const { data: allRows } = await supabase.from("user_credits").select("id, amount, updated_at").eq("email", normalizedEmail).order("updated_at", { ascending: false });
-      if (allRows && allRows.length > 1) {
-        const idsToDelete = allRows.slice(1).map(r => r.id);
-        await supabase.from("user_credits").delete().in("id", idsToDelete);
+
+      const orderRecord = result.order;
+      const newBalance = Number(result.balance);
+      if (
+        !orderRecord ||
+        typeof orderRecord !== "object" ||
+        !Number.isFinite(newBalance)
+      ) {
+        throw new Error(
+          tx(
+            "The order result could not be confirmed. Contact support before retrying.",
+            "Не удалось подтвердить заказ. Перед повторной попыткой свяжитесь с поддержкой.",
+            "Не вдалося підтвердити замовлення. Перед повторною спробою зверніться до підтримки.",
+            "Das Bestellergebnis konnte nicht bestätigt werden. Bitte kontaktieren Sie den Support.",
+            "No se pudo confirmar el pedido. Contacta con soporte antes de volver a intentarlo."
+          )
+        );
       }
-      setStoreCredit(newAmt);
-    } catch (e) { console.error("Credit deduction failed", e); }
-    setCreditPayAmount(Number(storeCreditApplied.toFixed(2)));
-    setCreditPayAnimating(true);
-    setTimeout(() => {
-      setCreditPayAnimating(false);
-      setCart([]);
-      setPaymentReturn({ status: "success", order: generatedOrderNumber });
-      setPage("payment-return");
-      refreshUserOrdersFromSupabase(normalizedEmail);
-    }, 2800);
+
+      try {
+        window.sessionStorage.removeItem(attemptStorageKey);
+      } catch {}
+      storeCreditOrderAttemptRef.current = null;
+      setStoreCredit(newBalance);
+      setCheckoutMessage("");
+      try {
+        const storedOrders = JSON.parse(localStorage.getItem("tbv-orders") || "[]");
+        const existingOrders = Array.isArray(storedOrders) ? storedOrders : [];
+        const next = [
+          orderRecord,
+          ...existingOrders.filter((savedOrder) => savedOrder?.id !== orderRecord.id),
+        ];
+        localStorage.setItem("tbv-orders", JSON.stringify(next));
+        setAllOrders(next);
+        setUserOrders(getPaidOrdersForEmail(normalizedEmail, next));
+      } catch (error) {
+        console.error("Credit order localStorage update failed", error);
+      }
+
+      setCreditPayAmount(Number(orderRecord.storeCreditUsed));
+      setCreditPayAnimating(true);
+      setTimeout(() => {
+        setCreditPayAnimating(false);
+        setCart([]);
+        setPaymentReturn({ status: "success", order: orderRecord.id });
+        setPage("payment-return");
+        refreshUserOrdersFromSupabase(normalizedEmail);
+      }, 2800);
+    } catch (error) {
+      setCheckoutMessage(
+        error instanceof Error
+          ? error.message
+          : tx(
+              "Store Credit checkout could not be completed.",
+              "Не удалось оформить заказ с использованием Store Credit.",
+              "Не вдалося оформити замовлення з використанням Store Credit.",
+              "Die Store-Credit-Bestellung konnte nicht abgeschlossen werden.",
+              "No se pudo completar el pedido con Store Credit."
+            )
+      );
+    } finally {
+      creditCheckoutInFlightRef.current = false;
+      setIsCreditCheckoutSubmitting(false);
+    }
+  }
+
+  function clearCheckoutFieldError(field) {
+    setCheckoutErrors((previous) => {
+      if (!previous[field]) return previous;
+      const next = { ...previous };
+      delete next[field];
+      return next;
+    });
   }
 
   function updateCheckoutField(field, value) {
@@ -12021,7 +11979,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     setPage("product");
     window.scrollTo({ top: 0, behavior: "auto" });
     const affCode = currentAffiliateProfile?.code;
-    const newPath = "/" + makeProductSlug(product) + (affCode ? "?c=" + affCode.toLowerCase() : "");
+    const query = new URLSearchParams();
+    if (product.fromWarehouse === "us" || product.warehouse === "us") query.set("warehouse", "us");
+    if (affCode) query.set("c", affCode.toLowerCase());
+    const search = query.toString();
+    const newPath = `/${makeProductSlug(product)}${search ? `?${search}` : ""}`;
     window.history.replaceState({}, "", newPath);
   }
 
@@ -12153,9 +12115,25 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         return;
       }
 
-      const matchedRegistrationAffiliate = affiliateProfiles.find(
+      let matchedRegistrationAffiliate = affiliateProfiles.find(
         (profile) => profile.code === registrationPromoCode && profile.active !== false
       );
+
+      if (registrationPromoCode && !matchedRegistrationAffiliate) {
+        try {
+          const publicAffiliate = await lookupPublicAffiliateCode(registrationPromoCode);
+          if (publicAffiliate?.active !== false) matchedRegistrationAffiliate = publicAffiliate;
+        } catch {
+          setAccountMessage(tx(
+            "Could not verify the affiliate code right now. Please try again.",
+            "Не удалось проверить партнёрский код. Попробуйте ещё раз.",
+            "Не вдалося перевірити партнерський код. Спробуйте ще раз.",
+            "Der Affiliate-Code konnte gerade nicht geprüft werden. Bitte versuchen Sie es erneut.",
+            "No se pudo verificar el código de afiliado. Inténtalo de nuevo."
+          ));
+          return;
+        }
+      }
 
       if (registrationPromoCode && !matchedRegistrationAffiliate) {
         setAccountMessage(
@@ -13190,7 +13168,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
   const accountDashboardBackdrop =
     page === "account" && Boolean(currentUser) && authMode !== "reset";
   const currentAccountAvatar = getAccountAvatar(currentUser?.avatarId);
-  const pageBackdropImage =
+  const rawPageBackdropImage =
     page === "admin"
       ? laboratoryBackgroundImage
       : page === "faq"
@@ -13202,8 +13180,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       : page === "contact" || page === "track" || showAccountLoginBackdrop
       ? laboratoryBackgroundImage
       : null;
+  const pageBackdropImage = rawPageBackdropImage
+    ? getPreloadedDisplayImageUrl(rawPageBackdropImage)
+    : null;
+  const cachedCatalogBackground = getPreloadedDisplayImageUrl(worldwideCatalogBackground);
   const catalogBackgroundStyle = {
-    backgroundImage: `linear-gradient(rgba(18, 20, 22, 0.38), rgba(18, 20, 22, 0.38)), url("${worldwideCatalogBackground}")`,
+    backgroundImage: `linear-gradient(rgba(18, 20, 22, 0.38), rgba(18, 20, 22, 0.38)), url("${cachedCatalogBackground}")`,
     backgroundPosition: "center top",
     backgroundSize: "cover",
     backgroundAttachment: "fixed",
@@ -13213,6 +13195,14 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
     "--tbv-catalog-background-image": catalogBackgroundStyle.backgroundImage,
   };
   const usesCatalogBackground = page === "shop" || page === "product" || page === "us-warehouse" || page === "cart";
+  const openSupportAccountAuth = (mode) => {
+    setContactModalOpen(false);
+    setReplyPreview(null);
+    setAccountMessage("");
+    setAuthMode(mode);
+    setPage("account");
+  };
+
   const navigateAccountSection = (section) => {
     setActiveAccountSection(section);
     if (section === "messages") {
@@ -13281,6 +13271,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
             {/* Chat messages area */}
             <div ref={inboxScrollRef} className="flex-1 overflow-y-auto overscroll-contain mx-4 mb-2 flex flex-col gap-2.5 rounded-2xl border border-white/8 bg-black/25 px-3 pt-3 pb-3 min-h-[120px] [&::-webkit-scrollbar]:w-[6px] [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/40 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-white/60">
+              {!currentUser?.email ? (
+                <div className="m-auto max-w-sm px-4 py-8 text-center text-sm leading-6 text-white/65">
+                  Sign in or create an account to view your support messages.
+                </div>
+              ) : (
+                <>
               {userInboxError && (
                 <div role="alert" className="rounded-xl border border-red-300/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">
                   {userInboxError} <button type="button" onClick={() => loadUserInbox(false)} className="font-bold underline">Retry</button>
@@ -13329,11 +13325,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         )}
                         {editingMsgId === msg.id ? (
                           <div className="max-w-[80%] flex flex-col gap-1.5 w-full">
-                            <textarea
+                            <BufferedTextarea
+                              ref={editingMessageInputRef}
                               autoFocus
                               value={editingMsgText}
-                              onChange={(e) => setEditingMsgText(e.target.value.slice(0, 1000))}
-                              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); editUserMessage(msg.id); } if (e.key === "Escape") { setEditingMsgId(null); setEditingMsgText(""); } }}
+                              onValueChange={(value) => setEditingMsgText(value.slice(0, 1000))}
+                              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); editUserMessage(msg.id, e.currentTarget.value); } if (e.key === "Escape") { setEditingMsgId(null); setEditingMsgText(""); } }}
                               rows={2}
                               className="w-full rounded-2xl rounded-br-sm border border-white/25 bg-white/10 px-3.5 py-2.5 text-sm text-white outline-none resize-none"
                             />
@@ -13350,7 +13347,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               ))}
                             </div>
                             <div id={chatMsgDomId(msg.id, "msg")} className={`rounded-2xl rounded-br-sm bg-white/15 border border-white/10 px-3.5 py-2.5 transition-colors duration-500 ${highlightedMsgKey === chatMsgDomId(msg.id, "msg") ? "ring-2 ring-sky-400 bg-sky-400/25" : ""}`}>
-                              <div className="text-sm text-white leading-relaxed break-words overflow-hidden">{renderMsgContent(msg.message)}</div>
+                              <div className="text-sm text-white leading-relaxed break-words overflow-hidden">{renderMsgContent(msg.message, msg.id, "message")}</div>
                               <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-white/30">
                                 <span>{fmt(msg.created_at)}</span>
                                 {msg.admin_reply
@@ -13379,7 +13376,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             ))}
                           </div>
                           <div id={chatMsgDomId(msg.id, "reply")} className={`rounded-2xl rounded-bl-sm bg-black/40 border border-white/10 px-3.5 py-2.5 transition-colors duration-500 ${highlightedMsgKey === chatMsgDomId(msg.id, "reply") ? "ring-2 ring-sky-400 bg-sky-400/20" : ""}`}>
-                            <div className="text-sm text-white/90 leading-relaxed break-words overflow-hidden">{renderMsgContent(msg.admin_reply)}</div>
+                            <div className="text-sm text-white/90 leading-relaxed break-words overflow-hidden">{renderMsgContent(msg.admin_reply, msg.id, "admin_reply")}</div>
                             <div className="mt-1 flex items-center gap-2 text-[10px] text-white/30">
                               <span>{fmt(msg.replied_at || msg.created_at)}</span>
                               <button onClick={() => setReplyPreview(makeQuoteSnippet(msg.admin_reply, msg.id, "reply"))} className="flex items-center gap-0.5 font-semibold text-sky-300/90 hover:text-sky-200 transition-colors"><span>↩</span>Reply</button>
@@ -13413,16 +13410,34 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
                 </div>
               )}
+                </>
+              )}
             </div>
 
             {/* Input area */}
             <div className="px-4 pb-5 flex flex-col gap-2 shrink-0">
-              {!currentUser && (
-                <div className="flex gap-2">
-                  <input type="text" placeholder="Your name" value={contactForm.name} onChange={(e) => setContactForm((f) => ({ ...f, name: e.target.value }))} className="flex-1 rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-sm text-white placeholder:text-white/35 outline-none" />
-                  <input type="email" placeholder="Your email" value={contactForm.email} onChange={(e) => setContactForm((f) => ({ ...f, email: e.target.value }))} className="flex-1 rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-sm text-white placeholder:text-white/35 outline-none" />
+              {!currentUser?.email ? (
+                <div className="flex flex-col items-center gap-3 rounded-2xl border border-white/10 bg-black/15 px-4 py-4 text-center">
+                  <p className="text-xs leading-5 text-white/55">Support chat is available to signed-in customers.</p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openSupportAccountAuth("signin")}
+                      className="rounded-full border border-white/20 px-4 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white transition hover:bg-white/10"
+                    >
+                      Sign in
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openSupportAccountAuth("create")}
+                      className="rounded-full bg-emerald-400 px-4 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-black transition hover:bg-emerald-300"
+                    >
+                      Create account
+                    </button>
+                  </div>
                 </div>
-              )}
+              ) : (
+                <>
               <input ref={userFileInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAndSendAttachment(f, sendAttachmentAsUserMessage); e.target.value = ''; }} />
               {replyPreview && (
                 <div className="flex items-center gap-2 rounded-xl border-l-2 border-emerald-400/60 bg-white/5 px-3 py-2">
@@ -13442,11 +13457,19 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
                 )}
                 <div className="flex-1 flex flex-col gap-1">
-                  <textarea
+                  <BufferedTextarea
+                    ref={contactMessageInputRef}
                     placeholder="Write a message…"
                     value={contactForm.message}
-                    onChange={(e) => { setContactForm((f) => ({ ...f, message: e.target.value.slice(0, 1000) })); broadcastTyping('user'); }}
-                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendContactMessage(); } }}
+                    onValueChange={(value) => setContactForm((f) => ({ ...f, message: value.slice(0, 1000) }))}
+                    onImmediateInput={(value) => {
+                      if (contactMessageSendButtonRef.current) {
+                        contactMessageSendButtonRef.current.disabled =
+                          contactSending || !value.trim();
+                      }
+                      broadcastTyping("user");
+                    }}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendContactMessage(e.currentTarget.value); } }}
                     onPaste={(e) => { const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/')); if (item) { e.preventDefault(); const f = item.getAsFile(); if (f) uploadAndSendAttachment(f, sendAttachmentAsUserMessage); } }}
                     rows={2}
                     maxLength={1000}
@@ -13462,12 +13485,15 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     <button onClick={() => setUserEmojiOpen(v => !v)} title="Emoji" className="w-9 h-9 rounded-full border border-white/15 bg-black/20 flex items-center justify-center text-[18px] hover:bg-white/10 transition">😊</button>
                   </div>
                   <button
-                  onClick={sendContactMessage}
+                  ref={contactMessageSendButtonRef}
+                  onClick={() => sendContactMessage(contactMessageInputRef.current?.value ?? contactForm.message)}
                   disabled={contactSending || !contactForm.message.trim()}
                   className="rounded-full bg-emerald-400 px-5 py-2.5 text-[11px] font-black uppercase tracking-[0.15em] text-black hover:bg-emerald-300 disabled:opacity-30 transition"
                 >{contactSending ? "…" : "Send"}</button>
                 </div>
               </div>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -13475,6 +13501,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
       <div
         className="relative md:sticky md:top-0 z-[100]"
         data-affiliate-backdrop={page === "affiliate" ? "true" : undefined}
+        data-mobile-announcement="true"
         style={usesCatalogBackground ? catalogBackgroundStyle : undefined}
       >
         {/* Mobile: thin ticker */}
@@ -13594,7 +13621,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               }
             : page === "home"
             ? {
-                "--tbv-home-lower-background": `url("${import.meta.env.BASE_URL}images/homepage-lower-background.webp")`,
+                "--tbv-home-lower-background": `url("${getPreloadedDisplayImageUrl(`${import.meta.env.BASE_URL}images/homepage-lower-background.webp`)}")`,
               }
             : usesCatalogBackground
             ? catalogShellBackgroundStyle
@@ -13820,6 +13847,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               language={language}
               tx={tx}
               featuredProducts={homeFeaturedProducts}
+              usWarehouseProducts={homeUsWarehouseProducts}
               productsReady
               getPublicImageUrl={getPreloadedDisplayImageUrl}
               onOpenShop={openHomeShop}
@@ -14062,32 +14090,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           >
             <div className="relative mt-2 md:mt-[24px]">
               <aside className="bpc-catalog-sidebar--catalog bpc-catalog-sidebar--worldwide w-full md:max-w-none rounded-[1rem] p-2 md:rounded-[1.2rem] md:p-2.5 lg:p-3 lg:fixed lg:top-[162px] lg:left-6 lg:w-[240px] xl:left-6 xl:w-[260px] lg:h-[72vh] lg:overflow-hidden">
-                  <div className="flex items-center gap-2 rounded-full border border-white/20 bg-black/15 px-3 py-2 lg:px-4 lg:py-3 relative">
-                    <span className="text-white/60 text-sm lg:text-base">⌕</span>
-                    <input
-                      value={inputValue}
-                      onChange={(e) => {
-                        setSelectedShopName("");
-                        setInputValue(e.target.value);
-                      }}
-                      placeholder={t("searchPeptides")}
-                      className="min-w-0 flex-1 bg-transparent text-xs lg:text-sm text-white placeholder:text-white outline-none pr-5"
-                    />
-                    {(searchTerm || selectedShopName) && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setInputValue("");
-                          setSearchTerm("");
-                          setSelectedShopName("");
-                        }}
-                        aria-label={selectedShopName ? "Show all peptides" : "Clear search"}
-                        className="absolute right-3 lg:right-4 z-50 text-xl text-white/60 transition hover:text-white"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
+                  <CatalogSearchInput
+                    value={searchTerm}
+                    onSearch={updateShopSearch}
+                    placeholder={t("searchPeptides")}
+                    clearLabel={selectedShopName ? "Show all peptides" : "Clear search"}
+                  />
 
                 <div style={{ position: "relative" }}>
                 <div ref={shopSidebarScrollRef} className="mt-4 hidden lg:block h-[calc(72vh-106px)] overflow-y-auto overflow-x-hidden overscroll-contain pr-1 rounded-[1.5rem] no-native-scrollbar">
@@ -14098,7 +14106,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         type="button"
                         onClick={() => {
                           const name = publicProductName(product.name);
-                          setInputValue(name);
                           setSearchTerm(name);
                           setSelectedShopName(name);
                           if (selectedShopName === name) {
@@ -14282,7 +14289,23 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       aria-label={tx("Label information", "Информация об этикетках", "Інформація про етикетки", "Information zu Etiketten", "Información sobre etiquetas")}
                       className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-full text-white transition-opacity duration-150 hover:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#f0c96a] focus-visible:outline-offset-2 active:scale-[0.98] [&::-webkit-details-marker]:hidden"
                     >
-                      <Info size={22} strokeWidth={1.8} className="text-white" aria-hidden="true" />
+                      <svg
+                        width="22"
+                        height="22"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        className="text-white"
+                        aria-hidden="true"
+                      >
+                        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+                        <circle cx="12" cy="7.25" r="1.2" fill="currentColor" />
+                        <path
+                          d="M12 10.5v6"
+                          stroke="currentColor"
+                          strokeWidth="2.4"
+                          strokeLinecap="round"
+                        />
+                      </svg>
                     </summary>
                     <div role="note" className="absolute left-0 top-11 w-56 rounded-xl border border-white/20 bg-[#1f1f1f]/95 p-3 text-xs font-semibold leading-relaxed text-white shadow-xl sm:w-64">
                       {tx(
@@ -14307,7 +14330,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     />
                   )}
                   {/* US warehouse badge */}
-                  {productOriginPage.current === "us-warehouse" && coaPage === 0 && (
+                  {selectedProductIsUs && coaPage === 0 && (
                      <span className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 rounded-md border border-white/60 bg-[#a32133] px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-white shadow-[0_0_12px_rgba(163,33,51,0.35)]"><UsFlag />US</span>
                   )}
                   {/* COA badge when on COA slide */}
@@ -14398,7 +14421,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   );
                 })()}
                 {(() => {
-                  const isUs = selectedProduct?.fromWarehouse === "us";
+                  const isUs = selectedProductIsUs;
                   const variants = products.filter(p =>
                     p.name === selectedProduct.name &&
                     (p.noteLabel ?? "") === (selectedProduct.noteLabel ?? "") &&
@@ -14491,7 +14514,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           {selectedProduct.name === "BPC-157" ? formatPricePrecise(selectedProduct.price) : formatPrice(selectedProduct.price)}
                         </div>
                       <div className="self-center text-[12px] font-semibold uppercase tracking-[0.18em] text-white/60">
-                        {selectedProduct.fromWarehouse === "us" ? (
+                        {selectedProductIsUs ? (
                           language === "RU" ? (
                             <>
                               <span>10 ФЛАКОНОВ ВКЛЮЧЕНО</span>
@@ -14578,7 +14601,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                               aria-label={`${tx("Remove one from cart", "Убрать один из корзины", "Прибрати один із кошика", "Einen Artikel aus dem Warenkorb entfernen", "Quitar uno del carrito")}: ${publicProductName(selectedProduct.name)} ${selectedProduct.dose}`}
                               className="flex w-12 shrink-0 items-center justify-center bg-black text-white transition-none hover:bg-black/80"
                             >
-                              <span className="select-none text-[14px] font-black leading-none">−</span>
+                              <span aria-hidden="true" className="select-none text-[14px] font-black leading-none">−</span>
                             </button>
                           )}
                           <button
@@ -14714,7 +14737,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         aria-label={`${tx("Remove one from cart", "Убрать один из корзины", "Прибрати один із кошика", "Einen Artikel aus dem Warenkorb entfernen", "Quitar uno del carrito")}: ${publicProductName(selectedProduct.name)} ${selectedProduct.dose}`}
                         className="flex w-9 shrink-0 items-center justify-center bg-black text-white transition-none hover:bg-black/80"
                       >
-                        <span className="select-none text-[12px] font-black leading-none">−</span>
+                        <span aria-hidden="true" className="select-none text-[14px] font-black leading-none">−</span>
                       </button>
                       <button
                         type="button"
@@ -14742,393 +14765,66 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           </main>
         )}
 
-        {page === "faq" && (
-          <main className="mx-auto max-w-7xl px-4 pt-10 pb-12 md:-mt-5 md:px-10 md:pt-0 md:pb-16">
-            <div className="mb-5 md:mb-8">
-              <div className="lg:max-w-[48%] lg:translate-y-20">
-                <h1 className="text-3xl font-semibold uppercase tracking-[0.08em] text-white md:text-4xl xl:text-5xl">
-                  {tx("COMMON QUESTIONS", "ЧАСТЫЕ ВОПРОСЫ", "ПОШИРЕНІ ПИТАННЯ", "HÄUFIGE FRAGEN", "PREGUNTAS COMUNES")}
-                </h1>
-                <p className="mt-4 max-w-2xl text-base uppercase tracking-[0.08em] leading-7 text-white/60 md:text-sm lg:text-xs xl:text-sm">
-                  {language === "RU"
-                    ? "ЧЁТКИЕ ОТВЕТЫ О ДОСТАВКЕ, ЗАКАЗАХ И ДЕТАЛЯХ ПРОДУКТОВ."
-                    : language === "UA"
-                    ? "ЧІТКІ ВІДПОВІДІ ПРО ДОСТАВКУ, ЗАМОВЛЕННЯ ТА ДЕТАЛІ ПРОДУКТІВ."
-                    : language === "DE"
-                    ? "KLARE ANTWORTEN ZU VERSAND, BESTELLUNGEN UND PRODUKTDETAILS."
-                    : language === "ES"
-                    ? "RESPUESTAS CLARAS SOBRE ENVÍOS, PEDIDOS Y DETALLES DEL PRODUCTO."
-                    : "CLEAR ANSWERS ABOUT SHIPPING, ORDERS AND PRODUCT DETAILS."}
-                </p>
+        {(["faq", "about", "attestation"].includes(page)) && (
+          <Suspense
+            fallback={
+              <div className="mx-auto min-h-[38vh] max-w-[1400px] px-4 pt-8" aria-busy="true">
+                <div className="h-9 w-48 animate-pulse rounded bg-white/10" />
+                <div className="mt-5 h-56 animate-pulse rounded-2xl bg-white/[0.04]" />
               </div>
-              <div className="relative ml-auto mt-5 w-full max-w-lg lg:max-w-md xl:max-w-lg">
-                <Search
-                  aria-hidden="true"
-                  className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-white/45"
-                  strokeWidth={1.8}
-                />
-                <input
-                  type="search"
-                  value={faqSearchInput}
-                  onChange={(event) => setFaqSearchInput(event.target.value)}
-                  placeholder={tx(
-                    "Search questions and answers...",
-                    "Поиск по вопросам и ответам...",
-                    "Пошук запитань і відповідей...",
-                    "Fragen und Antworten durchsuchen...",
-                    "Buscar preguntas y respuestas...",
-                  )}
-                  aria-label={tx(
-                    "Search questions and answers",
-                    "Поиск по вопросам и ответам",
-                    "Пошук запитань і відповідей",
-                    "Fragen und Antworten durchsuchen",
-                    "Buscar preguntas y respuestas",
-                  )}
-                  className="h-12 w-full rounded-2xl border border-white/15 bg-black/25 pl-12 pr-4 text-sm text-white placeholder:text-white/45 focus:border-white/35 focus:outline-none focus:ring-2 focus:ring-white/15"
-                />
-              </div>
-            </div>
-
-            {faqSearchQuery && faqSearchMatchIds.size === 0 && (
-              <div
-                className="mb-8 rounded-2xl border border-white/15 bg-black/20 px-5 py-6 text-sm text-white/65"
-                role="status"
-              >
-                {tx(
-                  "No matching questions. Try a different search.",
-                  "Ничего не найдено. Попробуйте изменить запрос.",
-                  "Нічого не знайдено. Спробуйте змінити запит.",
-                  "Keine passenden Fragen gefunden. Ändern Sie Ihre Suche.",
-                  "No se encontraron preguntas. Prueba otra búsqueda.",
-                )}
-              </div>
-            )}
-
-            <div className="space-y-10">
-              {[
-                {
-                  key: "shipping",
-                  title: tx("SHIPPING", "ДОСТАВКА", "ДОСТАВКА"),
-                  label: tx(
-                    "Delivery & tracking",
-                    "Доставка и отслеживание",
-                    "Доставка та відстеження",
-                    undefined,
-                    "Entrega y seguimiento"
-                  ),
-                  items: faqs.filter((f) =>
-                    [
-                      "ship-worldwide",
-                      "shipping-time",
-                      "track-order",
-                      "tracking-stops",
-                    ].includes(f.id)
-                  ),
-                },
-                {
-                  key: "orders",
-                  title: tx("ORDERS", "ЗАКАЗЫ", "ЗАМОВЛЕННЯ"),
-                  label: tx(
-                    "Changes & support",
-                    "Изменения и поддержка",
-                    "Зміни та підтримка",
-                    "Änderungen & Support",
-                    "Cambios y soporte"
-                  ),
-                  items: faqs.filter((f) =>
-                    [
-                      "modify-cancel-order",
-                      "wrong-shipping-address",
-                      "confirmation-email",
-                      "order-issue",
-                      "billing-descriptor",
-                    ].includes(f.id)
-                  ),
-                },
-                {
-                  key: "product",
-                  title: tx("PRODUCT", "ПРОДУКТ", "ПРОДУКТ"),
-                  label: tx(
-                    "Quality, reports & pricing",
-                    "Качество, отчёты и цены",
-                    "Якість, звіти та ціни",
-                    "Qualität, Berichte & Preise",
-                    "Calidad, informes y precios"
-                  ),
-                  items: faqs.filter((f) =>
-                    [
-                      "lyophilized",
-                      "high-quality",
-                      "cheapest",
-                      "ten-vial-kits",
-                      "combine-discounts",
-                      "usage-instructions",
-                      "coa",
-                      "not-all-products-in-catalog",
-                    ].includes(f.id)
-                  ),
-                },
-              ].map((section) => {
-                const visibleItems = section.items
-                  .map((item, index) => ({ item, index }))
-                  .filter(({ item }) => faqSearchMatchIds.has(item.id));
-                if (visibleItems.length === 0) return null;
-
-                return (
-                  <section
-                    key={section.title}
-                    className="rounded-[1.5rem] border border-white/20 bg-black/40 p-5 md:rounded-[2rem] md:p-8 shadow-[0_18px_50px_rgba(0,0,0,0.16)]"
-                  >
-                  <div className="mb-6 flex flex-col gap-3 border-b border-white/10 pb-5 md:mb-8 md:pb-6 md:flex-row md:items-end md:justify-between">
-                    <div>
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.26em] text-white">
-                        {section.label}
-                      </div>
-                      <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white md:text-3xl">
-                        {section.title}
-                      </h2>
-                      <p className="mt-3 max-w-2xl text-sm leading-7 text-white/60 md:text-[15px]">
-                        {section.key === "shipping"
-                          ? tx(
-                              "Fast worldwide delivery, tracking details, and what to expect if a shipment slows down.",
-                              "Быстрая доставка по всему миру, детали отслеживания и что ожидать, если отправление замедлится.",
-                              "Швидка доставка по всьому світу, деталі відстеження і що очікувати, якщо відправлення сповільниться.",
-                              undefined,
-                              "Entrega rápida a nivel mundial, detalles de seguimiento y qué esperar si un envío se retrasa."
-                            )
-                          : section.key === "orders"
-                          ? tx(
-                              "Order changes, wrong addresses, confirmation emails, and support-related questions.",
-                              "Изменения заказа, неправильные адреса, письма подтверждения и вопросы поддержки.",
-                              "Зміни замовлення, неправильні адреси, листи підтвердження та питання підтримки.",
-                              "Bestelländerungen, falsche Adressen, Bestätigungs-E-Mails und Supportanfragen.",
-                              "Cambios en pedidos, direcciones incorrectas, correos de confirmación y preguntas relacionadas con soporte."
-                            )
-                          : tx(
-                              "Quality, reports, pricing, and discount-related details.",
-                              "Качество, отчёты, цены и детали скидок.",
-                              "Якість, звіти, ціни та деталі знижок.",
-                              "Qualität, Berichte, Preise und Details zu Rabatten.",
-                              "Calidad, informes, precios y detalles relacionados con descuentos."
-                            )}
-                      </p>
-                    </div>
-                    <div className="text-[11px] uppercase tracking-[0.22em] text-white/50">
-                      {visibleItems.length}{" "}
-                      {tx("questions", "вопросов", "питань")}
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    {visibleItems.map(({ item, index }) => {
-                      const isOpen = openFaqs[section.key] === index;
-
-                      return (
-                        <div
-                          key={item.q}
-                          className={`rounded-[1.4rem] border px-4 md:rounded-[1.6rem] md:px-6 transition-all duration-200 ${
-                            isOpen
-                              ? "border-white/20 bg-black/40 shadow-[0_10px_30px_rgba(0,0,0,0.22)]"
-                              : "border-white/20 bg-black/40 hover:bg-black/40"
-                          }`}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => toggleFaq(section.key, index)}
-                            className="flex w-full items-center justify-between gap-4 py-4 text-left md:gap-6 md:py-5"
-                          >
-                            <div className="text-[0.98rem] font-bold leading-6 tracking-[-0.02em] text-white md:text-[1.15rem] md:leading-7">
-                              {item.q}
-                            </div>
-                            <div
-                              className={`shrink-0 text-xl font-light text-white/75 transition-transform duration-200 ${
-                                isOpen ? "rotate-45" : "rotate-0"
-                              }`}
-                            >
-                              +
-                            </div>
-                          </button>
-
-                          {isOpen && (
-                            <div className="border-t border-white/10 pb-4 pt-3 md:pb-5 md:pt-4">
-                              <div className="max-w-none space-y-3 text-[14px] leading-7 text-white/95 md:text-[16px] md:leading-8">
-                                {getFaqParagraphs(item.a).map((line, i) => (
-                                  <p key={i}>{line}</p>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  </section>
-                );
-              })}
-            </div>
-          </main>
+            }
+          >
+            <PublicInfoPages
+              page={page}
+              language={language}
+              tx={tx}
+              openFaqs={openFaqs}
+              toggleFaq={toggleFaq}
+              getFaqParagraphs={getFaqParagraphs}
+              getPreloadedDisplayImageUrl={getPreloadedDisplayImageUrl}
+              aboutBottleWiggle={aboutBottleWiggle}
+              setAboutBottleWiggle={setAboutBottleWiggle}
+              handlePublicPageLink={handlePublicPageLink}
+            />
+          </Suspense>
         )}
 
         {page === "bonuses" && (
-            <ShippingPricesPage tx={tx} getPublicImageUrl={getPreloadedDisplayImageUrl} />
+          <Suspense
+            fallback={
+              <div className="mx-auto min-h-[38vh] max-w-[1400px] px-4 pt-8" aria-busy="true">
+                <div className="h-9 w-48 animate-pulse rounded bg-white/10" />
+                <div className="mt-5 h-56 animate-pulse rounded-2xl bg-white/[0.04]" />
+              </div>
+            }
+          >
+            <ShippingPricesPage
+              tx={tx}
+              getPublicImageUrl={getPreloadedDisplayImageUrl}
+              onVialImageLoad={cacheDisplayedPublicImage}
+            />
+          </Suspense>
           )}
 
         {page === "affiliate" && (
+          <Suspense
+            fallback={
+              <div className="mx-auto min-h-[38vh] max-w-[1400px] px-4 pt-8" aria-busy="true">
+                <div className="h-9 w-48 animate-pulse rounded bg-white/10" />
+                <div className="mt-5 h-56 animate-pulse rounded-2xl bg-white/[0.04]" />
+              </div>
+            }
+          >
           <AffiliateProgramPage
             tx={tx}
             copiedEmail={copiedEmail}
             onCopyEmail={copySupportEmail}
             onContact={() => setPage("contact")}
             getPublicImageUrl={getPreloadedDisplayImageUrl}
+            onVialImageLoad={cacheDisplayedPublicImage}
             onVialImageError={retryVialImage}
           />
-        )}
-        {page === "about" && (
-          <main className="mx-auto max-w-5xl px-4 pt-2 pb-12 md:px-10 md:pt-4 md:pb-20">
-            <div className="flex flex-col gap-3 md:gap-4">
-
-              {/* Header */}
-              <div className="flex flex-col items-center gap-3 text-center py-2 md:py-3">
-                <div className="flex flex-col items-center gap-2 md:flex-row md:gap-3">
-                  <img
-                    src={getPreloadedDisplayImageUrl(`${import.meta.env.BASE_URL}logo.png`)}
-                    alt="Logo"
-                    className={`h-20 md:h-24 w-auto shrink-0 object-contain brightness-110 cursor-pointer${aboutBottleWiggle ? " about-bottle-wiggle" : ""}`}
-                    onClick={() => { setAboutBottleWiggle(false); setTimeout(() => setAboutBottleWiggle(true), 10); }}
-                    onAnimationEnd={() => setAboutBottleWiggle(false)}
-                  />
-                  <span className="text-[32px] md:text-[44px] font-semibold tracking-[0.07em] text-white">BottleValueCo</span>
-                </div>
-                <p className="mt-2 text-[13px] md:text-[16px] font-extrabold uppercase tracking-[0.32em] text-white [text-shadow:0_0_18px_rgba(255,255,255,0.35)]">
-                  {language === "RU" ? "ЗАЧЕМ СУЩЕСТВУЕТ 10BOTTLEVALUECO" : language === "UA" ? "НАВІЩО ІСНУЄ 10BOTTLEVALUECO" : language === "DE" ? "WARUM 10BOTTLEVALUECO EXISTIERT" : language === "ES" ? "POR QUÉ EXISTE 10BOTTLEVALUECO" : "WHY 10BOTTLEVALUECO EXISTS"}
-                </p>
-              </div>
-
-              {/* Problem / Idea */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div className="rounded-[1.5rem] border border-white/20 bg-black/25 p-6 md:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.18)] md:rounded-[2rem] text-center">
-                  <h2 className="mb-1 flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-[0.28em] text-white/40">
-                    <span className="flex h-[38px] w-[38px] md:h-[46px] md:w-[46px] shrink-0 items-center justify-center rounded-full cursor-pointer" style={{background:"rgba(127,29,29,0.55)",boxShadow:"0 0 0 1.5px rgba(248,113,113,0.35)"}} onClick={e=>{const el=e.currentTarget;el.classList.remove('tbv-anim-zap');void el.offsetHeight;el.classList.add('tbv-anim-zap');setTimeout(()=>el.classList.remove('tbv-anim-zap'),650);}}>
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(248,113,113,0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                    </span>
-                    {language === "RU" ? "ПРОБЛЕМА" : language === "UA" ? "ПРОБЛЕМА" : language === "DE" ? "DAS PROBLEM" : language === "ES" ? "EL PROBLEMA" : "THE PROBLEM"}
-                  </h2>
-                  <div className="my-3 mx-auto h-px w-10 bg-white/20" />
-                  <p className="text-[14px] md:text-[15px] font-semibold uppercase leading-[1.9] tracking-[0.05em] text-white">
-                    {language === "RU" ? "БОЛЬШИНСТВО БРЕНДОВ ПРОДАЮТ ПЕПТИДЫ ПО СИЛЬНО ЗАВЫШЕННЫМ ЦЕНАМ. ЗАПУТАННЫЕ САЙТЫ, ЛИШНИЙ БРЕНДИНГ И ПЛОХАЯ ДОСТУПНОСТЬ ДЕЛАЮТ ОПЫТ ХУЖЕ." : language === "UA" ? "БІЛЬШІСТЬ БРЕНДІВ ПРОДАЮТЬ ПЕПТИДИ ЗА СИЛЬНО ЗАВИЩЕНИМИ ЦІНАМИ. ЗАПЛУТАНІ САЙТИ, ЗАЙВИЙ БРЕНДИНГ І ПОГАНА ДОСТУПНІСТЬ ПОГІРШУЮТЬ ДОСВІД." : language === "DE" ? "DIE MEISTEN MARKEN VERKAUFEN PEPTIDE ZU STARK ÜBERHÖHTEN PREISEN. UNÜBERSICHTLICHE WEBSITES, UNNÖTIGES BRANDING UND SCHLECHTE ZUGÄNGLICHKEIT VERSCHLECHTERN DIE ERFAHRUNG." : language === "ES" ? "LA MAYORÍA DE LAS MARCAS VENDEN PÉPTIDOS A PRECIOS MUY INFLADOS. LOS SITIOS WEB CONFUSOS, EL BRANDING INNECESARIO Y LA BAJA ACCESIBILIDAD EMPEORAN LA EXPERIENCIA." : "MOST BRANDS SELL PEPTIDES AT HEAVILY INFLATED PRICES. CONFUSING WEBSITES, UNNECESSARY BRANDING, AND POOR ACCESSIBILITY MAKE THE EXPERIENCE WORSE."}
-                  </p>
-                </div>
-                <div className="rounded-[1.5rem] border border-white/20 bg-black/25 p-6 md:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.18)] md:rounded-[2rem] text-center">
-                  <h2 className="mb-1 flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-[0.28em] text-white/40">
-                    <span className="flex h-[38px] w-[38px] md:h-[46px] md:w-[46px] shrink-0 items-center justify-center rounded-full cursor-pointer" style={{background:"rgba(120,53,15,0.55)",boxShadow:"0 0 0 1.5px rgba(251,191,36,0.35)"}} onClick={e=>{const el=e.currentTarget;el.classList.remove('tbv-anim-bulb');void el.offsetHeight;el.classList.add('tbv-anim-bulb');setTimeout(()=>el.classList.remove('tbv-anim-bulb'),850);}}>
-                      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="rgba(251,191,36,0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.5.4.9 1 1 1.8h6c.1-.8.5-1.4 1-1.8A7 7 0 0 0 12 2z"/></svg>
-                    </span>
-                    {language === "RU" ? "ИДЕЯ" : language === "UA" ? "ІДЕЯ" : language === "DE" ? "DIE IDEE" : language === "ES" ? "LA IDEA" : "THE IDEA"}
-                  </h2>
-                  <div className="my-3 mx-auto h-px w-10 bg-white/20" />
-                  <p className="text-[14px] md:text-[15px] font-semibold uppercase leading-[1.9] tracking-[0.05em] text-white">
-                    {language === "RU" ? "ПРОДАВАТЬ ОПТОВЫМИ НАБОРАМИ, УБИРАТЬ ЛИШНИЕ РАСХОДЫ И ФОКУСИРОВАТЬСЯ ТОЛЬКО НА ГЛАВНОМ — КАЧЕСТВЕ И ЧЕСТНОЙ ЦЕНЕ." : language === "UA" ? "ПРОДАВАТИ НАБОРАМИ, ПРИБИРАТИ ЗАЙВІ ВИТРАТИ ТА ФОКУСУВАТИСЯ ЛИШЕ НА ГОЛОВНОМУ — ЯКОСТІ ТА ЧЕСНІЙ ЦІНІ." : language === "DE" ? "IN GROSSMENGEN VERKAUFEN, UNNÖTIGE KOSTEN ENTFERNEN UND SICH NUR AUF DAS WESENTLICHE KONZENTRIEREN — QUALITÄT UND FAIRE PREISE." : language === "ES" ? "VENDER EN VOLUMEN, ELIMINAR COSTES INNECESARIOS Y CENTRARNOS SOLO EN LO QUE IMPORTA: CALIDAD Y PRECIOS JUSTOS." : "SELL IN BULK, REMOVE UNNECESSARY COSTS, AND FOCUS ONLY ON WHAT MATTERS - QUALITY AND FAIR PRICING."}
-                  </p>
-                </div>
-              </div>
-
-              {/* Tagline */}
-              <div className="rounded-[1.5rem] border border-white/20 bg-black/25 px-6 py-10 text-center shadow-[0_8px_32px_rgba(0,0,0,0.18)] md:rounded-[2rem] md:px-12 md:py-14">
-                <h2 className="text-center text-xl md:text-4xl font-semibold tracking-[-0.01em] text-white mb-3 md:mb-4">
-                  {(() => {
-                    const full = language === "RU" ? "НИКАКИХ ОДИНОЧНЫХ ФЛАКОНОВ. ТОЛЬКО НАБОРЫ ПО 10 ФЛАКОНОВ." : language === "UA" ? "ЖОДНИХ ОДИНИЧНИХ ФЛАКОНІВ. ЛИШЕ НАБОРИ ПО 10 ФЛАКОНІВ." : language === "DE" ? "KEINE EINZELFLÄSCHCHEN. NUR 10-FLÄSCHCHEN-KITS." : language === "ES" ? "SIN VIALES INDIVIDUALES. SOLO KITS DE 10 VIALES." : "NO SINGLE VIALS. ONLY 10-VIAL KITS.";
-                    const splitAt = full.indexOf(". ");
-                    const line1 = splitAt === -1 ? full : full.slice(0, splitAt + 1);
-                    const line2 = splitAt === -1 ? "" : full.slice(splitAt + 2);
-                    return (
-                      <>
-                        <span className="block md:inline">{line1}</span>
-                        {line2 && (
-                          <>
-                            <span className="hidden md:inline"> </span>
-                            <span className="block md:inline">{line2}</span>
-                          </>
-                        )}
-                      </>
-                    );
-                  })()}
-                </h2>
-                <p className="text-[13px] md:text-[15px] uppercase tracking-[0.18em] text-white/50">
-                  {language === "RU" ? "ТО ЖЕ КАЧЕСТВО. ЛУЧШАЯ ЦЕНА. ДОСТАВКА ПО ВСЕМУ МИРУ." : language === "UA" ? "ТА САМА ЯКІСТЬ. КРАЩА ЦІНА. ДОСТАВКА ПО ВСЬОМУ СВІТУ." : language === "DE" ? "GLEICHE QUALITÄT. BESSERE PREISE. WELTWEITER VERSAND." : language === "ES" ? "MISMA CALIDAD. MEJOR PRECIO. ENVÍO A TODO EL MUNDO." : "SAME QUALITY. BETTER PRICING. WORLDWIDE SHIPPING."}
-                </p>
-              </div>
-
-              {/* Mission */}
-              <div className="rounded-[1.5rem] border border-white/20 bg-black/25 p-6 md:rounded-[2rem] md:p-10 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
-                <div className="max-w-3xl mx-auto text-center">
-                  <h2 className="mb-1 flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-[0.28em] text-white/40">
-                    <span className="flex h-[38px] w-[38px] md:h-[46px] md:w-[46px] shrink-0 items-center justify-center rounded-full cursor-pointer" style={{background:"rgba(22,101,52,0.55)",boxShadow:"0 0 0 1.5px rgba(74,222,128,0.35)"}} onClick={e=>{const el=e.currentTarget;el.classList.remove('tbv-anim-pct');void el.offsetHeight;el.classList.add('tbv-anim-pct');setTimeout(()=>el.classList.remove('tbv-anim-pct'),650);}}>
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(74,222,128,0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
-                    </span>
-                    {language === "RU" ? "НАША МИССИЯ" : language === "UA" ? "НАША МІСІЯ" : language === "DE" ? "UNSERE MISSION" : language === "ES" ? "NUESTRA MISIÓN" : "OUR MISSION"}
-                  </h2>
-                  <div className="my-3 mx-auto h-px w-10 bg-white/20" />
-                  <p className="text-[15px] md:text-[18px] font-semibold uppercase leading-[1.9] tracking-[0.05em] text-white">
-                    {language === "RU" ? "НАША ЦЕЛЬ ПРОСТА: СТАТЬ САМЫМ НАДЁЖНЫМ И ДОСТУПНЫМ БРЕНДОМ В ЭТОЙ СФЕРЕ, ПРЕДЛАГАЯ РЕАЛЬНУЮ ЦЕННОСТЬ БЕЗ ЛИШНИХ НАЦЕНОК." : language === "UA" ? "НАША МЕТА ПРОСТА: СТАТИ НАЙНАДІЙНІШИМ І ДОСТУПНИМ БРЕНДОМ У ЦІЙ СФЕРІ, ПРОПОНУЮЧИ РЕАЛЬНУ ЦІННІСТЬ БЕЗ ЗАЙВИХ НАЦІНОК." : language === "DE" ? "UNSER ZIEL IST EINFACH: DIE VERTRAUENSWÜRDIGSTE UND ZUGÄNGLICHSTE MARKE IN DIESEM BEREICH ZU WERDEN, INDEM WIR ECHTEN WERT OHNE UNNÖTIGE AUFSCHLÄGE BIETEN." : language === "ES" ? "NUESTRO OBJETIVO ES SIMPLE: CONVERTIRNOS EN LA MARCA MÁS CONFIABLE Y ACCESIBLE EN ESTE SECTOR OFRECIENDO VALOR REAL SIN MÁRGENES INNECESARIOS." : "OUR GOAL IS SIMPLE: BECOME THE MOST TRUSTED AND ACCESSIBLE BRAND IN THIS SPACE BY OFFERING REAL VALUE WITHOUT UNNECESSARY MARKUPS."}
-                  </p>
-                </div>
-              </div>
-
-            </div>
-          </main>
-        )}
-        {page === "attestation" && (
-          <main className="mx-auto max-w-5xl px-4 pb-16 pt-4 md:px-10 md:pb-24 md:pt-12">
-            <section className="rounded-[1.8rem] border border-white/20 bg-black/15 px-5 py-10 text-center shadow-[0_18px_55px_rgba(0,0,0,0.12)] md:rounded-[2.5rem] md:px-12 md:py-16">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.34em] text-white/65">
-                Research Use Only
-              </div>
-              <h1 className="mt-4 text-3xl font-semibold uppercase tracking-[0.12em] text-white md:text-5xl">
-                Qualified Purchaser &amp; Researcher Attestation
-              </h1>
-              <p className="mx-auto mt-6 max-w-3xl text-[12px] uppercase leading-7 tracking-[0.14em] text-white/75 md:text-[14px]">
-                These confirmations are mandatory for every purchaser before checkout.
-              </p>
-
-              <div className="mx-auto mt-10 max-w-3xl space-y-4 text-left">
-                <div className="rounded-[1.4rem] border border-white/20 bg-black/20 px-5 py-6 md:px-8">
-                  <h2 className="text-[12px] font-bold uppercase tracking-[0.2em] text-white">
-                    Qualified purchaser status
-                  </h2>
-                  <p className="mt-3 text-[12px] font-semibold uppercase leading-7 tracking-[0.1em] text-white/85 md:text-[14px]">
-                    I confirm that I am a qualified researcher, licensed professional, or authorized representative of a qualified research organization.
-                  </p>
-                </div>
-
-                <div className="rounded-[1.4rem] border border-white/20 bg-black/20 px-5 py-6 md:px-8">
-                  <h2 className="text-[12px] font-bold uppercase tracking-[0.2em] text-white">
-                    No human or animal use
-                  </h2>
-                  <p className="mt-3 text-[12px] font-semibold uppercase leading-7 tracking-[0.1em] text-white/85 md:text-[14px]">
-                    I will not use these products on humans or animals. All products are sold strictly for laboratory, analytical, or scientific research purposes only.
-                  </p>
-                </div>
-
-                <div className="rounded-[1.4rem] border border-white/20 bg-black/20 px-5 py-6 md:px-8">
-                  <h2 className="text-[12px] font-bold uppercase tracking-[0.2em] text-white">
-                    Mandatory checkout acceptance
-                  </h2>
-                  <p className="mt-3 text-[12px] font-semibold uppercase leading-7 tracking-[0.1em] text-white/85 md:text-[14px]">
-                    Before purchase, every customer must actively accept the qualified-purchaser statement, the no-human-or-animal-use commitment, and the website terms and policies. Acceptance is recorded with the order.
-                  </p>
-                </div>
-              </div>
-
-              <a
-                href="/cart"
-                onClick={(event) => handlePublicPageLink(event, "cart")}
-                className="mt-10 inline-flex rounded-full bg-white px-8 py-4 text-[12px] font-bold uppercase tracking-[0.22em] text-black transition hover:bg-white/90"
-              >
-                Proceed to Cart
-              </a>
-            </section>
-          </main>
+          </Suspense>
         )}
         {page === "contact" ? (
           <ContactPage
@@ -15141,675 +14837,42 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
         ) : null}
 
         {page === "track" && (
-          <TrackOrderPage t={t} supabase={supabase} />
+          <TrackOrderPage t={t} supabase={supabase} currentUser={currentUser} />
         )}
 
         {page === "shipping" && (
-          <main className="mx-auto max-w-5xl px-4 pt-8 pb-8 md:px-10 md:pt-12 md:pb-16">
-            <div className="rounded-[1.5rem] border border-white/20 bg-black/20 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.08)] md:rounded-[2rem] md:p-12">
-              <h1 className="text-center text-2xl font-semibold uppercase tracking-[0.1em] text-white md:text-5xl">
-                {i18n(legal.shippingTitle)}
-              </h1>
-              <p className="mt-3 text-center text-[12px] uppercase tracking-[0.12em] text-white/60">
-                {i18n(legal.lastUpdated)}
-              </p>
-              <div className="mx-auto mt-10 max-w-3xl text-[13px] uppercase leading-8 tracking-[0.08em] text-white/80 md:text-[14px] md:leading-9">
-
-                <section className="pt-2">
-                  <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">1. SHIPPING DESTINATIONS</h2>
-                  <div className="space-y-3 text-white/75">
-                    <p>10BottleValueCo offers worldwide shipping to most countries.</p>
-                    <p>Availability of shipping services may vary depending on local laws, carrier availability, sanctions, customs regulations, or other restrictions.</p>
-                    <p>We reserve the right to refuse shipment to any destination where delivery is prohibited or impractical.</p>
-                  </div>
-                </section>
-
-                <section className="border-t border-white/10 pt-8 mt-8">
-                  <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">2. ORDER PROCESSING</h2>
-                  <div className="space-y-3 text-white/75">
-                    <p>Orders are generally processed within 1–3 business days after successful payment confirmation.</p>
-                    <p>Processing times may be extended during holidays, high order volumes, inventory verification, or other exceptional circumstances.</p>
-                    <p>Customers will receive a shipping confirmation email once the Order has been dispatched.</p>
-                  </div>
-                </section>
-
-                <section className="border-t border-white/10 pt-8 mt-8">
-                  <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">3. INTERNATIONAL STANDARD SHIPPING</h2>
-                  <div className="space-y-3 text-white/75">
-                    <p>Standard international shipping typically takes approximately 8–12 business days.</p>
-                    <p>Delivery times are estimates only and are not guaranteed.</p>
-                    <p>Actual delivery times may vary depending on destination country, customs clearance, local carrier operations, weather conditions, public holidays, transportation disruptions, governmental inspections, and other circumstances beyond our reasonable control.</p>
-                  </div>
-                </section>
-
-                <section className="border-t border-white/10 pt-8 mt-8">
-                  <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">4. INTERNATIONAL EXPRESS SHIPPING</h2>
-                  <div className="space-y-3 text-white/75">
-                    <p>Express shipping is available for eligible destinations.</p>
-                    <p>Estimated delivery time is approximately 5–7 business days.</p>
-                    <p>Delivery estimates are provided for convenience only and are not guaranteed.</p>
-                  </div>
-                </section>
-
-                <section className="border-t border-white/10 pt-8 mt-8">
-                  <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">5. UNITED STATES WAREHOUSE SHIPPING</h2>
-                  <div className="space-y-3 text-white/75">
-                    <p>Products available through our US Warehouse are shipped within the United States.</p>
-                    <p>Estimated delivery time is approximately 2–5 business days.</p>
-                    <p>Shipping from our US Warehouse is free of charge unless otherwise stated during checkout.</p>
-                    <p>Availability of individual Products may differ between our international warehouse and US Warehouse.</p>
-                  </div>
-                </section>
-
-                <section className="border-t border-white/10 pt-8 mt-8">
-                  <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">6. TRACKING INFORMATION</h2>
-                  <div className="space-y-3 text-white/75">
-                    <p>Tracking information is generally provided by email after an Order has been processed and shipped.</p>
-                    <p>Tracking updates are provided by shipping carriers and may not appear immediately after dispatch.</p>
-                    <p>The Company is not responsible for delays in tracking updates caused by shipping carriers.</p>
-                  </div>
-                </section>
-
-                <section className="border-t border-white/10 pt-8 mt-8">
-                  <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">7. CUSTOMS</h2>
-                  <div className="space-y-3 text-white/75">
-                    <p>International shipments may be subject to customs inspections, import duties, taxes, import restrictions, or other governmental requirements.</p>
-                    <p>Customers are solely responsible for ensuring that Products may legally be imported into their jurisdiction.</p>
-                    <p>The Company is not responsible for customs duties, taxes, or other governmental charges imposed by the destination country.</p>
-                  </div>
-                </section>
-
-                <section className="border-t border-white/10 pt-8 mt-8">
-                  <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">8. CUSTOMS RESHIPMENT POLICY</h2>
-                  <div className="space-y-3 text-white/75">
-                    <p>Approximately 2% of international shipments may be delayed due to customs inspections.</p>
-                    <p>If a shipment is undergoing an extended customs inspection, we may, at our sole discretion, arrange a replacement shipment before a final customs decision is issued.</p>
-                    <p>If customs ultimately releases the original shipment, Customers will not be charged for receiving both shipments.</p>
-                    <p>If a shipment is confiscated or permanently withheld by customs, we will generally provide one complimentary replacement shipment at no additional cost, subject to verification of the circumstances.</p>
-                  </div>
-                </section>
-
-                <section className="border-t border-white/10 pt-8 mt-8">
-                  <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">9. SHIPPING DELAYS</h2>
-                  <div className="space-y-3 text-white/75">
-                    <p>Estimated delivery times are not guaranteed.</p>
-                    <p>Unexpected delays caused by customs authorities, shipping carriers, weather conditions, transportation disruptions, governmental actions, force majeure events, or other circumstances beyond our reasonable control do not automatically entitle Customers to refunds.</p>
-                    <p>Customers experiencing significant delays are encouraged to contact Customer Support so that the circumstances may be reviewed individually.</p>
-                  </div>
-                </section>
-
-                <section className="border-t border-white/10 pt-8 mt-8">
-                  <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">10. INCORRECT SHIPPING INFORMATION</h2>
-                  <div className="space-y-3 text-white/75">
-                    <p>Customers are responsible for ensuring that all shipping information is accurate before submitting an Order.</p>
-                    <p>The Company shall not be responsible for delays, returned shipments, failed deliveries, or additional shipping costs resulting from incorrect or incomplete shipping information provided by the Customer.</p>
-                  </div>
-                </section>
-
-                <section className="border-t border-white/10 pt-8 mt-8">
-                  <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">11. CARRIER SELECTION</h2>
-                  <div className="space-y-3 text-white/75">
-                    <p>Shipping carriers may vary depending on destination, warehouse availability, logistics requirements, or operational considerations.</p>
-                    <p>Where available, Customers may request a preferred carrier during checkout; however, the Company cannot guarantee that a specific carrier will be used.</p>
-                  </div>
-                </section>
-
-                <section className="border-t border-white/10 pt-8 mt-8">
-                  <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">12. FORCE MAJEURE</h2>
-                  <div className="space-y-3 text-white/75">
-                    <p>The Company shall not be liable for shipping delays resulting from circumstances beyond its reasonable control, including but not limited to:</p>
-                    <ul className="list-disc pl-6 space-y-1">
-                      <li>Natural disasters, war, terrorism, or civil unrest</li>
-                      <li>Pandemics or governmental actions</li>
-                      <li>Customs delays</li>
-                      <li>Transportation disruptions or carrier interruptions</li>
-                      <li>Supplier disruptions</li>
-                      <li>Internet or infrastructure failures</li>
-                    </ul>
-                  </div>
-                </section>
-
-                <section className="border-t border-white/10 pt-8 mt-8">
-                  <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">13. CUSTOMER SUPPORT</h2>
-                  <div className="space-y-3 text-white/75">
-                    <p>Customers may contact our Customer Support team at any time regarding shipping questions, tracking information, or delivery status.</p>
-                    <p>We are committed to providing timely updates and reasonable assistance throughout the shipping process.</p>
-                    <p>
-                      <button type="button" onClick={copySupportEmail} className="font-semibold text-white transition hover:text-white/80">
-                        {copiedEmail
-                          ? language === "RU" ? "EMAIL СКОПИРОВАН" : language === "UA" ? "EMAIL СКОПІЮВАНО" : language === "DE" ? "E-MAIL KOPIERT" : language === "ES" ? "EMAIL COPIADO" : "EMAIL COPIED"
-                          : "SUPPORT@10BOTTLEVALUE.CO"}
-                      </button>
-                    </p>
-                  </div>
-                </section>
-
-                <section className="border-t border-white/10 pt-8 mt-8">
-                  <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">14. CHANGES TO THIS POLICY</h2>
-                  <div className="space-y-3 text-white/75">
-                    <p>The Company reserves the right to modify this Shipping Policy at any time.</p>
-                    <p>Updated versions become effective immediately upon publication on the Website unless otherwise required by Applicable Law.</p>
-                    <p>The latest revision date will always appear at the beginning of this Policy.</p>
-                  </div>
-                </section>
-
-                <section className="border-t border-white/10 pt-8 mt-8">
-                  <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">15. GOVERNING LANGUAGE</h2>
-                  <div className="space-y-3 text-white/75">
-                    <p>Translations of this Shipping Policy may be provided for convenience only.</p>
-                    <p>In the event of any inconsistency, ambiguity, or conflict between translated versions and the English version, the English version shall prevail.</p>
-                  </div>
-                </section>
-
-              </div>
-            </div>
-          </main>
+          <Suspense fallback={publicPolicyPageFallback}>
+            <ShippingRefundPolicyPages
+              page={page}
+              i18n={i18n}
+              legal={legal}
+              copySupportEmail={copySupportEmail}
+              copiedEmail={copiedEmail}
+              language={language}
+            />
+          </Suspense>
         )}
 
         {page === "refund" && (
-          <main className="mx-auto max-w-5xl px-4 pt-8 pb-8 md:px-10 md:pt-12 md:pb-16">
-            <div className="rounded-[1.5rem] border border-white/20 bg-black/20 p-5 text-center shadow-[0_10px_30px_rgba(0,0,0,0.08)] md:rounded-[2rem] md:p-12">
-              <h1 className="text-2xl font-semibold uppercase tracking-[0.1em] text-white md:text-5xl">
-                {i18n(legal.refundTitle)}
-              </h1>
-              <div className="mx-auto mt-10 max-w-3xl text-left space-y-8 text-[13px] uppercase leading-8 tracking-[0.08em] text-white/80 md:text-[14px] md:leading-9">
-
-                <section>
-                  <h2 className="text-white font-semibold">1. GENERAL POLICY</h2>
-                  <p>At 10BottleValueCo, customer satisfaction is important to us. Due to the specialized nature of laboratory research products, every refund, replacement, and reshipment request is reviewed individually. Except where required by Applicable Law, refunds are not guaranteed and remain subject to review under this Refund Policy.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">2. ORDER CANCELLATIONS</h2>
-                  <p>Orders may be cancelled for a full refund only before they have entered fulfillment or shipment. Once an Order has entered fulfillment, preparation, or shipment, cancellation may no longer be possible. Where permitted by Applicable Law, non-recoverable payment processing fees may be deducted from approved refunds.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">3. DAMAGED, DEFECTIVE, MISSING OR INCORRECT PRODUCTS</h2>
-                  <p>Customers must inspect their Order immediately upon delivery. Claims relating to damaged, defective, missing, or incorrect Products must be submitted within seven (7) calendar days after delivery.</p>
-                  <p className="mt-4">Claims should include:</p>
-                  <ul className="mt-2 list-disc pl-6 space-y-1">
-                    <li>Order number</li>
-                    <li>Description of the issue</li>
-                    <li>Clear photographs of the Product</li>
-                    <li>Photographs of the shipping packaging</li>
-                    <li>Photographs of shipping labels where applicable</li>
-                  </ul>
-                  <p className="mt-4">The Company may request additional information where reasonably necessary to evaluate a claim. Failure to provide sufficient supporting evidence may result in denial of the claim.</p>
-                  <p className="mt-4">Approved claims may be resolved through one of the following:</p>
-                  <ul className="mt-2 list-disc pl-6 space-y-1">
-                    <li>Replacement</li>
-                    <li>Reshipment</li>
-                    <li>Store credit</li>
-                    <li>Partial refund</li>
-                    <li>Full refund</li>
-                    <li>Another commercially reasonable resolution determined solely by the Company</li>
-                  </ul>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">4. LOST SHIPMENTS</h2>
-                  <p>If a shipment is confirmed lost by the shipping carrier or otherwise determined by the Company to be permanently lost, the Company may provide one of the following resolutions:</p>
-                  <ul className="mt-4 list-disc pl-6 space-y-1">
-                    <li>Replacement shipment</li>
-                    <li>Store credit</li>
-                    <li>Partial refund</li>
-                    <li>Full refund</li>
-                    <li>Another appropriate resolution</li>
-                  </ul>
-                  <p className="mt-4">The method of resolution shall be determined solely by the Company.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">5. SHIPPING DELAYS</h2>
-                  <p>Estimated shipping times published on the Website are estimates only and are not guaranteed. Unexpected delays caused by customs authorities, shipping carriers, weather conditions, transportation disruptions, governmental actions, force majeure events, or other circumstances beyond our reasonable control do not automatically entitle Customers to refunds. Customers experiencing significant delays are encouraged to contact Customer Support so that the circumstances may be reviewed individually.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">6. CUSTOMS</h2>
-                  <p>Customers are solely responsible for ensuring that Products may legally be imported into their jurisdiction. The Company is not responsible for:</p>
-                  <ul className="mt-4 list-disc pl-6 space-y-1">
-                    <li>Customs inspections or delays</li>
-                    <li>Import restrictions</li>
-                    <li>Duties and taxes</li>
-                    <li>Confiscations or destruction of Products by customs authorities</li>
-                  </ul>
-                  <p className="mt-4">Where appropriate, the Company may voluntarily provide assistance or another resolution at its sole discretion.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">7. INCORRECT SHIPPING INFORMATION</h2>
-                  <p>Customers are responsible for ensuring that all shipping information is complete and accurate before submitting an Order. The Company shall not be responsible for delays, failed deliveries, returned shipments, or additional shipping costs resulting from inaccurate or incomplete shipping information provided by the Customer.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">8. REFUSED OR UNCLAIMED SHIPMENTS</h2>
-                  <p>If a shipment is refused, abandoned, unclaimed, or returned due to Customer action, refunds are not guaranteed. Any refund, replacement, or store credit shall remain entirely at the Company's sole discretion.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">9. RETURNS</h2>
-                  <p>Due to the specialized nature of laboratory research Products and to preserve product integrity, quality, and safety, returned Products are generally not accepted. Products must not be returned without prior written authorization from the Company. Unauthorized returns may be refused or destroyed without compensation.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">10. OUT-OF-STOCK PRODUCTS</h2>
-                  <p>If a Product becomes unavailable after an Order has been placed but before shipment, Customers may choose one of the following options:</p>
-                  <ul className="mt-4 list-disc pl-6 space-y-1">
-                    <li>Wait until the Product becomes available</li>
-                    <li>Replacement with another Product of similar value</li>
-                    <li>Store credit</li>
-                    <li>Full refund</li>
-                  </ul>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">11. REFUND METHOD</h2>
-                  <p>Approved refunds will generally be issued using the original payment method whenever reasonably possible. For cryptocurrency transactions, refunds may be issued in cryptocurrency. Refund processing times depend upon the payment provider, financial institution, blockchain network, or payment processor. The Company is not responsible for delays caused by third-party payment providers or financial institutions.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">12. FRAUDULENT CLAIMS</h2>
-                  <p>The Company reserves the right to reject any refund request where fraud, abuse, false information, altered evidence, or other dishonest conduct is reasonably suspected. Additional documentation may be requested before a final decision is made.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">13. CHARGEBACKS</h2>
-                  <p>Customers are encouraged to contact Customer Support before initiating a payment dispute or chargeback. Fraudulent or abusive chargebacks may result in:</p>
-                  <ul className="mt-4 list-disc pl-6 space-y-1">
-                    <li>Cancellation of future Orders</li>
-                    <li>Permanent refusal of service</li>
-                    <li>Account suspension</li>
-                    <li>Recovery of associated costs where permitted by Applicable Law</li>
-                  </ul>
-                  <p className="mt-4">The Company reserves all legal rights regarding fraudulent payment disputes.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">14. FORCE MAJEURE</h2>
-                  <p>The Company shall not be liable for delays or inability to provide refunds caused by events beyond its reasonable control, including but not limited to:</p>
-                  <ul className="mt-4 list-disc pl-6 space-y-1">
-                    <li>Natural disasters, war, terrorism, or civil unrest</li>
-                    <li>Pandemics or governmental actions</li>
-                    <li>Customs actions</li>
-                    <li>Payment processor or banking interruptions</li>
-                    <li>Transportation disruptions or carrier failures</li>
-                    <li>Supplier disruptions</li>
-                    <li>Internet or infrastructure failures</li>
-                  </ul>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">15. CHANGES TO THIS POLICY</h2>
-                  <p>The Company reserves the right to modify this Refund Policy at any time. Updated versions become effective immediately upon publication on the Website unless otherwise required by Applicable Law. The latest revision date will always appear at the beginning of this Policy.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">16. CONTACT</h2>
-                  <p>For refund, replacement, reshipment, or shipping-related inquiries, please contact:</p>
-                  <p className="mt-4">10BottleValueCo SIA</p>
-                  <p className="mt-2">
-                    <button type="button" onClick={copySupportEmail} className="font-semibold uppercase tracking-[0.08em] text-white transition hover:text-white/80">
-                      {copiedEmail
-                        ? language === "RU" ? "EMAIL СКОПИРОВАН" : language === "UA" ? "EMAIL СКОПІЙОВАНО" : language === "DE" ? "E-MAIL KOPIERT" : language === "ES" ? "EMAIL COPIADO" : "EMAIL COPIED"
-                        : "SUPPORT@10BOTTLEVALUE.CO"}
-                    </button>
-                  </p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">17. GOVERNING LANGUAGE</h2>
-                  <p>Translations of this Refund Policy may be provided for convenience only. In the event of any inconsistency, ambiguity, or conflict between translated versions and the English version, the English version shall prevail.</p>
-                </section>
-
-              </div>
-            </div>
-          </main>
+          <Suspense fallback={publicPolicyPageFallback}>
+            <ShippingRefundPolicyPages
+              page={page}
+              i18n={i18n}
+              legal={legal}
+              copySupportEmail={copySupportEmail}
+              copiedEmail={copiedEmail}
+              language={language}
+            />
+          </Suspense>
         )}
 
         {page === "privacy" && (
-          <main className="mx-auto max-w-5xl px-4 pt-8 pb-8 md:px-10 md:pt-12 md:pb-16">
-            <div className="rounded-[1.5rem] border border-white/20 bg-black/20 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.08)] md:rounded-[2rem] md:p-12">
-              <h1 className="text-center text-2xl font-semibold uppercase tracking-[0.1em] text-white md:text-5xl">
-                {i18n(legal.privacyTitle)}
-              </h1>
-              <p className="mt-3 text-center text-[12px] uppercase tracking-[0.12em] text-white/60">
-                {i18n(legal.lastUpdated)}
-              </p>
-
-              <div className="mx-auto mt-8 max-w-3xl rounded-[1.2rem] border border-white/15 bg-black/20 px-6 py-5 text-center text-[12px] uppercase tracking-[0.1em] leading-[1.9] text-white/80">
-                {tx(
-                  "Your personal data will be used to process your order, support your experience throughout this website, and for other purposes described in this",
-                  "Ваши персональные данные используются для обработки заказа, поддержки работы сайта и иных целей, описанных в данной",
-                  "Ваші персональні дані використовуються для обробки замовлення, підтримки роботи сайту та інших цілей, описаних у цій",
-                  "Ihre persönlichen Daten werden verwendet, um Ihre Bestellung zu bearbeiten, Ihre Erfahrung auf dieser Website zu unterstützen und für andere hier beschriebene Zwecke",
-                  "Sus datos personales se utilizarán para procesar su pedido, mejorar su experiencia en este sitio web y para otros fines descritos en esta"
-                )}{" "}
-                <span className="font-bold text-white">
-                  {tx("Privacy Policy", "Политике конфиденциальности", "Політиці конфіденційності", "Datenschutzrichtlinie", "Política de Privacidad")}
-                </span>.
-              </div>
-
-              <div className="mx-auto mt-10 max-w-3xl space-y-8 text-[13px] uppercase leading-8 tracking-[0.08em] text-white/80 md:text-[14px] md:leading-9">
-
-                <section>
-                  <h2 className="text-white font-semibold">1. INTRODUCTION</h2>
-                  <p>This Privacy Policy explains how 10BottleValueCo SIA ("Company", "we", "our", or "us") collects, uses, stores, processes, protects, and discloses your personal information when you visit our Website, create an account, place an order, communicate with us, or otherwise use our services.</p>
-                  <p className="mt-4">We are committed to protecting your privacy and processing your personal information in accordance with applicable privacy and data protection laws, including the General Data Protection Regulation (EU) 2016/679 ("GDPR") where applicable.</p>
-                  <p className="mt-4">By accessing or using our Website, you acknowledge that you have read and understood this Privacy Policy.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">2. DATA CONTROLLER</h2>
-                  <p>The data controller responsible for processing your personal information is:</p>
-                  <p className="mt-4">10BottleValueCo SIA<br />Registration Number: 40203750341<br />Registered Address: Avotu iela 8, Lielvārde, Ogres nov., LV-5071, Latvia<br />Email: SUPPORT@10BOTTLEVALUE.CO</p>
-                  <p className="mt-4">Unless otherwise expressly stated, 10BottleValueCo SIA acts as the controller of personal information collected through this Website.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">3. DEFINITIONS</h2>
-                  <p>For purposes of this Privacy Policy:</p>
-                  <ul className="mt-4 list-disc pl-6 space-y-2">
-                    <li><span className="text-white font-semibold">Personal Data</span> — any information relating to an identified or identifiable natural person.</li>
-                    <li><span className="text-white font-semibold">Processing</span> — any operation performed on personal data including collection, storage, use, disclosure, transmission, deletion, restriction, organization, or destruction.</li>
-                    <li><span className="text-white font-semibold">Website</span> — www.10bottlevalue.co and any associated domains operated by the Company.</li>
-                    <li><span className="text-white font-semibold">Services</span> — all services, products, features, and functionality made available through the Website.</li>
-                  </ul>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">4. INFORMATION WE COLLECT</h2>
-                  <p>Depending on how you use our Website, we may collect different categories of personal information.</p>
-
-                  <p className="mt-4 text-white font-semibold">4.1 Identity Information</p>
-                  <ul className="mt-2 list-disc pl-6 space-y-1">
-                    <li>First name</li>
-                    <li>Last name</li>
-                    <li>Account name</li>
-                  </ul>
-
-                  <p className="mt-4 text-white font-semibold">4.2 Contact Information</p>
-                  <ul className="mt-2 list-disc pl-6 space-y-1">
-                    <li>Email address</li>
-                    <li>Telephone number</li>
-                  </ul>
-
-                  <p className="mt-4 text-white font-semibold">4.3 Shipping Information</p>
-                  <ul className="mt-2 list-disc pl-6 space-y-1">
-                    <li>Recipient name</li>
-                    <li>Shipping address</li>
-                    <li>Apartment or suite number</li>
-                    <li>City, state or province, postal code, country</li>
-                  </ul>
-
-                  <p className="mt-4 text-white font-semibold">4.4 Account Information</p>
-                  <ul className="mt-2 list-disc pl-6 space-y-1">
-                    <li>Email address</li>
-                    <li>Encrypted password</li>
-                    <li>Account preferences</li>
-                    <li>Saved addresses</li>
-                    <li>Order history</li>
-                    <li>Login history</li>
-                    <li>Account creation date and activity</li>
-                  </ul>
-
-                  <p className="mt-4 text-white font-semibold">4.5 Order Information</p>
-                  <ul className="mt-2 list-disc pl-6 space-y-1">
-                    <li>Purchased products</li>
-                    <li>Order totals</li>
-                    <li>Shipping methods</li>
-                    <li>Payment status</li>
-                    <li>Tracking numbers</li>
-                    <li>Invoices</li>
-                    <li>Customer notes and support communications</li>
-                  </ul>
-
-                  <p className="mt-4 text-white font-semibold">4.6 Payment Information</p>
-                  <p className="mt-2">Payments are processed by independent third-party payment providers. Depending on the selected payment method, payment providers may collect payment information directly. The Company generally does not store complete payment card numbers, card security codes (CVV/CVC), private cryptocurrency wallet keys, or similar sensitive payment credentials.</p>
-
-                  <p className="mt-4 text-white font-semibold">4.7 Technical Information</p>
-                  <ul className="mt-2 list-disc pl-6 space-y-1">
-                    <li>IP address</li>
-                    <li>Browser type and version</li>
-                    <li>Operating system and device type</li>
-                    <li>Screen resolution, language settings, time zone</li>
-                    <li>Approximate geographic location based on IP</li>
-                    <li>Referral URLs, pages visited, browsing behavior</li>
-                    <li>Session duration, timestamps, error logs</li>
-                  </ul>
-
-                  <p className="mt-4 text-white font-semibold">4.8 Cookies and Similar Technologies</p>
-                  <p className="mt-2">We may use cookies, local storage, pixels, session identifiers, and similar technologies to improve Website functionality, maintain user sessions, remember preferences, enhance security, analyze Website performance, and provide a better user experience. Additional information is available in our Cookie Policy.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">5. HOW WE COLLECT INFORMATION</h2>
-                  <p>We collect personal information through various methods, including:</p>
-                  <ul className="mt-4 list-disc pl-6 space-y-2">
-                    <li><span className="text-white font-semibold">Directly from you</span> — when you create an account, place an order, contact customer support, update account information, submit forms, or communicate by email.</li>
-                    <li><span className="text-white font-semibold">Automatically</span> — certain information is automatically collected when you visit the Website using cookies, server logs, analytics tools, and security monitoring systems.</li>
-                    <li><span className="text-white font-semibold">From Service Providers</span> — we may receive information from payment processors, shipping providers, fraud prevention providers, and other third-party service providers where necessary to provide our services.</li>
-                  </ul>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">6. LEGAL BASIS FOR PROCESSING</h2>
-                  <p>Where GDPR applies, we process personal information on one or more of the following legal bases:</p>
-                  <ul className="mt-4 list-disc pl-6 space-y-2">
-                    <li><span className="text-white font-semibold">Contract Performance</span> — processing necessary to fulfill orders, provide services, process payments, ship products, and provide customer support.</li>
-                    <li><span className="text-white font-semibold">Legal Obligations</span> — processing required to comply with tax, accounting, anti-fraud, regulatory, or other legal obligations.</li>
-                    <li><span className="text-white font-semibold">Legitimate Interests</span> — processing reasonably necessary for website security, fraud prevention, improving website performance, protecting our legal rights, customer support, and business administration.</li>
-                    <li><span className="text-white font-semibold">Consent</span> — where required by Applicable Law. You may withdraw consent at any time where processing is based solely upon consent.</li>
-                  </ul>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">7. HOW WE USE YOUR INFORMATION</h2>
-                  <p>We may use your information to:</p>
-                  <ul className="mt-4 list-disc pl-6 space-y-1">
-                    <li>Create user accounts and authenticate users</li>
-                    <li>Process orders, verify payments, and ship products</li>
-                    <li>Provide customer support</li>
-                    <li>Detect fraud and investigate suspicious activity</li>
-                    <li>Improve Website functionality and maintain Website security</li>
-                    <li>Comply with legal obligations and respond to legal requests</li>
-                    <li>Maintain internal business records and resolve disputes</li>
-                    <li>Enforce our Terms & Conditions</li>
-                  </ul>
-                  <p className="mt-4 text-white font-semibold">We do not sell your personal information.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">8. DISCLOSURE OF PERSONAL INFORMATION</h2>
-                  <p>We do not sell, rent, or trade your personal information to third parties for their own marketing purposes. Personal information may be disclosed only where reasonably necessary for the operation of our business, fulfillment of orders, compliance with legal obligations, or protection of our legitimate interests. Information may be shared only with categories of recipients described in this Privacy Policy.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">9. PAYMENT PROCESSORS</h2>
-                  <p>Payments made through our Website are processed by independent third-party payment providers. Depending on the payment method selected, we may share information reasonably necessary to complete payment processing. Payment providers may include, but are not limited to:</p>
-                  <ul className="mt-4 list-disc pl-6 space-y-1">
-                    <li>Stripe</li>
-                    <li>Banxa</li>
-                    <li>NowPayments</li>
-                    <li>Cash App</li>
-                    <li>Other payment providers made available through our checkout</li>
-                  </ul>
-                  <p className="mt-4">Each payment provider processes personal information in accordance with its own privacy policy and security practices. The Company generally does not receive or store complete payment card numbers, CVV/CVC security codes, or private cryptocurrency wallet credentials.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">10. SHIPPING & FULFILLMENT PARTNERS</h2>
-                  <p>To fulfill orders, we may share necessary information with third-party fulfillment partners and logistics providers. Information shared may include:</p>
-                  <ul className="mt-4 list-disc pl-6 space-y-1">
-                    <li>Recipient name</li>
-                    <li>Shipping address</li>
-                    <li>Telephone number</li>
-                    <li>Email address where required</li>
-                    <li>Order information and shipping preferences</li>
-                  </ul>
-                  <p className="mt-4">Information is shared only to the extent reasonably necessary to complete order fulfillment.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">11. WEBSITE SERVICE PROVIDERS</h2>
-                  <p>To operate and maintain the Website, we may use trusted third-party service providers for website hosting, cloud infrastructure, databases, source code management, security monitoring, analytics, and payment processing. Current providers may include:</p>
-                  <ul className="mt-4 list-disc pl-6 space-y-1">
-                    <li>Vercel</li>
-                    <li>Supabase</li>
-                    <li>GitHub</li>
-                  </ul>
-                  <p className="mt-4">The use of specific providers may change without prior notice.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">12. INTERNATIONAL DATA TRANSFERS</h2>
-                  <p>Because certain service providers, payment processors, logistics partners, cloud providers, and technical infrastructure may operate internationally, your personal information may be transferred to countries outside your country of residence. Where required by Applicable Law, appropriate safeguards shall be implemented, which may include contractual safeguards, technical security measures, organizational safeguards, and other legally recognized transfer mechanisms.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">13. DATA RETENTION</h2>
-                  <p>Personal information shall be retained only for as long as reasonably necessary to fulfill orders, provide customer support, maintain user accounts, comply with legal obligations, resolve disputes, detect fraud, enforce agreements, and protect legitimate business interests. Different categories of information may be retained for different periods depending upon legal, contractual, operational, or regulatory requirements. When information is no longer required, it will be securely deleted, anonymized, or otherwise disposed of in accordance with applicable law.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">14. SECURITY</h2>
-                  <p>We implement reasonable administrative, organizational, physical, and technical safeguards designed to protect personal information. Security measures may include:</p>
-                  <ul className="mt-4 list-disc pl-6 space-y-1">
-                    <li>Encrypted communications (HTTPS)</li>
-                    <li>Restricted administrative access</li>
-                    <li>Authentication controls</li>
-                    <li>Secure infrastructure</li>
-                    <li>Monitoring systems and fraud detection</li>
-                    <li>Access logging and regular software updates</li>
-                  </ul>
-                  <p className="mt-4">Despite these measures, no method of electronic storage or Internet transmission can be guaranteed to be completely secure. Accordingly, the Company cannot guarantee absolute security.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">15. YOUR PRIVACY RIGHTS</h2>
-                  <p>Depending upon your jurisdiction, including where the GDPR applies, you may have the right to:</p>
-                  <ul className="mt-4 list-disc pl-6 space-y-1">
-                    <li>Request access to your personal information</li>
-                    <li>Request correction of inaccurate information</li>
-                    <li>Request deletion of personal information</li>
-                    <li>Request restriction of processing</li>
-                    <li>Object to certain processing activities</li>
-                    <li>Request portability of your personal information</li>
-                    <li>Withdraw consent where processing is based solely upon consent</li>
-                    <li>Lodge a complaint with a competent supervisory authority</li>
-                  </ul>
-                  <p className="mt-4">The exercise of certain rights may be limited where permitted by Applicable Law.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">16. EXERCISING YOUR RIGHTS</h2>
-                  <p>Privacy requests may be submitted by contacting: SUPPORT@10BOTTLEVALUE.CO</p>
-                  <p className="mt-4">To protect your privacy and prevent unauthorized disclosure, we may request reasonable identity verification before responding to your request. Requests will be handled within the timeframes required by Applicable Law.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">17. COOKIES</h2>
-                  <p>The Website uses cookies and similar technologies to improve functionality, security, and user experience. Cookies may be used to:</p>
-                  <ul className="mt-4 list-disc pl-6 space-y-1">
-                    <li>Remember user preferences</li>
-                    <li>Maintain shopping cart functionality</li>
-                    <li>Keep users signed in</li>
-                    <li>Improve Website performance</li>
-                    <li>Detect fraudulent activity and improve security</li>
-                    <li>Analyze Website traffic</li>
-                  </ul>
-                  <p className="mt-4">Where required by law, users may manage cookie preferences through our cookie consent interface or browser settings. Disabling cookies may affect certain Website functionality.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">18. DO NOT TRACK</h2>
-                  <p>Some web browsers support "Do Not Track" ("DNT") signals. Because no uniform industry standard currently exists for DNT responses, the Website may not respond to such browser signals.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">19. AUTOMATED DECISION-MAKING</h2>
-                  <p>We may use automated systems to assist with fraud detection, payment verification, account security, and website protection. Such systems are intended solely to protect the Company, customers, payment providers, and Website infrastructure. No automated decision is intended to produce legal effects concerning you without appropriate human review where required by Applicable Law.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">20. ACCOUNT INFORMATION</h2>
-                  <p>Registered users may update account information, change saved shipping addresses, review order history, and manage account settings. Customers remain responsible for maintaining the confidentiality of their account credentials.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">21. CHILDREN'S PRIVACY</h2>
-                  <p>This Website is intended solely for individuals who are at least twenty-one (21) years of age. We do not knowingly collect personal information from individuals under the age of twenty-one (21). If we become aware that personal information has been collected from an individual who does not meet the minimum age requirement, we will take reasonable steps to delete such information as soon as reasonably practicable. Parents or legal guardians who believe that a minor has provided personal information may contact us using the information provided in this Privacy Policy.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">22. THIRD-PARTY WEBSITES</h2>
-                  <p>The Website may contain links to third-party websites, services, applications, or resources operated by independent organizations. This Privacy Policy applies solely to information collected by 10BottleValueCo SIA through this Website. We are not responsible for the privacy practices, security measures, content, policies, or services provided by third-party websites. Users are encouraged to review the privacy policies of any third-party websites they visit.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">23. BUSINESS TRANSFERS</h2>
-                  <p>In the event of a merger, acquisition, corporate restructuring, sale of assets, financing transaction, bankruptcy, liquidation, or other corporate reorganization, personal information may be transferred as part of the relevant business assets where permitted by Applicable Law. Any successor entity shall remain subject to obligations substantially consistent with this Privacy Policy unless otherwise permitted by law.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">24. LEGAL DISCLOSURES</h2>
-                  <p>The Company may disclose personal information where disclosure is reasonably necessary to comply with Applicable Law, court orders, lawful governmental requests, or law enforcement agencies, or to investigate suspected fraud or security incidents, protect the legal rights of the Company, customers, payment providers, and logistics partners, enforce our Terms & Conditions, or defend against legal claims. Such disclosures shall be limited to the extent reasonably necessary under the circumstances.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">25. DATA ACCURACY</h2>
-                  <p>Customers are responsible for ensuring that personal information submitted through the Website remains accurate, complete, and up to date. The Company shall not be responsible for losses arising from inaccurate or outdated information provided by customers. Customers may update account information through their user account or by contacting Customer Support.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">26. DATA MINIMIZATION</h2>
-                  <p>We strive to collect only the personal information reasonably necessary for the operation of our Website, fulfillment of orders, compliance with legal obligations, fraud prevention, customer support, and other legitimate business purposes described in this Privacy Policy. We do not intentionally collect unnecessary categories of personal information.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">27. PRIVACY BY DESIGN</h2>
-                  <p>Where reasonably practicable, the Company considers privacy and data protection principles during the design, implementation, maintenance, and improvement of Website features and internal business processes. Reasonable technical and organizational measures are implemented to reduce unnecessary processing of personal information.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">28. CHANGES TO THIS PRIVACY POLICY</h2>
-                  <p>The Company reserves the right to modify this Privacy Policy at any time. Updated versions become effective immediately upon publication on the Website unless otherwise required by Applicable Law. The latest revision date will always appear at the beginning of this Privacy Policy. Continued use of the Website following publication of an updated Privacy Policy constitutes acknowledgment of the revised version.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">29. CONTACT INFORMATION</h2>
-                  <p>If you have any questions regarding this Privacy Policy or wish to exercise your privacy rights, please contact:</p>
-                  <p className="mt-4">10BottleValueCo SIA<br />Registration No.: 40203750341<br />Registered Address: Avotu iela 8, Lielvārde, Ogres nov., LV-5071, Latvia<br />Email: SUPPORT@10BOTTLEVALUE.CO<br />Website: HTTPS://10BOTTLEVALUE.CO</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">30. GOVERNING LANGUAGE</h2>
-                  <p>This Privacy Policy has been prepared in the English language. Translations may be provided solely for convenience. In the event of any inconsistency, ambiguity, or conflict between any translated version and the English version, the English version shall prevail.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">31. SEVERABILITY</h2>
-                  <p>If any provision of this Privacy Policy is determined by a court or competent authority to be invalid, unlawful, or unenforceable, the remaining provisions shall remain in full force and effect. Any invalid provision shall be interpreted to the maximum extent permitted by Applicable Law while preserving its original intent.</p>
-                </section>
-
-                <section>
-                  <h2 className="text-white font-semibold">32. ENTIRE PRIVACY POLICY</h2>
-                  <p>This Privacy Policy constitutes the complete privacy notice governing the collection, processing, storage, disclosure, and protection of personal information collected through the Website. This Privacy Policy should be read together with our:</p>
-                  <ul className="mt-4 list-disc pl-6 space-y-1">
-                    <li>Terms & Conditions</li>
-                    <li>Cookie Policy</li>
-                    <li>Shipping Policy</li>
-                    <li>Refund Policy</li>
-                  </ul>
-                  <p className="mt-4">And any additional legal notices published on the Website.</p>
-                </section>
-
-              </div>
-            </div>
-          </main>
+          <Suspense fallback={publicPolicyPageFallback}>
+            <PrivacyPolicyPage i18n={i18n} legal={legal} tx={tx} />
+          </Suspense>
         )}
 
-        {page === "terms" && (
+        {false && page === "terms" && (
           <main className="mx-auto max-w-5xl px-4 pt-8 pb-8 md:px-10 md:pt-12 md:pb-16">
             <div className="rounded-[1.5rem] border border-white/20 bg-black/20 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.08)] md:rounded-[2rem] md:p-12">
               <h1 className="text-center text-2xl font-semibold uppercase tracking-[0.1em] text-white md:text-5xl">
@@ -16183,6 +15246,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
           </main>
         )}
 
+        {page === "terms" && (
+          <Suspense fallback={publicPolicyPageFallback}>
+            <TermsConditionsPage i18n={i18n} legal={legal} />
+          </Suspense>
+        )}
+
         {page === "admin" && (
           <main className="mx-auto max-w-7xl px-6 pt-8 pb-16 md:px-10">
             {!isAdminUser() ? (
@@ -16229,7 +15298,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 ))}
               </div>
               {adminActiveTab === "orders" && (
-              <section className="rounded-[2rem] border border-white/20 bg-black p-5 md:p-6">
+              <section className="rounded-[2rem] border border-white/30 bg-black p-5 md:p-6">
                 {/* Stats + action buttons row */}
                 <div className="flex items-center gap-3 flex-wrap">
                   {(() => {
@@ -16267,7 +15336,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
                 {/* Search + date filters */}
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <input type="text" value={adminSearch} onChange={(e) => { setAdminSearch(e.target.value); setAdminPage(1); }} placeholder="Search orders…" className="min-w-0 flex-1 rounded-xl border border-white/15 bg-black/10 px-4 py-2 text-xs text-white placeholder:text-white/40 outline-none" />
+                  <BufferedInput type="text" value={adminSearch} onValueChange={(value) => { setAdminSearch(value); setAdminPage(1); }} placeholder="Search orders…" className="min-w-0 flex-1 rounded-xl border border-white/15 bg-black/10 px-4 py-2 text-xs text-white placeholder:text-white/40 outline-none" />
                   <input type="date" value={adminDateFrom} onChange={(e) => { setAdminDateFrom(e.target.value); setAdminPage(1); }} className="rounded-xl border border-white/15 bg-black/10 px-3 py-2 text-xs text-white/60 outline-none [color-scheme:dark]" />
                   <input type="date" value={adminDateTo} onChange={(e) => { setAdminDateTo(e.target.value); setAdminPage(1); }} className="rounded-xl border border-white/15 bg-black/10 px-3 py-2 text-xs text-white/60 outline-none [color-scheme:dark]" />
                   {(adminDateFrom || adminDateTo) && (
@@ -16385,7 +15454,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           }[String(order.status || "pending").toLowerCase()] || "border-amber-300/40 bg-amber-300/10 text-amber-200";
 
                           return (
-                            <div key={order.id} className="rounded-[1.4rem] border border-white/15 bg-black/20 px-5 pt-5 pb-3">
+                            <div key={order.id} className="rounded-[1.4rem] border-2 border-white/40 bg-black/20 px-5 pt-5 pb-3">
                               {/* Header row */}
                               <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div className="flex flex-wrap items-center gap-3">
@@ -17028,10 +16097,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
                   <div className="mt-4 relative">
                     <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                    <input
+                    <BufferedInput
                       type="text"
                       value={adminInboxSearch}
-                      onChange={(e) => { setAdminInboxSearch(e.target.value); setAdminInboxPage(1); }}
+                      onValueChange={(value) => { setAdminInboxSearch(value); setAdminInboxPage(1); }}
                       placeholder="Search by email or message text…"
                       className="w-full rounded-2xl border border-white/15 bg-black/20 pl-9 pr-4 py-2.5 text-sm text-white placeholder:text-white/30 outline-none"
                     />
@@ -17045,17 +16114,17 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       <div className="text-[11px] uppercase tracking-[0.22em] text-emerald-300 mb-3">New Message to User</div>
                       <p className="mb-3 text-xs text-white/55">This message appears in the site's Support chat for the account email below. It does not send an email.</p>
                       <div className="flex flex-col gap-3">
-                        <input
+                        <BufferedInput
                           type="email"
                           placeholder="Recipient email (user@example.com)"
                           value={adminComposeTo}
-                          onChange={(e) => setAdminComposeTo(e.target.value)}
+                          onValueChange={setAdminComposeTo}
                           className="rounded-2xl border border-white/20 bg-black/20 px-4 py-3 text-sm text-white placeholder:text-white/50 outline-none"
                         />
-                        <textarea
+                        <BufferedTextarea
                           placeholder="Your message to the user…"
                           value={adminComposeText}
-                          onChange={(e) => setAdminComposeText(e.target.value)}
+                          onValueChange={setAdminComposeText}
                           rows={3}
                           className="rounded-2xl border border-white/20 bg-black/20 px-4 py-3 text-sm text-white placeholder:text-white/50 outline-none resize-none"
                         />
@@ -17174,7 +16243,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                                     ))}
                                                   </div>
                                                   <div id={chatMsgDomId(msg.id, "msg")} className={`group/del rounded-2xl rounded-bl-sm bg-black/40 border border-white/10 px-3.5 py-2.5 transition-colors duration-500 ${highlightedMsgKey === chatMsgDomId(msg.id, "msg") ? "ring-2 ring-sky-400 bg-sky-400/20" : ""}`}>
-                                                    <div className="text-sm text-white/85 leading-relaxed">{renderMsgContent(msg.message)}</div>
+                                                    <div className="text-sm text-white/85 leading-relaxed">{renderMsgContent(msg.message, msg.id, "message")}</div>
                                                     <div className="mt-1 flex items-center gap-2">
                                                       <span className="text-[10px] text-white/25">{ds(msg.created_at)}</span>
                                                       <button onClick={() => setAdminReplyPreview(makeQuoteSnippet(msg.message, msg.id, "msg"))} className="flex items-center gap-0.5 text-[10px] text-sky-300/90 hover:text-sky-200 font-semibold transition-colors opacity-0 group-hover/del:opacity-100"><span>↩</span>Reply</button>
@@ -17199,7 +16268,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                           if (adminReplyingId === msg.id) {
                                             return (
                                               <div key={`edit-${msg.id}`} className="flex flex-col gap-2 px-1">
-                                                <textarea value={adminReplyText} onChange={(e) => setAdminReplyText(e.target.value)} rows={2} placeholder="Edit reply…" autoFocus className="rounded-2xl border border-white/20 bg-black/25 px-4 py-3 text-sm text-white placeholder:text-white/30 outline-none resize-none" />
+                                              <BufferedTextarea ref={adminReplyInputRef} value={adminReplyText} onValueChange={setAdminReplyText} rows={2} placeholder="Edit reply…" autoFocus className="rounded-2xl border border-white/20 bg-black/25 px-4 py-3 text-sm text-white placeholder:text-white/30 outline-none resize-none" />
                                                 <div className="flex gap-2 justify-end">
                                                   <button onClick={() => { setAdminReplyingId(null); setAdminReplyText(""); }} className="rounded-full border border-white/15 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.15em] text-white/50 hover:text-white transition">Cancel</button>
                                                   <button onClick={() => sendAdminReply(msg.id, { isEdit: true })} disabled={!adminReplyText.trim()} className="rounded-full bg-white px-5 py-2 text-[11px] font-black uppercase tracking-[0.15em] text-black hover:bg-white/90 disabled:opacity-40 transition">Save</button>
@@ -17216,7 +16285,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                                   ))}
                                                 </div>
                                                 <div id={chatMsgDomId(msg.id, "reply")} className={`group/act rounded-2xl rounded-br-sm bg-emerald-500/20 border border-emerald-400/20 px-3.5 py-2.5 transition-colors duration-500 ${highlightedMsgKey === chatMsgDomId(msg.id, "reply") ? "ring-2 ring-sky-400 bg-sky-400/25" : ""}`}>
-                                                  <div className="text-sm text-white leading-relaxed">{renderMsgContent(replyText)}</div>
+                                                  <div className="text-sm text-white leading-relaxed">{renderMsgContent(replyText, msg.id, msg.admin_reply ? "admin_reply" : "message")}</div>
                                                   <div className="mt-1 flex items-center justify-end gap-2">
                                                     <span className="text-[10px] text-white/40">{ds(msg.replied_at || msg.created_at)}</span>
                                                     <button onClick={() => setAdminReplyPreview(makeQuoteSnippet(replyText, msg.id, "reply"))} className="flex items-center gap-0.5 text-[10px] font-bold text-sky-300 hover:text-sky-200 transition-colors"><span>↩</span>reply</button>
@@ -17275,10 +16344,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                               </div>
                                             </div>
                                           )}
-                                          <textarea
+                                          <BufferedTextarea
+                                            ref={adminReplyInputRef}
                                             value={adminReplyText}
-                                            onChange={(e) => { setAdminReplyText(e.target.value); broadcastTyping('admin'); }}
-                                            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (lastUnanswered) sendAdminReply(lastUnanswered.id); else sendAdminFollowUp(email); } }}
+                                            onValueChange={setAdminReplyText}
+                                            onImmediateInput={() => broadcastTyping("admin")}
+                                            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (lastUnanswered) sendAdminReply(lastUnanswered.id, { messageText: e.currentTarget.value }); else sendAdminFollowUp(email, e.currentTarget.value); } }}
                                             onPaste={(e) => { const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/')); if (item) { e.preventDefault(); const f = item.getAsFile(); if (f) uploadAndSendAttachment(f, (url) => sendAttachmentAsAdminMessage(url, email, lastUnanswered)); } }}
                                             rows={2}
                                             placeholder="Reply… (Enter to send)"
@@ -17427,7 +16498,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               {adminActiveTab === "promo" && isAdminUser() && (
                 <>
                 {/* ── PUBLIC PROMO CODES ── */}
-                <div className="rounded-[1.6rem] border border-emerald-500/20 bg-emerald-500/5 p-6 mb-6">
+                <div className="rounded-[1.6rem] border border-emerald-500/20 bg-black p-6 mb-6">
                   <div className="text-[11px] uppercase tracking-[0.24em] text-emerald-400/70">Public Promo Code</div>
                   <h2 className="mt-2 text-xl font-semibold text-white">Create public promo code</h2>
                   <p className="mt-1 text-xs text-white/60">Код будет работать для всех без ограничений. Опубликуй в соцсетях или рассылке.</p>
@@ -17447,7 +16518,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     <div className="mt-5 space-y-2">
                       <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-3">Active public codes</div>
                       {publicPromos.map(p => (
-                        <div key={p.id} className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-4 py-2.5">
+                        <div key={p.id} className="flex items-center justify-between rounded-xl border border-white/10 bg-black px-4 py-2.5">
                           <div className="flex items-center gap-3">
                             <span className="font-mono font-bold text-sm text-white tracking-widest">{p.code}</span>
                             <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-300 font-semibold">{(+(p.rate * 100).toFixed(2))}% OFF</span>
@@ -17461,7 +16532,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     <div className="mt-4 text-xs text-white/30 text-center">Нет активных публичных промокодов</div>
                   )}
                 </div>
-                <div className="rounded-[1.6rem] border border-white/15 bg-black/20 p-6">
+                <div className="rounded-[1.6rem] border border-white/15 bg-black p-6">
                   <div className="text-[11px] uppercase tracking-[0.24em] text-white/60">Issue Promo Code</div>
                   <h2 className="mt-2 text-xl font-semibold text-white">Issue one-time promo to account</h2>
                   <p className="mt-1 text-xs text-white/60">The code will be stored in Supabase and auto-applied when the user enters it at checkout. It's single-use and tied to their email.</p>
@@ -17478,7 +16549,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     <div className={`mt-3 rounded-xl px-4 py-3 text-sm ${issuePromoMessage.startsWith("✓") ? "bg-emerald-500/15 text-emerald-300" : "bg-red-500/15 text-red-300"}`}>{issuePromoMessage}</div>
                   )}
                 </div>
-                <div className="mt-6 rounded-[1.6rem] border border-white/15 bg-black/20 p-6">
+                <div className="mt-6 rounded-[1.6rem] border border-white/15 bg-black p-6">
                   <div className="text-[11px] uppercase tracking-[0.24em] text-white/60">Issue Affiliate</div>
                   <h2 className="mt-2 text-xl font-semibold text-white">Grant affiliate access</h2>
                   <p className="mt-1 text-xs text-white/60">Creates an affiliate record in Supabase. The user's affiliate link and dashboard will become active immediately after they refresh.</p>
@@ -17491,7 +16562,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     <div className={`mt-3 rounded-xl px-4 py-3 text-sm ${issueAffMessage.startsWith("✓") ? "bg-emerald-500/15 text-emerald-300" : "bg-red-500/15 text-red-300"}`}>{issueAffMessage}</div>
                   )}
                 </div>
-                <div className="mt-6 rounded-[1.6rem] border border-red-500/20 bg-red-500/5 p-6">
+                <div className="mt-6 rounded-[1.6rem] border border-red-500/20 bg-black p-6">
                   <div className="text-[11px] uppercase tracking-[0.24em] text-red-400/70">Revoke Affiliate</div>
                   <h2 className="mt-2 text-xl font-semibold text-white">Remove affiliate access</h2>
                   <p className="mt-1 text-xs text-white/50">Sets the affiliate to inactive. Their link and dashboard will stop working immediately after they refresh. Commission history is preserved.</p>
@@ -17520,7 +16591,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
 
               {adminActiveTab === "tools" && isAdminUser() && (
                 <>
-                <div className="rounded-[1.6rem] border border-white/15 bg-black/20 p-6">
+                <div className="rounded-[1.6rem] border border-white/15 bg-black p-6">
                   <div className="text-[11px] uppercase tracking-[0.24em] text-white/60">STORE CREDITS</div>
                   <h2 className="mt-2 text-2xl font-semibold text-white">Add / Set Balance</h2>
                   <div className="mt-4 flex flex-col gap-3">
@@ -17599,7 +16670,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
                 </div>
 
-                <div className="mt-6 rounded-[1.6rem] border border-white/15 bg-black/20 overflow-hidden">
+                <div className="mt-6 rounded-[1.6rem] border border-white/15 bg-black overflow-hidden">
                   <button
                     type="button"
                     onClick={() => setInventoryOpen(v => !v)}
@@ -17690,7 +16761,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                 </div>
 
                 {/* Hidden Orders Recovery */}
-                <div className="mt-6 rounded-[1.6rem] border border-amber-500/25 bg-amber-500/5 p-6">
+                <div className="mt-6 rounded-[1.6rem] border border-amber-500/25 bg-black p-6">
                   <div className="text-[11px] uppercase tracking-[0.24em] text-amber-400/70">RECOVERY</div>
                   <h2 className="mt-2 text-xl font-semibold text-white">Restore Hidden Order</h2>
                   <p className="mt-1 text-sm text-white/50">
@@ -18552,81 +17623,65 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                   <td data-label="Actions" className="px-2.5 py-2.5">
                                     <span className="mb-1 text-[9px] font-semibold uppercase tracking-[0.09em] text-white/70 md:hidden">Actions</span>
                                     <div className="flex flex-wrap items-center gap-2">
-                                      {affPayInput[aff.code] !== undefined ? (
-                                        <div className="flex min-w-0 flex-wrap items-center gap-1">
-                                          <div className="flex min-w-0 items-center gap-1">
-                                            <span className="text-xs text-white/75">$</span>
-                                            <input
-                                              type="number" min="0" step="0.01"
-                                              value={affPayInput[aff.code]}
-                                              onChange={e => setAffPayInput(p => ({ ...p, [aff.code]: e.target.value }))}
-                                              className="w-[68px] rounded-md border border-white/30 bg-white/10 px-2 py-1.5 text-xs text-white outline-none focus:border-white/70 focus:ring-2 focus:ring-white/20 [appearance:textfield]"
-                                              placeholder="0.00" autoFocus
-                                            />
-                                          </div>
-                                          <button
-                                            onClick={async () => {
-                                              const amount = Number(affPayInput[aff.code]) || 0;
-                                              if (!Number.isFinite(amount) || amount <= 0) {
-                                                setAffPayErrors(p => ({ ...p, [aff.code]: "Enter an amount greater than $0." }));
-                                                return;
+                                      {affPayEditorOpen[aff.code] ? (
+                                        <AffiliatePayoutEditor
+                                          saving={!!affPaySaving[aff.code]}
+                                          onSave={async (rawAmount) => {
+                                            const amount = Number(rawAmount) || 0;
+                                            if (!Number.isFinite(amount) || amount <= 0) {
+                                              setAffPayErrors(p => ({ ...p, [aff.code]: "Enter an amount greater than $0." }));
+                                              return;
+                                            }
+                                            setAffPaySaving(p => ({ ...p, [aff.code]: true }));
+                                            try {
+                                              const { data, error: sessionError } = await supabase.auth.getSession();
+                                              if (sessionError) throw new Error("Could not verify your admin session. Sign in again.");
+                                              const accessToken = data?.session?.access_token;
+                                              if (!accessToken) throw new Error("Sign in with the admin account to record payouts.");
+                                              const response = await fetch("/api/affiliate-payouts", {
+                                                method: "POST",
+                                                headers: {
+                                                  Authorization: `Bearer ${accessToken}`,
+                                                  "Content-Type": "application/json",
+                                                },
+                                                body: JSON.stringify({
+                                                  affiliate_code: String(aff.code).trim().toUpperCase(),
+                                                  amount,
+                                                }),
+                                              });
+                                              const result = await response.json().catch(() => ({}));
+                                              if (!response.ok) {
+                                                throw new Error(result?.error || "The payout could not be saved.");
                                               }
-                                              setAffPaySaving(p => ({ ...p, [aff.code]: true }));
-                                              try {
-                                                const { data, error: sessionError } = await supabase.auth.getSession();
-                                                if (sessionError) throw new Error("Could not verify your admin session. Sign in again.");
-                                                const accessToken = data?.session?.access_token;
-                                                if (!accessToken) throw new Error("Sign in with the admin account to record payouts.");
-                                                const response = await fetch("/api/affiliate-payouts", {
-                                                  method: "POST",
-                                                  headers: {
-                                                    Authorization: `Bearer ${accessToken}`,
-                                                    "Content-Type": "application/json",
-                                                  },
-                                                  body: JSON.stringify({
-                                                    affiliate_code: String(aff.code).trim().toUpperCase(),
-                                                    amount,
-                                                  }),
-                                                });
-                                                const result = await response.json().catch(() => ({}));
-                                                if (!response.ok) {
-                                                  throw new Error(result?.error || "The payout could not be saved.");
-                                                }
-                                                if (result?.ok !== true) {
-                                                  throw new Error("The payout service returned an invalid response.");
-                                                }
-                                                const next = { ...affPaidMap, [aff.code]: (Number(affPaidMap[aff.code]) || 0) + amount };
-                                                setAffPaidMap(next);
-                                                try { localStorage.setItem("tbv-aff-paid", JSON.stringify(next)); } catch {}
-                                                setAffPayErrors(p => { const n = { ...p }; delete n[aff.code]; return n; });
-                                                setAffPayInput(p => { const n = { ...p }; delete n[aff.code]; return n; });
-                                              } catch (e) {
-                                                const errorMessage = typeof e?.message === "string"
-                                                  ? e.message
-                                                  : "The payout could not be saved. No paid total was changed.";
-                                                console.error("Payout save failed", errorMessage);
-                                                setAffPayErrors(p => ({ ...p, [aff.code]: errorMessage }));
-                                              } finally {
-                                                setAffPaySaving(p => { const n = { ...p }; delete n[aff.code]; return n; });
+                                              if (result?.ok !== true) {
+                                                throw new Error("The payout service returned an invalid response.");
                                               }
-                                            }}
-                                            disabled={!!affPaySaving[aff.code]}
-                                            className="min-h-8 rounded-md border border-white/30 bg-white px-2.5 py-1.5 text-[8px] font-bold uppercase tracking-[0.08em] text-[#454545] transition hover:bg-white/90 disabled:opacity-50"
-                                          >{affPaySaving[aff.code] ? "Saving…" : "Save"}</button>
-                                          <button
-                                            onClick={() => {
+                                              const next = { ...affPaidMap, [aff.code]: (Number(affPaidMap[aff.code]) || 0) + amount };
+                                              setAffPaidMap(next);
+                                              try { localStorage.setItem("tbv-aff-paid", JSON.stringify(next)); } catch {}
                                               setAffPayErrors(p => { const n = { ...p }; delete n[aff.code]; return n; });
-                                              setAffPayInput(p => { const n = { ...p }; delete n[aff.code]; return n; });
-                                            }}
-                                            className="min-h-8 rounded-md border border-white/25 bg-white/[0.03] px-2.5 py-1.5 text-[8px] font-semibold uppercase tracking-[0.08em] text-white transition hover:bg-white/10"
-                                          >Cancel</button>
-                                        </div>
+                                              setAffPayEditorOpen(p => { const n = { ...p }; delete n[aff.code]; return n; });
+                                            } catch (e) {
+                                              const errorMessage = typeof e?.message === "string"
+                                                ? e.message
+                                                : "The payout could not be saved. No paid total was changed.";
+                                              console.error("Payout save failed", errorMessage);
+                                              setAffPayErrors(p => ({ ...p, [aff.code]: errorMessage }));
+                                            } finally {
+                                              setAffPaySaving(p => { const n = { ...p }; delete n[aff.code]; return n; });
+                                            }
+                                          }}
+                                          onCancel={() => {
+                                            setAffPayErrors(p => { const n = { ...p }; delete n[aff.code]; return n; });
+                                            setAffPayEditorOpen(p => { const n = { ...p }; delete n[aff.code]; return n; });
+                                          }}
+                                        />
                                       ) : (
                                         <button
                                           type="button"
                                           onClick={() => {
                                             setAffPayErrors(p => { const n = { ...p }; delete n[aff.code]; return n; });
-                                            setAffPayInput(p => ({ ...p, [aff.code]: "" }));
+                                            setAffPayEditorOpen(p => ({ ...p, [aff.code]: true }));
                                           }}
                                               className="inline-flex min-h-8 items-center justify-center rounded-full border border-sky-300/30 bg-sky-300/10 px-3 py-1.5 text-[8px] font-bold uppercase tracking-[0.1em] text-sky-100 transition hover:bg-sky-300/20"
                                         >Record payout</button>
@@ -18852,6 +17907,14 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
               }
             >
               {currentUser && authMode !== "reset" ? (
+                <Suspense
+                  fallback={
+                    <div className="min-h-[320px]" aria-busy="true">
+                      <div className="h-8 w-48 animate-pulse rounded bg-white/10" />
+                      <div className="mt-5 h-56 animate-pulse rounded-2xl bg-white/[0.04]" />
+                    </div>
+                  }
+                >
                 <AccountDashboard
                   user={currentUser}
                   orders={userOrders}
@@ -18941,8 +18004,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   }
                 >
                   {activeAccountSection === "messages" ? (
+                    <Suspense fallback={<div className="min-h-[190px]" aria-busy="true" />}>
                     <AccountMessages
                       timeline={buildSupportTimeline(userInboxMessages)}
+                      tx={tx}
                       accountEmail={currentUser.email}
                       avatarId={currentUser.avatarId}
                       loading={userInboxLoading}
@@ -18952,17 +18017,18 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       sending={contactSending}
                       attachmentUploading={chatAttachmentUploading}
                       scrollRef={inboxScrollRef}
-                      onDraftChange={(message) => {
-                        setContactForm((form) => ({ ...form, message: message.slice(0, 1000) }));
-                        broadcastTyping("user");
-                      }}
-                      onSend={sendContactMessage}
+                      onDraftChange={(message) =>
+                        setContactForm((form) => ({ ...form, message: message.slice(0, 1000) }))
+                      }
+                      onTyping={() => broadcastTyping("user")}
+                      onSend={(message) => sendContactMessage(message)}
                       onSendAttachment={(file) => uploadAndSendAttachment(file, sendAttachmentAsUserMessage)}
                       onRetry={() => loadUserInbox(false, true)}
                       renderMessageContent={renderMsgContent}
                       messageDomId={chatMsgDomId}
                       highlightedMsgKey={highlightedMsgKey}
                     />
+                    </Suspense>
                   ) : (
                   <div className="lab-account-workspace">
                     <div className="lab-account-details__body">
@@ -19272,13 +18338,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     {isEditingProfile ? (
                       <div className="mt-5 grid gap-3 border-t border-white/10 pt-5">
                         <div className="grid gap-3 sm:grid-cols-2">
-                          <input
+                          <BufferedInput
                             type="text"
                             value={profileForm.firstName}
-                            onChange={(e) =>
+                            onValueChange={(value) =>
                               handleProfileFieldChange(
                                 "firstName",
-                                e.target.value
+                                value
                               )
                             }
                             placeholder={tx(
@@ -19290,13 +18356,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             )}
                             className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
                           />
-                          <input
+                          <BufferedInput
                             type="text"
                             value={profileForm.lastName}
-                            onChange={(e) =>
+                            onValueChange={(value) =>
                               handleProfileFieldChange(
                                 "lastName",
-                                e.target.value
+                                value
                               )
                             }
                             placeholder={tx(
@@ -19309,11 +18375,11 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
                           />
                         </div>
-                        <input
+                        <BufferedInput
                           type="text"
                           value={profileForm.country}
-                          onChange={(e) =>
-                            handleProfileFieldChange("country", e.target.value)
+                          onValueChange={(value) =>
+                            handleProfileFieldChange("country", value)
                           }
                           placeholder={tx(
                             "Country",
@@ -19324,28 +18390,28 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           )}
                           className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
                         />
-                        <input
+                        <BufferedInput
                           type="text"
                           value={profileForm.address}
-                          onChange={(e) =>
-                            handleProfileFieldChange("address", e.target.value)
+                          onValueChange={(value) =>
+                            handleProfileFieldChange("address", value)
                           }
                           placeholder={t("streetAddress")}
                           className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
                         />
-                        <input
+                        <BufferedInput
                           type="text"
                           value={profileForm.address2}
-                          onChange={(e) => handleProfileFieldChange("address2", e.target.value)}
+                          onValueChange={(value) => handleProfileFieldChange("address2", value)}
                           placeholder={tx("Apt / Suite (optional)", "Кв. / Офис (необязательно)", "Кв. / Офіс (необов'язково)", "Wohnung / Suite (optional)", "Apto / Suite (opcional)")}
                           className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
                         />
                         <div className="grid gap-3 sm:grid-cols-2">
-                          <input
+                          <BufferedInput
                             type="text"
                             value={profileForm.city}
-                            onChange={(e) =>
-                              handleProfileFieldChange("city", e.target.value)
+                            onValueChange={(value) =>
+                              handleProfileFieldChange("city", value)
                             }
                             placeholder={tx(
                               "City",
@@ -19356,31 +18422,31 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             )}
                             className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
                           />
-                          <input
+                          <BufferedInput
                             type="text"
                             value={profileForm.postalCode}
-                            onChange={(e) =>
+                            onValueChange={(value) =>
                               handleProfileFieldChange(
                                 "postalCode",
-                                e.target.value
+                                value
                               )
                             }
                             placeholder={t("postalCode")}
                             className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
                           />
                         </div>
-                        <input
+                        <BufferedInput
                           type="text"
                           value={profileForm.state}
-                          onChange={(e) => handleProfileFieldChange("state", e.target.value)}
+                          onValueChange={(value) => handleProfileFieldChange("state", value)}
                           placeholder={tx("State / Province (if applicable)", "Штат / Провинция (если применимо)", "Штат / Провінція (якщо застосовно)", "Bundesland / Provinz (falls zutreffend)", "Estado / Provincia (si aplica)")}
                           className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
                         />
-                        <input
+                        <BufferedInput
                           type="tel"
                           value={profileForm.phone}
-                          onChange={(e) =>
-                            handleProfileFieldChange("phone", e.target.value)
+                          onValueChange={(value) =>
+                            handleProfileFieldChange("phone", value)
                           }
                           placeholder={t("phone")}
                           className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
@@ -19395,17 +18461,17 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         {tx("Change password", "Изменить пароль", "Змінити пароль", "Passwort ändern", "Cambiar contraseña")}
                       </div>
                       <div className="grid gap-3">
-                        <input
+                        <BufferedInput
                           type="password"
                           value={changePasswordForm.newPassword}
-                          onChange={(e) => setChangePasswordForm(f => ({ ...f, newPassword: e.target.value }))}
+                          onValueChange={(value) => setChangePasswordForm(f => ({ ...f, newPassword: value }))}
                           placeholder={tx("New password (min. 6 characters)", "Новый пароль (мин. 6 символов)", "Новий пароль (мін. 6 символів)", "Neues Passwort (min. 6 Zeichen)", "Nueva contraseña (mín. 6 caracteres)")}
                           className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50"
                         />
-                        <input
+                        <BufferedInput
                           type="password"
                           value={changePasswordForm.confirmPassword}
-                          onChange={(e) => setChangePasswordForm(f => ({ ...f, confirmPassword: e.target.value }))}
+                          onValueChange={(value) => setChangePasswordForm(f => ({ ...f, confirmPassword: value }))}
                           placeholder={tx("Confirm new password", "Подтвердите новый пароль", "Підтвердіть новий пароль", "Neues Passwort bestätigen", "Confirmar nueva contraseña")}
                           className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50"
                         />
@@ -20032,6 +19098,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   </div>
                   )}
                 </AccountDashboard>
+                </Suspense>
               ) : (
                 <>
                   <div className={authMode === "verify" ? "mt-2 w-full" : "relative mt-3 inline-block"}>
@@ -20278,7 +19345,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   >
                     <label className="box-border min-w-0 flex min-h-[72px] w-full items-center gap-4 rounded-[1.5rem] border border-white/25 bg-white/[0.04] px-5 transition-colors focus-within:border-white/45 focus-within:bg-white/[0.07] sm:min-h-[84px] sm:px-8">
                       <Mail aria-hidden="true" className="h-7 w-7 shrink-0 text-white/90" strokeWidth={1.8} />
-                      <input
+                      <BufferedInput
                         type="email"
                         placeholder={t("email")}
                         aria-label={t("email")}
@@ -20286,10 +19353,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         onInvalid={(e) => e.currentTarget.setCustomValidity("Please enter a valid email address.")}
                         onInput={(e) => e.currentTarget.setCustomValidity("")}
                         value={accountForm.email}
-                        onChange={(e) =>
+                        onValueChange={(value) =>
                           setAccountForm((current) => ({
                             ...current,
-                            email: e.target.value,
+                            email: value,
                           }))
                         }
                         className="min-w-0 flex-1 bg-transparent text-base text-white placeholder:text-white/75 outline-none sm:text-lg"
@@ -20297,16 +19364,16 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     </label>
                     <div className="box-border min-w-0 flex min-h-[72px] w-full items-center gap-4 rounded-[1.5rem] border border-white/25 bg-white/[0.04] px-5 transition-colors focus-within:border-white/45 focus-within:bg-white/[0.07] sm:min-h-[84px] sm:px-8">
                       <LockKeyhole aria-hidden="true" className="h-7 w-7 shrink-0 text-white/90" strokeWidth={1.8} />
-                      <input
+                      <BufferedInput
                         type={showAccountPassword ? "text" : "password"}
                         placeholder={t("password")}
                         aria-label={t("password")}
                         autoComplete={authMode === "create" ? "new-password" : "current-password"}
                         value={accountForm.password}
-                        onChange={(e) =>
+                        onValueChange={(value) =>
                           setAccountForm((current) => ({
                             ...current,
-                            password: e.target.value,
+                            password: value,
                           }))
                         }
                         className="min-w-0 flex-1 bg-transparent text-base text-white placeholder:text-white/75 outline-none sm:text-lg"
@@ -20337,16 +19404,16 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       <>
                         <div className="flex min-h-[72px] w-full items-center gap-4 rounded-[1.5rem] border border-white/25 bg-white/[0.04] px-5 transition-colors focus-within:border-white/45 focus-within:bg-white/[0.07] sm:min-h-[84px] sm:px-8">
                           <LockKeyhole aria-hidden="true" className="h-7 w-7 shrink-0 text-white/90" strokeWidth={1.8} />
-                          <input
+                          <BufferedInput
                             type={showAccountConfirmPassword ? "text" : "password"}
                             placeholder={t("confirmPassword")}
                             aria-label={t("confirmPassword")}
                             autoComplete="new-password"
                             value={accountForm.confirmPassword}
-                            onChange={(e) =>
+                            onValueChange={(value) =>
                               setAccountForm((current) => ({
                                 ...current,
-                                confirmPassword: e.target.value,
+                                confirmPassword: value,
                               }))
                             }
                             className="min-w-0 flex-1 bg-transparent text-base text-white placeholder:text-white/75 outline-none sm:text-lg"
@@ -20366,9 +19433,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         </div>
                         <label className="box-border min-w-0 flex min-h-[72px] w-full items-center gap-4 rounded-[1.5rem] border border-white/25 bg-white/[0.04] px-5 transition-colors focus-within:border-white/45 focus-within:bg-white/[0.07] sm:min-h-[84px] sm:px-8">
                           <Tag aria-hidden="true" className="h-7 w-7 shrink-0 text-white/90" strokeWidth={1.8} />
-                          <input
+                          <BufferedInput
                             type="text"
                             value={accountPromoCodeInput}
+                            normalizeValue={(value) => value.toUpperCase()}
                             placeholder={t("promoCode")}
                             aria-label={t("promoCode")}
                             onFocus={(e) => {
@@ -20377,9 +19445,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             onBlur={(e) => {
                               if (!e.target.value) e.target.placeholder = t("promoCode");
                             }}
-                            onChange={(e) =>
-                              setAccountPromoCodeInput(e.target.value.toUpperCase())
-                            }
+                            onValueChange={setAccountPromoCodeInput}
                             className="min-w-0 flex-1 bg-transparent text-base text-white placeholder:text-white/75 outline-none sm:text-lg"
                             maxLength={18}
                           />
@@ -20409,7 +19475,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
                           {tx("Six-digit code", "Код из шести цифр", "Код із шести цифр", "Sechsstelliger Code", "Código de seis dígitos")}
                         </span>
-                        <input
+                        <BufferedInput
                           type="text"
                           inputMode="numeric"
                           autoComplete="one-time-code"
@@ -20417,7 +19483,8 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           maxLength={6}
                           aria-label={tx("Six-digit verification code", "Шестизначный код подтверждения", "Шестизначний код підтвердження", "Sechsstelliger Bestätigungscode", "Código de verificación de seis dígitos")}
                           value={signupVerificationCode}
-                          onChange={(e) => setSignupVerificationCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                          normalizeValue={(value) => value.replace(/\D/g, "").slice(0, 6)}
+                          onValueChange={setSignupVerificationCode}
                           className="w-full max-w-[16rem] bg-transparent text-left font-mono text-2xl font-semibold tracking-[0.34em] text-white placeholder:text-white/30 outline-none sm:text-[28px]"
                           placeholder="••••••"
                           autoFocus
@@ -20464,7 +19531,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     <form onSubmit={handleForgotSubmit} className="box-border min-w-0 mt-7 grid w-full max-w-4xl gap-4 sm:gap-5">
                       <label className="box-border min-w-0 flex min-h-[72px] w-full items-center gap-4 rounded-[1.5rem] border border-white/25 bg-white/[0.04] px-5 transition-colors focus-within:border-white/45 focus-within:bg-white/[0.07] sm:min-h-[84px] sm:px-8">
                         <Mail aria-hidden="true" className="h-7 w-7 shrink-0 text-white/90" strokeWidth={1.8} />
-                        <input
+                        <BufferedInput
                           type="email"
                           placeholder={t("email")}
                           aria-label={t("email")}
@@ -20472,7 +19539,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           onInvalid={(e) => e.currentTarget.setCustomValidity("Please enter a valid email address.")}
                           onInput={(e) => e.currentTarget.setCustomValidity("")}
                           value={forgotEmail}
-                          onChange={(e) => setForgotEmail(e.target.value)}
+                          onValueChange={setForgotEmail}
                           className="min-w-0 flex-1 bg-transparent text-base text-white placeholder:text-white/75 outline-none sm:text-lg"
                           autoFocus
                         />
@@ -20501,26 +19568,26 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       </p>
                       <label className="box-border min-w-0 flex min-h-[72px] w-full items-center gap-4 rounded-[1.5rem] border border-white/25 bg-white/[0.04] px-5 transition-colors focus-within:border-white/45 focus-within:bg-white/[0.07] sm:min-h-[84px] sm:px-8">
                         <LockKeyhole aria-hidden="true" className="h-7 w-7 shrink-0 text-white/90" strokeWidth={1.8} />
-                        <input
+                        <BufferedInput
                           type="password"
                           placeholder={tx("New password", "Новый пароль", "Новий пароль", "Neues Passwort", "Nueva contraseña")}
                           aria-label={tx("New password", "Новый пароль", "Новий пароль", "Neues Passwort", "Nueva contraseña")}
                           autoComplete="new-password"
                           value={resetForm.password}
-                          onChange={(e) => setResetForm((r) => ({ ...r, password: e.target.value }))}
+                          onValueChange={(value) => setResetForm((r) => ({ ...r, password: value }))}
                           className="min-w-0 flex-1 bg-transparent text-base text-white placeholder:text-white/75 outline-none sm:text-lg"
                           autoFocus
                         />
                       </label>
                       <label className="box-border min-w-0 flex min-h-[72px] w-full items-center gap-4 rounded-[1.5rem] border border-white/25 bg-white/[0.04] px-5 transition-colors focus-within:border-white/45 focus-within:bg-white/[0.07] sm:min-h-[84px] sm:px-8">
                         <LockKeyhole aria-hidden="true" className="h-7 w-7 shrink-0 text-white/90" strokeWidth={1.8} />
-                        <input
+                        <BufferedInput
                           type="password"
                           placeholder={t("confirmPassword")}
                           aria-label={t("confirmPassword")}
                           autoComplete="new-password"
                           value={resetForm.confirmPassword}
-                          onChange={(e) => setResetForm((r) => ({ ...r, confirmPassword: e.target.value }))}
+                          onValueChange={(value) => setResetForm((r) => ({ ...r, confirmPassword: value }))}
                           className="min-w-0 flex-1 bg-transparent text-base text-white placeholder:text-white/75 outline-none sm:text-lg"
                         />
                       </label>
@@ -20542,33 +19609,12 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
             <div className="relative mt-2 md:mt-[24px]">
               {/* Sidebar */}
               <aside className="bpc-catalog-sidebar--catalog bpc-catalog-sidebar--us-warehouse w-full md:max-w-none rounded-[1rem] p-2 md:rounded-[1.2rem] md:p-2.5 lg:p-3 lg:fixed lg:top-[162px] lg:left-6 lg:w-[240px] xl:left-6 xl:w-[260px] lg:h-[72vh] lg:overflow-hidden">
-                <div className="flex items-center gap-2 rounded-full border border-white/20 bg-black/15 px-3 py-2 lg:px-4 lg:py-3 relative">
-                  <span className="text-white/60 text-sm lg:text-base">⌕</span>
-                  <input
-                    value={usWhInputValue}
-                    onChange={(e) => {
-                      setSelectedUsWhName("");
-                      setUsWhInputValue(e.target.value);
-                      setUsWhSearchTerm(e.target.value);
-                    }}
-                    placeholder={t("searchPeptides") + " (US)"}
-                    className="min-w-0 flex-1 bg-transparent text-xs lg:text-sm text-white placeholder:text-white outline-none pr-5"
-                  />
-                  {(usWhSearchTerm || selectedUsWhName) && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedUsWhName("");
-                        setUsWhInputValue("");
-                        setUsWhSearchTerm("");
-                      }}
-                      aria-label={selectedUsWhName ? "Show all peptides" : "Clear search"}
-                      className="absolute right-3 lg:right-4 z-50 text-xl text-white/60 transition hover:text-white"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
+                <CatalogSearchInput
+                  value={usWhSearchTerm}
+                  onSearch={updateUsWhSearch}
+                  placeholder={`${t("searchPeptides")} (US)`}
+                  clearLabel={selectedUsWhName ? "Show all peptides" : "Clear search"}
+                />
                 <div style={{ position: "relative" }}>
                 <div ref={usWhSidebarScrollRef} className="mt-4 hidden lg:block h-[calc(72vh-106px)] overflow-y-auto overflow-x-hidden overscroll-contain pr-1 rounded-[1.5rem] no-native-scrollbar">
                   <div className="space-y-1 pb-2">
@@ -20579,7 +19625,6 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           type="button"
                           onClick={() => {
                             const name = publicProductName(product.name);
-                            setUsWhInputValue(name);
                             setUsWhSearchTerm(name);
                             setSelectedUsWhName(name);
                             if (selectedUsWhName === name) {
@@ -21426,10 +20471,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   <div className="border-t border-white/10 pt-3">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex max-w-[220px] flex-1 gap-2">
-                        <input
+                        <BufferedInput
                           value={promoInput}
-                          onChange={(e) => {
-                            setPromoInput(e.target.value);
+                          onValueChange={(value) => {
+                            setPromoInput(value);
                             if (promoMessage) setPromoMessage("");
                           }}
                           placeholder={t("enterCode")}
@@ -21704,7 +20749,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             }
                             type="text"
                             defaultValue={checkoutForm.firstName}
-                            onChange={() => setCheckoutErrors((prev) => { const n = {...prev}; delete n.firstName; return n; })}
+                            onChange={() => clearCheckoutFieldError("firstName")}
                             placeholder={tx(
                               "First name *",
                               "Имя *",
@@ -21724,7 +20769,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             }
                             type="text"
                             defaultValue={checkoutForm.lastName}
-                            onChange={() => setCheckoutErrors((prev) => { const n = {...prev}; delete n.lastName; return n; })}
+                            onChange={() => clearCheckoutFieldError("lastName")}
                             placeholder={tx(
                               "Last name *",
                               "Фамилия *",
@@ -21748,15 +20793,13 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             </div>
                           )}
                           <div className="relative">
-                            <input
+                            <BufferedInput
                               ref={(el) =>
                                 (checkoutInputRefs.current.country = el)
                               }
                               type="text"
                               value={countrySearch}
-                              onChange={(e) =>
-                                handleCountryInputChange(e.target.value)
-                              }
+                              onValueChange={handleCountryInputChange}
                               onFocus={() => openCountryDropdown()}
                               placeholder={tx(
                                 "Country * (pick from the list)",
@@ -21849,12 +20892,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                         </div>
 
                         {checkoutForm.country === "Mexico" && (
-                          <input
+                          <BufferedInput
                             type="text"
                             value={checkoutForm.taxId}
-                            onChange={(e) =>
-                              updateCheckoutField("taxId", e.target.value)
-                            }
+                            onValueChange={(value) => updateCheckoutField("taxId", value)}
                             placeholder={
                               language === "ES"
                                 ? "RFC / Tax ID (requerido para México)"
@@ -21868,7 +20909,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           ref={(el) => (checkoutInputRefs.current.address = el)}
                           type="text"
                           defaultValue={checkoutForm.address}
-                          onChange={() => setCheckoutErrors((prev) => { const n = {...prev}; delete n.address; return n; })}
+                          onChange={() => clearCheckoutFieldError("address")}
                           placeholder={tx(
                             "Street address *",
                             "Адрес улицы *",
@@ -21883,10 +20924,10 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           }`}
                         />
 
-                        <input
+                        <BufferedInput
                           type="text"
                           value={checkoutForm.address2}
-                          onChange={(e) => updateCheckoutField("address2", e.target.value)}
+                          onValueChange={(value) => updateCheckoutField("address2", value)}
                           placeholder={tx(
                             "Apt/Suite (Optional)",
                             "Квартира/офис (необязательно)",
@@ -21902,7 +20943,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             ref={(el) => (checkoutInputRefs.current.city = el)}
                             type="text"
                             defaultValue={checkoutForm.city}
-                            onChange={() => setCheckoutErrors((prev) => { const n = {...prev}; delete n.city; return n; })}
+                            onChange={() => clearCheckoutFieldError("city")}
                             placeholder={tx(
                               "City *",
                               "Город *",
@@ -21922,7 +20963,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                             }
                             type="text"
                             defaultValue={checkoutForm.postalCode}
-                            onChange={() => setCheckoutErrors((prev) => { const n = {...prev}; delete n.postalCode; return n; })}
+                            onChange={() => clearCheckoutFieldError("postalCode")}
                             placeholder={tx(
                               "Postal code *",
                               "Почтовый индекс *",
@@ -21938,20 +20979,18 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                           />
                         </div>
 
-                        <input
+                        <BufferedInput
                           type="text"
                           value={checkoutForm.state}
-                          onChange={(e) => updateCheckoutField("state", e.target.value)}
+                          onValueChange={(value) => updateCheckoutField("state", value)}
                           placeholder={tx("State / Province (if applicable)", "Штат / Провинция (если применимо)", "Штат / Провінція (якщо застосовно)", "Bundesland / Provinz (falls zutreffend)", "Estado / Provincia (si aplica)")}
                           className="rounded-2xl border border-white/20 bg-black/10 px-4 py-3 text-sm text-white placeholder:text-white outline-none transition"
                         />
-                        <input
+                        <BufferedInput
                           ref={(el) => (checkoutInputRefs.current.phone = el)}
                           type="tel"
                           value={checkoutForm.phone}
-                          onChange={(e) =>
-                            updateCheckoutField("phone", e.target.value)
-                          }
+                          onValueChange={(value) => updateCheckoutField("phone", value)}
                           placeholder={t("phoneNumber")}
                           className={`rounded-2xl border px-4 py-3 text-sm text-white placeholder:text-white outline-none transition ${
                             checkoutErrors.phone
@@ -21999,9 +21038,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                     </div>
 
                     <div className="mt-4">
-                      <textarea
+                      <BufferedTextarea
                         value={checkoutForm.orderNotes}
-                        onChange={(e) => updateCheckoutField("orderNotes", e.target.value.slice(0, 500))}
+                        onValueChange={(value) => updateCheckoutField("orderNotes", value.slice(0, 500))}
                         placeholder={tx(
                           "Order notes (optional) — special instructions, anything else…",
                           "Примечание к заказу (необязательно) — особые пожелания…",
@@ -22729,7 +21768,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                                       className={`flex items-center justify-between rounded-[1.2rem] border px-2.5 py-2 text-left md:px-3.5 md:py-2.5 ${
                                         selectedCrypto === coin
                                           ? "border-black bg-black text-white shadow-[0_10px_30px_rgba(0,0,0,0.15)]"
-                                          : "border-black/10 bg-[#fcfcfc] text-black hover:bg-black/5"
+                                          : "border-black/10 bg-white text-black hover:bg-black/5"
                                       }`}
                                     >
                                       <div className="flex items-center gap-3 md:gap-4">
@@ -22971,7 +22010,7 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                       </div>
 
                       <div className="space-y-4">
-                        <div className="rounded-[1.5rem] border border-black/10 bg-[#f6f6f6] p-5">
+                        <div className="rounded-[1.5rem] border border-black/10 bg-white p-5">
                           <div className="text-[11px] uppercase tracking-[0.22em] text-black/50">
                             {t("orderSummary")}
                           </div>

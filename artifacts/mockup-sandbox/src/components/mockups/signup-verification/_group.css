@@ -1,0 +1,77 @@
+:root {
+  --background: 0 0% 56%;
+  --foreground: 0 0% 98%;
+  --card: 0 0% 31%;
+  --card-foreground: 0 0% 98%;
+  --popover: 0 0% 31%;
+  --popover-foreground: 0 0% 98%;
+  --primary: 42 100% 62%;
+  --primary-foreground: 0 0% 8%;
+  --secondary: 184 58% 38%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 0 0% 43%;
+  --muted-foreground: 0 0% 79%;
+  --accent: 157 74% 47%;
+  --accent-foreground: 0 0% 8%;
+  --destructive: 3 70% 54%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 100% / 0.14;
+  --input: 0 0% 100% / 0.14;
+  --ring: 42 100% 62%;
+  --radius: 1rem;
+}
+
+.dark {
+  --background: 0 0% 56%;
+  --foreground: 0 0% 98%;
+  --card: 0 0% 31%;
+  --card-foreground: 0 0% 98%;
+  --popover: 0 0% 31%;
+  --popover-foreground: 0 0% 98%;
+  --primary: 42 100% 62%;
+  --primary-foreground: 0 0% 8%;
+  --secondary: 184 58% 38%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 0 0% 43%;
+  --muted-foreground: 0 0% 79%;
+  --accent: 157 74% 47%;
+  --accent-foreground: 0 0% 8%;
+  --destructive: 3 70% 54%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 100% / 0.14;
+  --input: 0 0% 100% / 0.14;
+  --ring: 42 100% 62%;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  color: #fff;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.signup-verification-stage {
+  background:
+    radial-gradient(ellipse at 8% 45%, rgba(255, 255, 255, 0.12), transparent 27%),
+    radial-gradient(ellipse at 91% 12%, rgba(255, 255, 255, 0.1), transparent 28%),
+    linear-gradient(125deg, #52575b 0%, #202326 45%, #4a4e52 100%);
+}
+
+.signup-verification-stage::before {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 20%, rgba(0, 0, 0, 0.25) 100%);
+  content: "";
+  pointer-events: none;
+}

@@ -76,6 +76,30 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.tbv-app-shell--catalog-background {
+  position: relative;
+  isolation: isolate;
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+.tbv-app-shell--catalog-background::before {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  background-image: var(--tbv-catalog-background-image);
+  background-position: center top;
+  background-repeat: no-repeat;
+  background-size: cover;
+  content: "";
+  pointer-events: none;
+}
+
+.admin-order-panel-outline {
+  border: 3px solid #fff !important;
+  box-shadow: 0 0 0 2px rgba(12, 14, 17, 0.98) !important;
+}
+
 button,
 a,
 [role="button"],
@@ -288,28 +312,4 @@ textarea {
   display: none;
   width: 0;
   height: 0;
-}
-
-.tbv-app-shell--catalog-background {
-  position: relative;
-  isolation: isolate;
-  background-color: transparent !important;
-  background-image: none !important;
-}
-
-.tbv-app-shell--catalog-background::before {
-  position: fixed;
-  z-index: -1;
-  inset: 0;
-  background-image: var(--tbv-catalog-background-image);
-  background-position: center top;
-  background-repeat: no-repeat;
-  background-size: cover;
-  content: "";
-  pointer-events: none;
-}
-
-.admin-order-panel-outline {
-  border: 3px solid #fff !important;
-  box-shadow: 0 0 0 2px rgba(12, 14, 17, 0.98) !important;
 }

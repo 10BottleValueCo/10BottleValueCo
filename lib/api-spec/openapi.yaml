@@ -10,6 +10,12 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: store-credit
+    description: Authenticated Store Credit checkout
+  - name: support-attachments
+    description: Private support chat attachments
+  - name: promo-codes
+    description: Narrow public promo-code validation
 paths:
   /healthz:
     get:
@@ -24,6 +30,169 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /store-credit-checkout:
+    post:
+      operationId: storeCreditCheckout
+      tags: [store-credit]
+      summary: Place a fully Store Credit-funded order
+      description: Verifies the signed-in customer and delegates trusted pricing and atomic credit debit to the checkout service.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StoreCreditCheckoutInput"
+      responses:
+        "200":
+          description: Order placed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreCreditCheckoutResult"
+        "400":
+          description: Invalid checkout details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutError"
+        "401":
+          description: Sign-in required or expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutError"
+        "403":
+          description: Verified email required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutError"
+        "409":
+          description: Checkout conflict or insufficient Store Credit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutError"
+        "503":
+          description: Checkout service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutError"
+  /public-promo-code:
+    get:
+      operationId: lookupPublicPromoCode
+      tags: [promo-codes]
+      summary: Validate one public promo code
+      description: Returns only the submitted active public code and its discount rate.
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 80
+            pattern: "^[A-Za-z0-9_-]+$"
+      responses:
+        "200":
+          description: Promo code lookup result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicPromoCodeLookupResult"
+        "400":
+          description: Invalid promo code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicPromoCodeError"
+        "503":
+          description: Promo code service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicPromoCodeError"
+  /support-attachments/upload-url:
+    post:
+      operationId: requestSupportAttachmentUploadUrl
+      tags: [support-attachments]
+      summary: Request a private support attachment upload URL
+      description: Creates a short-lived, single-use upload URL. Guest uploads are scoped to an HttpOnly capability cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupportAttachmentUploadInput"
+      responses:
+        "200":
+          description: Upload URL created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportAttachmentUploadResult"
+        "400":
+          description: Invalid file metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportAttachmentError"
+        "401":
+          description: Sign-in expired or guest capability invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportAttachmentError"
+        "503":
+          description: Storage service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportAttachmentError"
+  /support-attachments/access-urls:
+    post:
+      operationId: requestSupportAttachmentAccessUrls
+      tags: [support-attachments]
+      summary: Request temporary read URLs for support attachments
+      description: Signs only attachments referenced by a message owned by the signed-in customer, a message viewed by support, or a guest capability cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupportAttachmentAccessInput"
+      responses:
+        "200":
+          description: Authorized temporary URLs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportAttachmentAccessResult"
+        "400":
+          description: Invalid attachment references
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportAttachmentError"
+        "401":
+          description: Sign-in or guest capability required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportAttachmentError"
+        "403":
+          description: Attachment is not available to this user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportAttachmentError"
+        "503":
+          description: Storage service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportAttachmentError"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +202,223 @@ components:
           type: string
       required:
         - status
+    StoreCreditCheckoutInput:
+      type: object
+      additionalProperties: false
+      required:
+        - orderId
+        - items
+        - checkoutForm
+        - shippingType
+        - paymentMethod
+        - promoCode
+        - ownerFreeShipping
+        - affiliateCode
+        - affiliateDiscountDisabled
+        - storeCreditUsed
+        - orderNotes
+        - purchaserAttestation
+      properties:
+        orderId:
+          type: string
+          pattern: "^INV-[A-Fa-f0-9]{32}$"
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/StoreCreditCheckoutItem"
+        checkoutForm:
+          $ref: "#/components/schemas/StoreCreditCheckoutForm"
+        shippingType:
+          type: string
+          enum: [standard, express, us-warehouse]
+        paymentMethod:
+          type: string
+          maxLength: 40
+        promoCode:
+          type: string
+          maxLength: 80
+        ownerFreeShipping:
+          type: boolean
+        affiliateCode:
+          type: string
+          maxLength: 80
+        affiliateDiscountDisabled:
+          type: boolean
+        storeCreditUsed:
+          type: number
+          exclusiveMinimum: 0
+        orderNotes:
+          type: string
+          maxLength: 2000
+        purchaserAttestation:
+          $ref: "#/components/schemas/StoreCreditPurchaserAttestation"
+    StoreCreditCheckoutItem:
+      type: object
+      additionalProperties: false
+      required: [name, dose, quantity]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        dose:
+          type: string
+          minLength: 1
+          maxLength: 80
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 50
+        fromWarehouse:
+          type: string
+          enum: [us]
+        noteLabel:
+          type: string
+          maxLength: 80
+    StoreCreditCheckoutForm:
+      type: object
+      additionalProperties: false
+      required:
+        - firstName
+        - lastName
+        - country
+        - address
+        - address2
+        - city
+        - state
+        - postalCode
+        - phone
+        - taxId
+      properties:
+        firstName: { type: string, minLength: 1, maxLength: 100 }
+        lastName: { type: string, minLength: 1, maxLength: 100 }
+        country: { type: string, minLength: 1, maxLength: 100 }
+        address: { type: string, minLength: 1, maxLength: 250 }
+        address2: { type: string, maxLength: 250 }
+        city: { type: string, minLength: 1, maxLength: 100 }
+        state: { type: string, maxLength: 100 }
+        postalCode: { type: string, minLength: 1, maxLength: 40 }
+        phone: { type: string, minLength: 1, maxLength: 40 }
+        taxId: { type: string, maxLength: 40 }
+    StoreCreditPurchaserAttestation:
+      type: object
+      additionalProperties: false
+      required:
+        - over21AndResearchUseOnly
+        - qualifiedResearcherOrLicensedProfessional
+        - noHumanOrAnimalUse
+        - policiesAccepted
+      properties:
+        over21AndResearchUseOnly: { type: boolean, const: true }
+        qualifiedResearcherOrLicensedProfessional: { type: boolean, const: true }
+        noHumanOrAnimalUse: { type: boolean, const: true }
+        policiesAccepted: { type: boolean, const: true }
+    StoreCreditCheckoutResult:
+      type: object
+      additionalProperties: false
+      required: [ok, order, balance, replayed]
+      properties:
+        ok: { type: boolean, const: true }
+        order:
+          type: object
+          additionalProperties: true
+        balance:
+          type: number
+          minimum: 0
+        replayed:
+          type: boolean
+    CheckoutError:
+      type: object
+      additionalProperties: false
+      required: [ok, error]
+      properties:
+        ok: { type: boolean, const: false }
+        error: { type: string, minLength: 1 }
+    PublicPromoCodeLookupResult:
+      type: object
+      additionalProperties: false
+      required: [ok, promo]
+      properties:
+        ok: { type: boolean, const: true }
+        promo:
+          oneOf:
+            - $ref: "#/components/schemas/PublicPromoCode"
+            - type: "null"
+    PublicPromoCode:
+      type: object
+      additionalProperties: false
+      required: [code, rate]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 80 }
+        rate: { type: number, exclusiveMinimum: 0, maximum: 1 }
+    PublicPromoCodeError:
+      type: object
+      additionalProperties: false
+      required: [ok, error]
+      properties:
+        ok: { type: boolean, const: false }
+        error: { type: string, minLength: 1 }
+    SupportAttachmentUploadInput:
+      type: object
+      additionalProperties: false
+      required: [fileName, contentType, size]
+      properties:
+        fileName: { type: string, minLength: 1, maxLength: 255 }
+        contentType: { type: string, minLength: 1, maxLength: 120 }
+        size: { type: integer, minimum: 1, maximum: 104857600 }
+    SupportAttachmentUploadResult:
+      type: object
+      additionalProperties: false
+      required: [ok, path, uploadUrl, contentType]
+      properties:
+        ok: { type: boolean, const: true }
+        path: { type: string, minLength: 1, maxLength: 200 }
+        uploadUrl: { type: string, format: uri }
+        contentType: { type: string, minLength: 1, maxLength: 120 }
+    SupportAttachmentAccessInput:
+      type: object
+      additionalProperties: false
+      required: [attachments]
+      properties:
+        attachments:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/SupportAttachmentAccessItem"
+    SupportAttachmentAccessItem:
+      type: object
+      additionalProperties: false
+      required: [path]
+      properties:
+        path: { type: string, minLength: 1, maxLength: 2048 }
+        messageId: { type: integer, minimum: 1 }
+        field: { type: string, enum: [message, admin_reply] }
+    SupportAttachmentAccessResult:
+      type: object
+      additionalProperties: false
+      required: [ok, attachments]
+      properties:
+        ok: { type: boolean, const: true }
+        attachments:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/SupportAttachmentAccessUrl"
+    SupportAttachmentAccessUrl:
+      type: object
+      additionalProperties: false
+      required: [reference, url]
+      properties:
+        reference: { type: string, minLength: 1, maxLength: 2048 }
+        url: { type: string, format: uri }
+    SupportAttachmentError:
+      type: object
+      additionalProperties: false
+      required: [ok, error]
+      properties:
+        ok: { type: boolean, const: false }
+        error: { type: string, minLength: 1 }
 

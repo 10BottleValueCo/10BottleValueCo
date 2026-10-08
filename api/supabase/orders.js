@@ -1,3 +1,5 @@
+import { requireAdmin } from "../_require-admin.js";
+
 const SUPABASE_URL = "https://danpkqqzcptamojrnrmk.supabase.co";
 
 function getServiceKey() {
@@ -39,14 +41,10 @@ const ALLOWED_COLUMNS = new Set([
 function shapeRow(body) {
   if (!body || typeof body !== "object") return body;
 
-  // If caller already pre-shaped the row (only contains known columns),
-  // forward as-is.
   const keys = Object.keys(body);
-  const onlyKnown = keys.every((k) => ALLOWED_COLUMNS.has(k));
+  const onlyKnown = keys.every((key) => ALLOWED_COLUMNS.has(key));
   if (onlyKnown) return body;
 
-  // Otherwise treat as a full order record: keep known top-level fields
-  // and stash the entire object into `metadata` so nothing is lost.
   return {
     id: body.id,
     email: body.email,
@@ -58,6 +56,13 @@ function shapeRow(body) {
 }
 
 export default async function handler(req, res) {
+  res.setHeader("Cache-Control", "no-store");
+  if (!["GET", "POST"].includes(req.method)) {
+    res.setHeader("Allow", "GET, POST");
+    return res.status(405).json({ ok: false, error: "Method not allowed" });
+  }
+  if (!(await requireAdmin(req, res))) return;
+
   try {
     if (req.method === "GET") {
       const data = await supabaseAdmin("orders?select=*&order=created_at.desc", {
@@ -66,15 +71,12 @@ export default async function handler(req, res) {
       });
       return res.status(200).json({ ok: true, orders: Array.isArray(data) ? data : [] });
     }
-    if (req.method === "POST") {
-      const row = shapeRow(req.body || {});
-      await supabaseAdmin("orders", { method: "POST", body: JSON.stringify(row) });
-      return res.status(201).json({ ok: true });
-    }
-    res.setHeader("Allow", "GET, POST");
-    return res.status(405).json({ ok: false, error: "Method not allowed" });
+
+    const row = shapeRow(req.body || {});
+    await supabaseAdmin("orders", { method: "POST", body: JSON.stringify(row) });
+    return res.status(201).json({ ok: true });
   } catch (err) {
     console.error("supabase/orders failed:", err.message);
-    return res.status(500).json({ ok: false, error: err.message, orders: [] });
+    return res.status(500).json({ ok: false, error: "Order request failed" });
   }
 }

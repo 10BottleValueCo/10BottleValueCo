@@ -24,11 +24,11 @@ const confirmations = [
 ];
 
 const researcherTypes = [
+  { value: "other", label: "Other qualified researcher" },
   { value: "academic", label: "Academic or university researcher" },
   { value: "laboratory", label: "Laboratory scientist or technician" },
   { value: "biotech", label: "Biotechnology or pharmaceutical researcher" },
   { value: "medical", label: "Clinical or medical researcher" },
-  { value: "other", label: "Other qualified researcher" },
 ];
 
 export function hasResearcherEntryAcceptance() {
