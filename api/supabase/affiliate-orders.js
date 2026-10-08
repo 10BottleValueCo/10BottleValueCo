@@ -1,3 +1,4 @@
+import { requireAdmin } from "../_auth.js";
 const SUPABASE_URL = "https://danpkqqzcptamojrnrmk.supabase.co";
 
 function getServiceKey() {
@@ -26,6 +27,7 @@ async function supabaseAdmin(path, options = {}) {
 }
 
 export default async function handler(req, res) {
+  if (!(await requireAdmin(req, res))) return;
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, error: "Method not allowed" });

@@ -32,62 +32,43 @@ async function supabaseAdmin(path, options = {}) {
 }
 
 export default async function handler(req, res) {
+  res.setHeader("Cache-Control", "no-store");
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
   }
   try {
     const { orderId, paymentIntentId } = req.body || {};
-    if (!orderId) return res.status(400).json({ error: "Missing orderId" });
-
-    const secretKey = process.env.STRIPE_SECRET_KEY;
-    if (!secretKey) return res.status(500).json({ error: "STRIPE_SECRET_KEY not set" });
-
-    const stripe = new Stripe(secretKey);
-
-    let paymentSucceeded = false;
-    let paidAt = new Date().toISOString();
-
-    if (paymentIntentId && String(paymentIntentId).startsWith("pi_")) {
-      const intent = await stripe.paymentIntents.retrieve(String(paymentIntentId));
-      if (intent.metadata?.orderId && intent.metadata.orderId !== orderId) {
-        console.error(`orderId mismatch — intent has ${intent.metadata.orderId}, request has ${orderId}`);
-        return res.status(400).json({ error: "orderId mismatch", confirmed: false });
-      }
-      paymentSucceeded = intent.status === "succeeded";
-      if (intent.created) paidAt = new Date(intent.created * 1000).toISOString();
-    } else {
-      // Fallback: search recent payment intents by orderId in metadata
-      const list = await stripe.paymentIntents.search({
-        query: `metadata["orderId"]:"${orderId}"`,
-        limit: 5,
-      });
-      const succeeded = list.data.find((pi) => pi.status === "succeeded");
-      if (succeeded) {
-        paymentSucceeded = true;
-        if (succeeded.created) paidAt = new Date(succeeded.created * 1000).toISOString();
-      }
+    if (typeof orderId !== "string" || !orderId || orderId.length > 128
+      || typeof paymentIntentId !== "string" || !/^pi_[A-Za-z0-9]+$/.test(paymentIntentId)) {
+      return res.status(400).json({ error: "A valid order and payment identifier are required.", confirmed: false, dbUpdated: false });
     }
-
-    if (!paymentSucceeded) {
-      console.warn(`Payment not succeeded for order ${orderId}`);
-      return res.json({ confirmed: false, message: "Payment not yet succeeded" });
+    if (!process.env.STRIPE_SECRET_KEY) return res.status(503).json({ error: "Payment verification unavailable.", confirmed: false, dbUpdated: false });
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    const intent = await stripe.paymentIntents.retrieve(paymentIntentId);
+    // A missing binding is a failure, never permission to apply another payment.
+    if (intent.metadata?.orderId !== orderId || intent.currency !== "usd") {
+      return res.status(409).json({ error: "Payment does not match the order.", confirmed: false, dbUpdated: false });
     }
-
-    // Mark order paid in Supabase using service role key (bypasses RLS)
-    await supabaseAdmin(`orders?id=eq.${encodeURIComponent(orderId)}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        status: "paid",
-        payment_provider: "Stripe",
-        paid_at: paidAt,
-      }),
+    if (intent.status !== "succeeded") return res.status(200).json({ confirmed: false, dbUpdated: false });
+    const rows = await supabaseAdmin(`orders?id=eq.${encodeURIComponent(orderId)}&select=id,email,total,status,payment_id&limit=1`, {
+      method: "GET", headers: { Prefer: "return=representation" },
     });
-
-    console.log(`Order ${orderId} marked paid via Stripe verification ✓`);
-    return res.json({ confirmed: true, dbUpdated: true });
-  } catch (err) {
-    console.error("confirm-stripe-payment error:", err.message);
-    return res.status(500).json({ error: err.message });
+    const order = rows?.[0];
+    const expectedCents = Math.round(Number(order?.total) * 100);
+    const providerCents = intent.amount_received;
+    const expectedEmail = String(order?.email || "").trim().toLowerCase();
+    const paymentEmail = String(intent.metadata?.email || intent.receipt_email || "").trim().toLowerCase();
+    if (!order || !Number.isSafeInteger(expectedCents) || expectedCents <= 0
+      || providerCents !== expectedCents || intent.amount !== expectedCents
+      || !expectedEmail || expectedEmail !== paymentEmail) {
+      return res.status(409).json({ error: "Payment requires reconciliation.", confirmed: false, dbUpdated: false });
+    }
+    // Read-only fallback. The signed webhook owns state transitions and side effects.
+    const dbUpdated = ["paid", "done"].includes(String(order.status).toLowerCase()) && order.payment_id === intent.id;
+    return res.status(200).json({ confirmed: true, dbUpdated });
+  } catch {
+    console.error("Stripe payment verification failed");
+    return res.status(502).json({ error: "Payment verification unavailable.", confirmed: false, dbUpdated: false });
   }
 }

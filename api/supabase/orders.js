@@ -1,3 +1,4 @@
+import { requireAdmin } from "../_auth.js";
 const SUPABASE_URL = "https://danpkqqzcptamojrnrmk.supabase.co";
 
 function getServiceKey() {
@@ -58,6 +59,7 @@ function shapeRow(body) {
 }
 
 export default async function handler(req, res) {
+  if (!(await requireAdmin(req, res))) return;
   try {
     if (req.method === "GET") {
       const data = await supabaseAdmin("orders?select=*&order=created_at.desc", {

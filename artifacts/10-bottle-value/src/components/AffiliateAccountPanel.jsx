@@ -51,8 +51,9 @@ function isPaidOrder(order) {
 export default function AffiliateAccountPanel({
   profile,
   orders = [],
-  paidOut = 0,
+  paidOut = null,
   loading = false,
+  ordersError = false,
   payoutError = false,
   affiliateLink = "",
   tx,
@@ -85,7 +86,9 @@ export default function AffiliateAccountPanel({
     () => eligibleOrders.reduce((sum, order) => sum + finiteAmount(order.order_total), 0),
     [eligibleOrders],
   );
-  const availableBalance = Math.max(0, releasedEarnings - finiteAmount(paidOut));
+  const payoutKnown = !payoutError && typeof paidOut === "number" && Number.isFinite(paidOut) && paidOut >= 0;
+  const balanceKnown = !ordersError && payoutKnown;
+  const availableBalance = balanceKnown ? Math.max(0, releasedEarnings - paidOut) : null;
   const profileRate = Number(profile?.commissionRate);
   const commissionRate = Math.round((Number.isFinite(profileRate) && profileRate > 0 ? profileRate : 0.1) * 100);
   const sortedOrders = useMemo(
@@ -181,29 +184,41 @@ export default function AffiliateAccountPanel({
       <div className="lab-affiliate-stats" aria-label={tx("Affiliate summary", "Сводка партнёрства", "Зведення партнерства", "Affiliate-Übersicht", "Resumen de afiliación")}>
         <article className="lab-affiliate-stat">
           <span>{tx("Paid orders", "Оплаченные заказы", "Оплачені замовлення", "Bezahlte Bestellungen", "Pedidos pagados")}</span>
-          <strong>{paidOrders.length}</strong>
+          <strong>{ordersError ? "—" : paidOrders.length}</strong>
         </article>
         <article className="lab-affiliate-stat">
           <span>{tx("Paid sales", "Продажи по оплаченным заказам", "Продажі за оплаченими замовленнями", "Umsatz aus bezahlten Bestellungen", "Ventas de pedidos pagados")}</span>
-          <strong>{money(formatPrice, trackedSales)}</strong>
+          <strong>{ordersError ? "—" : money(formatPrice, trackedSales)}</strong>
         </article>
         <article className="lab-affiliate-stat">
           <span>{tx("Commission earned", "Начислено комиссий", "Нараховано комісій", "Verdiente Provision", "Comisiones generadas")}</span>
-          <strong>{money(formatPrice, pendingEarnings + releasedEarnings)}</strong>
+          <strong>{ordersError ? "—" : money(formatPrice, pendingEarnings + releasedEarnings)}</strong>
         </article>
         <article className="lab-affiliate-stat">
           <span>{tx("Pending", "Ожидает разблокировки", "Очікує розблокування", "Ausstehend", "Pendiente")}</span>
-          <strong>{money(formatPrice, pendingEarnings)}</strong>
+          <strong>{ordersError ? "—" : money(formatPrice, pendingEarnings)}</strong>
         </article>
         <article className="lab-affiliate-stat lab-affiliate-stat--available">
           <span>{tx("Available balance", "Доступно к выплате", "Доступно до виплати", "Verfügbares Guthaben", "Saldo disponible")}</span>
-          <strong>{loading ? "…" : money(formatPrice, availableBalance)}</strong>
+          <strong>{loading ? "…" : balanceKnown ? money(formatPrice, availableBalance) : "—"}</strong>
         </article>
         <article className="lab-affiliate-stat lab-affiliate-stat--paid">
           <span>{tx("Paid out", "Уже выплачено", "Вже виплачено", "Ausgezahlt", "Pagado")}</span>
-          <strong>{payoutError ? "—" : loading ? "…" : money(formatPrice, paidOut)}</strong>
+          <strong>{loading ? "…" : payoutKnown ? money(formatPrice, paidOut) : "—"}</strong>
         </article>
       </div>
+
+      {!loading && !payoutKnown && (
+        <div className="lab-affiliate-empty" role="status">
+          {tx("Payout history is unavailable. Use Refresh to verify your paid-out total and available balance.", "История выплат недоступна. Нажмите «Обновить», чтобы проверить сумму выплат и доступный баланс.", "Історія виплат недоступна. Натисніть «Оновити», щоб перевірити суму виплат і доступний баланс.", "Auszahlungsverlauf nicht verfügbar. Aktualisieren Sie die Daten, um ausgezahlte Summe und verfügbares Guthaben zu prüfen.", "El historial de pagos no está disponible. Pulsa Actualizar para verificar el total pagado y el saldo disponible.")}
+        </div>
+      )}
+
+      {!loading && ordersError && (
+        <div className="lab-affiliate-empty" role="status">
+          {tx("Order history is incomplete or unavailable. Use Refresh to verify commission and available balance.", "История заказов неполна или недоступна. Нажмите «Обновить», чтобы проверить комиссию и доступный баланс.", "Історія замовлень неповна або недоступна. Натисніть «Оновити», щоб перевірити комісію та доступний баланс.", "Der Bestellverlauf ist unvollständig oder nicht verfügbar. Aktualisieren Sie die Daten, um Provision und verfügbares Guthaben zu prüfen.", "El historial de pedidos está incompleto o no disponible. Pulsa Actualizar para verificar las comisiones y el saldo disponible.")}
+        </div>
+      )}
 
       <section className="lab-affiliate-orders" aria-labelledby="account-affiliate-orders-title">
         <div className="lab-affiliate-orders__heading">
@@ -215,14 +230,14 @@ export default function AffiliateAccountPanel({
               {tx("Order values and commission status. Customer details are not shown.", "Суммы заказов и статус комиссии. Данные покупателей не показываются.", "Суми замовлень і статус комісії. Дані покупців не показуються.", "Bestellwerte und Provisionsstatus. Kundendaten werden nicht angezeigt.", "Importes y estado de comisión. No se muestran datos de los clientes.")}
             </p>
           </div>
-          <span className="lab-affiliate-orders__count">{sortedOrders.length}</span>
+          <span className="lab-affiliate-orders__count">{ordersError ? "—" : sortedOrders.length}</span>
         </div>
 
         {loading && sortedOrders.length === 0 ? (
           <div className="lab-affiliate-empty" role="status">
             {tx("Loading your affiliate activity…", "Загружаем партнёрские данные…", "Завантажуємо партнерські дані…", "Affiliate-Aktivität wird geladen…", "Cargando actividad de afiliación…")}
           </div>
-        ) : sortedOrders.length === 0 ? (
+        ) : sortedOrders.length === 0 && !ordersError ? (
           <div className="lab-affiliate-empty">
             {tx("No referred orders have been recorded yet.", "Пока нет заказов по вашей ссылке.", "Поки немає замовлень за вашим посиланням.", "Es wurden noch keine vermittelten Bestellungen erfasst.", "Aún no hay pedidos referidos.")}
           </div>

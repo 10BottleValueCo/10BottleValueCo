@@ -50,7 +50,8 @@ export default async function handler(req, res) {
     }
 
     const result = await processNowPaymentsStatus(data);
-    return res.status(200).json(result);
+    if (result.dbWriteError) return res.status(503).json({ received: false, dbMarkedPaid: false, error: "Payment reconciliation incomplete." });
+    return res.status(200).json({ received: result.received, status: result.status, isPaid: result.isPaid, dbMarkedPaid: result.dbMarkedPaid, skipped: result.skipped });
   } catch (err) {
     console.error("verify-nowpayments-payment error:", err.message);
     return res.status(500).json({ error: "verify-nowpayments-payment failed", message: err.message });

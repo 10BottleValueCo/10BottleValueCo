@@ -2,6 +2,8 @@ import "./AccountDashboard.css";
 import { useEffect, useState } from "react";
 import { ACCOUNT_AVATARS, ACCOUNT_AVATAR_CATEGORIES, getAccountAvatar } from "../account-avatars.js";
 import AffiliateAccountPanel from "./AffiliateAccountPanel.jsx";
+import AccountOrderReadStatus from "./AccountOrderReadStatus.jsx";
+import { canViewAccountOrderConfirmation } from "../account-orders.js";
 
 function Icon({ name, size = 19 }) {
   const common = {
@@ -51,6 +53,7 @@ export default function AccountDashboard({
   onTrackOrder,
   onViewOrderConfirmation,
   isRefreshingOrders = false,
+  ordersReadStatus = "complete",
   avatarSaving = false,
   avatarSaveError = "",
   avatarSaveStatus = "",
@@ -58,7 +61,7 @@ export default function AccountDashboard({
   onSignOut,
   affiliateProfile = null,
   affiliateOrders = [],
-  affiliatePaidOut = 0,
+  affiliatePaidOut = null,
   affiliateLoading = false,
   affiliateOrdersError = false,
   affiliatePayoutError = false,
@@ -177,7 +180,9 @@ export default function AccountDashboard({
                 {tx("Refresh orders", "Обновить заказы", "Оновити замовлення", "Bestellungen aktualisieren", "Actualizar pedidos")}
               </button>
             </div>
-            {sortedOrders.length > 0 ? (
+            {ordersReadStatus !== "complete" ? (
+              <AccountOrderReadStatus status={ordersReadStatus} tx={tx} />
+            ) : sortedOrders.length > 0 ? (
               <div
                 className={`lab-order-history${expandedOrderId ? " lab-order-history--expanded" : ""}`}
                 role="list"
@@ -193,14 +198,16 @@ export default function AccountDashboard({
                     ? parsedOrderDate
                     : null;
                   const items = Array.isArray(order.items) ? order.items : [];
-                  const status = String(order.status || "paid").toLowerCase();
+                  const status = String(order.status || "unknown").toLowerCase();
                   const statusLabel = status === "done"
                     ? tx("Completed", "Завершён", "Завершено", "Abgeschlossen", "Completado")
                     : status === "paid"
                       ? tx("Paid", "Оплачен", "Оплачено", "Bezahlt", "Pagado")
                       : status;
-                  const shippingType = String(order.shippingType || "standard").toLowerCase();
-                  const shippingLabel = shippingType === "us-warehouse"
+                  const shippingType = String(order.shippingType || "").toLowerCase();
+                  const shippingLabel = !shippingType
+                    ? tx("Shipping method unavailable", "Способ доставки неизвестен", "Спосіб доставки невідомий", "Versandart nicht verfügbar", "Método de envío no disponible")
+                    : shippingType === "us-warehouse"
                     ? tx("US Warehouse", "Склад в США", "Склад у США", "US-Lager", "Almacén de EE. UU.")
                     : `${shippingType} ${tx("shipping", "доставка", "доставка", "Versand", "envío")}`;
                   const orderNotes = String(order.orderNotes || "");
@@ -254,7 +261,7 @@ export default function AccountDashboard({
                       >
                         <div className="lab-order-card__header">
                           <div className="lab-order-card__identity">
-                            {orderDate && (
+                            {orderDate ? (
                               <time className="lab-order-card__date" dateTime={orderDate.toISOString()}>
                                 {orderDate.toLocaleString(undefined, {
                                   day: "2-digit",
@@ -265,11 +272,11 @@ export default function AccountDashboard({
                                   hour12: false,
                                 })}
                               </time>
-                            )}
+                            ) : <span className="lab-order-card__date">—</span>}
                             <strong className="lab-order-card__id">{order.id || order.invoiceId || "—"}</strong>
                           </div>
                           <div className="lab-order-card__payment">
-                            <strong className="lab-order-card__total">{formatPrice(order.total)}</strong>
+                            <strong className="lab-order-card__total">{order.total == null ? "—" : formatPrice(order.total)}</strong>
                             <span className="lab-order-card__chevron">
                               <Icon name="chevron" size={16} />
                             </span>
@@ -373,9 +380,13 @@ export default function AccountDashboard({
                               </button>
                             )}
                             {onViewOrderConfirmation && (
-                              <button type="button" onClick={() => onViewOrderConfirmation(order)}>
-                                {tx("View order confirmation", "Подтверждение заказа", "Підтвердження замовлення", "Bestellbestätigung ansehen", "Ver confirmación")}
-                              </button>
+                              canViewAccountOrderConfirmation(order) ? (
+                                <button type="button" onClick={() => onViewOrderConfirmation(order)}>
+                                  {tx("View order confirmation", "Подтверждение заказа", "Підтвердження замовлення", "Bestellbestätigung ansehen", "Ver confirmación")}
+                                </button>
+                              ) : (
+                                <span role="status">{tx("Order confirmation is unavailable because price details are missing.", "Подтверждение заказа недоступно: отсутствуют данные о ценах.", "Підтвердження замовлення недоступне: відсутні дані про ціни.", "Die Bestellbestätigung ist wegen fehlender Preisangaben nicht verfügbar.", "La confirmación del pedido no está disponible porque faltan los precios.")}</span>
+                              )
                             )}
                           </div>
                         </div>

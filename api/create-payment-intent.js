@@ -1,19 +1,26 @@
+import { requireCheckoutOrder, persistCheckoutPricing } from "./_checkout-order.js";
+import { requireCheckoutIdentity } from "./_checkout-auth.js";
+import { rejectUnverifiedStoreCredit } from "./_payment-guard.js";
 import Stripe from "stripe";
-import {
-  validateAndPriceItems,
-  getShippingPrice,
-  getAutomaticDiscountRate,
-} from "./_catalog.js";
+import { validateAndPriceItems, getShippingPrice, getAutomaticDiscountRate } from "./_catalog.js";
 import { verifyPromoCode } from "./_promo.js";
 
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
-const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+const SB_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  "";
 
 export default async function handler(req, res) {
+  if (rejectUnverifiedStoreCredit(req.body, res)) return;
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const checkoutIdentity = await requireCheckoutIdentity(req, res);
+  if (!checkoutIdentity) return;
 
   const stripeKey = process.env.STRIPE_SECRET_KEY;
-  if (!stripeKey) return res.status(500).json({ error: "STRIPE_SECRET_KEY not configured on server." });
+  if (!stripeKey)
+    return res.status(500).json({ error: "STRIPE_SECRET_KEY not configured on server." });
   const stripe = new Stripe(stripeKey);
 
   try {
@@ -27,10 +34,22 @@ export default async function handler(req, res) {
       affiliateCode = "",
       storeCreditUsed = 0,
       metadata = {},
-    } = req.body || {};
+    } = { ...req.body, email: checkoutIdentity.email };
 
     if (!orderId) return res.status(400).json({ error: "Missing orderId" });
-    if (!process.env.STRIPE_SECRET_KEY) return res.status(500).json({ error: "STRIPE_SECRET_KEY not set" });
+    if (!process.env.STRIPE_SECRET_KEY)
+      return res.status(500).json({ error: "STRIPE_SECRET_KEY not set" });
+
+    const checkoutOrder = await requireCheckoutOrder(
+      {
+        orderId: orderId,
+        identity: checkoutIdentity,
+        sbUrl: SB_URL,
+        sbKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+      },
+      res,
+    );
+    if (!checkoutOrder) return;
 
     let pricedItems, subtotal, regularSubtotal;
     try {
@@ -45,7 +64,12 @@ export default async function handler(req, res) {
     let promoDiscount = 0;
     let verifiedPromoFreeShipping = false;
     if (String(promoCode || "").trim()) {
-      const verifiedPromo = await verifyPromoCode({ code: promoCode, email, sbUrl: SB_URL, sbKey: SB_KEY });
+      const verifiedPromo = await verifyPromoCode({
+        code: promoCode,
+        email,
+        sbUrl: SB_URL,
+        sbKey: SB_KEY,
+      });
       if (verifiedPromo) {
         promoDiscount = Math.round(subtotal * verifiedPromo.rate * 100) / 100;
         verifiedPromoFreeShipping = !!verifiedPromo.freeShipping;
@@ -53,33 +77,51 @@ export default async function handler(req, res) {
     }
 
     let affiliateDiscount = 0;
-    if (!promoDiscount && String(affiliateCode || "").trim() && Number(clientAffiliateDiscount) > 0) {
+    if (
+      !promoDiscount &&
+      String(affiliateCode || "").trim() &&
+      Number(clientAffiliateDiscount) > 0
+    ) {
       const impliedRate = Number(clientAffiliateDiscount) / (subtotal || 1);
-      affiliateDiscount = impliedRate <= 0.05
-        ? Math.min(Number(clientAffiliateDiscount), subtotal)
-        : Math.round(subtotal * 0.05 * 100) / 100;
+      affiliateDiscount =
+        impliedRate <= 0.05
+          ? Math.min(Number(clientAffiliateDiscount), subtotal)
+          : Math.round(subtotal * 0.05 * 100) / 100;
     }
 
-    const finalAutomaticDiscount = promoDiscount > 0 || affiliateDiscount > 0 ? 0 : automaticDiscount;
+    const finalAutomaticDiscount =
+      promoDiscount > 0 || affiliateDiscount > 0 ? 0 : automaticDiscount;
     const finalAffiliateDiscount = promoDiscount > 0 ? 0 : affiliateDiscount;
 
-    const shipping = pricedItems.length === 0 ? 0 :
-      verifiedPromoFreeShipping || regularSubtotal === 0 ? 0 :
-      getShippingPrice(regularSubtotal, shippingType === "express" ? "express" : "standard");
+    const shipping =
+      pricedItems.length === 0
+        ? 0
+        : verifiedPromoFreeShipping || regularSubtotal === 0
+          ? 0
+          : getShippingPrice(regularSubtotal, shippingType === "express" ? "express" : "standard");
 
-    const preCreditTotal = Math.max(0, subtotal - finalAutomaticDiscount - promoDiscount - finalAffiliateDiscount + shipping);
+    const preCreditTotal = Math.max(
+      0,
+      subtotal - finalAutomaticDiscount - promoDiscount - finalAffiliateDiscount + shipping,
+    );
     const safeStoreCreditUsed = Math.min(Math.max(Number(storeCreditUsed) || 0, 0), preCreditTotal);
 
     // Fee is always calculated on preCreditTotal (before store credit), so store credit
     // doesn't also save the customer from the card processing fee.
     const stripeFee = Math.round(preCreditTotal * 0.0295 * 100) / 100;
-    const amount = Math.max(0, Math.round((preCreditTotal + stripeFee - safeStoreCreditUsed) * 100) / 100);
+    const amount = Math.max(
+      0,
+      Math.round((preCreditTotal + stripeFee - safeStoreCreditUsed) * 100) / 100,
+    );
 
-    if (!amount || amount <= 0) return res.status(400).json({ error: "Order total must be greater than zero." });
+    if (!amount || amount <= 0)
+      return res.status(400).json({ error: "Order total must be greater than zero." });
 
     const intentMetadata = {
       ...(typeof metadata === "object" && metadata !== null ? metadata : {}),
       orderId: String(orderId),
+      paymentProvider: "Stripe",
+      checkoutStartedAt: new Date().toISOString(),
       email: String(email || ""),
       affiliateCode: String(affiliateCode || ""),
       shippingType: String(shippingType),
@@ -96,6 +138,15 @@ export default async function handler(req, res) {
     for (const key of Object.keys(intentMetadata)) {
       intentMetadata[key] = String(intentMetadata[key]).slice(0, 500);
     }
+
+    if (
+      !(await persistCheckoutPricing(
+        checkoutOrder,
+        { total: amount, items: pricedItems, metadata: intentMetadata },
+        res,
+      ))
+    )
+      return;
 
     const intent = await stripe.paymentIntents.create({
       amount: Math.round(amount * 100),

@@ -70,9 +70,34 @@
           "value": "public, max-age=3600"
         }
       ]
+    },
+    {
+      "source": "/operations(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "private, no-store"
+        },
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        }
+      ]
     }
   ],
   "rewrites": [
+    {
+      "source": "/operations",
+      "destination": "/operations.html"
+    },
+    {
+      "source": "/operations/",
+      "destination": "/operations.html"
+    },
+    {
+      "source": "/operations.html",
+      "destination": "/operations.html"
+    },
     {
       "source": "/merit-review.html",
       "destination": "/merit-review.html"

@@ -1,0 +1,80 @@
+{
+  "status": "Подготовлено локально; все новые способы входа отключены до завершения настройки и проверки",
+  "checkedAt": "2026-10-08",
+  "liveConfigurationEvidence": {
+    "source": "Ведущий агент в рамках этой задачи проверил интерфейс именно рабочего проекта Supabase в режиме только для чтения",
+    "emailEnabled": true,
+    "emailConfirmationEnabled": true,
+    "newSignupsEnabled": true,
+    "anonymousSignInEnabled": false,
+    "emailCodeLength": 6,
+    "emailCodeExpirySeconds": 3600,
+    "signupTemplateContainsToken": true,
+    "magicLinkTemplateContainsToken": false,
+    "magicLinkTemplateContainsConfirmationURL": true,
+    "googleEnabled": false,
+    "appleEnabled": false,
+    "customSmtpEnabled": true,
+    "smtpSenderName": "10BottleValueCo",
+    "smtpPort": 465,
+    "smtpPerUserIntervalSeconds": 30,
+    "deliveryTested": false,
+    "templateEditorWritable": false,
+    "secretsReadOrSaved": false
+  },
+  "releaseFlags": {
+    "VITE_AUTH_EMAIL_CODE_ENABLED": "По умолчанию false. Установить именно true только после добавления Token в шаблон Magic Link и проверки доставки и подтверждения кода в рабочей среде. После этого код становится способом по умолчанию для входа и регистрации; пароль остаётся необязательным.",
+    "VITE_AUTH_GOOGLE_ENABLED": "По умолчанию false. Установить именно true только после настройки Google OAuth в Supabase и успешной проверки полного цикла входа с возвратом на рабочий сайт.",
+    "VITE_AUTH_APPLE_ENABLED": "По умолчанию false. Установить именно true только после настройки Apple OAuth в Supabase и успешной проверки полного цикла входа с возвратом на рабочий сайт.",
+    "buildBehavior": "Флаги VITE_* — публичные параметры, подставляемые при сборке. Их изменение требует новой сборки клиентской части. Секреты провайдеров нельзя помещать в значения VITE_*."
+  },
+  "emailCodeActivation": {
+    "destination": "Supabase Authentication > Email Templates > Magic Link",
+    "subject": "Your 10BottleValue sign-in code",
+    "htmlSource": "auth-templates/magic-link.html",
+    "preserves": "Ссылка ConfirmationURL остаётся доступной для существующих клиентов. Шаблон подтверждения регистрации уже содержит Token и не заменяется.",
+    "acceptance": [
+      "Оператор проекта с необходимыми правами сохраняет шаблон Magic Link, содержащий и {{ .Token }}, и {{ .ConfirmationURL }}.",
+      "На реальный почтовый ящик, находящийся под контролем проверяющего, приходит шестизначный код; его проверка создаёт подтверждённую сессию Supabase.",
+      "Проверены вход в существующий аккаунт, регистрация нового аккаунта, неверный и просроченный код, ограничение частоты повторной отправки и возможность входа с необязательным паролем.",
+      "После входа по коду пользователь возвращается к сохранённой корзине; данные для оформления заказа и подтверждения покупателя по-прежнему обязательны."
+    ]
+  },
+  "oauthActivation": {
+    "applicationRedirect": "https://10bottlevalue.co/?auth_return=1",
+    "redirectBehavior": "Приложение формирует этот фиксированный путь на текущем origin сайта; именно этот origin и URL должны быть явно разрешены в Supabase. Не включать вход через внешних провайдеров на origin предварительного просмотра, который не был разрешён.",
+    "google": [
+      "Настроить в Google Cloud OAuth-клиент типа Web application с нужной аудиторией и стандартными разрешениями openid, email и profile.",
+      "Добавить origin рабочего сайта и точный URL /auth/v1/callback проекта Supabase в соответствующие списки разрешённых адресов Google.",
+      "Сохранить client ID и secret Google в настройках провайдера Google в Supabase, затем включить провайдера."
+    ],
+    "apple": [
+      "Настроить Apple Developer App ID, связанный Services ID, веб-домен и callback URL Supabase.",
+      "Настроить провайдера Apple в Supabase, указав соответствующие client ID и secret. Заменять секрет веб-входа OAuth не реже одного раза в шесть месяцев.",
+      "Apple OAuth не передаёт полное имя; сохранить существующие поля доставки и профиля. Не объединять аккаунты с разными адресами email по имени."
+    ],
+    "returnSafety": [
+      "Текущий браузерный клиент Supabase использует implicit flow. Возобновить оформление заказа можно только после помеченного implicit callback с учётными данными, при наличии действительной локальной записи о возврате, успешной инициализации SDK и подтверждённой сессии.",
+      "После отменённого, просроченного или завершившегося ошибкой возврата от провайдера нельзя возобновить оформление через ранее сохранённую сессию Supabase. Восстановление пароля имеет приоритет.",
+      "Временная запись о возврате действует 15 минут и содержит только параметры выбора товаров, количества и назначение возврата — аккаунт или корзину. Она не содержит контактных данных, токенов, цен или состояния оплаты.",
+      "Восстановленные товары и их цены определяются по текущему каталогу. Запрос к платёжному провайдеру автоматически не запускается."
+    ],
+    "acceptance": [
+      "Выполнить реальный вход в рабочей среде через каждого включённого провайдера с разрешённым callback URL.",
+      "Проверить существующие аккаунты с тем же email, новые аккаунты, отмену и возврат назад, ошибку провайдера и возврат к оформлению заказа.",
+      "Убедиться, что загрузка сохранённой корзины аккаунта завершается до разрешения записи изменений корзины."
+    ]
+  },
+  "validation": {
+    "focusedTests": "node --test tests/auth-ui-callers.test.js tests/oauth-auth.test.js tests/email-code-auth.test.js",
+    "result": "До итоговой совместной проверки выпуска успешно пройдены 28 тестов",
+    "limitations": "В рамках этой подзадачи письма из рабочей среды не отправлялись, полный цикл входа через провайдера не выполнялся, настройки Supabase не изменялись и развёртывание не проводилось."
+  },
+  "primarySources": [
+    "https://supabase.com/docs/guides/auth/auth-email-passwordless",
+    "https://supabase.com/docs/guides/auth/social-login/auth-google",
+    "https://supabase.com/docs/guides/auth/social-login/auth-apple",
+    "https://supabase.com/docs/guides/auth/redirect-urls",
+    "https://supabase.com/docs/guides/auth/auth-identity-linking"
+  ]
+}

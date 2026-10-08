@@ -1,0 +1,80 @@
+{
+  "status": "Prepared locally; all new auth methods are disabled until configured and verified",
+  "checkedAt": "2026-10-08",
+  "liveConfigurationEvidence": {
+    "source": "Root agent read-only inspection of the exact production Supabase project UI during this task",
+    "emailEnabled": true,
+    "emailConfirmationEnabled": true,
+    "newSignupsEnabled": true,
+    "anonymousSignInEnabled": false,
+    "emailCodeLength": 6,
+    "emailCodeExpirySeconds": 3600,
+    "signupTemplateContainsToken": true,
+    "magicLinkTemplateContainsToken": false,
+    "magicLinkTemplateContainsConfirmationURL": true,
+    "googleEnabled": false,
+    "appleEnabled": false,
+    "customSmtpEnabled": true,
+    "smtpSenderName": "10BottleValueCo",
+    "smtpPort": 465,
+    "smtpPerUserIntervalSeconds": 30,
+    "deliveryTested": false,
+    "templateEditorWritable": false,
+    "secretsReadOrSaved": false
+  },
+  "releaseFlags": {
+    "VITE_AUTH_EMAIL_CODE_ENABLED": "Default false. Set exactly true only after the Magic Link template includes Token and production code delivery/verification is tested. It then becomes the default for sign-in and registration; password remains optional.",
+    "VITE_AUTH_GOOGLE_ENABLED": "Default false. Set exactly true only after Google OAuth is configured in Supabase and a production round trip succeeds.",
+    "VITE_AUTH_APPLE_ENABLED": "Default false. Set exactly true only after Apple OAuth is configured in Supabase and a production round trip succeeds.",
+    "buildBehavior": "VITE_* flags are build-time public configuration. Changing them requires a new frontend build. No provider secret belongs in VITE_* values."
+  },
+  "emailCodeActivation": {
+    "destination": "Supabase Authentication > Email Templates > Magic Link",
+    "subject": "Your 10BottleValue sign-in code",
+    "htmlSource": "auth-templates/magic-link.html",
+    "preserves": "The ConfirmationURL link remains available for existing clients. The signup confirmation template already contains Token and is not replaced.",
+    "acceptance": [
+      "An authorized project operator saves the Magic Link template with both {{ .Token }} and {{ .ConfirmationURL }}.",
+      "A controlled real email receives a six-digit code, and verification produces a confirmed Supabase session.",
+      "Existing-account sign-in, new-account registration, invalid/expired code, resend cooldown and optional password are checked.",
+      "The code flow returns to the preserved cart and still requires checkout details and purchaser confirmations."
+    ]
+  },
+  "oauthActivation": {
+    "applicationRedirect": "https://10bottlevalue.co/?auth_return=1",
+    "redirectBehavior": "The application computes this fixed path on the current site origin; that exact origin and URL must be explicitly allowed in Supabase. Do not enable social login on an unapproved preview origin.",
+    "google": [
+      "Configure a Google Cloud Web application OAuth client with the intended audience and standard openid, email and profile scopes.",
+      "Add the production website origin and the exact Supabase project /auth/v1/callback URL to the appropriate Google allowlists.",
+      "Store the Google client ID and secret in the Supabase Google provider configuration, then enable the provider."
+    ],
+    "apple": [
+      "Configure an Apple Developer App ID, associated Services ID, web domain and Supabase callback URL.",
+      "Configure the Apple provider in Supabase using the appropriate client ID and secret. Rotate the web OAuth secret at least every six months.",
+      "Apple OAuth does not provide a full name; retain the existing shipping/profile fields. Do not merge different email identities by name."
+    ],
+    "returnSafety": [
+      "The current Supabase browser client uses implicit flow. Only a marked implicit callback with credentials, a valid local intent, successful SDK initialization and a confirmed session can resume checkout.",
+      "A cancelled, expired or failed provider return cannot resume using an older preserved Supabase session. Password recovery takes precedence.",
+      "Temporary return intent expires after 15 minutes and stores only product selectors, quantities and an account/cart destination. It stores no contact fields, tokens, prices or payment state.",
+      "Restored products are resolved and priced from the current catalog. No payment provider request is started automatically."
+    ],
+    "acceptance": [
+      "Complete a real production sign-in for each enabled provider with the approved callback URL.",
+      "Check existing same-email accounts, new accounts, cancellation/back, provider error and checkout return.",
+      "Verify account cart hydration completes before stored cart writes are enabled."
+    ]
+  },
+  "validation": {
+    "focusedTests": "node --test tests/auth-ui-callers.test.js tests/oauth-auth.test.js tests/email-code-auth.test.js",
+    "result": "28 tests passed before final combined release verification",
+    "limitations": "No production email was sent, no provider round trip was performed, no Supabase setting was changed and no deployment was performed by this subtask."
+  },
+  "primarySources": [
+    "https://supabase.com/docs/guides/auth/auth-email-passwordless",
+    "https://supabase.com/docs/guides/auth/social-login/auth-google",
+    "https://supabase.com/docs/guides/auth/social-login/auth-apple",
+    "https://supabase.com/docs/guides/auth/redirect-urls",
+    "https://supabase.com/docs/guides/auth/auth-identity-linking"
+  ]
+}
