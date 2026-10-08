@@ -10,20 +10,41 @@ const invalid = () => new MeritError(400, "Invalid webhook.", "MERIT_INVALID_WEB
 
 async function readRawBody(req) {
   if (Number(req.headers?.["content-length"] || 0) > 65536) throw invalid();
-  if (Buffer.isBuffer(req.body)) {
-    if (req.body.length > 65536) throw invalid();
-    return req.body;
+  if (typeof req.on !== "function") {
+    // Explicit raw-buffer adapters are supported without invoking a body getter.
+    const raw = Object.getOwnPropertyDescriptor(req, "body")?.value;
+    if (!Buffer.isBuffer(raw) || raw.length > 65536) throw invalid();
+    return raw;
   }
-  // A parsed JSON object or string no longer proves the signed byte sequence.
-  if (req.body !== undefined && req.body !== null) throw invalid();
-  const chunks = []; let size = 0;
-  for await (const chunk of req) {
-    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    size += bytes.length;
-    if (size > 65536) throw invalid();
-    chunks.push(bytes);
-  }
-  return Buffer.concat(chunks);
+  // Bare @vercel/node installs a lazy parsed req.body and replays the original
+  // bytes through data/end listeners. Never read that getter or reconstruct JSON.
+  // Its consumed original request can already be ended while replay is pending.
+  return new Promise((resolve, reject) => {
+    const chunks = []; let size = 0; let settled = false;
+    const finish = error => {
+      if (settled) return;
+      settled = true;
+      const raw = error ? null : Buffer.concat(chunks, size);
+      chunks.length = 0;
+      for (const [name, listener] of listeners) req.removeListener?.(name, listener);
+      if (error) reject(invalid()); else resolve(raw);
+    };
+    const listeners = [
+      ["error", () => finish(true)],
+      ["aborted", () => finish(true)],
+      ["close", () => { if (req.complete !== true) finish(true); }],
+      ["end", () => finish(false)],
+      ["data", chunk => {
+        if (settled) return;
+        if (!Buffer.isBuffer(chunk)) return finish(true);
+        size += chunk.length;
+        if (size > 65536) return finish(true);
+        chunks.push(chunk);
+      }],
+    ];
+    // Register separately: Vercel's data/end .on() returns its replay stream.
+    for (const [name, listener] of listeners) req.on(name, listener);
+  });
 }
 
 export function verifyMeritSignature(raw, header, secret) {

@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
+import { PassThrough, Readable } from 'node:stream';
+import { EventEmitter } from 'node:events';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 import { createMeritProvider } from './_merit-provider.js';
 import { createMeritCheckoutHandler } from './merit-checkout.js';
 import { createMeritWebhookHandler, verifyMeritSignature } from './attestly-webhook.js';
@@ -200,6 +204,103 @@ function webhookFixture(options = {}) {
   return { calls, handler: createMeritWebhookHandler({ env: { ...env, MERIT_ENABLED: 'false', ...options.env }, provider, store, notify: async () => {} }) };
 }
 async function deliver(fixture, value = event, header) { const raw = Buffer.from(JSON.stringify(value)); return run(fixture.handler, raw, 'POST', { 'merit-signature': header || sign(raw) }); }
+
+// Vercel consumes IncomingMessage, then restores only read and data/end events.
+// https://github.com/vercel/vercel/blob/main/packages/node/src/serverless-functions/helpers.ts
+// An optional installed runtime path exercises its actual compiled helpers.
+let vercelRestoreBody = (req, body) => {
+  const replay = new PassThrough();
+  const originalOn = req.on.bind(req);
+  req.read = replay.read.bind(replay);
+  req.on = req.addListener = (name, cb) => name === 'data' || name === 'end' ? replay.on(name, cb) : originalOn(name, cb);
+  replay.end(body);
+};
+let vercelSetLazyProp = (req, name, getter) => Object.defineProperty(req, name, { configurable: true, get: getter });
+if (process.env.MERIT_TEST_VERCEL_HELPERS) {
+  const source = readFileSync(process.env.MERIT_TEST_VERCEL_HELPERS, 'utf8');
+  const extract = (start, end) => {
+    const from = source.indexOf(start); const to = source.indexOf(end, from);
+    assert.ok(from >= 0 && to > from, 'installed Vercel helper source shape');
+    return source.slice(from, to);
+  };
+  ({ restoreBody: vercelRestoreBody, setLazyProp: vercelSetLazyProp } = runInNewContext(
+    extract('function restoreBody(req, body)', 'async function readBody(req)')
+      + extract('function setLazyProp(req, prop, getter)', 'function createETag(body, encoding)')
+      + '\n({ restoreBody, setLazyProp })', { PassThrough, Buffer }, { timeout: 1000 }));
+}
+async function replayRequest(raw, header = sign(raw)) {
+  const req = Readable.from([raw]);
+  for await (const ignored of req) {} // Original stream is already ended/destroyed.
+  let bodyReads = 0;
+  vercelRestoreBody(req, raw);
+  vercelSetLazyProp(req, 'body', () => { bodyReads++; throw Error('parsed body getter must remain unread'); });
+  req.method = 'POST'; req.complete = true;
+  req.headers = { 'content-type': 'application/json', 'merit-signature': header };
+  return { req, bodyReads: () => bodyReads };
+}
+
+test('Vercel raw replay authenticates exact whitespace and Unicode without accessing its parsed body getter', async () => {
+  const fixture = webhookFixture();
+  const raw = Buffer.from(JSON.stringify({ ...event, note: 'Привет 🧪' }, null, 2) + '\r\n');
+  const replay = await replayRequest(raw);
+  assert.equal(replay.req.readableEnded, true);
+  assert.equal(replay.req.destroyed, true);
+  const res = responseRecorder();
+  await fixture.handler(replay.req, res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body, { received: true });
+  assert.equal(replay.bodyReads(), 0);
+  assert.deepEqual(fixture.calls, [['find', 'pi_fixture'], 'verify', 'finalize']);
+});
+test('Vercel replay refuses equivalent reserialized JSON signed with different original bytes', async () => {
+  const fixture = webhookFixture();
+  const original = Buffer.from(JSON.stringify(event, null, 2));
+  const changed = Buffer.from(JSON.stringify(event));
+  const replay = await replayRequest(changed, sign(original));
+  const res = responseRecorder();
+  await fixture.handler(replay.req, res);
+  assert.equal(res.statusCode, 400);
+  assert.equal(replay.bodyReads(), 0);
+  assert.deepEqual(fixture.calls, []);
+});
+test('Vercel replay rejects oversized bodies before provider or storage work', async () => {
+  const fixture = webhookFixture();
+  const raw = Buffer.from(JSON.stringify({ type: 'unrelated', padding: 'x'.repeat(65537) }));
+  const replay = await replayRequest(raw);
+  const res = responseRecorder();
+  await fixture.handler(replay.req, res);
+  assert.equal(res.statusCode, 400);
+  assert.equal(replay.bodyReads(), 0);
+  assert.deepEqual(fixture.calls, []);
+});
+test('raw request stream abort, error, premature close and decoded string chunks fail closed', async () => {
+  for (const failure of ['aborted', 'error', 'close', 'string']) {
+    const fixture = webhookFixture();
+    const req = new EventEmitter();
+    req.method = 'POST'; req.headers = { 'merit-signature': sign(Buffer.from(JSON.stringify(event))) };
+    const res = responseRecorder();
+    const pending = fixture.handler(req, res);
+    req.emit('data', Buffer.from('{'));
+    if (failure === 'string') req.emit('data', 'decoded bytes');
+    else req.emit(failure, failure === 'error' ? Error('transport detail') : undefined);
+    req.emit('data', Buffer.alloc(65537));
+    req.emit('end');
+    await pending;
+    assert.equal(res.statusCode, 400, failure);
+    assert.deepEqual(fixture.calls, [], failure);
+  }
+});
+test('non-stream adapters cannot invoke a parsed body getter', async () => {
+  const fixture = webhookFixture();
+  let reads = 0;
+  const req = { method: 'POST', headers: {} };
+  Object.defineProperty(req, 'body', { get() { reads++; return event; } });
+  const res = responseRecorder();
+  await fixture.handler(req, res);
+  assert.equal(res.statusCode, 400);
+  assert.equal(reads, 0);
+  assert.deepEqual(fixture.calls, []);
+});
 
 test('signed success performs authoritative verification before idempotent finalize; replay is safe', async () => {
   const fixture = webhookFixture();
