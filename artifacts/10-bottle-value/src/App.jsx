@@ -14271,9 +14271,9 @@ Si no está allí, es posible que la dirección de email se haya introducido inc
                   <details ref={vialLabelInfoRef} key={`${selectedProduct.name}|${selectedProduct.dose}`} className="absolute left-2 top-2 z-20 text-left">
                     <summary
                       aria-label={tx("Label information", "Информация об этикетках", "Інформація про етикетки", "Information zu Etiketten", "Información sobre etiquetas")}
-                      className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-full text-black/65 transition-colors hover:bg-black/10 hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-black/70 [&::-webkit-details-marker]:hidden"
+                      className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-full text-white transition-opacity duration-150 hover:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#f0c96a] focus-visible:outline-offset-2 active:scale-[0.98] [&::-webkit-details-marker]:hidden"
                     >
-                      <Info size={19} strokeWidth={1.8} aria-hidden="true" />
+                      <Info size={22} strokeWidth={1.8} className="text-white" aria-hidden="true" />
                     </summary>
                     <div role="note" className="absolute left-0 top-11 w-56 rounded-xl border border-white/20 bg-[#1f1f1f]/95 p-3 text-xs font-semibold leading-relaxed text-white shadow-xl sm:w-64">
                       {tx(
