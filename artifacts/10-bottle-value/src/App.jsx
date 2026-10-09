@@ -26,6 +26,7 @@ import CatalogSearchInput from "./components/CatalogSearchInput.jsx";
 import HomePage from "./components/HomePage.jsx";
 import PaymentReturnHeader from "./components/PaymentReturnHeader.jsx";
 import PaymentReturnReadStatus from "./components/PaymentReturnReadStatus.jsx";
+import CashAppPaymentGuide from "./components/CashAppPaymentGuide.jsx";
 import ProductPackSelector from "./components/ProductPackSelector.jsx";
 import { productSelectionFromProduct, readProductSelection, productSelectionUrl, resolveSelectedProduct, toStorefrontOffer } from "./product-selection.js";
 import UsFlag from "./components/UsFlag.jsx";
@@ -9886,7 +9887,8 @@ export default function App() {
 
   // Lightning orders are capped at $999 against the pre-credit base amount.
   const CASHAPP_LIMIT = 999;
-  const cashAppPaymentLabel = tx("Bitcoin Lightning (via Cash App)", "Bitcoin Lightning (через Cash App)", "Bitcoin Lightning (через Cash App)", "Bitcoin Lightning (über Cash App)", "Bitcoin Lightning (vía Cash App)");
+  const cashAppPaymentLabel = "Cash App";
+  const cashAppLightningLabel = tx("via Bitcoin Lightning", "через Bitcoin Lightning", "через Bitcoin Lightning", "über Bitcoin Lightning", "a través de Bitcoin Lightning");
   const cashAppEligibleAmount = Math.max(0, baseTotal - storeCreditApplied);
   const cashAppOverLimit = cashAppEligibleAmount > CASHAPP_LIMIT;
 
@@ -21083,6 +21085,7 @@ export default function App() {
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <div className="pr-5 text-[14px] font-semibold leading-[18px]">{cashAppPaymentLabel}</div>
+                                  <div className="mt-0.5 text-[11px] leading-[14px] opacity-60">{cashAppLightningLabel}</div>
                                   <div className="mt-1.5 flex flex-nowrap items-center gap-1.5">
                                     <span className={`shrink-0 inline-flex rounded-md px-1.5 py-0.5 text-[11px] font-black uppercase tracking-[0.1em] ${paymentMethod === "cashapp" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>NO KYC</span>
                                   </div>
@@ -21094,6 +21097,7 @@ export default function App() {
                                 <img src={getPreloadedDisplayImageUrl(cashAppLogo)} alt="" className="h-10 w-10 shrink-0 rounded-xl object-contain opacity-40" />
                                 <div className="flex-1 min-w-0">
                                   <div className="text-[14px] font-semibold leading-[18px] text-black/30">{cashAppPaymentLabel}</div>
+                                  <div className="mt-0.5 text-[11px] leading-[14px] text-black/30">{cashAppLightningLabel}</div>
                                   <div className="mt-1.5">
                                     <span className="inline-flex rounded-md bg-red-500 px-2 py-0.5 text-[11px] font-black text-black">Limit $999</span>
                                   </div>
@@ -21154,32 +21158,23 @@ export default function App() {
                               <img src={getPreloadedDisplayImageUrl(cashAppLogo)} alt="" className="h-10 w-10 shrink-0 rounded-2xl shadow-[0_10px_30px_rgba(0,214,79,0.25)] md:h-11 md:w-11" />
                               <div>
                                 <div className="text-[15px] font-semibold tracking-[-0.02em] text-black md:text-[18px]">{cashAppPaymentLabel}</div>
+                                <div className="mt-0.5 text-[12px] text-black/50">{cashAppLightningLabel}</div>
                               </div>
                             </div>
                             <p id="cashapp-lightning-help" className="mb-4 text-[13px] leading-5 text-black/65">
                               {tx(
-                                "This option uses Bitcoin Lightning. The next page provides an invoice to pay through Cash App’s Lightning feature.",
-                                "Этот способ использует Bitcoin Lightning. На следующей странице откроется счёт для оплаты через функцию Lightning в Cash App.",
-                                "Цей спосіб використовує Bitcoin Lightning. На наступній сторінці відкриється рахунок для оплати через функцію Lightning у Cash App.",
-                                "Diese Option nutzt Bitcoin Lightning. Auf der nächsten Seite erhalten Sie eine Rechnung zur Zahlung über die Lightning-Funktion in Cash App.",
-                                "Esta opción usa Bitcoin Lightning. La siguiente página muestra una factura para pagar con la función Lightning de Cash App."
+                                "On the next page, tap “Open Wallet” and choose Cash App if prompted.",
+                                "На следующей странице нажмите «Open Wallet» и выберите Cash App, если появится запрос.",
+                                "На наступній сторінці натисніть «Open Wallet» і виберіть Cash App, якщо з’явиться запит.",
+                                "Tippen Sie auf der nächsten Seite auf „Open Wallet“ und wählen Sie bei Bedarf Cash App.",
+                                "En la siguiente página, pulsa «Open Wallet» y elige Cash App si se te solicita."
                               )}
                             </p>
                             {catalystPayError && (
                               <div className="mb-3 rounded-xl bg-red-50 px-4 py-2.5 text-[13px] text-red-600">{catalystPayError}</div>
                             )}
-                            <button
-                              type="button"
-                              disabled={catalystPayLoading || hasOutOfStockInCart}
-                              aria-describedby="cashapp-lightning-help"
-                              onClick={createCatalystPayment}
-                              className={`flex w-full items-center justify-between gap-4 rounded-[1.2rem] bg-[#00D64F] px-5 py-4 text-left text-[14px] font-bold text-white transition-all hover:bg-[#00b844] active:scale-[0.98] ${(catalystPayLoading || hasOutOfStockInCart) ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
-                            >
-                              <span>{catalystPayLoading
-                                ? tx("Creating invoice…", "Создаём инвойс…", "Створюємо інвойс…", "Rechnung wird erstellt…", "Creando factura…")
-                                : tx("Pay with Bitcoin Lightning", "Оплатить через Bitcoin Lightning", "Оплатити через Bitcoin Lightning", "Mit Bitcoin Lightning zahlen", "Pagar con Bitcoin Lightning")}</span>
-                              {!catalystPayLoading && <span className="shrink-0">${finalTotal.toFixed(2)}</span>}
-                            </button>
+                            <CashAppPaymentGuide tx={tx} loading={catalystPayLoading} disabled={hasOutOfStockInCart}
+                              amount={finalTotal} onContinue={createCatalystPayment} />
                           </div>
                         )}
 
