@@ -19,7 +19,7 @@ import { startVisiblePolling } from "./visible-poll.js";
 import { observeAnnouncementHeight } from "./announcement-height.js";
 import { createInfoPageImageWarmup, scheduleInfoPageWarmup } from "./preloadInfoPageImages.js";
 import { createLegacyAttemptManager } from "./legacy-checkout-attempt.js";
-import { buildMeritCheckoutPayload, estimateMeritCreditSplit, meritCheckoutBusinessError, meritCartMatchesOrder, meritOrderCardSurcharge, createMeritApiClient, meritPayloadDigest, meritOrderIdFromCheckoutKey, readMeritAttempt, saveMeritAttempt, verifyMeritCheckoutBuyer, MERIT_ATTEMPT_STORAGE_KEY } from "./merit-checkout-client.js";
+import { buildMeritCheckoutPayload, estimateMeritCreditSplit, meritCheckoutBusinessError, meritCartMatchesOrder, meritOrderCardSurcharge, createMeritApiClient, meritPayloadDigest, readMeritAttempt, saveMeritAttempt, verifyMeritCheckoutBuyer, MERIT_ATTEMPT_STORAGE_KEY } from "./merit-checkout-client.js";
 import { ACCOUNT_AVATARS, getAccountAvatar } from "./account-avatars.js";
 import { track, trackPageView } from "./analytics.js";
 import { useSEO } from "./useSEO.js";
@@ -10597,49 +10597,8 @@ export default function App() {
       const previous = meritAttemptRef.current;
       if (previous?.createRequested && previous.digest !== digest) { showMeritReservedAttempt(); return; }
       const attempt = previous?.digest === digest ? previous : { key: window.crypto.randomUUID(), digest, orderId: "", submitted: false };
-      const canonicalOrderId = meritOrderIdFromCheckoutKey(attempt.key);
-      if (attempt.orderId && attempt.orderId !== canonicalOrderId) throw new Error("merit_order_id_mismatch");
-      attempt.orderId = canonicalOrderId;
-      attempt.checkoutStartedAt = attempt.checkoutStartedAt || new Date().toISOString();
       meritAttemptRef.current = attempt;
       saveMeritAttempt(window.sessionStorage, attempt);
-      const checkoutClickOrder = {
-        id: attempt.orderId,
-        invoiceId: getAdminInvoiceLabel({ id: attempt.orderId, paymentProvider: "Merit" }),
-        email: normalizeEmail(currentUser.email),
-        status: "checkout",
-        paymentProvider: "Merit",
-        checkoutStartedAt: attempt.checkoutStartedAt,
-        verificationPending: true,
-        total: Number(finalTotal.toFixed(2)),
-        subtotal: Number(subtotal.toFixed(2)),
-        shipping: Number(shipping.toFixed(2)),
-        shippingType: effectiveShippingType,
-        automaticDiscount: Number(automaticDiscount.toFixed(2)),
-        promoDiscount: Number(promoDiscount.toFixed(2)),
-        promoCode: appliedPromo?.code || "",
-        affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-        affiliateCode: affiliateTrackingCode,
-        items: cart.map(item => ({
-          name: item.name,
-          dose: item.dose,
-          quantity: item.quantity ?? item.qty ?? 1,
-          price: Number.isFinite(Number(item.price)) ? Number(item.price) : 0,
-          ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}),
-          ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
-          ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}),
-        })),
-      };
-      await persistOrderToServer({
-        id: checkoutClickOrder.id,
-        email: checkoutClickOrder.email,
-        status: checkoutClickOrder.status,
-        total: checkoutClickOrder.total,
-        metadata: checkoutClickOrder,
-      });
-      if (meritInputsRef.current !== requestedInputs || meritSelectionRef.current.method !== "stripe" || meritSelectionRef.current.step !== "payment") {
-        throw new Error("checkout_changed");
-      }
       const verificationAbort = new AbortController();
       meritVerificationAbortRef.current = verificationAbort;
       const proof = await verifyMeritCheckoutBuyer(currentUser.email, undefined, { signal: verificationAbort.signal });
@@ -10650,7 +10609,7 @@ export default function App() {
       attempt.createRequested = payload.useStoreCredit === true;
       saveMeritAttempt(window.sessionStorage, attempt);
       const result = await meritApi.create({ checkoutKey: attempt.key, payload, proof });
-      if (result.session.orderId !== attempt.orderId) throw new Error("merit_order_id_mismatch");
+      attempt.orderId = result.session.orderId;
       if (result.session.storeCreditUsedCents === 0) attempt.createRequested = false;
       if (result.paid === true) {
         // A recovered create response may describe an already-paid attempt.
@@ -10673,23 +10632,6 @@ export default function App() {
         }
         return;
       }
-      const meritOrder = {
-        ...result.order,
-        id: result.session.orderId,
-        invoiceId: getAdminInvoiceLabel({ ...result.order, id: result.session.orderId, paymentProvider: "Merit" }),
-        email: normalizeEmail(currentUser.email),
-        status: "checkout",
-        paymentProvider: "Merit",
-        checkoutStartedAt: attempt.checkoutStartedAt,
-        verificationPending: false,
-      };
-      await persistOrderToServer({
-        id: meritOrder.id,
-        email: meritOrder.email,
-        status: meritOrder.status,
-        total: meritOrder.total,
-        metadata: meritOrder,
-      });
       saveMeritAttempt(window.sessionStorage, attempt);
       if (meritInputsRef.current !== requestedInputs || meritSelectionRef.current.method !== "stripe" || meritSelectionRef.current.step !== "payment") throw new Error("checkout_changed");
       setOrderNumber(result.session.orderId);
