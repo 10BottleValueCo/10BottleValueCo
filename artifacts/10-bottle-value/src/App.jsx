@@ -29,7 +29,6 @@ import UsFlag from "./components/UsFlag.jsx";
 import ResearcherEntryGate, { hasResearcherEntryAcceptance } from "./components/ResearcherEntryGate.jsx";
 import PeptigrityMark from "./components/PeptigrityMark.jsx";
 import vialCManifest from "./data/vialCManifest.json";
-import publicImagePaths from "./data/publicImagePaths.json";
 import cashAppLogo from "./assets/payment-logos/cash-app.svg";
 import bitcoinLogo from "./assets/payment-logos/bitcoin.svg";
 import paypalMark from "./assets/payment-logos/paypal-mark.svg";
@@ -304,15 +303,10 @@ function preloadImage(src, fetchPriority, retainForDisplay = false) {
   return cachedLoad;
 }
 
-function preloadPublicImages(extraSources = [], includeManifest = true) {
-  const base = import.meta.env.BASE_URL;
-  const sources = new Set(extraSources);
-  if (includeManifest) {
-    Object.values(vialCManifest).forEach((file) => sources.add(`${base}vials-c/${file}`));
-    publicImagePaths.forEach((path) => sources.add(`${base}${path}`));
-  }
-
-  const sourceList = [...sources];
+function preloadPublicImages(sources = []) {
+  // Warm explicit current-page assets only. Whole-catalog warming downloads and
+  // decodes every vial variant and COA even when the customer never views them.
+  const sourceList = [...new Set(sources)];
   let nextIndex = 0;
 
   const worker = async () => {
@@ -4456,35 +4450,32 @@ export default function App() {
     let active = true;
     setPublicImagesState("loading");
     const base = import.meta.env.BASE_URL;
-    const routeBackgrounds = [
-      worldwideCatalogBackground,
-      faqBackgroundImage,
-      laboratoryBackgroundImage,
-      legalPolicyBackgroundImage,
-      `${base}images/homepage-hero-background.webp`,
-      `${base}images/homepage-hero-mobile-vial.webp`,
-      `${base}images/homepage-lower-background.webp`,
-      `${base}images/affiliate-lab-background.webp`,
-      `${base}images/shipping-prices-warehouse-background.webp`,
-    ];
+    // Keep the currently rendered background in the existing display cache;
+    // other pages and the unused hero breakpoint load only when needed.
+    const routeBackgrounds = page === "home"
+      ? [
+          `${base}images/${String(language ?? "EN").toUpperCase() === "EN" && window.matchMedia("(max-width: 640px)").matches ? "homepage-hero-mobile-vial" : "homepage-hero-background"}.webp`,
+          `${base}images/homepage-lower-background.webp`,
+        ]
+      : ["shop", "product", "us-warehouse", "cart"].includes(page)
+      ? [worldwideCatalogBackground]
+      : page === "faq"
+      ? [faqBackgroundImage]
+      : ["account", "contact", "track", "admin"].includes(page)
+      ? [laboratoryBackgroundImage]
+      : ["terms", "privacy", "shipping", "refund", "attestation"].includes(page)
+      ? [legalPolicyBackgroundImage]
+      : page === "affiliate"
+      ? [`${base}images/affiliate-lab-background.webp`]
+      : page === "bonuses"
+      ? [`${base}images/shipping-prices-warehouse-background.webp`]
+      : [];
     const startPreload = async () => {
       if (!active) return;
       try {
-        await preloadPublicImages(routeBackgrounds, false);
+        await preloadPublicImages(routeBackgrounds);
         if (!active) return;
         setPublicImagesState("ready");
-        try {
-          await preloadPublicImages([
-            `${import.meta.env.BASE_URL}vials-c/tb-500-bpc-157-3ab3e8693952.webp`,
-            `${import.meta.env.BASE_URL}vials-c/bpc-157-4a596acd979f.webp`,
-            `${import.meta.env.BASE_URL}vials-c/retatrutide-glp-3-0efb04b0071d.webp`,
-            cashAppLogo,
-            bitcoinLogo,
-            paypalMark,
-          ]);
-        } catch (error) {
-          console.warn("Could not warm all optional public images; they will load when needed.", error);
-        }
       } catch (error) {
         console.error("Could not preload all public images.", error);
         if (active) setPublicImagesState("error");
@@ -4502,7 +4493,7 @@ export default function App() {
       if (idleHandle !== null) window.cancelIdleCallback(idleHandle);
       if (preloadTimer !== null) window.clearTimeout(preloadTimer);
     };
-  }, [publicImageRetry, researcherEntryGateActive]);
+  }, [page, language, publicImageRetry, researcherEntryGateActive]);
   useEffect(() => {
     if (page === "shop") {
       setShopPrimed(true);
@@ -11419,6 +11410,14 @@ export default function App() {
     return errors;
   }
 
+  function requestCheckoutAttestation() {
+    if (cart.length === 0 || hasOutOfStockInCart) return;
+    setPendingAttestationAction(
+      finalTotal === 0 && storeCreditApplied > 0 ? "credits" : "checkout"
+    );
+    setAttestationModalOpen(true);
+  }
+
   async function handleCheckout(attestationOverride = null) {
     if (meritAttemptRef.current?.submitted) { openMeritPending(); return; }
     const acceptedResearch = attestationOverride?.researchAccepted ?? researchAccepted;
@@ -13628,7 +13627,7 @@ export default function App() {
             >
               <img
                 ref={logoImgRef}
-                src={getPreloadedDisplayImageUrl(`${import.meta.env.BASE_URL}images/header-vial.png`)}
+                src={getPreloadedDisplayImageUrl(`${import.meta.env.BASE_URL}images/header-vial-264.webp`)}
                 alt="10BottleValueCo — Research Peptides"
                 className="h-[46px] w-auto -translate-y-[2px] object-contain brightness-110 md:h-[66px] md:-translate-y-[1px]"
                 style={{ display: "inline-block" }}
@@ -20983,10 +20982,7 @@ export default function App() {
                     {finalTotal === 0 && storeCreditApplied > 0 && cart.length > 0 && !hasOutOfStockInCart ? (
                       <button
                         type="button"
-                        onClick={() => {
-                          setPendingAttestationAction("credits");
-                          setAttestationModalOpen(true);
-                        }}
+                        onClick={requestCheckoutAttestation}
                         className="mt-2 w-full rounded-full px-6 py-3 text-[13px] font-bold uppercase tracking-[0.22em] transition shadow-[0_0_32px_rgba(234,179,8,0.35)] hover:shadow-[0_0_48px_rgba(234,179,8,0.55)]"
                         style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)", color: "#fff" }}
                       >
@@ -20996,10 +20992,7 @@ export default function App() {
                     ) : (
                       <button
                         type="button"
-                        onClick={() => {
-                          setPendingAttestationAction("checkout");
-                          setAttestationModalOpen(true);
-                        }}
+                        onClick={requestCheckoutAttestation}
                         disabled={
                           cart.length === 0 ||
                           hasOutOfStockInCart
@@ -22011,82 +22004,9 @@ export default function App() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (!currentUser?.email) {
-                        handleCheckout();
-                        return;
-                      }
-                      const syncedForm = {
-                        email:
-                          checkoutInputRefs.current.email?.value ||
-                          checkoutForm.email ||
-                          currentUser?.email ||
-                          "",
-                        firstName:
-                          checkoutInputRefs.current.firstName?.value ||
-                          checkoutForm.firstName,
-                        lastName:
-                          checkoutInputRefs.current.lastName?.value ||
-                          checkoutForm.lastName,
-                        country:
-                          checkoutInputRefs.current.country?.value ||
-                          checkoutForm.country,
-                        address:
-                          checkoutInputRefs.current.address?.value ||
-                          checkoutForm.address,
-                        address2:
-                          checkoutInputRefs.current.address2?.value ||
-                          checkoutForm.address2,
-                        city:
-                          checkoutInputRefs.current.city?.value ||
-                          checkoutForm.city,
-                        state:
-                          checkoutInputRefs.current.state?.value ||
-                          checkoutForm.state,
-                        postalCode:
-                          checkoutInputRefs.current.postalCode?.value ||
-                          checkoutForm.postalCode,
-                        phone:
-                          checkoutInputRefs.current.phone?.value ||
-                          checkoutForm.phone,
-                      };
-                      const errors = validateCheckoutForm(syncedForm);
-
-                      if (Object.keys(errors).length > 0) {
-                        setCheckoutErrors(errors);
-                        const firstErrorField = Object.keys(errors)[0];
-                        const fieldRef = checkoutInputRefs.current[firstErrorField];
-                        if (fieldRef) {
-                          fieldRef.scrollIntoView({ behavior: "smooth", block: "center" });
-                          fieldRef.focus();
-                        } else if (formSectionRef.current) {
-                          formSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-                        }
-                        return;
-                      }
-
-                      if (
-                        !researchAccepted ||
-                        !qualifiedAccepted ||
-                        !termsAccepted
-                      ) {
-                        if (termsSectionRef.current) {
-                          termsSectionRef.current.scrollIntoView({
-                            behavior: "smooth",
-                            block: "center",
-                          });
-                        }
-                        setCheckboxHighlight(true);
-                        setTimeout(
-                          () => setCheckboxHighlight(false),
-                          900
-                        );
-                        return;
-                      }
-
-                      handleCheckout();
-                    }}
-                    className="shrink-0 rounded-full bg-white px-5 py-3 text-[13px] font-bold uppercase tracking-[0.22em] text-black transition hover:bg-white/90"
+                    onClick={requestCheckoutAttestation}
+                    disabled={cart.length === 0 || hasOutOfStockInCart}
+                    className="shrink-0 rounded-full bg-white px-5 py-3 text-[13px] font-bold uppercase tracking-[0.22em] text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:bg-white/50 disabled:text-black/50"
                   >
                     {t("proceedCheckout")}
                   </button>

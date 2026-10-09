@@ -34,6 +34,24 @@ const initializer = (name, context) => {
   assert.ok(decl, `App initializer ${name} exists`);
   return vm.runInNewContext(`(${source.slice(decl.init.start, decl.init.end)})`, context);
 };
+const jsxButtons = [];
+function collectButtons(node) {
+  if (!node || typeof node !== 'object') return;
+  if (node.type === 'JSXElement' && node.openingElement.name.name === 'button') jsxButtons.push(node);
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) value.forEach(collectButtons);
+    else if (value && typeof value === 'object') collectButtons(value);
+  }
+}
+collectButtons(ast.program);
+const buttonAttribute = (button, name, context) => {
+  const attribute = button.openingElement.attributes.find(item => item.name?.name === name);
+  assert.ok(attribute, `checkout button has ${name}`);
+  const expression = attribute.value.expression;
+  return vm.runInNewContext(`(${source.slice(expression.start, expression.end)})`, context);
+};
+const proceedButtons = jsxButtons.filter(button => source.slice(button.start, button.end).includes('t("proceedCheckout")'));
+const creditButton = jsxButtons.find(button => source.slice(button.start, button.end).includes('tx("Pay with Credits"'));
 function storageFixture() {
   const map = new Map();
   return { getItem: key => map.get(key), setItem: (key, value) => map.set(key, value), removeItem: key => map.delete(key) };
@@ -72,6 +90,75 @@ function fixture() {
   context.meritInputsRef.current = JSON.stringify({ payload: context.meritPayload, email: context.currentUser.email, surchargeBps: 300 });
   return { context, calls, form };
 }
+
+function checkoutEntryFixture(overrides = {}) {
+  const result = fixture();
+  Object.assign(result.context, {
+    checkoutForm: result.form, checkoutStep: 'details', hasOutOfStockInCart: false,
+    researchAccepted: false, qualifiedAccepted: false, termsAccepted: false,
+    setPendingAttestationAction: value => result.calls.push(['attestationAction', value]),
+    setAttestationModalOpen: value => result.calls.push(['attestationOpen', value]),
+    handleCheckout: () => { throw new Error('Checkout must wait for confirmation'); },
+    ...overrides,
+  });
+  // Resolve named JSX handlers from the actual App source, while still exercising
+  // older inline handlers when demonstrating the regression before its fix.
+  for (const button of [...proceedButtons, creditButton]) {
+    const onClick = button.openingElement.attributes.find(item => item.name?.name === 'onClick').value.expression;
+    if (onClick.type === 'Identifier') result.context[onClick.name] = handler(onClick.name, result.context);
+  }
+  return result;
+}
+
+test('bottom and mobile sticky checkout open confirmations when the closed modal has no terms ref', () => {
+  assert.equal(proceedButtons.length, 2);
+  for (const button of proceedButtons) {
+    for (const currentUser of [{ email: 'buyer@example.test' }, null]) {
+      const { context, calls } = checkoutEntryFixture({ currentUser });
+      assert.equal(context.termsSectionRef.current, null);
+      buttonAttribute(button, 'onClick', context)();
+      assert.deepEqual(calls, [['attestationAction', 'checkout'], ['attestationOpen', true]]);
+      assert.equal(context.deferredLegacyOrderRef.current, null);
+    }
+  }
+});
+
+test('sticky checkout preserves the full-credit action used by the bottom credit button', () => {
+  assert.ok(creditButton);
+  const stickyButton = proceedButtons.find(button => source.slice(button.start, button.end).includes('shrink-0'));
+  for (const button of [creditButton, stickyButton]) {
+    const { context, calls } = checkoutEntryFixture({ finalTotal: 0, storeCreditApplied: 139.99 });
+    buttonAttribute(button, 'onClick', context)();
+    assert.deepEqual(calls, [['attestationAction', 'credits'], ['attestationOpen', true]]);
+    assert.equal(context.deferredLegacyOrderRef.current, null);
+  }
+});
+
+test('both proceed buttons disable empty or out-of-stock carts', () => {
+  for (const button of proceedButtons) {
+    for (const patch of [{ cart: [] }, { hasOutOfStockInCart: true }]) {
+      const { context } = checkoutEntryFixture(patch);
+      assert.equal(buttonAttribute(button, 'disabled', context), true);
+    }
+    const { context } = checkoutEntryFixture();
+    assert.equal(buttonAttribute(button, 'disabled', context), false);
+  }
+});
+
+test('checkout still requires every confirmation and valid details before creating its draft', async () => {
+  for (const key of ['researchAccepted', 'qualifiedAccepted', 'termsAccepted']) {
+    const { context, calls } = fixture();
+    context[key] = false;
+    await handler('handleCheckout', context)();
+    assert.equal(context.deferredLegacyOrderRef.current, null);
+    assert.equal(calls.some(([name]) => name === 'setCheckoutStep'), false);
+  }
+  const { context, calls } = fixture();
+  context.validateCheckoutForm = () => ({ postalCode: true });
+  await handler('handleCheckout', context)();
+  assert.equal(context.deferredLegacyOrderRef.current, null);
+  assert.equal(calls.some(([name]) => name === 'setCheckoutStep'), false);
+});
 
 test('Merit success/cancel URL claims all initialize as pending, never paid', () => {
   for (const payment of ['success', 'pending', 'cancelled', 'failed']) {
