@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
 import OperationsPortalStudio from "./components/OperationsPortalStudio.jsx";
-import { boundedAuth, checkOperationsAccess, sessionIdentity, signInOperations } from "./operations-auth.js";
+import { boundedAuth, checkOperationsAccess, operationsGithubSignInUrl, sessionIdentity, signInOperations } from "./operations-auth.js";
 import "./operations-shell.css";
 
 const url = import.meta.env.VITE_SUPABASE_URL;
@@ -12,9 +12,12 @@ const configured = !!url && !!anonKey;
 // has its own browser storage and requires its own sign-in.
 const supabase = configured ? createClient(url, anonKey) : null;
 const emailCodeEnabled = import.meta.env.VITE_OPERATIONS_EMAIL_CODE_ENABLED === "true";
+// Enable only after the provider, exact redirect and administrator roster are configured.
+const githubEnabled = import.meta.env.VITE_OPERATIONS_GITHUB_ENABLED === "true";
 const words = {
   en: {
     title: "Your operations, in focus.", subtitle: "Recorded orders and browser activity, with clear sources and honest limits.",
+    github: "Continue with GitHub", emailAlternative: "or use email", githubFailed: "GitHub sign-in could not start. Try again or use email.",
     private: "PRIVATE WORKSPACE", email: "Email", password: "Password", login: "Sign in", logout: "Sign out", busy: "Please wait…",
     checking: "Checking administrator access…", denied: "This account cannot open Operations. Sign out and use an authorized account.",
     unavailable: "Access could not be checked. Retry in a moment.", failed: "Sign-in could not be completed. Check your details and try again.",
@@ -23,6 +26,7 @@ const words = {
   },
   ru: {
     title: "Все операции — перед вами.", subtitle: "Записи заказов и браузерная активность с понятными источниками и границами данных.",
+    github: "Войти через GitHub", emailAlternative: "или по электронной почте", githubFailed: "Не удалось начать вход через GitHub. Повторите попытку или войдите по почте.",
     private: "ЗАКРЫТОЕ РАБОЧЕЕ ПРОСТРАНСТВО", email: "Электронная почта", password: "Пароль", login: "Войти", logout: "Выйти", busy: "Подождите…",
     checking: "Проверяем доступ администратора…", denied: "Этот аккаунт не может открыть центр управления. Выйдите и используйте разрешённый аккаунт.",
     unavailable: "Не удалось проверить доступ. Повторите попытку позже.", failed: "Не удалось войти. Проверьте данные и повторите попытку.",
@@ -44,6 +48,7 @@ export function OperationsApp() {
   const [signingOut, setSigningOut] = useState(false);
   const codeUntil = useRef(0);
   const mounted = useRef(true);
+  const githubStarting = useRef(false);
   const t = words[language];
   const key = sessionIdentity(auth.session);
   const checked = access.key === key && access.status === "allowed" && !signingOut;
@@ -81,7 +86,7 @@ export function OperationsApp() {
 
   async function submit(event) {
     event.preventDefault();
-    if (form.busy || !supabase) return;
+    if (form.busy || githubStarting.current || !supabase) return;
     if (mode === "email_code" && Date.now() < codeUntil.current) { setForm({ busy: false, notice: "wait" }); return; }
     setForm({ busy: true, notice: "" });
     if (mode === "email_code") codeUntil.current = Date.now() + 60_000;
@@ -92,6 +97,19 @@ export function OperationsApp() {
       if (mode === "email_code") { setMode("verify_code"); setForm({ busy: false, notice: "sent" }); }
       else { setToken(""); setForm({ busy: false, notice: "" }); }
     } catch { if (mounted.current) setForm({ busy: false, notice: "failed" }); }
+  }
+
+  async function signInGithub() {
+    if (form.busy || githubStarting.current || !supabase || !githubEnabled) return;
+    githubStarting.current = true;
+    setForm({ busy: true, notice: "" });
+    try {
+      const target = await operationsGithubSignInUrl(supabase, { enabled: githubEnabled, supabaseUrl: url });
+      if (mounted.current) window.location.assign(target);
+    } catch {
+      githubStarting.current = false;
+      if (mounted.current) setForm({ busy: false, notice: "githubFailed" });
+    }
   }
 
   async function signOut() {
@@ -119,6 +137,7 @@ export function OperationsApp() {
           <p className="operations-hint">{auth.session.user.email}</p>
         </> : <form onSubmit={submit}>
           <h2>{t.login}</h2><p className="operations-hint">{t.hint}</p>
+          {githubEnabled && <><button type="button" className="operations-github" disabled={form.busy} onClick={signInGithub}>{form.busy ? t.busy : t.github}</button><span className="operations-auth-divider">{t.emailAlternative}</span></>}
           <label>{t.email}<input type="email" autoComplete="username" required maxLength={254} value={email} disabled={form.busy || mode === "verify_code"} onChange={event => setEmail(event.target.value)} /></label>
           {mode === "password" && <label>{t.password}<input type="password" autoComplete="current-password" required value={password} disabled={form.busy} onChange={event => setPassword(event.target.value)} /></label>}
           {mode === "verify_code" && <label>{t.token}<input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={token} disabled={form.busy} onChange={event => setToken(event.target.value.replace(/\D/g, ""))} /></label>}

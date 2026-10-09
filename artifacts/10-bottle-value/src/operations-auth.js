@@ -60,3 +60,28 @@ export async function signInOperations(supabase, { email, password, method = "pa
     return result?.data;
   });
 }
+
+// OAuth authenticates identity only. Every Operations API still checks the
+// server-maintained administrator roster before returning private data.
+export async function operationsGithubSignInUrl(supabase, { enabled = false, supabaseUrl, timeoutMs } = {}) {
+  if (!enabled) throw new OperationsAuthError("signin");
+  let authOrigin;
+  try {
+    const configured = new URL(supabaseUrl);
+    if (configured.protocol !== "https:" || configured.username || configured.password) throw new Error();
+    authOrigin = configured.origin;
+  } catch { throw new OperationsAuthError("signin"); }
+  const redirectTo = "https://10bottlevalue.co/operations";
+  const result = await boundedAuth(() => supabase.auth.signInWithOAuth({
+    provider: "github",
+    options: { redirectTo, scopes: "user:email", skipBrowserRedirect: true },
+  }), { timeoutMs });
+  if (result?.error || result?.data?.provider !== "github") throw new OperationsAuthError("signin");
+  let target;
+  try { target = new URL(result.data.url); } catch { throw new OperationsAuthError("signin"); }
+  if (target.origin !== authOrigin || target.username || target.password || target.pathname !== "/auth/v1/authorize"
+    || target.searchParams.get("provider") !== "github" || target.searchParams.get("redirect_to") !== redirectTo) {
+    throw new OperationsAuthError("signin");
+  }
+  return target.href;
+}
