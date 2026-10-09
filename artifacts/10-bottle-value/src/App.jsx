@@ -12,6 +12,7 @@ import { supabase, userFromSupabase } from "./supabase.js";
 import { adjustStoreCredit } from "./store-credit-admin-client.js";
 import { readPaymentReturn, checkLegacyPaymentReturn, legacyCheckoutHeaders, syncVerifiedLegacyOrder, isLegacyPaidStatus } from "./legacy-payment-return.js";
 import { startVisiblePolling } from "./visible-poll.js";
+import { observeAnnouncementHeight } from "./announcement-height.js";
 import { buildMeritCheckoutPayload, estimateMeritCreditSplit, meritCheckoutBusinessError, meritCartMatchesOrder, meritOrderCardSurcharge, createMeritApiClient, meritPayloadDigest, readMeritAttempt, saveMeritAttempt, verifyMeritCheckoutBuyer, MERIT_ATTEMPT_STORAGE_KEY } from "./merit-checkout-client.js";
 import { ACCOUNT_AVATARS, getAccountAvatar } from "./account-avatars.js";
 import { track, trackPageView } from "./analytics.js";
@@ -34,7 +35,9 @@ import cashAppLogo from "./assets/payment-logos/cash-app.svg";
 import bitcoinLogo from "./assets/payment-logos/bitcoin.svg";
 import paypalMark from "./assets/payment-logos/paypal-mark.svg";
 import applePayMark from "./assets/payment-logos/apple-pay.svg";
+import applePayMarkDark from "./assets/payment-logos/apple-pay-dark.svg";
 import googlePayMark from "./assets/payment-logos/google-pay.svg";
+import googlePayMarkDark from "./assets/payment-logos/google-pay-dark.svg";
 import faqBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_34_14_1791041667847.webp";
 import laboratoryBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791041778846.webp";
 import legalPolicyBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791210990340.webp";
@@ -3806,20 +3809,11 @@ export default function App() {
   // The announcement can wrap at desktop widths or after translation/font
   // loading. Keep the sticky header below its actual rendered height.
   const announcementBarRef = useRef(null);
-  const [announcementHeight, setAnnouncementHeight] = useState(32);
-  useLayoutEffect(() => {
-    const bar = announcementBarRef.current;
-    if (!bar) return;
-    const measure = () => setAnnouncementHeight(Math.ceil(bar.getBoundingClientRect().height));
-    measure();
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
-    observer?.observe(bar);
-    window.addEventListener("resize", measure);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener("resize", measure);
-    };
-  }, [page]);
+  const stickyHeaderRef = useRef(null);
+  useLayoutEffect(() => observeAnnouncementHeight(
+    announcementBarRef.current,
+    stickyHeaderRef.current,
+  ), [page]);
   const [isScrolled, setIsScrolled] = useState(false);
   const [showCookieBanner, setShowCookieBanner] = useState(false);
   useEffect(() => {
@@ -13572,10 +13566,11 @@ export default function App() {
         }
       >
         <header
+          ref={stickyHeaderRef}
           data-nosnippet
           data-home-header={page === "home" ? "true" : undefined}
           data-affiliate-header={page === "affiliate" ? "true" : undefined}
-          style={{ "--tbv-announcement-height": `${announcementHeight}px` }}
+          style={{ "--tbv-announcement-height": "32px" }}
           className={`sticky top-0 md:top-[var(--tbv-announcement-height)] z-[200] border-b border-white/20 pb-0 md:pb-[3px] ${
             page === "admin"
               ? "bg-black"
@@ -21114,11 +21109,11 @@ export default function App() {
                               </svg>
                             </div>
                             <div className={`flex-1 min-w-0 ${stripeTemporarilyDisabled ? "opacity-40" : ""}`}>
-                              <div className="flex items-center gap-2 whitespace-nowrap">
-                                <span className="text-[14px] font-semibold leading-tight">{tx("Card", "Карта")}</span>
-                                <span className="flex shrink-0 items-center gap-2 rounded bg-white px-1">
-                                  <img src={applePayMark} alt="Apple Pay" width="42" height="27" className="h-[27px] w-[42px] object-contain" />
-                                  <img src={googlePayMark} alt="Google Pay" width="41" height="17" className="h-[17px] w-[41px] object-contain" />
+                              <div className="flex h-5 items-center gap-3 whitespace-nowrap">
+                                <span className="text-[14px] font-semibold leading-5">{tx("Card", "Карта")}</span>
+                                <span className="inline-flex shrink-0 items-center gap-3">
+                                  <img src={paymentMethod === "stripe" && !stripeTemporarilyDisabled ? applePayMarkDark : applePayMark} alt="Apple Pay" width="43" height="18" className="h-[18px] w-[43px] object-contain" />
+                                  <img src={paymentMethod === "stripe" && !stripeTemporarilyDisabled ? googlePayMarkDark : googlePayMark} alt="Google Pay" width="46" height="18" className="h-[18px] w-[46px] object-contain" />
                                 </span>
                               </div>
                               <div className="mt-1 flex flex-nowrap items-center gap-1.5">
