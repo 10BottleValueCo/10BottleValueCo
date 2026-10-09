@@ -1093,6 +1093,30 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
   await sql(await readFile(paylioMigrationPath,'utf8'));
   await sql("NOTIFY pgrst, 'reload schema';");
   await until(async()=>!!(await rest('service_role','/')).data?.definitions?.paylio_payment_attempts,'private Paylio schema');
+  await t.test('native Paylio attribution lookup gains only the missing service SELECT grant',async()=>{
+    // Production metadata has RLS enabled and no client/service SELECT grant.
+    // BYPASSRLS alone must not make the actual API storage lookup succeed.
+    await sql('ALTER TABLE affiliate_customers ENABLE ROW LEVEL SECURITY; REVOKE ALL ON affiliate_customers FROM PUBLIC,anon,authenticated,service_role; GRANT TRUNCATE,REFERENCES,TRIGGER ON affiliate_customers TO anon,authenticated,service_role;');
+    const {paylioStorage}=await import('../../api/_paylio-binding.js');
+    const deps={env:{SUPABASE_URL:origin,SUPABASE_SERVICE_ROLE_KEY:token('service_role')},fetcher:(input,init)=>{
+      const url=new URL(input);assert.equal(url.origin,origin);assert.ok(url.pathname.startsWith('/rest/v1/'));
+      return fetch(`${origin}${url.pathname.slice('/rest/v1'.length)}${url.search}`,init);
+    }};
+    const lookup=()=>paylioStorage('affiliate_customers?email=eq.buyer%40example.test&select=affiliate_code&limit=2',{},deps);
+    await assert.rejects(lookup(),error=>error.code==='PAYLIO_STORAGE_UNAVAILABLE');
+    const migrationPath=new URL('../../supabase/migrations/20261009030000_paylio_affiliate_lookup.sql',import.meta.url);
+    evidence.sourceSha256['supabase/migrations/20261009030000_paylio_affiliate_lookup.sql']=createHash('sha256').update(await readFile(migrationPath)).digest('hex');
+    await sql(await readFile(migrationPath,'utf8'));
+    await sql("NOTIFY pgrst, 'reload schema';");
+    await until(async()=>{try{return Array.isArray(await lookup())}catch{return false}},'service-only affiliate lookup');
+    assert.deepEqual(await lookup(),[]);
+    for(const role of ['anon','authenticated']) assert.ok([401,403].includes((await rest(role,'/affiliate_customers?select=affiliate_code&limit=0')).status));
+    for(const method of ['POST','PATCH','DELETE']){
+      const response=await rest('service_role','/affiliate_customers?email=eq.missing%40example.test',{method,...(method==='DELETE'?{}:{body:{email:'missing@example.test',affiliate_code:'FIXTURE'}})});
+      assert.ok([401,403].includes(response.status),JSON.stringify(response));
+    }
+    evidence.paylioAttributionGrant={missingGrantReproduced:true,actualApiLookupPassed:true,clientReadsDenied:true,serviceWritesDenied:true};
+  });
   let paylioAttempt;
   const paylioOrderId='INV-NATIVEPAYLIO1';
   const paylioRequest={p_id:randomUUID(),p_order_id:paylioOrderId,p_customer_id:customerId,p_email:'buyer@example.test',p_fingerprint:'d'.repeat(64),p_account_fingerprint:'e'.repeat(64),p_payout_address:'synthetic-payout-address',p_amount_cents:12345,p_quote:{total:123.45,subtotal:100,shipping:33.45,shippingType:'standard',storeCreditUsed:0,promoCode:'PAYLIO_PERSONAL',promoDiscount:10,promoUsageRequired:true,affiliateCode:'PAYLIO_NEW',affiliateAttributionCode:'PAYLIO_ORIGINAL',affiliateCommission:10,items:[{name:'Fixture',dose:'5 mg',quantity:1,price:100}]}};
