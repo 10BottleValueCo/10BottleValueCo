@@ -309,7 +309,9 @@ function preloadPublicImages(sources = []) {
     while (nextIndex < sourceList.length) {
       const src = sourceList[nextIndex];
       nextIndex += 1;
-      await preloadImage(src, "low", true);
+      // Reuse native image URLs/cache; a retained blob would re-fetch and
+      // decode the background under a second identity after first paint.
+      await preloadImage(src, "low", false);
     }
   };
 
@@ -345,6 +347,9 @@ function retryVialImage(event) {
 }
 
 function StableVialImage({ src, baseSrc, alt, large = false }) {
+  // Native image loading/cache owns these stable URLs. Re-fetching a loaded
+  // vial into a blob duplicates transfers with cache disabled and decodes it
+  // again; the base/label layers and bounded error retry do not require that.
   return (
     <div className="relative h-full w-full">
       <img
@@ -356,7 +361,6 @@ function StableVialImage({ src, baseSrc, alt, large = false }) {
         loading={large ? "eager" : "lazy"}
         fetchPriority={large ? "high" : undefined}
         decoding={large ? "sync" : "async"}
-        onLoad={cacheDisplayedPublicImage}
         onError={retryVialImage}
       />
       {src !== baseSrc && (
@@ -371,7 +375,6 @@ function StableVialImage({ src, baseSrc, alt, large = false }) {
           loading={large ? "eager" : "lazy"}
           fetchPriority={large ? "high" : undefined}
           decoding={large ? "sync" : "async"}
-          onLoad={cacheDisplayedPublicImage}
           onError={retryVialImage}
         />
       )}
@@ -4414,7 +4417,7 @@ export default function App() {
     let active = true;
     setPublicImagesState("loading");
     const base = import.meta.env.BASE_URL;
-    // Keep the currently rendered background in the existing display cache;
+    // Warm the currently rendered background through the native image cache;
     // other pages and the unused hero breakpoint load only when needed.
     const routeBackgrounds = page === "home"
       ? [

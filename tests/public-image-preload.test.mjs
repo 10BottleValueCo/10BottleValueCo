@@ -57,6 +57,46 @@ test('image worker loads only explicitly supplied sources, never either manifest
   assert.deepEqual(f.calls, ['/visible.webp']);
 });
 
+test('current-route warmup uses native image URLs without fetch/blob retention', async () => {
+  const imageSources = [];
+  let decodes = 0;
+  let fetches = 0;
+  class NativeImage {
+    complete = false;
+    naturalWidth = 0;
+    set src(value) {
+      imageSources.push(value);
+      queueMicrotask(() => {
+        this.complete = true;
+        this.naturalWidth = 100;
+        this.onload();
+      });
+    }
+    async decode() { decodes += 1; }
+  }
+  const context = vm.createContext({
+    window: { location: { href: 'https://example.test/' } },
+    URL,
+    Image: NativeImage,
+    fetch: async () => { fetches += 1; throw new Error('Warmup must use native Image loading'); },
+    publicImageLoads: new Map(),
+    pendingPublicImageLoads: new Map(),
+    preloadedDisplayImageUrls: new Map(),
+    originalImageSourcesByObjectUrl: new Map(),
+  });
+  for (const name of ['canonicalImageUrl', 'preloadImage', 'preloadPublicImages']) {
+    vm.runInContext(functionSource(name), context);
+  }
+  await context.preloadPublicImages(['/hero.webp', '/lower.webp', '/hero.webp']);
+  await context.preloadPublicImages(['/hero.webp']);
+  assert.deepEqual(imageSources.sort(), ['/hero.webp', '/lower.webp']);
+  assert.equal(decodes, 2);
+  assert.equal(fetches, 0);
+  assert.equal(context.pendingPublicImageLoads.size, 0);
+  assert.equal(context.preloadedDisplayImageUrls.size, 0);
+  assert.equal(context.originalImageSourcesByObjectUrl.size, 0);
+});
+
 for (const mobile of [false, true]) {
   test(`homepage warming selects only its ${mobile ? 'mobile' : 'desktop'} hero and lower background`, async () => {
     const f = fixture({ mobile });
