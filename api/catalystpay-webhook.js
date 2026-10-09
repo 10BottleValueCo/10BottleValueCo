@@ -1,19 +1,11 @@
+import { acknowledgeLegacyPaid, inspectLegacyTransition } from "./_legacy-paid-transition.js";
+import { debitLegacyOrderCredit } from "./_legacy-store-credit.js";
 import crypto from "crypto";
+import { catalystPayConfigured, verifyCatalystSettlement } from "./_catalystpay-provider.js";
 
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
 const sbH = () => ({ apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" });
-
-async function sbSelectOneCredit(email) {
-  try {
-    const r = await fetch(`${SB_URL}/rest/v1/user_credits?email=eq.${encodeURIComponent(email)}&select=amount`, { headers: sbH() });
-    if (!r.ok) return null;
-    const rows = await r.json();
-    return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
-  } catch {
-    return null;
-  }
-}
 
 const WEBHOOK_SECRET = process.env.CATALYSTPAY_WEBHOOK_SECRET || "";
 const BASE_URL = process.env.BASE_URL || "https://10bottlevalue.co";
@@ -25,19 +17,38 @@ export const config = {
 };
 
 async function readRawBody(req) {
-  if (Buffer.isBuffer(req.body)) return req.body.toString("utf8");
-  if (typeof req.body === "string") return req.body;
-
+  const invalid = () => new Error("Invalid webhook body");
+  if (Number(req.headers?.["content-length"] || 0) > 65536) throw invalid();
+  if (typeof req.on !== "function") {
+    const raw = Object.getOwnPropertyDescriptor(req, "body")?.value;
+    if ((typeof raw !== "string" && !Buffer.isBuffer(raw)) || Buffer.byteLength(raw) > 65536) throw invalid();
+    return Buffer.isBuffer(raw) ? raw : Buffer.from(raw, "utf8");
+  }
+  // Vercel may install a lazy parsed-body getter. Authenticate the original
+  // stream bytes; never touch that getter or stringify parsed JSON.
   return new Promise((resolve, reject) => {
-    const chunks = [];
-    req.on("data", (chunk) => chunks.push(chunk));
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", reject);
+    const chunks = []; let size = 0, settled = false;
+    const finish = error => {
+      if (settled) return; settled = true;
+      const raw = error ? null : Buffer.concat(chunks, size); chunks.length = 0;
+      for (const [event, listener] of listeners) req.removeListener?.(event, listener);
+      if (error) reject(invalid()); else resolve(raw);
+    };
+    const listeners = [
+      ["error", () => finish(true)], ["aborted", () => finish(true)],
+      ["close", () => { if (req.complete !== true) finish(true); }],
+      ["end", () => finish(false)],
+      ["data", chunk => { if (settled) return; if (!Buffer.isBuffer(chunk)) return finish(true); size += chunk.length; if (size > 65536) return finish(true); chunks.push(chunk); }],
+    ];
+    for (const [event, listener] of listeners) req.on(event, listener);
   });
 }
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  res.setHeader("Cache-Control", "no-store");
+  if (!WEBHOOK_SECRET && !catalystPayConfigured()) return res.status(503).json({ received: false, code: "PAYMENT_VERIFICATION_UNAVAILABLE" });
+
 
   let rawBody = "";
   try {
@@ -50,65 +61,64 @@ export default async function handler(req, res) {
   let payload = {};
   try {
     payload = rawBody ? JSON.parse(rawBody) : {};
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Invalid object');
   } catch {
     return res.status(400).json({ error: "Invalid JSON body" });
   }
 
-  console.error("CatalystPay webhook raw payload:", JSON.stringify({
-    type: payload.type,
-    invoiceId: payload.invoiceId || payload.id,
-    metadata: payload.metadata,
-    headers_sig: req.headers["x-signature"] || req.headers["x-webhook-signature"] || req.headers["x-paidly-signature"] || "(none)",
-  }));
-
   if (WEBHOOK_SECRET) {
-    const sigHeader =
-      req.headers["x-signature"] ||
-      req.headers["x-webhook-signature"] ||
-      req.headers["x-paidly-signature"] ||
-      "";
+    // Paidly's documented header includes the algorithm prefix. Preserve the
+    // earlier explicit aliases, but never fall back from an invalid BTCPay-Sig.
+    const officialHeader = req.headers?.["btcpay-sig"];
+    const sigHeader = officialHeader !== undefined
+      ? (typeof officialHeader === "string" ? /^sha256=([a-f0-9]{64})$/i.exec(officialHeader)?.[1] : null)
+      : req.headers?.["x-signature"] || req.headers?.["x-webhook-signature"] || req.headers?.["x-paidly-signature"] || "";
     const expected = crypto
       .createHmac("sha256", WEBHOOK_SECRET)
       .update(rawBody, "utf8")
       .digest("hex");
-    if (!sigHeader || sigHeader !== expected) {
-      console.error("CatalystPay webhook: invalid signature", { sigHeader, expected: expected.slice(0, 8) + "…" });
+    if (typeof sigHeader !== "string" || !/^[a-f0-9]{64}$/i.test(sigHeader)
+      || !crypto.timingSafeEqual(Buffer.from(sigHeader, "hex"), Buffer.from(expected, "hex"))) {
+      console.error("CatalystPay webhook: invalid signature");
       return res.status(401).json({ error: "Invalid webhook signature" });
     }
-  } else {
-    console.error("CatalystPay webhook: CATALYSTPAY_WEBHOOK_SECRET not set — skipping signature validation");
   }
 
   const eventType = String(payload.type || payload.eventType || "").toLowerCase();
-  const isSettled = eventType.includes("invoicesettled") || eventType.includes("invoice_settled") || eventType === "settled";
+  const isSettled = ['invoicesettled', 'invoice_settled', 'settled'].includes(eventType);
 
   if (!isSettled) {
     console.error("CatalystPay webhook: skipping non-settled event:", eventType);
     return res.status(200).json({ received: true, skipped: "not_settled", eventType });
   }
+  if (payload.manuallyMarked === true) return res.status(409).json({ received: false, code: 'PAYMENT_RECONCILIATION_REQUIRED' });
 
   const metadata = payload.metadata || {};
-  const orderId = String(metadata.OrderId || metadata.orderid || payload.orderId || payload.order_id || "");
+  const hintedOrderId = String(metadata.OrderId || metadata.orderid || payload.orderId || payload.order_id || "");
   const invoiceId = String(payload.invoiceId || payload.id || "");
 
-  if (!orderId) {
-    console.error("CatalystPay webhook: no OrderId in metadata:", JSON.stringify(metadata));
-    return res.status(200).json({ received: true, skipped: "missing_order_id" });
-  }
+  if ((hintedOrderId && !/^[A-Za-z0-9][A-Za-z0-9_-]{0,159}$/.test(hintedOrderId)) || !/^[A-Za-z0-9_-]{1,160}$/.test(invoiceId))
+    return res.status(400).json({ received: false, code: "INVALID_PAYMENT_REFERENCE" });
 
   let sbMeta = {};
   let sbEmail = "";
   let alreadyEmailSent = false;
   let alreadyPaidInDb = false;
+  let orderReadVerified = false;
+  let savedOrder;
 
   if (SB_URL && SB_KEY) {
     try {
       const sbRes = await fetch(
-        `${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(orderId)}&select=metadata,items,status,email`,
-        { headers: sbH() }
+        `${SB_URL}/rest/v1/orders?${new URLSearchParams({ 'metadata->>catalystpay_invoice_id': `eq.${invoiceId}`, select: 'id,metadata,items,status,email,payment_id,payment_provider,total', limit: '2' })}`,
+        { headers: sbH(), redirect: 'error', signal: AbortSignal.timeout(8000) }
       );
       if (sbRes.ok) {
-        const rows = await sbRes.json();
+        const raw = await sbRes.text();
+        if (Buffer.byteLength(raw) > 250000) throw new Error('Order response too large');
+        const rows = JSON.parse(raw);
+        savedOrder = rows?.[0];
+        orderReadVerified = Array.isArray(rows) && rows.length === 1 && !!rows[0] && typeof rows[0] === "object";
         if (rows?.length) {
           if (rows[0].metadata && typeof rows[0].metadata === "object") {
             sbMeta = rows[0].metadata;
@@ -122,6 +132,19 @@ export default async function handler(req, res) {
         }
       }
     } catch {}
+  }
+
+  if (!orderReadVerified) return res.status(503).json({ received: false, code: "CREDIT_RECONCILIATION_REQUIRED" });
+  const orderId = savedOrder.id;
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,159}$/.test(orderId || '') || (hintedOrderId && hintedOrderId !== orderId)
+    || sbMeta.catalystpay_invoice_id !== invoiceId) {
+    return res.status(409).json({ received: false, code: "PAYMENT_RECONCILIATION_REQUIRED" });
+  }
+  if (!WEBHOOK_SECRET) {
+    // An unsigned callback is only a bounded lookup hint. Settlement authority
+    // comes from authenticated Paidly GET, bound to this saved invoice/order.
+    try { await verifyCatalystSettlement(savedOrder, invoiceId); }
+    catch (error) { return res.status(error.status || 503).json({ received: false, code: error.code || "PAYMENT_VERIFICATION_UNAVAILABLE" }); }
   }
 
   const email = String(sbEmail || sbMeta.customer_email || sbMeta.email || "");
@@ -144,8 +167,20 @@ export default async function handler(req, res) {
   const finalAffiliateCommission = Number(finalSubtotal || finalTotal) * 0.1;
   const finalShippingType = String(sbMeta.shippingType || "standard");
 
+  const expectedPaid = { id: orderId, email, status: "paid", payment_provider: "CatalystPay BTC",
+    payment_id: invoiceId, paid_at: new Date().toISOString() };
+  if (!invoiceId) return res.status(409).json({ received: false, code: "PAYMENT_RECONCILIATION_REQUIRED" });
+  try {
+    const transition = inspectLegacyTransition(savedOrder, expectedPaid);
+    alreadyPaidInDb = transition.alreadyPaid;
+    if (alreadyPaidInDb) return res.status(200).json({ received: true, orderId, dbMarkedPaid: true, alreadyPaidInDb: true });
+    await debitLegacyOrderCredit({ orderId, email, creditAmount: finalStoreCreditUsed, provider: "catalystpay" });
+    await acknowledgeLegacyPaid(savedOrder, expectedPaid);
+  } catch (error) { return res.status(error.status || 503).json({ received: false, code: error.code || "PAYMENT_RECONCILIATION_REQUIRED" }); }
+  const dbMarkedPaid = true, dbWriteError = null;
+
   if (!alreadyEmailSent) {
-    await fetch(`${BASE_URL}/api/send-payment-confirmed-email`, {
+    const emailResponse = await fetch(`${BASE_URL}/api/send-payment-confirmed-email`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -177,52 +212,14 @@ export default async function handler(req, res) {
       }),
     }).catch((e) => console.error("CatalystPay: send-payment-confirmed-email failed:", e.message));
 
-    if (SB_URL && SB_KEY) {
-      await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(orderId)}`, {
+    if (emailResponse?.ok && SB_URL && SB_KEY) {
+      await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(orderId)}&status=eq.paid`, {
         method: "PATCH",
         headers: { ...sbH(), Prefer: "return=minimal" },
         body: JSON.stringify({ metadata: { ...sbMeta, confirmationEmailSentAt: new Date().toISOString() } }),
       }).catch(() => {});
     }
   }
-
-  let dbMarkedPaid = alreadyPaidInDb;
-  let dbWriteError = null;
-
-  if (!alreadyPaidInDb && SB_URL && SB_KEY) {
-    const patchPaid = async () => {
-      try {
-        const r = await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(orderId)}`, {
-          method: "PATCH",
-          headers: { ...sbH(), Prefer: "return=representation" },
-          body: JSON.stringify({
-            status: "paid",
-            payment_provider: "CatalystPay BTC",
-            payment_id: invoiceId || orderId,
-            paid_at: new Date().toISOString(),
-          }),
-        });
-        if (!r.ok) {
-          dbWriteError = `HTTP ${r.status}`;
-          console.error("CatalystPay: PATCH order paid failed:", orderId, dbWriteError);
-          return false;
-        }
-        const rows = await r.json().catch(() => []);
-        if (!Array.isArray(rows) || rows.length === 0) {
-          dbWriteError = `matched 0 rows for id=${orderId}`;
-          console.error("CatalystPay: PATCH matched 0 rows:", orderId);
-          return false;
-        }
-        return true;
-      } catch (e) {
-        dbWriteError = String(e?.message || e);
-        console.error("CatalystPay: PATCH threw:", orderId, dbWriteError);
-        return false;
-      }
-    };
-
-    dbMarkedPaid = await patchPaid();
-    if (!dbMarkedPaid) dbMarkedPaid = await patchPaid();
 
     if (finalAffiliateCode) {
       try {
@@ -255,21 +252,6 @@ export default async function handler(req, res) {
       ).catch(() => {});
     }
 
-    if (finalStoreCreditUsed > 0 && email) {
-      try {
-        const creditEmail = email.toLowerCase();
-        const creditRow = await sbSelectOneCredit(creditEmail);
-        const newCreditAmount = Math.max(0, (creditRow ? Number(creditRow.amount) : 0) - finalStoreCreditUsed);
-        await fetch(`${SB_URL}/rest/v1/user_credits?on_conflict=email`, {
-          method: "POST",
-          headers: { ...sbH(), Prefer: "resolution=merge-duplicates,return=minimal" },
-          body: JSON.stringify({ email: creditEmail, amount: newCreditAmount, updated_at: new Date().toISOString() }),
-        }).catch((e) => console.error("CatalystPay: user_credits upsert failed:", e.message));
-      } catch (e) {
-        console.error("CatalystPay: store credit deduction threw:", e?.message || e);
-      }
-    }
-  }
 
   return res.status(200).json({ received: true, orderId, dbMarkedPaid, dbWriteError, alreadyEmailSent, alreadyPaidInDb });
 }

@@ -1,12 +1,23 @@
 // @ts-nocheck
 // cache-bust
 // @ts-nocheck
+import { publicPaymentMethod } from "../../../shared/payment-method-label.js";
 import { Fragment, lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, Search, Tag, UserRound, X } from "lucide-react";
 import { ErrorBoundary } from "./components/error-boundary.tsx";
 import ShippingPricesPage from "./components/ShippingPricesPage.jsx";
 import worldwideCatalogBackground from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791141018882.webp";
-import { supabase, userFromSupabase } from "./supabase.js";
+import { supabase, userFromSupabase, saveAccountCheckoutDetails } from "./supabase.js";
+import { useCheckoutDetails } from "./useCheckoutDetails.js";
+import { contactDetails } from "./checkout-details.js";
+import { adjustStoreCredit } from "./store-credit-admin-client.js";
+import { readPaymentReturn, checkLegacyPaymentReturn, legacyCheckoutHeaders, syncVerifiedLegacyOrder, isLegacyPaidStatus } from "./legacy-payment-return.js";
+import { startVisiblePolling } from "./visible-poll.js";
+import { observeAnnouncementHeight } from "./announcement-height.js";
+import { createInfoPageImageWarmup, scheduleInfoPageWarmup } from "./preloadInfoPageImages.js";
+import { createLegacyAttemptManager } from "./legacy-checkout-attempt.js";
+import { buildMeritCheckoutPayload, estimateMeritCreditSplit, meritCheckoutBusinessError, meritCartMatchesOrder, meritOrderCardSurcharge, createMeritApiClient, meritPayloadDigest, readMeritAttempt, saveMeritAttempt, verifyMeritCheckoutBuyer, MERIT_ATTEMPT_STORAGE_KEY } from "./merit-checkout-client.js";
 import { ACCOUNT_AVATARS, getAccountAvatar } from "./account-avatars.js";
 import { track, trackPageView } from "./analytics.js";
 import { useSEO } from "./useSEO.js";
@@ -16,15 +27,22 @@ import BpcCatalogCard from "./components/BpcCatalogCard.jsx";
 import { BufferedInput, BufferedTextarea } from "./components/BufferedTextField.jsx";
 import CatalogSearchInput from "./components/CatalogSearchInput.jsx";
 import HomePage from "./components/HomePage.jsx";
+import PaymentReturnHeader from "./components/PaymentReturnHeader.jsx";
+import PaymentReturnReadStatus from "./components/PaymentReturnReadStatus.jsx";
+import CashAppPaymentGuide from "./components/CashAppPaymentGuide.jsx";
 import ProductPackSelector from "./components/ProductPackSelector.jsx";
+import { productSelectionFromProduct, readProductSelection, productSelectionUrl, resolveSelectedProduct, toStorefrontOffer } from "./product-selection.js";
 import UsFlag from "./components/UsFlag.jsx";
 import ResearcherEntryGate, { hasResearcherEntryAcceptance } from "./components/ResearcherEntryGate.jsx";
 import PeptigrityMark from "./components/PeptigrityMark.jsx";
 import vialCManifest from "./data/vialCManifest.json";
-import publicImagePaths from "./data/publicImagePaths.json";
 import cashAppLogo from "./assets/payment-logos/cash-app.svg";
 import bitcoinLogo from "./assets/payment-logos/bitcoin.svg";
 import paypalMark from "./assets/payment-logos/paypal-mark.svg";
+import applePayMark from "./assets/payment-logos/apple-pay.svg";
+import applePayMarkDark from "./assets/payment-logos/apple-pay-dark.svg";
+import googlePayMark from "./assets/payment-logos/google-pay.svg";
+import googlePayMarkDark from "./assets/payment-logos/google-pay-dark.svg";
 import faqBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_34_14_1791041667847.webp";
 import laboratoryBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791041778846.webp";
 import legalPolicyBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791210990340.webp";
@@ -65,7 +83,7 @@ const PublicInfoPages = lazy(importPublicInfoPages);
 const ShippingRefundPolicyPages = lazy(importShippingRefundPolicyPages);
 const PrivacyPolicyPage = lazy(importPrivacyPolicyPage);
 const TermsConditionsPage = lazy(importTermsConditionsPage);
-const StripeCheckoutPanel = lazy(() => import("./components/StripeCheckoutPanel.jsx"));
+const MeritCheckoutPanel = lazy(() => import("./components/MeritCheckoutPanel.jsx"));
 const AdminChart = lazy(() => import("./components/AdminChart.jsx"));
 const publicPolicyPageFallback = (
   <main className="mx-auto max-w-5xl px-4 pt-8 pb-16 md:px-10 md:pt-12">
@@ -127,15 +145,18 @@ const pendingRouteChunkPrefetches = new Map();
 
 function prefetchRouteChunks(page) {
   const loadChunks = routeChunkLoaders[page];
-  if (!loadChunks || prefetchedRouteChunks.has(page) || pendingRouteChunkPrefetches.has(page)) return;
+  if (!loadChunks || prefetchedRouteChunks.has(page)) return Promise.resolve();
+  if (pendingRouteChunkPrefetches.has(page)) return pendingRouteChunkPrefetches.get(page);
 
-  const prefetch = loadChunks()
+  const prefetch = Promise.resolve()
+    .then(loadChunks)
     .then(() => prefetchedRouteChunks.add(page))
     .catch((error) => {
       console.error(`Failed to prefetch the ${page} page:`, error);
     })
     .finally(() => pendingRouteChunkPrefetches.delete(page));
   pendingRouteChunkPrefetches.set(page, prefetch);
+  return prefetch;
 }
 
 const topProductNames = new Set(["Retatrutide / GLP-3", "10-GH", "KLOW80"]);
@@ -194,53 +215,24 @@ for (const [key, file] of Object.entries(vialCManifest)) {
 
 const publicImageLoads = new Map();
 const pendingPublicImageLoads = new Map();
-const preloadedDisplayImageUrls = new Map();
-const originalImageSourcesByObjectUrl = new Map();
-
 function canonicalImageUrl(src) {
   return typeof window === "undefined" ? src : new URL(src, window.location.href).href;
 }
 
 function getPreloadedDisplayImageUrl(src) {
-  return preloadedDisplayImageUrls.get(canonicalImageUrl(src)) || src;
+  return src;
 }
 
 function getOriginalImageSource(src) {
-  return originalImageSourcesByObjectUrl.get(src) || src;
+  return src;
 }
 
-function preloadImage(src, fetchPriority, retainForDisplay = false) {
+function preloadImage(src, fetchPriority) {
   const imageKey = canonicalImageUrl(src);
   const existingLoad = publicImageLoads.get(imageKey);
   if (existingLoad) return existingLoad;
 
-  const load = retainForDisplay
-    ? (async () => {
-        let objectUrl;
-        try {
-          const response = await fetch(src, { cache: "force-cache", priority: fetchPriority });
-          if (!response.ok) {
-            throw new Error(`Could not preload public image (${response.status}): ${src}`);
-          }
-
-          const blob = await response.blob();
-          if (!blob.size) throw new Error(`Public image is empty: ${src}`);
-
-          objectUrl = URL.createObjectURL(blob);
-          const image = new Image();
-          image.decoding = "async";
-          image.src = objectUrl;
-          await image.decode();
-          if (!image.naturalWidth) throw new Error(`Public image could not be decoded: ${src}`);
-
-          preloadedDisplayImageUrls.set(imageKey, objectUrl);
-          originalImageSourcesByObjectUrl.set(objectUrl, src);
-        } catch (error) {
-          if (objectUrl) URL.revokeObjectURL(objectUrl);
-          throw error;
-        }
-      })()
-    : new Promise((resolve, reject) => {
+  const load = new Promise((resolve, reject) => {
         const image = new Image();
         let settled = false;
 
@@ -289,22 +281,19 @@ function preloadImage(src, fetchPriority, retainForDisplay = false) {
   return cachedLoad;
 }
 
-function preloadPublicImages(extraSources = [], includeManifest = true) {
-  const base = import.meta.env.BASE_URL;
-  const sources = new Set(extraSources);
-  if (includeManifest) {
-    Object.values(vialCManifest).forEach((file) => sources.add(`${base}vials-c/${file}`));
-    publicImagePaths.forEach((path) => sources.add(`${base}${path}`));
-  }
-
-  const sourceList = [...sources];
+function preloadPublicImages(sources = []) {
+  // Warm explicit current-page assets only. Whole-catalog warming downloads and
+  // decodes every vial variant and COA even when the customer never views them.
+  const sourceList = [...new Set(sources)];
   let nextIndex = 0;
 
   const worker = async () => {
     while (nextIndex < sourceList.length) {
       const src = sourceList[nextIndex];
       nextIndex += 1;
-      await preloadImage(src, "low", true);
+      // Reuse native image URLs/cache; a retained blob would re-fetch and
+      // decode the background under a second identity after first paint.
+      await preloadImage(src, "low");
     }
   };
 
@@ -313,13 +302,17 @@ function preloadPublicImages(extraSources = [], includeManifest = true) {
   );
 }
 
-function cacheDisplayedPublicImage(event) {
-  const image = event.currentTarget;
-  const source = image.dataset.originalSrc || image.currentSrc || image.src;
-  const originalSource = getOriginalImageSource(source);
-  if (!originalSource || getPreloadedDisplayImageUrl(originalSource) !== originalSource) return;
+// Shared queue warms the exact native URLs used by the three information pages.
+// Intent gets priority; the homepage starts its optional work only after load.
+const infoPageImageWarmup = createInfoPageImageWarmup({
+  baseUrl: import.meta.env.BASE_URL,
+  faqBackgroundImage,
+  loadImage: (src) => preloadImage(src, "low"),
+});
 
-  void preloadImage(originalSource, "low", true).catch(() => {});
+function prefetchPublicPage(page) {
+  void prefetchRouteChunks(page);
+  void infoPageImageWarmup.warmRoute(page);
 }
 
 function retryVialImage(event) {
@@ -340,6 +333,9 @@ function retryVialImage(event) {
 }
 
 function StableVialImage({ src, baseSrc, alt, large = false }) {
+  // Native image loading/cache owns these stable URLs. Re-fetching a loaded
+  // vial into a blob duplicates transfers with cache disabled and decodes it
+  // again; the base/label layers and bounded error retry do not require that.
   return (
     <div className="relative h-full w-full">
       <img
@@ -351,7 +347,6 @@ function StableVialImage({ src, baseSrc, alt, large = false }) {
         loading={large ? "eager" : "lazy"}
         fetchPriority={large ? "high" : undefined}
         decoding={large ? "sync" : "async"}
-        onLoad={cacheDisplayedPublicImage}
         onError={retryVialImage}
       />
       {src !== baseSrc && (
@@ -366,7 +361,6 @@ function StableVialImage({ src, baseSrc, alt, large = false }) {
           loading={large ? "eager" : "lazy"}
           fetchPriority={large ? "high" : undefined}
           decoding={large ? "sync" : "async"}
-          onLoad={cacheDisplayedPublicImage}
           onError={retryVialImage}
         />
       )}
@@ -1183,7 +1177,7 @@ function TrackOrderPage({ t, supabase, currentUser }) {
             {result.paymentProvider && result.paymentProvider !== "pending" && (
               <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
                 <span className="text-[13px] font-bold uppercase tracking-[0.14em] text-white/60">{t("trackOrderMethod")}</span>
-                <span className="text-[14px] text-white">{["Paylio", "Paylio Card", "Card (Paylio)"].includes(result.paymentProvider) ? "Card" : result.paymentProvider}</span>
+                <span className="text-[14px] text-white">{publicPaymentMethod(result.paymentProvider)}</span>
               </div>
             )}
 
@@ -3708,27 +3702,18 @@ export default function App() {
     if (typeof window === "undefined") return "home";
     const params = new URLSearchParams(window.location.search || "");
     const payment = (params.get("payment") || "").toLowerCase().trim();
-    if (["success", "cancelled", "cancel", "failed"].includes(payment)) return "payment-return";
+    if (["success", "pending", "cancelled", "cancel", "failed"].includes(payment)) return "payment-return";
     const pathSlug = window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase().trim();
     if (publicPathToPage[pathSlug]) return publicPathToPage[pathSlug];
-    // Support both old ?product=slug and new /slug format
-    const productSlugFromQuery = (params.get("product") || "").toLowerCase().trim();
-    const productSlugFromPath = pathSlug;
-    const productSlug = productSlugFromPath || productSlugFromQuery;
-    const usWarehouseRoute = (params.get("warehouse") || "").toLowerCase() === "us";
-    if (productSlug) {
-      const hit = PRODUCTS_BASE.find(p =>
-        (productSlug === productSlugFor(p) || productSlug === productSlugFor(p, true)) &&
-        (!usWarehouseRoute || p.warehouse === "us")
-      );
-      if (hit) return "product";
-    }
+    // A known product remains on its page even when the requested warehouse
+    // has no exact offer. The selector explains that state without substitution.
+    if (readProductSelection(PRODUCTS_BASE, window.location)) return "product";
     return "home";
   });
   const [researcherEntryAccepted, setResearcherEntryAccepted] = useState(
     hasResearcherEntryAcceptance
   );
-  const [publicImagesState, setPublicImagesState] = useState("loading");
+  const [publicImagesState, setPublicImagesState] = useState("ready");
   const [publicImageRetry, setPublicImageRetry] = useState(0);
   const researcherEntryGateActive =
     !researcherEntryAccepted && page !== "terms" && page !== "privacy";
@@ -3738,8 +3723,14 @@ export default function App() {
 
     const prefetchFromIntent = (event) => {
       const target = event.target;
-      const link = target instanceof Element ? target.closest("a[href]") : null;
+      const link = target instanceof Element ? target.closest("a[href], [data-prefetch-page]") : null;
       if (!link) return;
+      const prefetchPage = link.getAttribute("data-prefetch-page");
+      if (prefetchPage) {
+        prefetchPublicPage(prefetchPage);
+        return;
+      }
+      if (!(link instanceof HTMLAnchorElement)) return;
 
       const destination = new URL(link.href, window.location.href);
       if (destination.origin !== window.location.origin) return;
@@ -3753,16 +3744,30 @@ export default function App() {
       }
 
       const pathSlug = routePath.replace(/^\/+|\/+$/g, "").toLowerCase();
-      prefetchRouteChunks(publicPathToPage[pathSlug]);
+      prefetchPublicPage(publicPathToPage[pathSlug]);
     };
 
     document.addEventListener("pointerover", prefetchFromIntent, { passive: true });
+    document.addEventListener("pointerdown", prefetchFromIntent, { passive: true });
     document.addEventListener("focusin", prefetchFromIntent);
     return () => {
       document.removeEventListener("pointerover", prefetchFromIntent);
+      document.removeEventListener("pointerdown", prefetchFromIntent);
       document.removeEventListener("focusin", prefetchFromIntent);
     };
   }, [researcherEntryGateActive]);
+
+  useEffect(() => {
+    if (researcherEntryGateActive || page !== "home") return undefined;
+    const stopWarmup = scheduleInfoPageWarmup({
+      view: window,
+      onWarm: () => infoPageImageWarmup.warmAll(),
+    });
+    return () => {
+      stopWarmup();
+      infoPageImageWarmup.cancelBackground();
+    };
+  }, [page, researcherEntryGateActive]);
 
   // Keep every public section on a stable, crawlable URL.
   useEffect(() => {
@@ -3777,7 +3782,7 @@ export default function App() {
 
   const handlePublicPageLink = (event, nextPage) => {
     event.preventDefault();
-    prefetchRouteChunks(nextPage);
+    prefetchPublicPage(nextPage);
     setAccountPromoCodeInput("");
     setPage(nextPage);
   };
@@ -3790,7 +3795,14 @@ export default function App() {
       setSearchTerm(value);
     });
   }, []);
-  const [isScrolled, setIsScrolled] = useState(false);
+  // The announcement can wrap at desktop widths or after translation/font
+  // loading. Keep the sticky header below its actual rendered height.
+  const announcementBarRef = useRef(null);
+  const stickyHeaderRef = useRef(null);
+  useLayoutEffect(() => observeAnnouncementHeight(
+    announcementBarRef.current,
+    stickyHeaderRef.current,
+  ), [page]);
   const [showCookieBanner, setShowCookieBanner] = useState(false);
   useEffect(() => {
     if (localStorage.getItem("cookieAccepted")) return;
@@ -3800,46 +3812,55 @@ export default function App() {
       .then((d) => { if (EU.has(d.country_code)) setShowCookieBanner(true); })
       .catch(() => {});
   }, []);
-  useEffect(() => {
-    const mobileViewport = window.matchMedia("(max-width: 767px)");
-    let lastScrolledState = null;
-    const onScroll = () => {
-      const nextScrolledState = mobileViewport.matches && window.scrollY > 0;
-      if (nextScrolledState === lastScrolledState) return;
-      lastScrolledState = nextScrolledState;
-      setIsScrolled(nextScrolledState);
-    };
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-    };
-  }, []);
-  const [cart, setCart] = useState([]);
-  const [selectedProduct, setSelectedProduct] = useState(() => {
-    if (typeof window === "undefined") return null;
-    const params2 = new URLSearchParams(window.location.search || "");
-    const productSlugFromQuery2 = (params2.get("product") || "").toLowerCase().trim();
-    const productSlugFromPath2 = window.location.pathname.replace(/^\//, "").toLowerCase().trim();
-    const productSlug = productSlugFromPath2 || productSlugFromQuery2;
-    if (!productSlug) return null;
-    const usWarehouseRoute = (params2.get("warehouse") || "").toLowerCase() === "us";
-    const product = PRODUCTS_BASE.find(p =>
-      (productSlug === productSlugFor(p) || productSlug === productSlugFor(p, true)) &&
-      (!usWarehouseRoute || p.warehouse === "us")
-    );
-    if (!product) return null;
-    return usWarehouseRoute
-      ? {
-        ...product,
-        price: (product.usPriceBase ?? product.price) + 5,
-        originalPrice: (product.usPriceBase ?? product.price) + 5,
-        fromWarehouse: "us",
+  const [oosOverrides, setOosOverrides] = useState(() => {
+    try {
+      const overrides = JSON.parse(localStorage.getItem("tbv-oos") || "{}");
+      const migrationKey = "tbv-oos-10-gh-10-iu-available-v1";
+      if (localStorage.getItem(migrationKey) !== "done") {
+        delete overrides["10-GH|10 IU"];
+        localStorage.setItem("tbv-oos", JSON.stringify(overrides));
+        localStorage.setItem(migrationKey, "done");
       }
-      : product;
+      return overrides;
+    } catch {
+      return {};
+    }
   });
+
+  const products = useMemo(() =>
+    PRODUCTS_BASE.map(p => {
+      const key = p.name + "|" + p.dose + (p.noteLabel ? "|" + p.noteLabel : "");
+      if (key in oosOverrides) return { ...p, outOfStock: oosOverrides[key] };
+      return p;
+    }), [oosOverrides]);
+
+
+  const [cart, setCart] = useState([]);
+  const [productSelection, setProductSelection] = useState(() =>
+    typeof window === "undefined" ? null : readProductSelection(PRODUCTS_BASE, window.location)
+  );
+  const selectedProduct = useMemo(
+    () => resolveSelectedProduct(products, productSelection),
+    [products, productSelection]
+  );
+  useEffect(() => {
+    const restoreProductRoute = () => {
+      const next = readProductSelection(PRODUCTS_BASE, window.location);
+      if (next) {
+        setProductSelection(next);
+        setPage("product");
+        setCoaPage(0);
+        setCoaLightbox(false);
+      } else {
+        const path = window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase();
+        const publicPage = publicPathToPage[path];
+        if (publicPage) setPage(publicPage);
+        else if (!path && !new URLSearchParams(window.location.search).has("payment")) setPage("home");
+      }
+    };
+    window.addEventListener("popstate", restoreProductRoute);
+    return () => window.removeEventListener("popstate", restoreProductRoute);
+  }, []);
   // ── SEO: dynamic meta/title/JSON-LD per page (invisible to users) ────────
   useSEO({ page, product: selectedProduct });
 
@@ -3915,6 +3936,7 @@ export default function App() {
   const [adminCreditNote, setAdminCreditNote] = useState("");
   const [adminCreditMessage, setAdminCreditMessage] = useState("");
   const [adminCreditLoading, setAdminCreditLoading] = useState(false);
+  const adminCreditAdjustmentBusyRef = useRef(false);
   const [adminCreditLookup, setAdminCreditLookup] = useState(null);
   const [appliedPromo, setAppliedPromo] = useState(() => {
     try {
@@ -4052,6 +4074,8 @@ export default function App() {
   const effectiveShippingType = cart.length > 0 && cart.every(i => i.fromWarehouse === "us") ? "us-warehouse" : shippingType;
   const [showScrollTop, setShowScrollTop] = useState(false);
   useEffect(() => {
+    if (page !== "shop") return undefined;
+
     let lastVisibleState = null;
     const onScroll = () => {
       const nextVisibleState = window.scrollY > 400;
@@ -4062,7 +4086,7 @@ export default function App() {
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [page]);
 
   const [cartToast, setCartToast] = useState("");
   const productPrimaryActionRef = useRef(null);
@@ -4136,8 +4160,8 @@ export default function App() {
   const productOriginPage = useRef("shop");
   const productDetailOverlayClass =
     productOriginPage.current === "shop" ? "bg-black/60" : "bg-black/50";
-  const selectedProductIsUs =
-    selectedProduct?.fromWarehouse === "us" || selectedProduct?.warehouse === "us";
+  const selectedProductIsUs = productSelection?.warehouse === "us";
+  const selectedProductConfigurationMissing = selectedProduct?.unavailableReason === "configuration";
   const selectedProductUnavailable = Boolean(selectedProduct?.outOfStock);
   const selectedProductCartItem = selectedProduct
     ? cart.find((item) => getProductId(item) === getProductId(selectedProduct))
@@ -4161,32 +4185,23 @@ export default function App() {
   const [fadingOutAddedId, setFadingOutAddedId] = useState("");
   const [shopPrimed, setShopPrimed] = useState(false);
   const [cartHighlight, setCartHighlight] = useState(false);
-  const [openFaqs, setOpenFaqs] = useState({
-    shipping: -1,
-    orders: -1,
-    product: -1,
-  });
-  const [checkoutForm, setCheckoutForm] = useState({
-    email: "",
-    firstName: "",
-    lastName: "",
-    country: "",
-    address: "",
-    address2: "",
-    city: "",
-    state: "",
-    postalCode: "",
-    phone: "",
-    taxId: "",
-    orderNotes: "",
-    carrierPreference: "",
-  });
+  const { form: checkoutForm, setForm: setCheckoutForm, remember: rememberCheckoutField } = useCheckoutDetails(currentUser);
+  const checkoutBuyerRef = useRef(currentUser?.id);
+  checkoutBuyerRef.current = currentUser?.id;
   const [checkoutMessage, setCheckoutMessage] = useState("");
   const [checkoutErrors, setCheckoutErrors] = useState({});
   const [countrySearch, setCountrySearch] = useState("");
   const [isCountryDropdownOpen, setIsCountryDropdownOpen] = useState(false);
   const [countryDropdownRect, setCountryDropdownRect] = useState(null);
   const [checkoutStep, setCheckoutStep] = useState("details");
+  const deferredLegacyOrderRef = useRef(null);
+  const legacyAttemptsRef = useRef(null);
+  const legacyStartLockRef = useRef(false);
+  if (!legacyAttemptsRef.current) legacyAttemptsRef.current = createLegacyAttemptManager();
+  useEffect(() => {
+    legacyAttemptsRef.current.clear();
+    deferredLegacyOrderRef.current = null;
+  }, [currentUser?.id]);
   const [isBonusExpanded, setIsBonusExpanded] = useState(false);
   const [shippingHighlight, setShippingHighlight] = useState(false);
   const [checkboxHighlight, setCheckboxHighlight] = useState(false);
@@ -4258,58 +4273,27 @@ export default function App() {
     }
     setLogoBumpKey((k) => k + 1);
   };
-  const [paymentReturn, setPaymentReturn] = useState(() => {
-    const _params = new URLSearchParams(window.location.search || "");
-    const _payment = (_params.get("payment") || "").toLowerCase().trim();
-    if (["success", "cancelled", "cancel", "failed"].includes(_payment)) {
-      const _provider = (_params.get("provider") || "").toLowerCase().trim();
-      // CatalystPay always redirects to ?payment=success even on cancel.
-      // Start as "cancelled" immediately to prevent flashing ORDER CONFIRMED;
-      // the useEffect will upgrade to "success" if Supabase confirms paid.
-      const _status = (_payment === "cancel" ? "cancelled" : _payment === "success" && _provider === "catalystpay" ? "cancelled" : _payment);
-      // Capture pi_id from URL — set by onSuccess handler or by Stripe's own
-      // redirect (which appends ?payment_intent=pi_xxx for 3DS flows).
-      const _piId = (_params.get("pi") || _params.get("payment_intent") || "").trim();
-      return { status: _status, order: _params.get("order") || "INV-DEMO", provider: _provider, piId: _piId };
-    }
-    return { status: "", order: "", provider: "", piId: "" };
-  });
+  const [paymentReturn, setPaymentReturn] = useState(() => readPaymentReturn(window.location.search));
   const [paymentReturnOrder, setPaymentReturnOrder] = useState(null);
+  const [legacyReturnReadStatus, setLegacyReturnReadStatus] = useState("checking");
+  const [legacyReturnRetry, setLegacyReturnRetry] = useState(0);
+  const legacyReturnResumeRef = useRef(false);
+  const legacyReturnContextRef = useRef(null);
+  legacyReturnContextRef.current = { account: currentUser, page, order: paymentReturn.order, provider: paymentReturn.provider };
+  // Clear a previous account's local receipt before paint. Even the same email
+  // must be checked again after an authentication identity/session change.
+  useLayoutEffect(() => {
+    if (paymentReturn.origin !== "provider-return" || paymentReturn.provider === "merit") return;
+    setPaymentReturnOrder(null);
+    setPaymentReturn(current => current.origin === "provider-return" && current.provider !== "merit"
+      ? { ...current, status: "pending", confirmedForEmail: "" } : current);
+  }, [currentUser]);
   useEffect(() => {
-    if (paymentReturn.status === "success" && paymentReturn.provider === "stripe" && paymentReturn.order) {
-      (async () => {
-        try {
-          // ── Server-side Stripe verification + Supabase status update ──────
-          // The server verifies the payment intent with Stripe's API and writes
-          // status="paid" using the service role key — bypasses any RLS issues.
-          const piId = paymentReturn.piId || "";
-          try {
-            const confirmRes = await fetch("/api/confirm-stripe-payment", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ orderId: paymentReturn.order, paymentIntentId: piId }),
-            });
-            const confirmData = await confirmRes.json().catch(() => ({}));
-            if (!confirmData.confirmed) {
-              console.error("confirm-stripe-payment: payment not confirmed by server", confirmData);
-            } else if (!confirmData.dbUpdated) {
-              console.error("confirm-stripe-payment: DB update failed on server", confirmData.dbError);
-            } else {
-              console.log("confirm-stripe-payment: order marked paid server-side ✓");
-            }
-          } catch (confirmErr) {
-            console.error("confirm-stripe-payment fetch failed:", confirmErr);
-          }
-
-          // Affiliate order details are read from the paid order through the
-          // authenticated affiliate-account endpoint; the browser does not
-          // write to the affiliate ledger.
-        } catch (e) {
-          console.error("Stripe success handler failed:", e);
-        }
-      })();
+    if (legacyReturnResumeRef.current && currentUser?.email && paymentReturn.origin === "provider-return") {
+      legacyReturnResumeRef.current = false;
+      setPage("payment-return");
     }
-  }, []);
+  }, [currentUser]);
   useEffect(() => {
     if (page !== "payment-return" || paymentReturn.status !== "success") return;
     let isActive = true;
@@ -4386,11 +4370,12 @@ export default function App() {
     };
   }, [page, paymentReturn.status]);
   useEffect(() => {
-    if (paymentReturn.status === "success" && paymentReturn.order) {
-      const stored = getStoredOrders().find(o => o.id === paymentReturn.order);
-      if (stored) setPaymentReturnOrder(stored);
-    }
-  }, [paymentReturn.order]);
+    if (paymentReturn.provider === "merit" || paymentReturn.origin === "provider-return") return;
+    const stored = paymentReturn.status === "success" && currentUser?.email
+      ? getStoredOrders().find(o => o.id === paymentReturn.order && normalizeEmail(o.email) === normalizeEmail(currentUser.email))
+      : null;
+    setPaymentReturnOrder(stored || null);
+  }, [paymentReturn.order, paymentReturn.status, paymentReturn.provider, paymentReturn.origin, currentUser]);
   const [pendingCheckoutAfterAuth, setPendingCheckoutAfterAuth] = useState(false);
   const [adminActiveTab, setAdminActiveTab] = useState("orders");
   const [revPeriod, setRevPeriod] = useState("month");
@@ -4407,37 +4392,33 @@ export default function App() {
     if (researcherEntryGateActive) return undefined;
 
     let active = true;
-    setPublicImagesState("loading");
     const base = import.meta.env.BASE_URL;
-    const routeBackgrounds = [
-      worldwideCatalogBackground,
-      faqBackgroundImage,
-      laboratoryBackgroundImage,
-      legalPolicyBackgroundImage,
-      `${base}images/homepage-hero-background.webp`,
-      `${base}images/homepage-hero-mobile-vial.webp`,
-      `${base}images/homepage-lower-background.webp`,
-      `${base}images/affiliate-lab-background.webp`,
-      `${base}images/shipping-prices-warehouse-background.webp`,
-    ];
+    // Warm the currently rendered background through the native image cache;
+    // other pages and the unused hero breakpoint load only when needed.
+    const routeBackgrounds = page === "home"
+      ? [
+          `${base}images/${String(language ?? "EN").toUpperCase() === "EN" && window.matchMedia("(max-width: 640px)").matches ? "homepage-hero-mobile-vial" : "homepage-hero-background"}.webp`,
+          `${base}images/homepage-lower-background.webp`,
+        ]
+      : ["shop", "product", "us-warehouse", "cart"].includes(page)
+      ? [worldwideCatalogBackground]
+      : page === "faq"
+      ? [faqBackgroundImage]
+      : ["account", "contact", "track", "admin"].includes(page)
+      ? [laboratoryBackgroundImage]
+      : ["terms", "privacy", "shipping", "refund", "attestation"].includes(page)
+      ? [legalPolicyBackgroundImage]
+      : page === "affiliate"
+      ? [`${base}images/affiliate-lab-background.webp`]
+      : page === "bonuses"
+      ? [`${base}images/shipping-prices-warehouse-background.webp`]
+      : [];
     const startPreload = async () => {
       if (!active) return;
       try {
-        await preloadPublicImages(routeBackgrounds, false);
+        await preloadPublicImages(routeBackgrounds);
         if (!active) return;
         setPublicImagesState("ready");
-        try {
-          await preloadPublicImages([
-            `${import.meta.env.BASE_URL}vials-c/tb-500-bpc-157-3ab3e8693952.webp`,
-            `${import.meta.env.BASE_URL}vials-c/bpc-157-4a596acd979f.webp`,
-            `${import.meta.env.BASE_URL}vials-c/retatrutide-glp-3-0efb04b0071d.webp`,
-            cashAppLogo,
-            bitcoinLogo,
-            paypalMark,
-          ]);
-        } catch (error) {
-          console.warn("Could not warm all optional public images; they will load when needed.", error);
-        }
       } catch (error) {
         console.error("Could not preload all public images.", error);
         if (active) setPublicImagesState("error");
@@ -4455,7 +4436,7 @@ export default function App() {
       if (idleHandle !== null) window.cancelIdleCallback(idleHandle);
       if (preloadTimer !== null) window.clearTimeout(preloadTimer);
     };
-  }, [publicImageRetry, researcherEntryGateActive]);
+  }, [page, language, publicImageRetry, researcherEntryGateActive]);
   useEffect(() => {
     if (page === "shop") {
       setShopPrimed(true);
@@ -4509,20 +4490,6 @@ export default function App() {
   const [affPayEditorOpen, setAffPayEditorOpen] = useState({});
   const [adminSearch, setAdminSearch] = useState("");
   const [adminInboxSearch, setAdminInboxSearch] = useState("");
-  const [oosOverrides, setOosOverrides] = useState(() => {
-    try {
-      const overrides = JSON.parse(localStorage.getItem("tbv-oos") || "{}");
-      const migrationKey = "tbv-oos-10-gh-10-iu-available-v1";
-      if (localStorage.getItem(migrationKey) !== "done") {
-        delete overrides["10-GH|10 IU"];
-        localStorage.setItem("tbv-oos", JSON.stringify(overrides));
-        localStorage.setItem(migrationKey, "done");
-      }
-      return overrides;
-    } catch {
-      return {};
-    }
-  });
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [inventoryOosOnly, setInventoryOosOnly] = useState(false);
   const [adminInboxPage, setAdminInboxPage] = useState(1);
@@ -4723,26 +4690,13 @@ export default function App() {
       dose = String(dose).trim().replace(/(\d)\s*([a-zA-Z])/g, (_, n, u) => `${n} ${u.toLowerCase()}`);
     }
 
-    // Re-price from current PRODUCTS_BASE so stale saved prices are corrected.
-    const normD = (v) => String(v || "").trim().toLowerCase().replace(/(\d)\s+([a-z])/g, "$1$2");
-    const wantsUs = item.fromWarehouse === "us";
-    const catalogEntry = PRODUCTS_BASE.find((p) => {
-      const pn = p.name.toLowerCase();
-      const cn = name.toLowerCase();
-      const base = pn.split(" / ")[0].trim();
-      return (pn === cn || base === cn) &&
-        normD(p.dose) === normD(dose) &&
-        (p.warehouse === "us") === wantsUs;
-    });
-    if (catalogEntry && !(name === "BPC-157" && !wantsUs && [1, 5].includes(Number(rest.vials)))) {
-      let currentPrice;
-      if (wantsUs) {
-        const usOriginal = (catalogEntry.usPriceBase ?? catalogEntry.price) + 5;
-        currentPrice = usOriginal;
-      } else {
-        currentPrice = catalogEntry.price;
-      }
-      rest = { ...rest, price: currentPrice };
+    // Re-price only the exact saved selection. Never borrow another option,
+    // pack or warehouse; unavailable saved items are blocked by cart validation.
+    const resolved = resolveSelectedProduct(PRODUCTS_BASE, productSelectionFromProduct({ name, dose, ...rest }));
+    if (resolved?.unavailableReason !== "configuration" && Number.isFinite(resolved?.price)) {
+      rest = { ...rest, price: resolved.price };
+      if (resolved.fromWarehouse === "us") rest.fromWarehouse = "us";
+      else delete rest.fromWarehouse;
     }
 
     return { name, dose, ...rest };
@@ -4800,7 +4754,7 @@ export default function App() {
   }, [currentUser?.email, supportConversationOpen]);
 
   useEffect(() => {
-    if (currentUser?.email && (page === "account" || page === "checkout")) loadStoreCredit(currentUser.email);
+    if (currentUser?.email && (page === "account" || page === "checkout" || page === "cart")) loadStoreCredit(currentUser.email);
   }, [currentUser?.email, page]);
 
 
@@ -5671,39 +5625,31 @@ export default function App() {
   }
 
   async function adminAddCredit(mode) {
-    const email = adminCreditEmail.trim().toLowerCase();
-    const amount = parseFloat(adminCreditAmount);
-    if (!email || isNaN(amount)) { setAdminCreditMessage("Enter a valid email and amount."); return; }
+    if (adminCreditAdjustmentBusyRef.current) return;
+    adminCreditAdjustmentBusyRef.current = true;
     setAdminCreditLoading(true);
     setAdminCreditMessage("");
     try {
-      const { data: existing } = await supabase.from("user_credits").select("amount").eq("email", email).maybeSingle();
-      const currentAmount = existing ? Number(existing.amount) : 0;
-      let newAmount;
-      if (mode === "set") newAmount = amount;
-      else if (mode === "subtract") newAmount = Math.max(0, currentAmount - Math.abs(amount));
-      else newAmount = Math.max(0, currentAmount + amount);
-      // UPDATE existing row first; INSERT if none exists (avoids duplicate rows from missing UNIQUE constraint)
-      const { error: updErr, count } = await supabase.from("user_credits")
-        .update({ amount: newAmount, note: adminCreditNote.trim() || null, updated_at: new Date().toISOString() })
-        .eq("email", email);
-      const needsInsert = !existing && !updErr;
-      const { error } = needsInsert
-        ? await supabase.from("user_credits").insert({ email, amount: newAmount, note: adminCreditNote.trim() || null, updated_at: new Date().toISOString() })
-        : { error: updErr };
-      // Clean up any duplicate rows
-      const { data: dupRows } = await supabase.from("user_credits").select("id, updated_at").eq("email", email).order("updated_at", { ascending: false });
-      if (dupRows && dupRows.length > 1) {
-        await supabase.from("user_credits").delete().in("id", dupRows.slice(1).map(r => r.id));
-      }
-      if (error) { setAdminCreditMessage("Error: " + error.message); }
-      else {
-        setAdminCreditMessage(`✓ ${email} — new balance: $${newAmount.toFixed(2)}`);
-        setAdminCreditLookup({ email, amount: newAmount });
-        if (currentUser?.email?.toLowerCase() === email) setStoreCredit(newAmount);
-      }
-    } catch (e) { setAdminCreditMessage("Error: " + e.message); }
-    setAdminCreditLoading(false);
+      const result = await adjustStoreCredit({ supabase, storage: window.sessionStorage,
+        email: adminCreditEmail, mode, amount: adminCreditAmount, note: adminCreditNote });
+      setAdminCreditMessage(`✓ ${result.email} — adjustment confirmed; balance after adjustment: $${result.balance.toFixed(2)}`);
+      // An idempotent replay may predate a later checkout. Refresh the current
+      // balance separately instead of presenting its old receipt as live credit.
+      setAdminCreditLookup(null);
+      try {
+        const { data, error } = await supabase.from("user_credits").select("amount, updated_at, note").eq("email", result.email).maybeSingle();
+        const balance = Number(data?.amount);
+        if (!error && data && Number.isFinite(balance) && balance >= 0) {
+          setAdminCreditLookup({ email: result.email, amount: balance, updated_at: data.updated_at, note: data.note });
+          if (currentUser?.email?.trim().toLowerCase() === result.email) setStoreCredit(balance);
+        }
+      } catch { /* The adjustment is confirmed; the current-balance refresh can be retried. */ }
+    } catch (error) {
+      setAdminCreditMessage(error?.message || "Store credit could not be confirmed. Retry the same adjustment.");
+    } finally {
+      adminCreditAdjustmentBusyRef.current = false;
+      setAdminCreditLoading(false);
+    }
   }
 
   async function adminLookupCredit() {
@@ -5723,7 +5669,13 @@ export default function App() {
         .select("*")
         .eq("email", String(email).trim().toLowerCase());
       if (!error && Array.isArray(data)) {
-        const activePromos = data.filter((p) => !p.used);
+        const { data: authData } = await supabase.auth.getSession();
+        if (authData?.session?.user?.id !== checkoutBuyerRef.current
+          || authData?.session?.user?.email?.trim().toLowerCase() !== email.trim().toLowerCase()) return;
+        const activePromos = data.filter((p) => p.used === false && p.active !== false
+          && (!p.starts_at || Date.parse(p.starts_at) <= Date.now())
+          && (!p.ends_at || Date.parse(p.ends_at) > Date.now())
+          && Number(p.minimum_subtotal_cents || 0) <= Math.round(subtotal * 100));
         setUserPromos(activePromos);
         if (activePromos.length > 0 && !currentAppliedPromo) {
           const first = activePromos[0];
@@ -5927,7 +5879,7 @@ export default function App() {
       y += 5;
       doc.setFontSize(8);
       doc.setTextColor(100, 100, 100);
-      doc.text(`Payment method: ${order.paymentProvider}${order.paymentId ? "  ·  Ref: " + order.paymentId.slice(0, 28) : ""}`, margin, y);
+      doc.text(`Payment method: ${publicPaymentMethod(order.paymentProvider)}${order.paymentId ? "  ·  Ref: " + order.paymentId.slice(0, 28) : ""}`, margin, y);
     }
     y += 4;
 
@@ -6649,7 +6601,7 @@ export default function App() {
           for (const o of stuck) {
             fetch("/api/verify-nowpayments-payment", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: await legacyCheckoutHeaders(supabase, currentUser?.email),
               body: JSON.stringify({ order_id: o.id, payment_id: o.paymentId || undefined }),
             })
               .then((r) => r.json())
@@ -6673,7 +6625,7 @@ export default function App() {
 
   async function sendPaymentConfirmedEmail(order) {
     if (!order?.email || order?.confirmationEmailSentAt) return;
-    // Stripe, NOWPayments (crypto) and Paylio all have server-side webhooks
+    // Merit, Stripe, NOWPayments (crypto) and Paylio have server-side confirmation
     // (api/stripe-webhook.js, api/_nowpayments-shared.js, api/paylio-callback.js)
     // that already send the confirmation email themselves, using the
     // authoritative Supabase order record (correct discounts/store credit/total).
@@ -6684,6 +6636,7 @@ export default function App() {
     // still need this client-side send.
     const provider = String(order.paymentProvider || "").toLowerCase();
     const hasServerWebhookEmail =
+      provider === "merit" ||
       provider === "stripe" ||
       provider === "paylio" ||
       provider.includes("nowpayments") ||
@@ -6750,22 +6703,35 @@ export default function App() {
   }
 
   async function persistOrderToServer(order) {
+    const deferred = deferredLegacyOrderRef.current?.id === order.id ? deferredLegacyOrderRef.current : null;
+    if (deferred) order = { ...order, metadata: { ...deferred, ...order.metadata } };
     const response = await fetch("/api/order-checkout", {
       method: "POST",
       credentials: "same-origin",
       cache: "no-store",
-      headers: { "Content-Type": "application/json" },
+      headers: await legacyCheckoutHeaders(supabase, order.email),
       body: JSON.stringify({ order }),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok || result?.ok !== true) {
       throw new Error(result?.error || "Could not save this checkout.");
     }
+    if (deferred) {
+      const localOrder = { ...order.metadata, id: order.id, email: order.email, status: order.status, total: order.total };
+      const next = [localOrder, ...getStoredOrders().filter(saved => saved.id !== order.id)];
+      saveStoredOrders(next);
+      setAllOrders(next);
+      if (currentUser?.email) setUserOrders(getPaidOrdersForEmail(currentUser.email, next));
+    }
     return result;
   }
 
   async function markOrderCheckoutStartedById(orderId, paymentProvider = "Paylio") {
     if (!orderId) return;
+    const deferred = deferredLegacyOrderRef.current;
+    if (deferred?.id === orderId && !getStoredOrders().some(order => order.id === orderId)) {
+      await persistOrderToServer({ id: deferred.id, email: deferred.email, status: "pending", total: deferred.total, metadata: deferred });
+    }
     const orders = getStoredOrders();
     let updatedOrder = null;
     const nextOrders = orders.map((savedOrder) => {
@@ -6871,156 +6837,52 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (paymentReturn.origin !== "provider-return") return;
+    // Keep a reloadable lookup, without URL success claims or provider secrets.
+    const params = new URLSearchParams({ payment: "pending", order: paymentReturn.order });
+    if (paymentReturn.provider) params.set("provider", paymentReturn.provider);
+    window.history.replaceState({}, "", `/?${params}`);
+    setPage("payment-return");
+  }, []);
 
-    const params = new URLSearchParams(window.location.search || "");
-    const payment = (params.get("payment") || "").toLowerCase().trim();
-    const order = (params.get("order") || "").trim();
-    const npId = (params.get("NP_id") || params.get("payment_id") || "").trim();
-
-    if (["success", "cancelled", "cancel", "failed"].includes(payment)) {
-      const urlProvider = (params.get("provider") || "").toLowerCase().trim();
-      const isCatalystPay = urlProvider === "catalystpay";
-
-      // CatalystPay always redirects to ?payment=success even on cancel.
-      // useState already initialised status="cancelled" so there is zero
-      // flash of ORDER CONFIRMED. "Payment Cancelled" shows immediately.
-      //
-      // In the background we silently poll Supabase for up to ~60s so that
-      // a real payment (where the webhook arrives slightly after the redirect)
-      // still upgrades to ORDER CONFIRMED without requiring a new redirect.
-      // The user sees nothing change while cancelled — only if the webhook
-      // fires and Supabase confirms "paid" does the screen flip to success.
-      if (payment === "success" && isCatalystPay && order) {
-        setPage("payment-return");
-        setCatalystPayPending(true);
-        const upgradeCatalystPayIfPaid = async (attempt) => {
-          try {
-            const response = await fetch(
-              `/api/order-checkout?orderId=${encodeURIComponent(order)}`,
-              { credentials: "same-origin", cache: "no-store" }
-            );
-            const data = response.ok ? await response.json().catch(() => null) : null;
-            if (String(data?.status || "").toLowerCase() === "paid") {
-              let payProvider = "CatalystPay BTC";
-              try {
-                const s = localStorage.getItem(`tbv-pay-method-${order}`);
-                if (s) { payProvider = s; localStorage.removeItem(`tbv-pay-method-${order}`); }
-              } catch {}
-              const nextOrders = markOrderPaidById(order, payProvider, npId);
-              if (currentUser?.email) setUserOrders(getPaidOrdersForEmail(currentUser.email, nextOrders));
-              const paidOrder = (Array.isArray(nextOrders) ? nextOrders : []).find((o) => o.id === order);
-              const creditEmail = paidOrder?.email || currentUser?.email;
-              const creditUsedCatalyst = Number(paidOrder?.storeCreditUsed || 0);
-              if (creditUsedCatalyst > 0) {
-                setStoreCredit((prev) => Math.max(0, prev - creditUsedCatalyst));
-              }
-              if (creditEmail) {
-                loadStoreCredit(creditEmail);
-                setTimeout(() => loadStoreCredit(creditEmail), 6000);
-              }
-              setPaymentReturn({ status: "success", order, paymentId: npId });
-              setCatalystPayPending(false);
-              setCart([]);
-              return; // stop retrying
-            }
-          } catch {}
-          // Retry 24× at 5s intervals = 120s total window for delayed webhooks.
-          // After that the order is genuinely cancelled/expired — stop silently.
-          if (attempt < 24) {
-            setTimeout(() => upgradeCatalystPayIfPaid(attempt + 1), 5000);
-          } else {
-            setCatalystPayPending(false);
-            setCatalystPayTimedOut(true);
-          }
-        };
-        upgradeCatalystPayIfPaid(0);
-        window.history.replaceState({}, "", `${window.location.origin}${window.location.pathname}`);
-        return;
-      }
-
-      setPaymentReturn({ status: payment, order, paymentId: npId });
-      setPage("payment-return");
-
-      if (payment === "success" && order) {
+  useEffect(() => {
+    if (page !== "payment-return" || paymentReturn.origin !== "provider-return" || paymentReturn.provider === "merit") return;
+    if (paymentReturn.status === "success" && paymentReturn.confirmedForEmail === normalizeEmail(currentUser?.email)) return;
+    setPaymentReturnOrder(null);
+    const email = normalizeEmail(currentUser?.email);
+    if (!email) { setLegacyReturnReadStatus("signin"); return; }
+    const account = currentUser;
+    let active = true;
+    const isCurrent = () => {
+      const latest = legacyReturnContextRef.current;
+      return active && latest.account === account && latest.page === "payment-return"
+        && latest.order === paymentReturn.order && latest.provider === paymentReturn.provider;
+    };
+    setLegacyReturnReadStatus("checking");
+    const stop = startVisiblePolling(async ({ attempt, signal }) => {
+      const result = await checkLegacyPaymentReturn({ supabase, expectedEmail: email, paymentReturn, attempt, signal, isCurrent });
+      if (!isCurrent() || !result) return false;
+      if (result.status === "paid") {
+        // This read confirmed only status/ownership. Keep cached details scoped
+        // to this account and never use them to prove payment or mutate money.
+        let receipt = null;
         try {
-          // Determine payment provider: Stripe uses ?provider=stripe in return URL
-          let payProvider = urlProvider === "stripe" ? "Stripe" : "NOWPayments";
-          try {
-            const stored = localStorage.getItem(`tbv-pay-method-${order}`);
-            if (stored) { payProvider = stored; localStorage.removeItem(`tbv-pay-method-${order}`); }
-          } catch {}
-          const nextOrders = markOrderPaidById(order, payProvider, npId);
-          if (currentUser?.email) {
-            setUserOrders(getPaidOrdersForEmail(currentUser.email, nextOrders));
-          }
-          // Resync the displayed store-credit balance using the ORDER's own email,
-          // not currentUser — currentUser's async session restore frequently hasn't
-          // finished yet at this exact moment (right after the payment redirect),
-          // so gating on currentUser?.email silently skipped this refresh and left
-          // the header/account balance stale until the user happened to open the
-          // account/checkout page later. The order itself always has the email
-          // that was used to spend the credit, regardless of session state.
-          const paidOrderForCredit = (Array.isArray(nextOrders) ? nextOrders : []).find((o) => o.id === order);
-          const creditRefreshEmail = paidOrderForCredit?.email || currentUser?.email;
-          // Optimistically deduct credits immediately so the balance updates
-          // before the server-side webhook has a chance to run.
-          const creditUsedNow = Number(paidOrderForCredit?.storeCreditUsed || 0);
-          if (creditUsedNow > 0) {
-            setStoreCredit((prev) => Math.max(0, prev - creditUsedNow));
-          }
-          if (creditRefreshEmail) {
-            loadStoreCredit(creditRefreshEmail);
-            // Re-sync after 6s to pick up any webhook-written value
-            setTimeout(() => loadStoreCredit(creditRefreshEmail), 6000);
-          }
-
-          // Fallback for crypto orders: the DB "paid" status is normally set by the
-          // NOWPayments IPN webhook, which can be delayed or occasionally never
-          // arrive. Directly ask NOWPayments for the real status of this payment
-          // and let the server apply the same paid-order logic once it's confirmed.
-          // A single check right at redirect time is not enough — crypto payments
-          // often aren't confirmed by the blockchain yet at that exact moment — so
-          // retry a few times over several minutes instead of checking only once.
-          // IMPORTANT: NOWPayments' hosted invoice page does NOT always append
-          // NP_id/payment_id to the success redirect, so this used to silently
-          // never run at all for some orders (order stuck as "checkout (clicked
-          // pay)" forever, even though the customer paid and NOWPayments itself
-          // shows "Finished"). We always have our own order id, so pass that too
-          // and let the server look the payment up by order_id when npId is missing.
-          if (payProvider === "NOWPayments" && (npId || order)) {
-            const checkNowPaymentsStatus = async (attempt) => {
-              try {
-                const r = await fetch(`/api/verify-nowpayments-payment`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ payment_id: npId || undefined, order_id: order || undefined }),
-                });
-                const result = await r.json().catch(() => ({}));
-                // Only stop retrying once the order is actually confirmed paid in the
-                // database (dbMarkedPaid / alreadyPaidInDb) — NOT just when the payment
-                // provider says "paid" (result.isPaid). The Supabase write can fail
-                // transiently; if we stop on isPaid alone, a failed write leaves the
-                // order permanently stuck even though a "payment confirmed" email
-                // already went out.
-                if (result?.dbMarkedPaid || result?.alreadyPaidInDb) return;
-              } catch {}
-              if (attempt < 20) {
-                setTimeout(() => checkNowPaymentsStatus(attempt + 1), 20000);
-              }
-            };
-            checkNowPaymentsStatus(0);
-          }
-        } catch (error) {
-          console.error("Failed to mark order as paid", error);
-        }
-        setCart([]);
+          const synced = syncVerifiedLegacyOrder(getStoredOrders(), result.order, email);
+          receipt = synced.receipt;
+          saveStoredOrders(synced.orders);
+          setUserOrders(synced.orders.filter(order => normalizeEmail(order.email) === email && isLegacyPaidStatus(order.status)));
+        } catch { /* Browser storage failure cannot reverse server confirmation. */ }
+        setPaymentReturnOrder(receipt);
+        setPaymentReturn(current => ({ ...current, status: "success", confirmedForEmail: email }));
+        if (receipt) setCart(current => meritCartMatchesOrder(current, receipt) ? [] : current);
+        return false;
       }
-
-      // Remove payment query params after processing so refresh does not reopen the payment result modal.
-      window.history.replaceState({}, "", `${window.location.origin}${window.location.pathname}`);
-    }
-  }, [currentUser?.email]);
+      const terminal = ["signin", "not-found", "unconfirmed"].includes(result.status);
+      setLegacyReturnReadStatus(attempt >= 8 && result.status === "pending" ? "exhausted" : result.status);
+      return !terminal && attempt < 8;
+    }, { intervalMs: 3000, maxIntervalMs: 20000, maxAttempts: 8, backoff: true });
+    return () => { active = false; stop(); };
+  }, [page, paymentReturn.origin, paymentReturn.provider, paymentReturn.order, paymentReturn.status, currentUser, legacyReturnRetry]);
 
   const translations = {
     EN: {
@@ -8125,7 +7987,15 @@ export default function App() {
       });
     }
   }, [page, checkoutStep]);
-  const [paymentMethod, setPaymentMethod] = useState("cashapp");
+  const [paymentMethod, setPaymentMethodState] = useState("stripe");
+  function setPaymentMethod(next) {
+    if (next === paymentMethod || legacyStartLockRef.current) return;
+    if (meritAttemptRef.current?.submitted || (meritAttemptRef.current?.createRequested && next !== "stripe")) { showMeritReservedAttempt(); return; }
+    if (next === "stripe" && meritSession) setOrderNumber(meritSession.orderId);
+    else if (deferredLegacyOrderRef.current?.id) setOrderNumber(deferredLegacyOrderRef.current.id);
+    meritSelectionRef.current = { method: next, step: checkoutStep };
+    setPaymentMethodState(next);
+  }
 
 
   const [selectedCrypto, setSelectedCrypto] = useState("USDT");
@@ -8187,20 +8057,34 @@ export default function App() {
   const [paylioPaymentError, setPaylioPaymentError] = useState("");
   const [catalystPayLoading, setCatalystPayLoading] = useState(false);
   const [catalystPayError, setCatalystPayError] = useState("");
-  const [catalystPayPending, setCatalystPayPending] = useState(() => {
-    if (typeof window === "undefined") return false;
-    const _p = new URLSearchParams(window.location.search || "");
-    return (
-      (_p.get("payment") || "").toLowerCase().trim() === "success" &&
-      (_p.get("provider") || "").toLowerCase().trim() === "catalystpay" &&
-      !!(_p.get("order") || "").trim()
-    );
-  });
-  const [catalystPayTimedOut, setCatalystPayTimedOut] = useState(false);
   const [stripeLoading, setStripeLoading] = useState(false);
   const [stripeError, setStripeError] = useState("");
-  const [stripeClientSecret, setStripeClientSecret] = useState("");
-  const [showStripeModal, setShowStripeModal] = useState(false);
+  const [meritConfig, setMeritConfig] = useState(null);
+  const [meritSession, setMeritSession] = useState(null);
+  const [meritReturnChecking, setMeritReturnChecking] = useState(false);
+  const [meritReturnError, setMeritReturnError] = useState("");
+  const meritCreateBusyRef = useRef(false);
+  const meritVerificationAbortRef = useRef(null);
+  useEffect(() => () => meritVerificationAbortRef.current?.abort(), []);
+  const meritReturnBusyRef = useRef(false);
+  const meritAttemptRef = useRef(readMeritAttempt(window.sessionStorage));
+  const meritInputsRef = useRef("");
+  const meritSelectionRef = useRef({});
+  meritSelectionRef.current = { method: paymentMethod, step: checkoutStep };
+  const meritBuyerEmailRef = useRef("");
+  meritBuyerEmailRef.current = normalizeEmail(currentUser?.email);
+  const meritApi = useMemo(() => createMeritApiClient({ getAccessToken: async () => {
+    const { data, error } = await supabase.auth.getSession();
+    return error ? "" : data?.session?.access_token || "";
+  } }), []);
+  useEffect(() => {
+    let active = true;
+    meritApi.configuration().then(config => { if (active) setMeritConfig(config); }).catch(() => { if (active) setMeritConfig(null); });
+    return () => { active = false; };
+  }, [meritApi]);
+  useEffect(() => {
+    if (paymentReturn.provider !== "merit" && meritAttemptRef.current?.submitted && meritAttemptRef.current.orderId) openMeritPending();
+  }, []);
   const [wireLoading, setWireLoading] = useState(false);
   const [wireConfirmed, setWireConfirmed] = useState(false);
   const [wireError, setWireError] = useState("");
@@ -8292,8 +8176,8 @@ export default function App() {
       state: String(readField("state")),
       postalCode: String(readField("postalCode")),
       phone: String(readField("phone")),
-      taxId: String(form.taxId ?? ""),
-      orderNotes: String(form.orderNotes ?? ""),
+      taxId: String(readField("taxId")),
+      orderNotes: String(readField("orderNotes")),
       carrierPreference: String(form.carrierPreference ?? ""),
     };
   }
@@ -8501,7 +8385,7 @@ export default function App() {
     if (!normalizedCode) return null;
 
     const response = await fetch(
-      `/api/public-promo-code?code=${encodeURIComponent(normalizedCode)}`
+      `/api/public-promo-code?code=${encodeURIComponent(normalizedCode)}&subtotal=${encodeURIComponent(subtotal.toFixed(2))}`
     );
     const result = await response.json().catch(() => ({}));
     if (!response.ok || result?.ok !== true) {
@@ -8758,12 +8642,6 @@ export default function App() {
 
   const sharedVialImage = "https://i.ibb.co/HT1pMDQn/defaultbottle.png";
 
-  const products = useMemo(() =>
-    PRODUCTS_BASE.map(p => {
-      const key = p.name + "|" + p.dose + (p.noteLabel ? "|" + p.noteLabel : "");
-      if (key in oosOverrides) return { ...p, outOfStock: oosOverrides[key] };
-      return p;
-    }), [oosOverrides]);
 
 
   function toggleOOS(key, value) {
@@ -9309,22 +9187,6 @@ export default function App() {
   }, [currentUser]);
 
   useEffect(() => {
-    if (!currentUser?.email) return;
-    setCheckoutForm((current) => ({
-      ...current,
-      email: current.email || currentUser.email || "",
-      firstName: current.firstName || currentUser.firstName || "",
-      lastName: current.lastName || currentUser.lastName || "",
-      country: current.country || currentUser.country || "",
-      address: current.address || currentUser.address || "",
-      city: current.city || currentUser.city || "",
-      state: current.state || currentUser.state || "",
-      postalCode: current.postalCode || currentUser.postalCode || "",
-      phone: current.phone || currentUser.phone || "",
-    }));
-  }, [currentUser]);
-
-  useEffect(() => {
     if (!currentUser) {
       setProfileForm({
         firstName: "",
@@ -9411,7 +9273,7 @@ export default function App() {
     if (hasUsWarehouseItems && checkoutForm.country !== "United States") {
       updateCheckoutField("country", "United States");
     }
-  }, [cart]);
+  }, [cart, checkoutForm.country]);
 
   useEffect(() => {
     if (checkoutStep !== "payment" || paymentMethod !== "crypto") {
@@ -9425,17 +9287,7 @@ export default function App() {
     return () => window.clearInterval(timerId);
   }, [checkoutStep, paymentMethod]);
 
-  // Auto-load Stripe payment form when Stripe is selected
-  useEffect(() => {
-    if (checkoutStep !== "payment" || paymentMethod !== "stripe") {
-      setStripeClientSecret("");
-      setStripeError("");
-      setStripeLoading(false);
-      return;
-    }
-    handleStripePayment();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checkoutStep, paymentMethod]);
+  // Verification opens from the explicit continue button, after method selection.
 
   useEffect(() => {
     if (!currentUser?.email) return;
@@ -9931,7 +9783,7 @@ export default function App() {
     !appliedPromo &&
     !isSelfReferral;
   const hasOutOfStockInCart = cart.some((item) =>
-    products.some((p) => p.name === item.name && p.dose === item.dose && p.outOfStock && (p.warehouse !== "us" || item.fromWarehouse === "us"))
+    !isCartOfferAvailable(item)
   );
   const automaticDiscountRate =
     subtotal >= 4000 ? 0.2 : subtotal >= 2000 ? 0.15 : subtotal >= 1000 ? 0.1 : 0;
@@ -9974,30 +9826,57 @@ export default function App() {
   const cryptoDiscountAmount = (paymentMethod === "crypto" && checkoutStep === "payment")
     ? Math.round(baseTotal * 0.025 * 100) / 100
     : 0;
-  // Stripe card payments carry a 2.95% processing fee, added on top of the total.
-  const stripeFeeAmount = (paymentMethod === "stripe" && checkoutStep === "payment")
-    ? Math.round(baseTotal * 0.0295 * 100) / 100
-    : 0;
+  const meritPayload = buildMeritCheckoutPayload({
+    items: cart, checkoutForm, shippingType: effectiveShippingType,
+    promoCode: appliedPromo?.code, affiliateCode: affiliateTrackingCode,
+    affiliateDiscountDisabled, ownerFreeShipping: ownerFreeShippingActive,
+    // A recovered hold has already reduced the available balance. Preserve its
+    // original credit intent so this same checkout can recover after reload.
+    orderNotes: getCheckoutOrderNotes(checkoutForm), useStoreCredit: Boolean(currentUser && (storeCredit > 0 || meritAttemptRef.current?.createRequested)),
+    purchaserAttestation: { over21AndResearchUseOnly: Boolean(researchAccepted),
+      qualifiedResearcherOrLicensedProfessional: Boolean(qualifiedAccepted),
+      noHumanOrAnimalUse: Boolean(qualifiedAccepted), policiesAccepted: Boolean(termsAccepted) },
+  });
+  const meritInputsKey = JSON.stringify({ payload: meritPayload, email: normalizeEmail(currentUser?.email), surchargeBps: meritConfig?.surchargeBps });
+  meritInputsRef.current = meritInputsKey;
+  const meritActiveSession = meritSession?.inputsKey === meritInputsKey ? meritSession : null;
+  const meritSelected = paymentMethod === "stripe" && checkoutStep === "payment";
+  const meritSurchargePercent = Number(meritActiveSession?.order?.customerCardSurchargeBps ?? meritConfig?.surchargeBps ?? 0) / 100;
+  const meritCreditSplit = meritActiveSession || estimateMeritCreditSplit(baseTotal, currentUser ? storeCredit : 0, meritConfig?.surchargeBps);
+  const stripeFeeAmount = meritSelected ? meritCreditSplit.surchargeCents / 100 : 0;
   const totalAfterDiscount = baseTotal - cryptoDiscountAmount + stripeFeeAmount;
   const PAYPAL_FEE_RATE = 0;
   const paypalFee = 0;
   const totalWithFee = totalAfterDiscount + paypalFee;
-  // Snapshot refs — captured at PayPal order-creation time so onPaypalApprove
-  // always saves what was actually charged, even if the cart changes mid-flow.
   const paypalSnapshotRef = useRef(null);
-  const storeCreditApplied = (currentUser && storeCredit > 0) ? Math.min(storeCredit, totalWithFee) : 0;
-  const finalTotal = Math.max(0, totalWithFee - storeCreditApplied);
+  // Preview credit is informational. The authenticated Merit response replaces
+  // every amount before its card form mounts; full-credit uses its existing RPC.
+  const storeCreditApplied = meritSelected ? meritCreditSplit.storeCreditUsedCents / 100
+    : currentUser && storeCredit > 0 && totalWithFee > 0 && Math.round(storeCredit * 100) >= Math.round(totalWithFee * 100) ? totalWithFee : 0;
+  const finalTotal = meritSelected ? meritCreditSplit.amountCents / 100 : Math.max(0, totalWithFee - storeCreditApplied);
+  const stripeTemporarilyDisabled = meritConfig?.enabled !== true;
+  const checkoutInvoice = meritSelected && meritActiveSession?.order ? meritActiveSession.order : {
+    items: cart, subtotal, shipping, automaticDiscount, promoDiscount, affiliateDiscount,
+    promoCode: appliedPromo?.code, shippingType: effectiveShippingType,
+  };
+  useEffect(() => {
+    if (meritSession && meritSession.inputsKey !== meritInputsKey) {
+      if (meritAttemptRef.current?.submitted || meritAttemptRef.current?.createRequested) showMeritReservedAttempt();
+      else setMeritSession(null);
+    }
+  }, [meritInputsKey, meritSession]);
+  useEffect(() => {
+    if (currentUser?.email && paymentReturn.provider === "merit" && paymentReturn.status === "pending") setPage("payment-return");
+  }, [currentUser?.email]);
+  useEffect(() => {
+    if (page !== "payment-return" || paymentReturn.provider !== "merit" || paymentReturn.status === "success" || !currentUser?.email) return;
+    void checkMeritReturn();
+  }, [page, paymentReturn.provider, paymentReturn.order, currentUser?.email]);
 
-  // Stripe's $999 cap must be checked against the amount Stripe would actually
-  // charge (base order total minus store credit, BEFORE any payment-method-
-  // specific discount or fee) — not `finalTotal`, which reflects whichever
-  // method happens to be selected right now. Otherwise selecting a discounted
-  const stripeTemporarilyDisabled = true;
-
-  // Cash App orders are capped at $999, checked against the same
-  // pre-discount base amount as Stripe's cap (see comment above) so the
-  // 5% Cash App discount itself can't be used to sneak an order under the cap.
+  // Lightning orders are capped at $999 against the pre-credit base amount.
   const CASHAPP_LIMIT = 999;
+  const cashAppPaymentLabel = "Cash App";
+  const cashAppLightningLabel = tx("via Bitcoin Lightning", "через Bitcoin Lightning", "через Bitcoin Lightning", "über Bitcoin Lightning", "a través de Bitcoin Lightning");
   const cashAppEligibleAmount = Math.max(0, baseTotal - storeCreditApplied);
   const cashAppOverLimit = cashAppEligibleAmount > CASHAPP_LIMIT;
 
@@ -10006,7 +9885,7 @@ export default function App() {
 
   useEffect(() => {
     if (checkoutStep === "payment" && finalTotalRef.current > 0) {
-      setPaymentMethod("cashapp");
+      setPaymentMethod("stripe");
     }
   }, [checkoutStep]);
 
@@ -10036,11 +9915,17 @@ export default function App() {
     { key: "cart", label: `${t("cart")}${cartCount ? ` (${cartCount})` : ""}` },
   ];
 
+  function isCartOfferAvailable(item) {
+    if (!item || typeof item !== "object") return false;
+    const offer = resolveSelectedProduct(products, productSelectionFromProduct(item));
+    return Boolean(offer && !offer.outOfStock && Number.isFinite(offer.price));
+  }
+
   function getProductId(product) {
-    const packId = product.name === "BPC-157" && product.vials && product.vials !== 10
+    const packId = product.vials && Number(product.vials) !== 10
       ? `-${product.vials}v`
       : "";
-    return `${product.name}-${product.noteLabel ?? ""}-${product.dose}${packId}${product.fromWarehouse ? `-${product.fromWarehouse}` : ""}`;
+    return `${product.name}-${product.noteLabel ?? ""}-${product.dose}${packId}${(product.fromWarehouse || product.warehouse) === "us" ? "-us" : ""}`;
   }
 
   function getCatalogCardId(product, isUsWarehouse = false) {
@@ -10049,9 +9934,7 @@ export default function App() {
 
   function renderCatalogGroup(variants, isUsWarehouse = false, worldwideStyle = false) {
     const first = variants[0];
-    const normalized = variants.map((item) => isUsWarehouse
-      ? { ...item, price: (item.usPriceBase ?? item.price) + 5, originalPrice: (item.usPriceBase ?? item.price) + 5, fromWarehouse: "us" }
-      : item);
+    const normalized = variants.map(toStorefrontOffer);
     const byDose = Object.fromEntries(normalized.map((item) => [item.dose, item]));
     const pricesByDose = Object.fromEntries(normalized.map((item) => [item.dose, { 10: item.price }]));
     const selectedVariant = ({ dose, vials }) => vials === 10 ? byDose[dose] : null;
@@ -10167,16 +10050,17 @@ export default function App() {
   }
 
   function addToCart(product, source = "catalog") {
-    const addedId = getProductId(product);
-    const effectivePrice = product.price;
-    const productForCart = { ...product, price: effectivePrice };
+    if (!product || typeof product !== "object") return false;
+    const productForCart = resolveSelectedProduct(products, productSelectionFromProduct(product));
+    if (!productForCart || productForCart.outOfStock || !Number.isFinite(productForCart.price)) return false;
+    const addedId = getProductId(productForCart);
 
     setCart((current) => {
       const existing = current.find((item) => getProductId(item) === addedId);
       if (existing) {
         return current.map((item) =>
           getProductId(item) === addedId
-            ? { ...item, quantity: item.quantity + 1 }
+            ? { ...item, ...productForCart, quantity: item.quantity + 1 }
             : item
         );
       }
@@ -10195,8 +10079,9 @@ export default function App() {
       source,
       product_name: product.name,
       product_dose: product.dose,
-      product_price: product.price,
+      product_price: productForCart.price,
     });
+    return true;
   }
 
   function updateQuantity(id, change) {
@@ -10238,8 +10123,34 @@ export default function App() {
     return `$${num.toFixed(2)}`;
   }
 
+  async function prepareLegacyPaymentAttempt(provider, selection, syncedCF) {
+    const owner = currentUser?.id;
+    const snapshot = {
+      email: currentUser?.email?.trim().toLowerCase(),
+      ...Object.fromEntries(["firstName", "lastName", "country", "address", "address2", "city", "state", "postalCode", "phone", "taxId"].map(key => [key, syncedCF[key] || ""])),
+      orderNotes: getCheckoutOrderNotes(syncedCF), shippingType: effectiveShippingType,
+      subtotal: Number(subtotal.toFixed(2)), shipping: Number(shipping.toFixed(2)),
+      automaticDiscount: Number(automaticDiscount.toFixed(2)), promoDiscount: Number(promoDiscount.toFixed(2)),
+      promoCode: appliedPromo?.code || "", affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
+      affiliateCode: affiliateTrackingCode, affiliateOwnerEmail: affiliateTrackingOwnerEmail,
+      affiliateCommission: Number(affiliateCommission.toFixed(2)), cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
+      storeCreditUsed: Number(storeCreditApplied.toFixed(2)), total: Number(finalTotal.toFixed(2)),
+      items: cart.map(item => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price,
+        ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}), ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+        ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}) })),
+    };
+    const attempt = await legacyAttemptsRef.current.prepare(provider, selection, snapshot, owner);
+    if (checkoutBuyerRef.current !== owner) throw new Error("Sign in again before continuing checkout.");
+    const original = deferredLegacyOrderRef.current;
+    if (!original || original.email !== snapshot.email) throw new Error("Review your checkout details before continuing.");
+    deferredLegacyOrderRef.current = { ...original, ...snapshot, id: attempt.orderId, status: "pending", paymentProvider: "pending" };
+    setOrderNumber(attempt.orderId);
+    return attempt;
+  }
+
   async function createNowPayment() {
-    if (nowPaymentLoading) return;
+    if (nowPaymentLoading || legacyStartLockRef.current) return;
+    legacyStartLockRef.current = true;
 
     setNowPaymentLoading(true);
     setNowPaymentError("");
@@ -10247,6 +10158,9 @@ export default function App() {
     try {
       const payCurrency = activeNetworkOption?.payCurrency || "usdtrx";
       const syncedCF = readCheckoutSnapshot();
+      const attempt = await prepareLegacyPaymentAttempt("nowpayments", payCurrency, syncedCF);
+      const orderNumber = attempt.orderId;
+      if (attempt.url) { window.location.assign(attempt.url); return; }
       const email = (syncedCF.email || currentUser?.email || "").trim().toLowerCase();
       const now = new Date().toISOString();
 
@@ -10281,7 +10195,7 @@ export default function App() {
         phone: syncedCF.phone || "",
         taxId: syncedCF.taxId || "",
         orderNotes: getCheckoutOrderNotes(syncedCF),
-        items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
+        items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}), ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}) })),
       };
       await persistOrderToServer({
         id: orderNumber,
@@ -10293,14 +10207,12 @@ export default function App() {
 
       const res = await fetch("/api/create-payment", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: await legacyCheckoutHeaders(supabase, email),
         body: JSON.stringify({
           pay_currency: payCurrency,
           order_id: orderNumber,
-          success_url: `${window.location.origin}/?payment=success&order=${encodeURIComponent(orderNumber)}`,
-          cancel_url: `${window.location.origin}/?payment=cancelled&order=${encodeURIComponent(orderNumber)}`,
+          success_url: `${window.location.origin}/?provider=nowpayments&payment=pending&order=${encodeURIComponent(orderNumber)}`,
+          cancel_url: `${window.location.origin}/?provider=nowpayments&payment=cancelled&order=${encodeURIComponent(orderNumber)}`,
           customer_email: email || "",
           promoDiscount: Number(promoDiscount.toFixed(2)),
           promoCode: appliedPromo?.code || "",
@@ -10328,7 +10240,7 @@ export default function App() {
             noteLabel: item.noteLabel || "",
             price: item.price,
             quantity: item.quantity,
-            ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+            ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}),
           })),
         }),
       });
@@ -10363,7 +10275,7 @@ export default function App() {
           ? `${selectedCrypto} · ${selectedNetwork}`
           : selectedCrypto || "Crypto";
         try { localStorage.setItem(`tbv-pay-method-${orderNumber}`, cryptoLabel); } catch {}
-        window.location.assign(data.invoice_url);
+        window.location.assign(legacyAttemptsRef.current.remember(attempt, data.invoice_url));
         return;
       }
 
@@ -10373,16 +10285,23 @@ export default function App() {
         error?.message || "Failed to create NOWPayments payment."
       );
     } finally {
-      setNowPaymentLoading(false);
+      legacyStartLockRef.current = false; setNowPaymentLoading(false);
     }
   }
 
   async function createCatalystPayment() {
-    if (catalystPayLoading) return;
+    if (catalystPayLoading || legacyStartLockRef.current) return;
+    legacyStartLockRef.current = true;
     setCatalystPayLoading(true);
     setCatalystPayError("");
     const syncedCF = readCheckoutSnapshot();
     const email = (syncedCF.email || currentUser?.email || "").trim().toLowerCase();
+    let attempt;
+    try {
+      attempt = await prepareLegacyPaymentAttempt("catalystpay", "lightning", syncedCF);
+      if (attempt.url) { window.location.assign(attempt.url); legacyStartLockRef.current = false; setCatalystPayLoading(false); return; }
+    } catch (error) { setCatalystPayError(error.message); legacyStartLockRef.current = false; setCatalystPayLoading(false); return; }
+    const orderNumber = attempt.orderId;
     const now = new Date().toISOString();
 
     const meta = {
@@ -10415,7 +10334,7 @@ export default function App() {
       phone: syncedCF.phone || "",
         taxId: syncedCF.taxId || "",
         orderNotes: getCheckoutOrderNotes(syncedCF),
-      items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
+      items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}), ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}) })),
     };
     try {
       await persistOrderToServer({
@@ -10427,7 +10346,7 @@ export default function App() {
       });
       const res = await fetch("/api/create-catalystpay-session", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await legacyCheckoutHeaders(supabase, email),
         body: JSON.stringify({
           order_id: orderNumber,
           customer_email: email || "",
@@ -10456,7 +10375,7 @@ export default function App() {
             noteLabel: item.noteLabel || "",
             price: item.price,
             quantity: item.quantity,
-            ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+            ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}),
           })),
         }),
       });
@@ -10465,34 +10384,41 @@ export default function App() {
       if (!res.ok) throw new Error(data?.error || data?.message || "Failed to create CatalystPay invoice.");
       if (!data?.checkoutLink) throw new Error("CatalystPay checkout link was not returned.");
 
-      window.location.assign(data.checkoutLink);
+      window.location.assign(legacyAttemptsRef.current.remember(attempt, data.checkoutLink));
     } catch (error) {
-      setCatalystPayError(error?.message || "Failed to create Cash App (BTC) payment.");
+      setCatalystPayError(error?.message || "Failed to create Bitcoin Lightning payment.");
     } finally {
-      setCatalystPayLoading(false);
+      legacyStartLockRef.current = false; setCatalystPayLoading(false);
     }
   }
 
   async function createPaylioPayment(provider = "") {
-    if (paylioPaymentLoading) return;
+    if (paylioPaymentLoading || legacyStartLockRef.current) return;
+    legacyStartLockRef.current = true;
     setPaylioPaymentLoading(true);
     setPaylioPaymentError("");
     const syncedCF = readCheckoutSnapshot();
     const email = (syncedCF.email || currentUser?.email || "").trim().toLowerCase();
-    try { await markOrderCheckoutStartedById(orderNumber, provider || "Paylio"); } catch (e) { setPaylioPaymentError(e?.message || "Could not save this checkout."); setPaylioPaymentLoading(false); return; }
+    let attempt;
+    try {
+      attempt = await prepareLegacyPaymentAttempt("paylio", provider || "multi", syncedCF);
+      if (attempt.url) { window.location.assign(attempt.url); legacyStartLockRef.current = false; setPaylioPaymentLoading(false); return; }
+    } catch (error) { setPaylioPaymentError(error.message); legacyStartLockRef.current = false; setPaylioPaymentLoading(false); return; }
+    const orderNumber = attempt.orderId;
+    try { await markOrderCheckoutStartedById(orderNumber, provider || "Paylio"); } catch (e) { setPaylioPaymentError(e?.message || "Could not save this checkout."); legacyStartLockRef.current = false; setPaylioPaymentLoading(false); return; }
     try {
       const orderDescription = `10BottleValueCo ${orderNumber}`;
       const res = await fetch("/api/create-paylio-payment", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await legacyCheckoutHeaders(supabase, email),
         body: JSON.stringify({
           amount: Number(finalTotal.toFixed(2)),
           currency: "USD",
           orderId: orderNumber,
           note: orderDescription,
           provider: provider || "",
-          return_url: `${window.location.origin}/?payment=success&order=${encodeURIComponent(orderNumber)}`,
-          cancel_url: `${window.location.origin}/?payment=cancelled&order=${encodeURIComponent(orderNumber)}`,
+          return_url: `${window.location.origin}/?provider=paylio&payment=pending&order=${encodeURIComponent(orderNumber)}`,
+          cancel_url: `${window.location.origin}/?provider=paylio&payment=cancelled&order=${encodeURIComponent(orderNumber)}`,
           email,
           customer: {
             email,
@@ -10514,7 +10440,7 @@ export default function App() {
             noteLabel: item.noteLabel || "",
             price: item.price,
             quantity: item.quantity,
-            ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+            ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}),
           })),
           shippingType: effectiveShippingType,
           promoCode: appliedPromo?.code || "",
@@ -10551,11 +10477,11 @@ export default function App() {
       const paymentUrl = data?.payment_url;
       if (!paymentUrl) throw new Error("Paylio payment link was not returned by the server.");
       try { localStorage.setItem(`tbv-pay-method-${orderNumber}`, "Card"); } catch {}
-      window.location.assign(paymentUrl);
+      window.location.assign(legacyAttemptsRef.current.remember(attempt, paymentUrl));
     } catch (error) {
       setPaylioPaymentError(error?.message || "Failed to create Paylio card payment.");
     } finally {
-      setPaylioPaymentLoading(false);
+      legacyStartLockRef.current = false; setPaylioPaymentLoading(false);
     }
   }
 
@@ -10563,142 +10489,148 @@ export default function App() {
     await markOrderCheckoutStartedById(orderNumber, "PayPal");
   }
 
-  async function handleStripePayment() {
-    if (stripeLoading) return;
-    setStripeLoading(true);
-    setStripeError("");
+  function assertPaypalCheckoutReady() {
+    if (meritSelectionRef.current.method !== "paypal" || meritSelectionRef.current.step !== "payment"
+      || finalTotal <= 0 || storeCreditApplied > 0 || meritAttemptRef.current?.createRequested || meritAttemptRef.current?.submitted) {
+      throw new Error(tx("Select PayPal to pay the full amount. Choose card payment to combine it with store credit, or Pay with Credits when credit covers the order.", "Выберите PayPal для полной оплаты через PayPal. Для частичной оплаты кредитом магазина выберите карту, а при полном покрытии — оплату кредитами."));
+    }
+  }
+
+  function showMeritReservedAttempt() {
+    const message = tx("This payment may already be in progress. Continue this same checkout, or contact support before starting another payment.", "Эта оплата уже могла начаться. Продолжите то же оформление или обратитесь в поддержку перед новой оплатой.");
+    setStripeError(message);
+    setCheckoutMessage(message);
+    if (meritAttemptRef.current?.submitted && meritAttemptRef.current?.orderId) openMeritPending();
+  }
+
+  function openMeritPending(orderId = meritAttemptRef.current?.orderId) {
+    if (!orderId) return;
+    setPaymentReturn({ status: "pending", provider: "merit", order: orderId });
+    setPage("payment-return");
+  }
+
+  async function acceptMeritPaid(result, expectedId = meritSession?.orderId || paymentReturn.order) {
+    if (result?.ok !== true || result?.paid !== true || result.orderId !== expectedId || result.order?.id !== expectedId) return;
+    const order = { ...result.order.metadata, ...result.order };
+    setPaymentReturnOrder(order);
+    setPaymentReturn({ status: "success", provider: "merit", order: expectedId });
+    setPage("payment-return");
+    // Clear only matching product selections; a later cart survives a delayed return.
+    setCart(current => meritCartMatchesOrder(current, order) ? [] : current);
+    if (meritAttemptRef.current?.orderId === expectedId) {
+      try { window.sessionStorage.removeItem(MERIT_ATTEMPT_STORAGE_KEY); } catch { /* Local cleanup cannot undo confirmation. */ }
+      meritAttemptRef.current = null;
+    }
+    setMeritSession(null);
+    if (currentUser?.email) {
+      refreshUserOrdersFromSupabase(currentUser.email);
+      void loadStoreCredit(currentUser.email);
+    }
+  }
+
+  async function checkMeritReturn() {
+    if (meritReturnBusyRef.current || !paymentReturn.order) return;
+    meritReturnBusyRef.current = true;
+    setMeritReturnChecking(true);
+    setMeritReturnError("");
+    const requestingEmail = meritBuyerEmailRef.current;
     try {
-      const syncedCF = readCheckoutSnapshot();
-      const email = (syncedCF.email || currentUser?.email || "").trim().toLowerCase();
-      await persistOrderToServer({
-        id: orderNumber,
-        email,
-        status: "checkout",
-        total: Number(finalTotal.toFixed(2)),
-        metadata: {
-          id: orderNumber,
-          email,
-          status: "checkout",
-          paymentProvider: "Stripe",
-          checkoutStartedAt: new Date().toISOString(),
-          total: Number(finalTotal.toFixed(2)),
-          subtotal: Number(subtotal.toFixed(2)),
-          shipping: Number(shipping.toFixed(2)),
-          shippingType: effectiveShippingType,
-          automaticDiscount: Number(automaticDiscount.toFixed(2)),
-          promoDiscount: Number(promoDiscount.toFixed(2)),
-          promoCode: appliedPromo?.code || "",
-          affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-         cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-          affiliateCode: affiliateTrackingCode,
-          storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-          firstName: syncedCF.firstName || "",
-          lastName: syncedCF.lastName || "",
-          country: syncedCF.country || "",
-          address: syncedCF.address || "",
-          address2: syncedCF.address2 || "",
-          city: syncedCF.city || "",
-          state: syncedCF.state || "",
-          postalCode: syncedCF.postalCode || "",
-          phone: syncedCF.phone || "",
-          taxId: syncedCF.taxId || "",
-          orderNotes: getCheckoutOrderNotes(syncedCF),
-          items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price })),
-        },
-      });
-      const res = await fetch("/api/create-payment-intent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId: orderNumber,
-          email,
-          items: cart.map((item) => ({
-            name: item.name,
-            dose: item.dose,
-            noteLabel: item.noteLabel || "",
-            price: item.price,
-            quantity: item.quantity,
-            ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
-          })),
-          affiliateCode: affiliateTrackingCode || "",
-          shippingType: effectiveShippingType,
-          promoCode: appliedPromo?.code || "",
-          promoDiscount: Number(promoDiscount.toFixed(2)),
-          promoFreeShipping: Boolean(appliedPromo?.freeShipping || ownerFreeShippingActive),
-          affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-          cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-          storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-          metadata: {
-            orderId: orderNumber,
-            email,
-            firstName: syncedCF.firstName || "",
-            lastName: syncedCF.lastName || "",
-            country: syncedCF.country || "",
-            address: syncedCF.address || "",
-            address2: syncedCF.address2 || "",
-            city: syncedCF.city || "",
-            state: syncedCF.state || "",
-            postalCode: syncedCF.postalCode || "",
-            phone: syncedCF.phone || "",
-            taxId: syncedCF.taxId || "",
-            orderNotes: getCheckoutOrderNotes(syncedCF),
-            affiliateCode: affiliateTrackingCode || "",
-            shippingType: effectiveShippingType,
-            total: Number(finalTotal.toFixed(2)),
-            subtotal: Number(subtotal.toFixed(2)),
-            shipping: Number(shipping.toFixed(2)),
-            automaticDiscount: Number(automaticDiscount.toFixed(2)),
-            promoDiscount: Number(promoDiscount.toFixed(2)),
-            affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-            cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-          },
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.clientSecret) throw new Error(data?.error || "Failed to create payment.");
-      // Save order to localStorage so success page can reconstruct details
-      try {
-        const localOrder = {
-          id: orderNumber,
-          email,
-          status: "checkout",
-          paymentProvider: "Stripe",
-          total: Number(finalTotal.toFixed(2)),
-          subtotal: Number(subtotal.toFixed(2)),
-          shipping: Number(shipping.toFixed(2)),
-          shippingType,
-          automaticDiscount: Number(automaticDiscount.toFixed(2)),
-          promoDiscount: Number(promoDiscount.toFixed(2)),
-          promoCode: appliedPromo?.code || "",
-          affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-          cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-          affiliateCode: affiliateTrackingCode,
-          affiliateOwnerEmail: affiliateTrackingOwnerEmail,
-          affiliateCommission: Number(affiliateCommission.toFixed(2)),
-          storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-          firstName: syncedCF.firstName || "",
-          lastName: syncedCF.lastName || "",
-          country: syncedCF.country || "",
-          address: syncedCF.address || "",
-          address2: syncedCF.address2 || "",
-          city: syncedCF.city || "",
-          state: syncedCF.state || "",
-          postalCode: syncedCF.postalCode || "",
-          phone: syncedCF.phone || "",
-          taxId: syncedCF.taxId || "",
-          orderNotes: getCheckoutOrderNotes(syncedCF),
-          items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price })),
-          createdAt: new Date().toISOString(),
-        };
-        const existingOrders = JSON.parse(localStorage.getItem("tbv-orders") || "[]");
-        const filtered = existingOrders.filter((o) => o.id !== orderNumber);
-        localStorage.setItem("tbv-orders", JSON.stringify([localOrder, ...filtered]));
-      } catch {}
-      setStripeClientSecret(data.clientSecret);
-      setStripeLoading(false);
-    } catch (err) {
-      setStripeError(err?.message || "Something went wrong. Please try again.");
+      const result = await meritApi.reconcile({ orderId: paymentReturn.order });
+      if (meritBuyerEmailRef.current !== requestingEmail) return;
+      if (result.paid === true) await acceptMeritPaid(result, paymentReturn.order);
+    } catch (error) {
+      setMeritReturnError(error?.code === "authentication_required"
+        ? tx("Sign in to the account used for this order, then check its status.", "Войдите в аккаунт, с которого сделан заказ, и проверьте статус.")
+        : tx("We could not confirm the payment yet. Check its status before trying another payment.", "Пока не удалось подтвердить оплату. Проверьте статус, прежде чем оплачивать повторно."));
+    } finally { meritReturnBusyRef.current = false; setMeritReturnChecking(false); }
+  }
+
+  function handleMeritState(state) {
+    const attempt = meritAttemptRef.current;
+    if (!attempt) return;
+    // Persist before confirmation starts, so refresh/redirect recovers status.
+    if (state.phase === "confirming" || state.submitted) attempt.submitted = true;
+    else if (state.phase === "error" && !state.submitted) attempt.submitted = false;
+    try { saveMeritAttempt(window.sessionStorage, attempt); } catch { /* In-memory lock remains active. */ }
+  }
+
+  async function handleStripePayment() {
+    if (meritCreateBusyRef.current || stripeTemporarilyDisabled) return;
+    if (meritAttemptRef.current?.submitted) { openMeritPending(); return; }
+    if (!currentUser?.email) { setPage("account"); return; }
+    const syncedForm = readCheckoutSnapshot();
+    const errors = validateCheckoutForm(syncedForm);
+    if (Object.keys(errors).length || !researchAccepted || !qualifiedAccepted || !termsAccepted) {
+      setCheckoutErrors(errors); setCheckoutStep("details");
+      setCheckoutMessage(tx("Review your contact details and checkout confirmations.", "Проверьте контактные данные и подтверждения при оформлении."));
+      return;
+    }
+    rememberValidCheckoutDetails(syncedForm);
+    // Buffered fields must be committed before requesting the canonical quote.
+    const payload = buildMeritCheckoutPayload({ ...meritPayload, checkoutForm: syncedForm, orderNotes: getCheckoutOrderNotes(syncedForm) });
+    const requestedInputs = JSON.stringify({ payload, email: normalizeEmail(currentUser.email), surchargeBps: meritConfig.surchargeBps });
+    meritCreateBusyRef.current = true;
+    setStripeLoading(true); setStripeError("");
+    try {
+      const digest = await meritPayloadDigest(payload, currentUser.email, meritConfig.surchargeBps);
+      const previous = meritAttemptRef.current;
+      if (previous?.createRequested && previous.digest !== digest) { showMeritReservedAttempt(); return; }
+      const attempt = previous?.digest === digest ? previous : { key: window.crypto.randomUUID(), digest, orderId: "", submitted: false };
+      meritAttemptRef.current = attempt;
+      saveMeritAttempt(window.sessionStorage, attempt);
+      const verificationAbort = new AbortController();
+      meritVerificationAbortRef.current = verificationAbort;
+      const proof = await verifyMeritCheckoutBuyer(currentUser.email, undefined, { signal: verificationAbort.signal });
+      if (!proof) return;
+      if (meritInputsRef.current !== requestedInputs || meritSelectionRef.current.method !== "stripe" || meritSelectionRef.current.step !== "payment") throw new Error("checkout_changed");
+      // Persist before network I/O: a lost create response may already hold
+      // credit. Only this key and unchanged input may recover that reservation.
+      attempt.createRequested = payload.useStoreCredit === true;
+      saveMeritAttempt(window.sessionStorage, attempt);
+      const result = await meritApi.create({ checkoutKey: attempt.key, payload, proof });
+      attempt.orderId = result.session.orderId;
+      if (result.session.storeCreditUsedCents === 0) attempt.createRequested = false;
+      if (result.paid === true) {
+        // A recovered create response may describe an already-paid attempt.
+        // Reconcile it immediately; never remount a form that can confirm again.
+        attempt.submitted = true;
+        saveMeritAttempt(window.sessionStorage, attempt);
+        meritReturnBusyRef.current = true;
+        setMeritReturnChecking(true);
+        openMeritPending(attempt.orderId);
+        try {
+          const confirmed = await meritApi.reconcile({ orderId: attempt.orderId });
+          if (meritBuyerEmailRef.current === normalizeEmail(currentUser.email) && confirmed.paid === true) {
+            await acceptMeritPaid(confirmed, attempt.orderId);
+          }
+        } catch {
+          setMeritReturnError(tx("We could not confirm the payment yet. Check its status before trying another payment.", "Пока не удалось подтвердить оплату. Проверьте статус, прежде чем оплачивать повторно."));
+        } finally {
+          meritReturnBusyRef.current = false;
+          setMeritReturnChecking(false);
+        }
+        return;
+      }
+      saveMeritAttempt(window.sessionStorage, attempt);
+      if (meritInputsRef.current !== requestedInputs || meritSelectionRef.current.method !== "stripe" || meritSelectionRef.current.step !== "payment") throw new Error("checkout_changed");
+      setOrderNumber(result.session.orderId);
+      setMeritSession({ ...result.session, order: { ...result.order.metadata, ...result.order }, inputsKey: requestedInputs });
+    } catch (error) {
+      if (["MERIT_PROMO_UNVERIFIED", "MERIT_AFFILIATE_UNVERIFIED", "MERIT_FULL_CREDIT_AVAILABLE", "MERIT_CREDIT_PENDING", "MERIT_CREDIT_BALANCE_UNAVAILABLE"].includes(error?.code) && !meritAttemptRef.current?.orderId) {
+        meritAttemptRef.current.createRequested = false;
+        saveMeritAttempt(window.sessionStorage, meritAttemptRef.current);
+      }
+      if (error?.code === "MERIT_FULL_CREDIT_AVAILABLE") await loadStoreCredit(currentUser.email);
+      const businessError = meritCheckoutBusinessError(error, language);
+      setStripeError(businessError || (error?.code === "authentication_required"
+        ? tx("Your sign-in has expired. Sign in again, then continue.", "Срок входа истёк. Войдите снова и продолжите.")
+        : error?.message === "checkout_changed"
+          ? tx("Your checkout changed. Review the total and continue again.", "Данные заказа изменились. Проверьте сумму и продолжите снова.")
+          : tx("We could not open secure payment. Continue again to recover the same checkout.", "Не удалось открыть защищённую оплату. Продолжите снова, чтобы восстановить то же оформление.")));
     } finally {
+      meritVerificationAbortRef.current?.abort();
+      meritVerificationAbortRef.current = null;
+      meritCreateBusyRef.current = false;
       setStripeLoading(false);
     }
   }
@@ -10741,7 +10673,7 @@ export default function App() {
         phone: syncedCF.phone || "",
         taxId: syncedCF.taxId || "",
         orderNotes: getCheckoutOrderNotes(syncedCF),
-        items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
+        items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}), ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}) })),
       };
       await persistOrderToServer({
         id: orderNumber,
@@ -10770,7 +10702,7 @@ export default function App() {
     const snap = paypalSnapshotRef.current;
     const checkoutSnapshot = snap?.checkout || readCheckoutSnapshot();
     const snapTotal = snap?.total ?? Number(finalTotal.toFixed(2));
-    const snapItems = snap?.items ?? cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) }));
+    const snapItems = snap?.items ?? cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}), ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}) }));
     const snapSubtotal = snap?.subtotal ?? Number(subtotal.toFixed(2));
     const snapShipping = snap?.shipping ?? Number(shipping.toFixed(2));
     const snapShippingType = snap?.shippingType ?? shippingType;
@@ -10795,7 +10727,7 @@ export default function App() {
           affiliateCode: snap?.affiliateCode ?? affiliateTrackingCode,
           affiliateOwnerEmail: snap?.affiliateOwnerEmail ?? affiliateTrackingOwnerEmail,
           affiliateCommission: snap?.affiliateCommission ?? Number(affiliateCommission.toFixed(2)),
-          storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
+          storeCreditUsed: 0,
           paypalFee: Number(paypalFee.toFixed(2)),
           firstName: checkoutSnapshot.firstName || "", lastName: checkoutSnapshot.lastName || "",
           country: checkoutSnapshot.country || "", address: checkoutSnapshot.address || "",
@@ -10893,7 +10825,7 @@ export default function App() {
       return;
     }
 
-    const promo = promoCatalog[normalizedCode];
+    const promo = Object.hasOwn(promoCatalog, normalizedCode) ? promoCatalog[normalizedCode] : null;
 
     if (appliedPromo && !(promo?.freeShipping)) {
       setPromoMessage(
@@ -10912,7 +10844,9 @@ export default function App() {
     );
 
     let matchedUserPromo = !promo && !matchedAffiliate
-      ? userPromos.find((p) => p.code === normalizedCode && (!p.used || p.email === "__PUBLIC__"))
+      ? userPromos.find((p) => p.code === normalizedCode && p.used === false && p.active !== false
+        && (!p.starts_at || Date.parse(p.starts_at) <= Date.now()) && (!p.ends_at || Date.parse(p.ends_at) > Date.now())
+        && Number(p.minimum_subtotal_cents || 0) <= Math.round(subtotal * 100))
       : null;
 
     if (!promo && !matchedAffiliate && !matchedUserPromo) {
@@ -10970,7 +10904,7 @@ export default function App() {
     }
 
     if (matchedUserPromo) {
-      if (usedPromoCodes.includes(normalizedCode)) {
+      if (matchedUserPromo.email !== "__PUBLIC__" && usedPromoCodes.includes(normalizedCode)) {
         setPromoMessage(
           tx(
             "This promo code has already been used.",
@@ -10986,7 +10920,7 @@ export default function App() {
       setAffiliateManuallyApplied(false);
       setActiveAffiliateCode("");
       try { localStorage.removeItem("tbv-active-affiliate"); } catch {}
-      setAppliedPromo({ code: normalizedCode, rate: matchedUserPromo.rate, label: `${+(matchedUserPromo.rate * 100).toFixed(2)}% personal discount`, type: "user_promo", id: matchedUserPromo.id });
+      setAppliedPromo({ code: normalizedCode, rate: matchedUserPromo.rate, label: `${+(matchedUserPromo.rate * 100).toFixed(2)}% discount`, type: "user_promo", id: matchedUserPromo.id });
       setPromoInput("");
       setPromoMessage(
         tx(
@@ -11436,7 +11370,28 @@ export default function App() {
     return errors;
   }
 
+  function requestCheckoutAttestation() {
+    if (cart.length === 0 || hasOutOfStockInCart) return;
+    setPendingAttestationAction(
+      finalTotal === 0 && storeCreditApplied > 0 ? "credits" : "checkout"
+    );
+    setAttestationModalOpen(true);
+  }
+
+  function rememberValidCheckoutDetails(snapshot) {
+    const detailsOwner = currentUser?.id;
+    // The scoped draft is written immediately; account sync is independent of
+    // the payment result and must not block a purchase when the network fails.
+    setCheckoutForm(snapshot);
+    void saveAccountCheckoutDetails(currentUser, snapshot).then(saved => {
+      if (saved && checkoutBuyerRef.current === detailsOwner) {
+        setCurrentUser(user => user?.id === detailsOwner ? { ...user, ...contactDetails(snapshot) } : user);
+      }
+    });
+  }
+
   async function handleCheckout(attestationOverride = null) {
+    if (meritAttemptRef.current?.submitted) { openMeritPending(); return; }
     const acceptedResearch = attestationOverride?.researchAccepted ?? researchAccepted;
     const acceptedQualified = attestationOverride?.qualifiedAccepted ?? qualifiedAccepted;
     const acceptedTerms = attestationOverride?.termsAccepted ?? termsAccepted;
@@ -11551,26 +11506,7 @@ export default function App() {
     setOrderNumber(generatedOrderNumber);
     setCheckoutMessage("");
 
-    if (currentUser?.email) {
-      const updatedUser = {
-        ...currentUser,
-        email: normalizedEmail,
-        firstName: syncedForm.firstName,
-        lastName: syncedForm.lastName,
-        country: syncedForm.country,
-        address: syncedForm.address,
-        city: syncedForm.city,
-        postalCode: syncedForm.postalCode,
-        phone: syncedForm.phone,
-      };
-
-      setCurrentUser(updatedUser);
-      setRegisteredUsers((current) =>
-        current.map((user) =>
-          user.email === currentUser.email ? { ...user, ...updatedUser } : user
-        )
-      );
-    }
+    rememberValidCheckoutDetails(syncedForm);
 
     const orderRecord = {
       id: generatedOrderNumber,
@@ -11617,46 +11553,13 @@ export default function App() {
         dose: item.dose,
         quantity: item.quantity,
         price: item.price,
-        ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+        ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}),
         ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}),
       })),
     };
 
-    try {
-      const existingOrders = JSON.parse(
-        localStorage.getItem("tbv-orders") || "[]"
-      );
-      const nextOrders = Array.isArray(existingOrders)
-        ? [orderRecord, ...existingOrders]
-        : [orderRecord];
-      localStorage.setItem("tbv-orders", JSON.stringify(nextOrders));
-      setAllOrders(nextOrders);
-      setUserOrders(getPaidOrdersForEmail(normalizedEmail, nextOrders));
-    } catch (error) {
-      console.error("Failed to save order", error);
-    }
-
-    try {
-      await persistOrderToServer({
-        id: orderRecord.id,
-        email: orderRecord.email,
-        status: orderRecord.status,
-        total: orderRecord.total,
-        metadata: orderRecord,
-      });
-    } catch (error) {
-      console.error("Checkout order save failed:", error);
-      setCheckoutMessage(
-        tx(
-          "Could not save your order. Please try again.",
-          "Не удалось сохранить заказ. Повторите попытку.",
-          "Не вдалося зберегти замовлення. Спробуйте ще раз.",
-          "Ihre Bestellung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
-          "No se pudo guardar el pedido. Inténtalo de nuevo."
-        )
-      );
-      return;
-    }
+    deferredLegacyOrderRef.current = orderRecord;
+    legacyAttemptsRef.current.begin(orderRecord.id, currentUser.id);
 
     setPaymentTimer(59 * 60 + 45);
     setNowPaymentData(null);
@@ -11674,6 +11577,7 @@ export default function App() {
   }
 
   async function handlePayWithCredits(attestationOverride = null) {
+    if (meritAttemptRef.current?.submitted || meritAttemptRef.current?.createRequested) { showMeritReservedAttempt(); return; }
     const acceptedResearch = attestationOverride?.researchAccepted ?? researchAccepted;
     const acceptedQualified = attestationOverride?.qualifiedAccepted ?? qualifiedAccepted;
     const acceptedTerms = attestationOverride?.termsAccepted ?? termsAccepted;
@@ -11725,12 +11629,14 @@ export default function App() {
       return;
     }
 
+    rememberValidCheckoutDetails(syncedForm);
+
     const checkoutPayload = {
       items: cart.map((item) => ({
         name: item.name,
         dose: item.dose,
         quantity: item.quantity,
-        ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+        ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}),
         ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}),
       })),
       checkoutForm: {
@@ -11746,7 +11652,7 @@ export default function App() {
         taxId: syncedForm.taxId || "",
       },
       shippingType: effectiveShippingType,
-      paymentMethod: checkoutStep === "payment" ? paymentMethod : "",
+      paymentMethod: checkoutStep === "payment" && paymentMethod !== "stripe" ? paymentMethod : "",
       promoCode: appliedPromo?.code || "",
       ownerFreeShipping: Boolean(ownerFreeShippingActive),
       affiliateCode: affiliateTrackingCode || "",
@@ -11907,16 +11813,8 @@ export default function App() {
     }
   }
 
-  function clearCheckoutFieldError(field) {
-    setCheckoutErrors((previous) => {
-      if (!previous[field]) return previous;
-      const next = { ...previous };
-      delete next[field];
-      return next;
-    });
-  }
-
   function updateCheckoutField(field, value) {
+    rememberCheckoutField(field, value);
     setCheckoutForm((current) => ({
       ...current,
       [field]: value,
@@ -11989,22 +11887,25 @@ export default function App() {
     return productSlugFor(p);
   }
 
+  function changeProductSelection(nextSelection, historyMode = "push") {
+    setProductSelection(nextSelection);
+    setCoaPage(0);
+    setCoaLightbox(false);
+    const query = new URLSearchParams(window.location.search);
+    if (currentAffiliateProfile?.code) query.set("c", currentAffiliateProfile.code.toLowerCase());
+    const path = productSelectionUrl(nextSelection, query.toString());
+    if (`${window.location.pathname}${window.location.search}` !== path) {
+      window.history[historyMode === "replace" ? "replaceState" : "pushState"]({}, "", path);
+    }
+  }
+
   function openProduct(product) {
     savedShopScrollY.current = window.scrollY;
     savedSidebarScrollTop.current = shopSidebarScrollRef.current?.scrollTop ?? 0;
     productOriginPage.current = page;
-    setSelectedProduct(product);
-    setCoaPage(0);
-    setCoaLightbox(false);
+    changeProductSelection(productSelectionFromProduct(product), "replace");
     setPage("product");
     window.scrollTo({ top: 0, behavior: "auto" });
-    const affCode = currentAffiliateProfile?.code;
-    const query = new URLSearchParams();
-    if (product.fromWarehouse === "us" || product.warehouse === "us") query.set("warehouse", "us");
-    if (affCode) query.set("c", affCode.toLowerCase());
-    const search = query.toString();
-    const newPath = `/${makeProductSlug(product)}${search ? `?${search}` : ""}`;
-    window.history.replaceState({}, "", newPath);
   }
 
   async function handleForgotSubmit(e) {
@@ -12408,6 +12309,7 @@ export default function App() {
   }
 
   async function handleSignOut() {
+    legacyAttemptsRef.current.clear();
     if (currentUser?.email && cart.length > 0) {
       await supabase.auth.updateUser({ data: { savedCart: cart } });
     }
@@ -12929,33 +12831,6 @@ export default function App() {
       : benefit;
   }
 
-  function getFaqParagraphs(text) {
-    if (!text) return [];
-
-    if (text.includes("\n\n")) {
-      return text
-        .split("\n\n")
-        .map((part) => part.trim())
-        .filter(Boolean);
-    }
-
-    if (text.length > 120) {
-      const parts = text.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g);
-      if (parts && parts.length > 1) {
-        return parts.map((part) => part.trim()).filter(Boolean);
-      }
-    }
-
-    return [text];
-  }
-
-  function toggleFaq(sectionKey, index) {
-    setOpenFaqs((current) => ({
-      ...current,
-      [sectionKey]: current[sectionKey] === index ? -1 : index,
-    }));
-  }
-
   // 1. Умная функция, которая раздает картинки и текст
   function getProductVisual(product) {
     const name = publicProductName(product?.name || "").replace(/\s*\/\s*GLP-\d+/i, "").trim();
@@ -13185,6 +13060,7 @@ export default function App() {
 
   const showAccountLoginBackdrop =
     page === "account" && (!currentUser || authMode === "reset");
+  const usesInfoPageBackdrop = page === "affiliate" || page === "faq";
   const accountDashboardBackdrop =
     page === "account" && Boolean(currentUser) && authMode !== "reset";
   const currentAccountAvatar = getAccountAvatar(currentUser?.avatarId);
@@ -13519,6 +13395,7 @@ export default function App() {
         </div>
       )}
       <div
+        ref={announcementBarRef}
         className="relative md:sticky md:top-0 z-[100]"
         data-affiliate-backdrop={page === "affiliate" ? "true" : undefined}
         data-mobile-announcement="true"
@@ -13617,16 +13494,14 @@ export default function App() {
         </div>
       )}
       <div
-        className={`tbv-app-shell min-h-screen ${page === "admin" ? "bg-[#0a0c10]" : "bg-[#8f8f8f]"} text-white ${page === "home" ? "tbv-app-shell--home" : ""} ${usesCatalogBackground ? "tbv-app-shell--catalog-background" : ""} ${pageBackdropImage ? "tbv-app-shell--photo-backdrop" : ""}`}
+        className={`tbv-app-shell min-h-screen ${page === "admin" ? "bg-[#0a0c10]" : "bg-[#8f8f8f]"} text-white ${page === "home" ? "tbv-app-shell--home" : ""} ${usesCatalogBackground ? "tbv-app-shell--catalog-background" : ""} ${pageBackdropImage ? "tbv-app-shell--photo-backdrop" : ""} ${usesInfoPageBackdrop ? "tbv-app-shell--info-background" : ""}`}
         data-affiliate-backdrop={page === "affiliate" ? "true" : undefined}
         style={
-          page === "affiliate"
+          usesInfoPageBackdrop
             ? {
-                backgroundImage: `linear-gradient(180deg, rgba(9, 13, 18, .32), rgba(9, 13, 18, .55)), url("${getPreloadedDisplayImageUrl(`${import.meta.env.BASE_URL}images/affiliate-lab-background.webp`)}")`,
-                backgroundSize: "cover",
-                backgroundPosition: "center top",
-                backgroundRepeat: "no-repeat",
-                backgroundAttachment: "fixed",
+                "--tbv-info-background-image": page === "affiliate"
+                  ? `linear-gradient(180deg, rgba(9, 13, 18, .32), rgba(9, 13, 18, .55)), url("${import.meta.env.BASE_URL}images/affiliate-lab-background.webp")`
+                  : `linear-gradient(rgba(76, 80, 86, 0.66), rgba(55, 59, 66, 0.72)), url("${pageBackdropImage}")`,
               }
             : pageBackdropImage
             ? {
@@ -13649,10 +13524,12 @@ export default function App() {
         }
       >
         <header
+          ref={stickyHeaderRef}
           data-nosnippet
           data-home-header={page === "home" ? "true" : undefined}
           data-affiliate-header={page === "affiliate" ? "true" : undefined}
-          className={`sticky top-0 md:top-[32px] z-[200] border-b border-white/20 pb-0 md:pb-[3px] ${
+          style={{ "--tbv-announcement-height": "32px" }}
+          className={`sticky top-0 md:top-[var(--tbv-announcement-height)] z-[200] border-b border-white/20 pb-0 md:pb-[3px] ${
             page === "admin"
               ? "bg-black"
               : pageBackdropImage || usesCatalogBackground
@@ -13667,15 +13544,11 @@ export default function App() {
                 event.preventDefault();
                 handleLogoClick();
               }}
-              className={`flex items-center gap-1 active:scale-95 ${
-                isScrolled
-                  ? "md:pointer-events-none md:invisible md:w-0 md:overflow-hidden md:opacity-0"
-                  : ""
-              }`}
+              className="flex items-center gap-1 active:scale-95"
             >
               <img
                 ref={logoImgRef}
-                src={getPreloadedDisplayImageUrl(`${import.meta.env.BASE_URL}images/header-vial.png`)}
+                src={getPreloadedDisplayImageUrl(`${import.meta.env.BASE_URL}images/header-vial-264.webp`)}
                 alt="10BottleValueCo — Research Peptides"
                 className="h-[46px] w-auto -translate-y-[2px] object-contain brightness-110 md:h-[66px] md:-translate-y-[1px]"
                 style={{ display: "inline-block" }}
@@ -13688,7 +13561,7 @@ export default function App() {
             </a>
 
             {/* Desktop nav */}
-            <nav className={`ml-auto hidden flex-1 items-center justify-end gap-1 ${isScrolled ? "-translate-x-16" : ""} 2xl:flex ${page === "home" ? "lg:flex" : ""}`}>
+            <nav className="ml-auto hidden flex-1 items-center justify-end gap-1 2xl:flex">
               {showScrollTop && page === "shop" && (
                 <button
                   onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
@@ -13747,7 +13620,7 @@ export default function App() {
             </nav>
 
             {/* Mobile: cart pill + hamburger */}
-            <div className={`ml-auto flex items-center gap-2 2xl:hidden ${page === "home" ? "lg:hidden" : ""}`}>
+            <div className="ml-auto flex items-center gap-2 2xl:hidden">
               <a
                 href="/cart"
                 onClick={(event) => handlePublicPageLink(event, "cart")}
@@ -13808,8 +13681,9 @@ export default function App() {
           </button>
         )}
 
-        {/* Mobile menu drawer */}
-        {isMobileMenuOpen && (
+        {/* Portal escapes the homepage's isolated stacking context so the
+            announcement cannot cover the menu heading or close control. */}
+        {isMobileMenuOpen && createPortal(
           <div className="fixed inset-0 z-[200] 2xl:hidden" role="dialog" aria-modal="true">
             <div
               className="absolute inset-0 bg-black/60"
@@ -13858,7 +13732,8 @@ export default function App() {
                 ))}
               </nav>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
 
         {page === "home" && (
@@ -14440,6 +14315,35 @@ export default function App() {
                     </div>
                   );
                 })()}
+                <fieldset className="mt-4" aria-describedby={selectedProductUnavailable ? "warehouse-availability" : undefined}>
+                  <legend className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/60">
+                    {tx("Warehouse", "Склад", "Склад", "Lager", "Almacén")}
+                  </legend>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {[["worldwide", "WORLDWIDE"], ["us", "US"]].map(([warehouse, label]) => {
+                      const active = productSelection.warehouse === warehouse;
+                      const offer = resolveSelectedProduct(products, { ...productSelection, warehouse });
+                      const unavailable = !offer || offer.outOfStock;
+                      return (
+                        <button key={warehouse} type="button"
+                          onClick={() => { if (!active) changeProductSelection({ ...productSelection, warehouse }); }}
+                          aria-pressed={active}
+                          aria-label={`${label}${unavailable ? ` — ${tx("unavailable for this configuration", "эта комплектация недоступна", "ця комплектація недоступна", "diese Variante ist nicht verfügbar", "esta configuración no está disponible")}` : ""}`}
+                          className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-4 py-2 text-[12px] font-bold uppercase tracking-[0.12em] ${active ? "border-white bg-white text-black" : "border-white/20 bg-white/10 text-white hover:bg-white/20"}`}>
+                          <span>{label}</span>
+                          {unavailable && <span className="text-[9px] font-semibold tracking-normal opacity-60">{tx("Unavailable", "Недоступно", "Недоступно", "Nicht verfügbar", "No disponible")}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {selectedProductUnavailable && (
+                    <p id="warehouse-availability" role="status" className="mt-2 text-[12px] leading-5 text-white/80">
+                      {selectedProduct.dose} · {productSelection.vials} {tx("vials", "флаконов", "флаконів", "Fläschchen", "viales")} — {selectedProductConfigurationMissing
+                        ? tx("not available from this warehouse. Your strength and pack size have been kept.", "нет на этом складе. Дозировка и размер набора сохранены.", "немає на цьому складі. Дозування та розмір набору збережено.", "in diesem Lager nicht verfügbar. Stärke und Packungsgröße bleiben erhalten.", "no disponible en este almacén. Se mantienen la dosis y el tamaño del paquete.")
+                        : tx("out of stock at this warehouse.", "нет в наличии на этом складе.", "немає в наявності на цьому складі.", "in diesem Lager ausverkauft.", "agotado en este almacén.")}
+                    </p>
+                  )}
+                </fieldset>
                 {(() => {
                   const isUs = selectedProductIsUs;
                   const variants = products.filter(p =>
@@ -14447,6 +14351,7 @@ export default function App() {
                     (p.noteLabel ?? "") === (selectedProduct.noteLabel ?? "") &&
                     (isUs ? p.warehouse === "us" : !p.warehouse)
                   ).sort((a, b) => parseFloat(a.dose) - parseFloat(b.dose));
+                  if (!variants.some(v => v.dose === selectedProduct.dose)) variants.push(selectedProduct);
                   if (variants.length < 2) return null;
                   return (
                     <div className="mt-4 flex items-center gap-2 flex-wrap">
@@ -14457,7 +14362,7 @@ export default function App() {
                           <div key={`${v.dose}-${v.noteLabel ?? ""}-${v.warehouse ?? "ww"}`} className="flex items-center gap-1.5">
                             <button
                               type="button"
-                              onClick={() => { if (!isActive) { setSelectedProduct(isUs ? { ...v, fromWarehouse: "us" } : v); setCoaPage(0); setCoaLightbox(false); } }}
+                              onClick={() => { if (!isActive) changeProductSelection({ ...productSelectionFromProduct(v), warehouse: productSelection.warehouse, vials: productSelection.vials }); }}
                               aria-label={`${v.dose.toUpperCase()}${v.outOfStock ? ", OUT OF STOCK" : ""}`}
                               className={`rounded-full px-4 py-1.5 text-[12px] font-bold uppercase tracking-[0.14em] border transition-none ${
                                 isActive
@@ -14474,7 +14379,16 @@ export default function App() {
                   );
                 })()}
 
-                <ProductPackSelector language={language} price={selectedProduct.price} />
+                <ProductPackSelector
+                  language={language}
+                  price={selectedProduct.price}
+                  selectedVials={productSelection.vials}
+                  pricesByPack={Object.fromEntries([1, 5, 10].map(vials => {
+                    const offer = resolveSelectedProduct(products, { ...productSelection, vials });
+                    return [vials, offer?.unavailableReason === "configuration" ? null : offer?.price];
+                  }))}
+                  onSelectPack={vials => changeProductSelection({ ...productSelection, vials })}
+                />
 
                 <div className={`mt-5 rounded-2xl border-2 border-[rgba(255,255,255,0.2)] ${productDetailOverlayClass} shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_12px_26px_rgba(0,0,0,0.2)]`}>
                   <div className="relative grid w-full grid-cols-2 grid-rows-2 text-center text-white">
@@ -14511,7 +14425,7 @@ export default function App() {
                     <div className="min-w-0 flex flex-col justify-center px-3 py-4 md:px-4 md:py-5">
                       <div className="mb-1 text-xs font-extrabold uppercase tracking-[0.08em] text-white/90 md:text-sm">{t("kitTotal")}</div>
                       <div className="break-words text-base font-bold leading-snug md:text-lg">
-                        {selectedProduct.name === "TB-500 + BPC-157"
+                        {selectedProductConfigurationMissing ? "—" : selectedProduct.name === "TB-500 + BPC-157"
                           ? `${parseFloat(selectedProduct.dose) * 10} mg total`
                           : selectedProduct.total}
                       </div>
@@ -14521,7 +14435,7 @@ export default function App() {
                         {language === "EN" ? "Price/vial" : t("pricePerVial")}
                       </div>
                       <div className="break-words text-base font-bold leading-snug md:text-lg">
-                        {formatPricePrecise(selectedProduct.price / (selectedProduct.vials || 10))}
+                        {selectedProductConfigurationMissing ? "—" : formatPricePrecise(selectedProduct.price / (selectedProduct.vials || 10))}
                       </div>
                     </div>
                   </div>
@@ -14531,10 +14445,12 @@ export default function App() {
                   <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
                     <div className="flex items-baseline gap-3 flex-wrap">
                       <div className="text-[40px] font-bold leading-none tracking-[-0.06em] text-white md:text-[52px]">
-                          {selectedProduct.name === "BPC-157" ? formatPricePrecise(selectedProduct.price) : formatPrice(selectedProduct.price)}
+                          {selectedProductConfigurationMissing ? "—" : selectedProduct.name === "BPC-157" ? formatPricePrecise(selectedProduct.price) : formatPrice(selectedProduct.price)}
                         </div>
                       <div className="self-center text-[12px] font-semibold uppercase tracking-[0.18em] text-white/60">
-                        {selectedProductIsUs ? (
+                        {selectedProductConfigurationMissing ? (
+                          <span>{tx("Not available from this warehouse", "Недоступно на этом складе", "Недоступно на цьому складі", "In diesem Lager nicht verfügbar", "No disponible en este almacén")}</span>
+                        ) : selectedProductIsUs ? (
                           language === "RU" ? (
                             <>
                               <span>10 ФЛАКОНОВ ВКЛЮЧЕНО</span>
@@ -14602,7 +14518,9 @@ export default function App() {
                   <div className="mt-5 grid gap-3 sm:grid-cols-2">
                     {selectedProductUnavailable ? (
                       <div ref={productPrimaryActionRef} className="sm:col-span-2 inline-flex w-full justify-center rounded-full border border-white/20 px-7 py-4 text-[14px] font-black uppercase tracking-[0.22em] bg-white/10 text-white/50 cursor-not-allowed">
-                        Out of stock
+                        {selectedProductConfigurationMissing
+                          ? tx("Unavailable", "Недоступно", "Недоступно", "Nicht verfügbar", "No disponible")
+                          : tx("Out of stock", "Нет в наличии", "Немає в наявності", "Nicht auf Lager", "Agotado")}
                       </div>
                     ) : (
                       <>
@@ -14641,8 +14559,7 @@ export default function App() {
                         </div>
                         <button
                           onClick={() => {
-                            addToCart(selectedProduct, "product");
-                            setPage("cart");
+                            if (addToCart(selectedProduct, "product")) setPage("cart");
                           }}
                           className="inline-flex w-full justify-center rounded-full border border-white/30 bg-white px-7 py-4 text-[14px] font-black uppercase tracking-[0.22em] text-black shadow-[0_12px_30px_rgba(0,0,0,0.18)] transition hover:bg-white/90"
                         >
@@ -14738,7 +14655,7 @@ export default function App() {
                       {publicProductName(selectedProduct.name)} · {selectedProduct.dose?.replace(/ each$/i, "")}
                     </div>
                     <div ref={stickyProductPriceRef} className="shrink-0 whitespace-nowrap text-lg font-extrabold leading-none tracking-tight text-white">
-                      {selectedProduct.name === "BPC-157" ? formatPricePrecise(selectedProduct.price) : formatPrice(selectedProduct.price)}
+                      {selectedProductConfigurationMissing ? "—" : selectedProduct.name === "BPC-157" ? formatPricePrecise(selectedProduct.price) : formatPrice(selectedProduct.price)}
                     </div>
                   </div>
                   {selectedProductUnavailable ? (
@@ -14747,7 +14664,9 @@ export default function App() {
                       disabled
                       className="inline-flex h-10 min-w-[124px] shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-white/20 px-3 text-center text-[10px] font-black uppercase tracking-[0.07em] text-white/50 shadow-[0_8px_24px_rgba(0,0,0,0.2)] cursor-not-allowed transition-none"
                     >
-                      {tx("Out of stock", "Нет в наличии", "Немає в наявності", "Nicht auf Lager", "Agotado")}
+                      {selectedProductConfigurationMissing
+                        ? tx("Unavailable", "Недоступно", "Недоступно", "Nicht verfügbar", "No disponible")
+                        : tx("Out of stock", "Нет в наличии", "Немає в наявності", "Nicht auf Lager", "Agotado")}
                     </button>
                   ) : selectedProductCartQuantity > 0 ? (
                     <div className="flex h-10 w-[154px] shrink-0 overflow-hidden rounded-full border border-black shadow-[0_8px_24px_rgba(0,0,0,0.2)]">
@@ -14798,9 +14717,6 @@ export default function App() {
               page={page}
               language={language}
               tx={tx}
-              openFaqs={openFaqs}
-              toggleFaq={toggleFaq}
-              getFaqParagraphs={getFaqParagraphs}
               getPreloadedDisplayImageUrl={getPreloadedDisplayImageUrl}
               aboutBottleWiggle={aboutBottleWiggle}
               setAboutBottleWiggle={setAboutBottleWiggle}
@@ -14814,7 +14730,6 @@ export default function App() {
             <ShippingPricesPage
               tx={tx}
               getPublicImageUrl={getPreloadedDisplayImageUrl}
-              onVialImageLoad={cacheDisplayedPublicImage}
             />
           </ErrorBoundary>
         )}
@@ -14834,7 +14749,6 @@ export default function App() {
             onCopyEmail={copySupportEmail}
             onContact={() => setPage("contact")}
             getPublicImageUrl={getPreloadedDisplayImageUrl}
-            onVialImageLoad={cacheDisplayedPublicImage}
             onVialImageError={retryVialImage}
           />
           </Suspense>
@@ -15726,11 +15640,12 @@ export default function App() {
                                 const displayCredits = Number(order.storeCreditUsed || 0);
                                 const displayTotal = Number(order.total || 0);
                                 const knownDiscounts = Number(order.automaticDiscount || 0) + Number(order.promoDiscount || 0) + Number(order.affiliateDiscount || 0) + displayCredits + Number(order.cryptoDiscount || 0);
-                                const isStripeProvider = /stripe/i.test(order.paymentProvider || "");
+                                const meritSurcharge = meritOrderCardSurcharge(order);
+                                const isStripeProvider = !meritSurcharge.isMerit && /stripe/i.test(order.paymentProvider || "");
                                 const isCryptoProvider = /crypto|btc|eth|usdt|usdc|cash.?app|nowpayments|catalystpay|paylio/i.test(order.paymentProvider || "");
                                 const baseBeforeFee = displaySubtotal + displayShipping - knownDiscounts + Number(order.paypalFee || 0);
                                 const impliedStripeFee = isStripeProvider ? Math.round(baseBeforeFee * 0.0295 * 100) / 100 : 0;
-                                const rawImpliedDiscount = (displayTotal > 0.009 && displayTotal < baseBeforeFee + impliedStripeFee - 0.009) ? (baseBeforeFee + impliedStripeFee - displayTotal) : 0;
+                                const rawImpliedDiscount = !meritSurcharge.isMerit && (displayTotal > 0.009 && displayTotal < baseBeforeFee + impliedStripeFee - 0.009) ? (baseBeforeFee + impliedStripeFee - displayTotal) : 0;
                                 const isFeeArtifact = isStripeProvider && Math.abs(rawImpliedDiscount - impliedStripeFee) < 0.02;
                                 const impliedDiscount = isFeeArtifact ? 0 : rawImpliedDiscount;
                                 const impliedLabel = isCryptoProvider ? "Crypto disc. (2.5%)" : "Discount";
@@ -15766,6 +15681,7 @@ export default function App() {
                                 {impliedDiscount > 0 && (<><span className="text-white/50 uppercase tracking-[0.12em]">{impliedLabel}</span><span className="text-emerald-300 text-right tabular-nums">-{formatPricePrecise(impliedDiscount)}</span></>)}
                                 {Number(order.paypalFee) > 0 && (<><span className="text-white/50 uppercase tracking-[0.12em]">PayPal fee (4.9%)</span><span className="text-amber-300/80 text-right tabular-nums">+{formatPricePrecise(order.paypalFee)}</span></>)}
                                 {impliedStripeFee > 0.009 && (<><span className="text-white/50 uppercase tracking-[0.12em]">Stripe fee (2.95%)</span><span className="text-amber-300/80 text-right tabular-nums">+{formatPricePrecise(impliedStripeFee)}</span></>)}
+                                {meritSurcharge.isMerit && (<><span className="text-white/50 uppercase tracking-[0.12em]">{tx("Customer card surcharge", "Доплата покупателя за карту")}</span><span className="text-amber-300/80 text-right tabular-nums">{meritSurcharge.amount === null ? tx("Unknown", "Неизвестно") : `+${formatPricePrecise(meritSurcharge.amount)}`}</span></>)}
                                 <span className="text-white/50 uppercase tracking-[0.12em] font-bold">Total</span>
                                 {priceInput("total", displayTotal, "font-bold text-white")}
                               </div>
@@ -19791,37 +19707,18 @@ export default function App() {
         )}
 
         {page === "payment-return" && (
-          <main className="mx-auto max-w-2xl px-5 pt-4 pb-12 md:pt-6 md:pb-20">
+          <main className="payment-return-page mx-auto px-4 pt-4 pb-12 md:pt-6 md:pb-20">
             {paymentReturn.status === "success" ? (
-              <section className="overflow-hidden rounded-[2.4rem] border border-white/15 bg-black/25 shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
-                {/* Top accent bar */}
-                <div className="h-1 w-full bg-gradient-to-r from-emerald-400 via-emerald-300 to-teal-400" />
-
-                <div className="px-8 pt-10 pb-4 text-center md:px-12">
-                  {/* Icon */}
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-400/20 border border-emerald-400/40">
-                    <svg className="h-8 w-8 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  </div>
-
-                  <div className="mt-5 text-[10px] font-black uppercase tracking-[0.35em] text-emerald-400/80">
-                    {tx("Payment received", "Оплата получена", "Оплату отримано", "Zahlung erhalten", "Pago recibido")}
-                  </div>
-                  <h1 className="mt-3 text-3xl font-black uppercase tracking-[0.08em] text-white md:text-4xl">
-                    {tx("Order Confirmed", "Заказ подтверждён", "Замовлення підтверджено", "Bestellung bestätigt", "Pedido confirmado")}
-                  </h1>
-
-                  {paymentReturn.order && (
-                    <div className="mx-auto mt-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-5 py-2">
-                      <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white">{tx("Order", "Заказ", "Замовлення", "Bestellung", "Pedido")}</span>
-                      <span className="font-mono text-sm font-bold text-white">{paymentReturn.order}</span>
-                    </div>
-                  )}
-                </div>
+              <section className="payment-return-card">
+                <PaymentReturnHeader tone="success"
+                  eyebrow={tx("Payment received", "Оплата получена", "Оплату отримано", "Zahlung erhalten", "Pago recibido")}
+                  title={tx("Order Confirmed", "Заказ подтверждён", "Замовлення підтверджено", "Bestellung bestätigt", "Pedido confirmado")}
+                  order={paymentReturn.order}
+                  orderLabel={tx("Order", "Заказ", "Замовлення", "Bestellung", "Pedido")}
+                />
 
                 {/* Steps */}
-                <div className="mx-8 mt-6 mb-6 overflow-hidden rounded-[1.4rem] border border-white/25 bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] md:mx-12">
+                <div className="payment-return-block payment-return-steps mx-8 mt-6 mb-6 overflow-hidden rounded-[1.4rem] border border-white/25 bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] md:mx-12">
                   {[
                     {
                       icon: "✓",
@@ -19862,7 +19759,7 @@ export default function App() {
 
                 {/* Items ordered */}
                 {paymentReturnOrder && Array.isArray(paymentReturnOrder.items) && paymentReturnOrder.items.length > 0 && (
-                  <div className="mx-8 mb-6 overflow-hidden rounded-[1.4rem] border border-white/25 bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] md:mx-12">
+                  <div className="payment-return-block mx-8 mb-6 overflow-hidden rounded-[1.4rem] border border-white/25 bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] md:mx-12">
                     <div className="px-5 py-3 border-b border-white/15 bg-white/[0.04]">
                       <div className="text-[10px] font-black uppercase tracking-[0.28em] text-white">{tx("Items ordered", "Состав заказа", "Склад замовлення", "Bestellte Artikel", "Artículos pedidos")}</div>
                     </div>
@@ -19918,7 +19815,7 @@ export default function App() {
 
                 {/* Shipping method chosen */}
                 {paymentReturnOrder && (
-                  <div className="mx-8 mb-6 rounded-[1.2rem] border border-white/25 bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] px-5 py-4 md:mx-12">
+                  <div className="payment-return-block mx-8 mb-6 rounded-[1.2rem] border border-white/25 bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] px-5 py-4 md:mx-12">
                     <div className="text-[10px] font-black uppercase tracking-[0.28em] text-white text-center mb-3">
                       {tx("Your shipping method", "Ваш способ доставки", "Ваш спосіб доставки", "Ihre Versandart", "Tu método de envío")}
                     </div>
@@ -19967,7 +19864,7 @@ export default function App() {
 
                 {/* Delivery (shown only when no order data yet) */}
                 {!paymentReturnOrder && (
-                <div className="mx-8 mb-6 rounded-[1.2rem] border border-white/10 bg-white/[0.04] px-5 py-4 md:mx-12">
+                <div className="payment-return-block mx-8 mb-6 rounded-[1.2rem] border border-white/10 bg-white/[0.04] px-5 py-4 md:mx-12">
                   <div className="text-[10px] font-black uppercase tracking-[0.28em] text-white text-center mb-3">
                     {tx("Estimated delivery", "Примерные сроки доставки", "Орієнтовні терміни доставки", "Geschätzte Lieferzeit", "Entrega estimada")}
                   </div>
@@ -19985,7 +19882,7 @@ export default function App() {
                 )}
 
                 {/* Notes */}
-                <div className="mx-8 mb-8 space-y-2.5 md:mx-12">
+                <div className="payment-return-block mx-8 mb-8 space-y-2.5 md:mx-12">
                   {/* Note 1 */}
                   <div className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/25 px-4 py-3">
                     <span className="mt-0.5 text-base shrink-0">✉️</span>
@@ -20025,10 +19922,10 @@ export default function App() {
                 </div>
 
                 {/* Buttons */}
-                <div className="border-t border-white/10 px-8 py-6 md:px-12">
+                <div className="payment-return-actions border-t border-white/10 px-8 py-6 md:px-12">
                   <div className="flex flex-col gap-3 sm:flex-row">
                     <button type="button" onClick={() => { setAccountPromoCodeInput(""); setPage("account"); if (currentUser?.email && !isAdminUser()) refreshUserOrdersFromSupabase(currentUser.email); }}
-                      className="flex-1 rounded-full border border-white/40 bg-black/40 py-3.5 text-[11px] font-black uppercase tracking-[0.22em] text-white shadow-[0_4px_16px_rgba(0,0,0,0.25)] transition hover:bg-black/55 hover:border-white/60">
+                      className="payment-return-primary flex-1 rounded-full border border-white/40 bg-black/40 py-3.5 text-[11px] font-black uppercase tracking-[0.22em] text-white shadow-[0_4px_16px_rgba(0,0,0,0.25)] transition hover:bg-black/55 hover:border-white/60">
                       {tx("View Account", "Мой аккаунт", "Мій акаунт", "Mein Konto", "Mi cuenta")}
                     </button>
                     <button type="button" onClick={() => { setAccountPromoCodeInput(""); setPage("shop"); }}
@@ -20042,66 +19939,43 @@ export default function App() {
                   </div>
                 </div>
               </section>
-            ) : (catalystPayPending && paymentReturn.status !== "cancelled") ? (
-              <section className="overflow-hidden rounded-[2.4rem] border border-white/15 bg-black/25 shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
-                <div className="h-1 w-full bg-gradient-to-r from-amber-400 via-orange-300 to-amber-400" />
-                <div className="px-8 pt-12 pb-10 text-center md:px-12">
-                  {/* Spinner icon */}
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-amber-400/15 border border-amber-400/30">
-                    <svg className="h-8 w-8 text-amber-300 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"/>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
-                    </svg>
-                  </div>
-                  <div className="mt-5 text-[10px] font-black uppercase tracking-[0.35em] text-amber-400/80">
-                    {tx("Bitcoin payment", "Bitcoin оплата", "Bitcoin оплата", "Bitcoin-Zahlung", "Pago Bitcoin")}
-                  </div>
-                  <h1 className="mt-3 text-3xl font-black uppercase tracking-[0.08em] text-white md:text-4xl">
-                    {tx("Processing Payment", "Обработка платежа", "Обробка платежу", "Zahlung wird verarbeitet", "Procesando pago")}
-                  </h1>
-                  <p className="mx-auto mt-5 max-w-sm text-sm leading-7 text-white/60">
-                    {tx("Please wait while we confirm your payment. This usually takes a few seconds.",
-                      "Подождите, мы проверяем ваш платёж. Обычно это занимает несколько секунд.",
-                      "Зачекайте, ми перевіряємо ваш платіж.",
-                      "Bitte warten, wir prüfen Ihre Zahlung.",
-                      "Espere, estamos verificando su pago.")}
-                  </p>
-                  {paymentReturn.order && (
-                    <div className="mx-auto mt-5 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-5 py-2">
-                      <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/50">{tx("Order", "Заказ", "Замовлення", "Bestellung", "Pedido")}</span>
-                      <span className="font-mono text-sm font-bold text-white">{paymentReturn.order}</span>
-                    </div>
-                  )}
-                  <div className="mt-8 flex justify-center">
-                    <button type="button" onClick={() => { setAccountPromoCodeInput(""); setPage("contact"); }}
-                      className="rounded-full bg-white px-8 py-3.5 text-[11px] font-black uppercase tracking-[0.22em] text-black shadow-[0_8px_24px_rgba(0,0,0,0.2)] transition hover:bg-white/90">
-                      {tx("Contact Support", "Написать в поддержку", "Написати в підтримку", "Support kontaktieren", "Contactar soporte")}
-                    </button>
-                  </div>
+            ) : paymentReturn.provider === "merit" ? (
+              <section className="payment-return-card text-white">
+                <PaymentReturnHeader
+                  eyebrow={tx("Card payment", "Оплата картой")}
+                  title={tx("Checking payment", "Проверяем оплату")}
+                  description={tx("Your payment is not confirmed yet. Check its status before trying another payment.", "Оплата пока не подтверждена. Проверьте статус, прежде чем оплачивать повторно.")}
+                  order={paymentReturn.order}
+                  orderLabel={tx("Order", "Заказ", "Замовлення", "Bestellung", "Pedido")}
+                />
+                <div className="payment-return-pending-body">
+                {meritReturnError && <p className="mx-auto mt-4 max-w-lg text-sm text-amber-200" role="alert">{meritReturnError}</p>}
+                {currentUser?.email ? (
+                  <button type="button" disabled={meritReturnChecking} onClick={checkMeritReturn}
+                    className="mt-6 rounded-full bg-white px-7 py-3 text-sm font-semibold text-black disabled:opacity-50">
+                    {meritReturnChecking ? tx("Checking…", "Проверяем…") : tx("Check payment status", "Проверить статус оплаты")}
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => { setAuthMode("signin"); setPage("account"); }}
+                    className="mt-6 rounded-full bg-white px-7 py-3 text-sm font-semibold text-black">
+                    {tx("Sign in to check payment", "Войти и проверить оплату")}
+                  </button>
+                )}
                 </div>
               </section>
+            ) : paymentReturn.origin === "provider-return" ? (
+              <PaymentReturnReadStatus status={legacyReturnReadStatus} orderId={paymentReturn.order} tx={tx}
+                onSignIn={() => { legacyReturnResumeRef.current = true; setAuthMode("signin"); setPage("account"); }}
+                onRetry={() => setLegacyReturnRetry(value => value + 1)}
+                onSupport={() => { setAccountPromoCodeInput(""); setPage("contact"); }} />
             ) : (
-              <section className="overflow-hidden rounded-[2.4rem] border border-white/15 bg-black/25 shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
-                <div className="h-1 w-full bg-gradient-to-r from-red-400 via-orange-300 to-amber-400" />
-                <div className="px-8 pt-10 pb-8 text-center md:px-12">
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-400/15 border border-red-400/30">
-                    <svg className="h-8 w-8 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </div>
-                  <div className="mt-5 text-[10px] font-black uppercase tracking-[0.35em] text-red-400/70">
-                    {tx("Payment not completed", "Оплата не завершена", "Оплату не завершено", "Zahlung nicht abgeschlossen", "Pago no completado")}
-                  </div>
-                  <h1 className="mt-3 text-3xl font-black uppercase tracking-[0.08em] text-white md:text-4xl">
-                    {tx("Checkout Cancelled", "Оформление отменено", "Оформлення скасовано", "Checkout abgebrochen", "Pago cancelado")}
-                  </h1>
-                  <p className="mx-auto mt-5 max-w-sm text-sm leading-7 text-white/55">
-                    {tx("Payment was not completed or the window was closed. You can return to your cart and try again.",
-                      "Оплата не была завершена или окно закрыто. Вернитесь в корзину и попробуйте снова.",
-                      "Оплату не завершено або вікно закрито. Поверніться до кошика і спробуйте знову.",
-                      "Zahlung nicht abgeschlossen oder Fenster geschlossen. Zurück zum Warenkorb.",
-                      "El pago no se completó o se cerró la ventana. Vuelve al carrito e inténtalo de nuevo.")}
-                  </p>
+              <section className="payment-return-card">
+                <PaymentReturnHeader tone="cancelled"
+                  eyebrow={tx("Payment not completed", "Оплата не завершена", "Оплату не завершено", "Zahlung nicht abgeschlossen", "Pago no completado")}
+                  title={tx("Checkout Cancelled", "Оформление отменено", "Оформлення скасовано", "Checkout abgebrochen", "Pago cancelado")}
+                  description={tx("Payment was not completed or the window was closed. You can return to your cart and try again.", "Оплата не была завершена или окно закрыто. Вернитесь в корзину и попробуйте снова.", "Оплату не завершено або вікно закрито. Поверніться до кошика і спробуйте знову.", "Zahlung nicht abgeschlossen oder Fenster geschlossen. Zurück zum Warenkorb.", "El pago no se completó o se cerró la ventana. Vuelve al carrito e inténtalo de nuevo.")}
+                />
+                <div className="payment-return-pending-body">
                   <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
                     <button type="button" onClick={() => { setAccountPromoCodeInput(""); setPage("cart"); }}
                       className="rounded-full bg-white px-8 py-3.5 text-[11px] font-black uppercase tracking-[0.22em] text-black shadow-[0_8px_24px_rgba(0,0,0,0.2)] transition hover:bg-white/90">
@@ -20120,49 +19994,7 @@ export default function App() {
 
         {page === "cart" && (
           <main className="mx-auto max-w-[1280px] px-4 pt-8 pb-28 md:px-10 md:pt-12 md:pb-16">
-            {/* Hidden pre-render: warms up PayPal SDK + card form resources while user fills details */}
-            <div aria-hidden="true" style={{ position: "fixed", left: "-9999px", top: 0, width: "450px", pointerEvents: "none", opacity: 0, zIndex: -1 }}>
-              <PayPalButton
-                autoClickCard={true}
-                billingCountryCode={countryNameToISO(checkoutForm.country) || "US"}
-                disabled={paypalPaymentLoading}
-                createOrder={async () => {
-                  // No markPaypalCheckoutStarted here — this is the hidden warm-up button
-                  const checkoutSnapshot = readCheckoutSnapshot();
-                  const snapAmount = Number(finalTotal.toFixed(2));
-                  paypalSnapshotRef.current = {
-                    checkout: checkoutSnapshot,
-                    total: snapAmount, subtotal: Number(subtotal.toFixed(2)),
-                    shipping: Number(shipping.toFixed(2)), shippingType: effectiveShippingType,
-                    automaticDiscount: Number(automaticDiscount.toFixed(2)),
-                    promoDiscount: Number(promoDiscount.toFixed(2)),
-                    promoCode: appliedPromo?.code || "",
-                    affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-         cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-                    affiliateCode: affiliateTrackingCode,
-                    affiliateOwnerEmail: affiliateTrackingOwnerEmail,
-                    affiliateCommission: Number(affiliateCommission.toFixed(2)),
-                    items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
-                  };
-                  const res = await fetch("/api/paypal?action=create-order", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      amount: snapAmount,
-                      currency: "USD",
-                      orderId: orderNumber,
-                      description: `10BottleValueCo Order ${orderNumber}`,
-                      countryCode: countryNameToISO(checkoutSnapshot.country),
-                    }),
-                  });
-                  const data = await res.json();
-                  if (!res.ok) throw new Error(data?.error || "Failed to create PayPal order.");
-                  return data.id;
-                }}
-                onApprove={onPaypalApprove}
-                onError={() => {}}
-              />
-            </div>
+            {/* The PayPal SDK preloads above; payment buttons mount only when selected. */}
             <div
               className={
                 checkoutStep === "payment"
@@ -20186,10 +20018,10 @@ export default function App() {
                     const renderItem = (item) => (
                       <div
                         key={getProductId(item)}
-                        className={`rounded-[1.2rem] border px-3 py-3 md:rounded-[1.6rem] md:p-5 ${products.some((p) => p.name === item.name && p.dose === item.dose && p.outOfStock && (p.warehouse !== "us" || item.fromWarehouse === "us")) ? "border-red-500/50 bg-red-500/10" : "border-white/20 bg-black/60"}`}
+                        className={`rounded-[1.2rem] border px-3 py-3 md:rounded-[1.6rem] md:p-5 ${!isCartOfferAvailable(item) ? "border-red-500/50 bg-red-500/10" : "border-white/20 bg-black/60"}`}
                       >
                         {(() => {
-                          const isOOS = products.some((p) => p.name === item.name && p.dose === item.dose && p.outOfStock && (p.warehouse !== "us" || item.fromWarehouse === "us"));
+                          const isOOS = !isCartOfferAvailable(item);
                           return (
                             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-4">
                               <div className="min-w-0">
@@ -20732,7 +20564,7 @@ export default function App() {
                           </button>
                         </div>
                       )}
-                      <div className="mt-4 grid gap-3" key={currentUser?.email || "guest"}>
+                      <div className="mt-4 grid gap-3" key={currentUser?.id || currentUser?.email || "guest"}>
                         <div className="relative">
                           <input
                             ref={(el) => (checkoutInputRefs.current.email = el)}
@@ -20756,13 +20588,14 @@ export default function App() {
                         </div>
 
                         <div className="grid gap-3 sm:grid-cols-2">
-                          <input
+                          <BufferedInput
                             ref={(el) =>
                               (checkoutInputRefs.current.firstName = el)
                             }
                             type="text"
-                            defaultValue={checkoutForm.firstName}
-                            onChange={() => clearCheckoutFieldError("firstName")}
+                            value={checkoutForm.firstName}
+                            onImmediateInput={(value) => rememberCheckoutField("firstName", value)}
+                            onValueChange={(value) => updateCheckoutField("firstName", value)}
                             placeholder={tx(
                               "First name *",
                               "Имя *",
@@ -20776,13 +20609,14 @@ export default function App() {
                                 : "border-white/20 bg-black/10"
                             }`}
                           />
-                          <input
+                          <BufferedInput
                             ref={(el) =>
                               (checkoutInputRefs.current.lastName = el)
                             }
                             type="text"
-                            defaultValue={checkoutForm.lastName}
-                            onChange={() => clearCheckoutFieldError("lastName")}
+                            value={checkoutForm.lastName}
+                            onImmediateInput={(value) => rememberCheckoutField("lastName", value)}
+                            onValueChange={(value) => updateCheckoutField("lastName", value)}
                             placeholder={tx(
                               "Last name *",
                               "Фамилия *",
@@ -20907,7 +20741,9 @@ export default function App() {
                         {checkoutForm.country === "Mexico" && (
                           <BufferedInput
                             type="text"
+                            ref={(el) => (checkoutInputRefs.current.taxId = el)}
                             value={checkoutForm.taxId}
+                            onImmediateInput={(value) => rememberCheckoutField("taxId", value)}
                             onValueChange={(value) => updateCheckoutField("taxId", value)}
                             placeholder={
                               language === "ES"
@@ -20918,11 +20754,12 @@ export default function App() {
                           />
                         )}
 
-                        <input
+                        <BufferedInput
                           ref={(el) => (checkoutInputRefs.current.address = el)}
                           type="text"
-                          defaultValue={checkoutForm.address}
-                          onChange={() => clearCheckoutFieldError("address")}
+                          value={checkoutForm.address}
+                          onImmediateInput={(value) => rememberCheckoutField("address", value)}
+                          onValueChange={(value) => updateCheckoutField("address", value)}
                           placeholder={tx(
                             "Street address *",
                             "Адрес улицы *",
@@ -20939,7 +20776,9 @@ export default function App() {
 
                         <BufferedInput
                           type="text"
+                          ref={(el) => (checkoutInputRefs.current.address2 = el)}
                           value={checkoutForm.address2}
+                          onImmediateInput={(value) => rememberCheckoutField("address2", value)}
                           onValueChange={(value) => updateCheckoutField("address2", value)}
                           placeholder={tx(
                             "Apt/Suite (Optional)",
@@ -20952,11 +20791,12 @@ export default function App() {
                         />
 
                         <div className="grid gap-3 sm:grid-cols-2">
-                          <input
+                          <BufferedInput
                             ref={(el) => (checkoutInputRefs.current.city = el)}
                             type="text"
-                            defaultValue={checkoutForm.city}
-                            onChange={() => clearCheckoutFieldError("city")}
+                            value={checkoutForm.city}
+                            onImmediateInput={(value) => rememberCheckoutField("city", value)}
+                            onValueChange={(value) => updateCheckoutField("city", value)}
                             placeholder={tx(
                               "City *",
                               "Город *",
@@ -20970,13 +20810,14 @@ export default function App() {
                                 : "border-white/20 bg-black/10"
                             }`}
                           />
-                          <input
+                          <BufferedInput
                             ref={(el) =>
                               (checkoutInputRefs.current.postalCode = el)
                             }
                             type="text"
-                            defaultValue={checkoutForm.postalCode}
-                            onChange={() => clearCheckoutFieldError("postalCode")}
+                            value={checkoutForm.postalCode}
+                            onImmediateInput={(value) => rememberCheckoutField("postalCode", value)}
+                            onValueChange={(value) => updateCheckoutField("postalCode", value)}
                             placeholder={tx(
                               "Postal code *",
                               "Почтовый индекс *",
@@ -20994,7 +20835,9 @@ export default function App() {
 
                         <BufferedInput
                           type="text"
+                          ref={(el) => (checkoutInputRefs.current.state = el)}
                           value={checkoutForm.state}
+                          onImmediateInput={(value) => rememberCheckoutField("state", value)}
                           onValueChange={(value) => updateCheckoutField("state", value)}
                           placeholder={tx("State / Province (if applicable)", "Штат / Провинция (если применимо)", "Штат / Провінція (якщо застосовно)", "Bundesland / Provinz (falls zutreffend)", "Estado / Provincia (si aplica)")}
                           className="rounded-2xl border border-white/20 bg-black/10 px-4 py-3 text-sm text-white placeholder:text-white outline-none transition"
@@ -21003,6 +20846,7 @@ export default function App() {
                           ref={(el) => (checkoutInputRefs.current.phone = el)}
                           type="tel"
                           value={checkoutForm.phone}
+                          onImmediateInput={(value) => rememberCheckoutField("phone", value)}
                           onValueChange={(value) => updateCheckoutField("phone", value)}
                           placeholder={t("phoneNumber")}
                           className={`rounded-2xl border px-4 py-3 text-sm text-white placeholder:text-white outline-none transition ${
@@ -21052,6 +20896,7 @@ export default function App() {
 
                     <div className="mt-4">
                       <BufferedTextarea
+                        ref={(el) => (checkoutInputRefs.current.orderNotes = el)}
                         value={checkoutForm.orderNotes}
                         onValueChange={(value) => updateCheckoutField("orderNotes", value.slice(0, 500))}
                         placeholder={tx(
@@ -21110,10 +20955,7 @@ export default function App() {
                     {finalTotal === 0 && storeCreditApplied > 0 && cart.length > 0 && !hasOutOfStockInCart ? (
                       <button
                         type="button"
-                        onClick={() => {
-                          setPendingAttestationAction("credits");
-                          setAttestationModalOpen(true);
-                        }}
+                        onClick={requestCheckoutAttestation}
                         className="mt-2 w-full rounded-full px-6 py-3 text-[13px] font-bold uppercase tracking-[0.22em] transition shadow-[0_0_32px_rgba(234,179,8,0.35)] hover:shadow-[0_0_48px_rgba(234,179,8,0.55)]"
                         style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)", color: "#fff" }}
                       >
@@ -21123,10 +20965,7 @@ export default function App() {
                     ) : (
                       <button
                         type="button"
-                        onClick={() => {
-                          setPendingAttestationAction("checkout");
-                          setAttestationModalOpen(true);
-                        }}
+                        onClick={requestCheckoutAttestation}
                         disabled={
                           cart.length === 0 ||
                           hasOutOfStockInCart
@@ -21198,10 +21037,10 @@ export default function App() {
                               : paymentMethod === "wire"
                               ? "Wire Transfer (SWIFT)"
                               : paymentMethod === "stripe"
-                              ? "Stripe Card"
+                              ? tx("Card", "Карта")
                               : paymentMethod === "cashapp"
-                              ? "Cash App"
-                              : <span className="block md:inline">PayPal (US) · Apple Pay · Google Pay · Cards</span>}
+                              ? cashAppPaymentLabel
+                              : "PayPal (US)"}
                           </div>
                         </div>
                       </div>
@@ -21212,6 +21051,9 @@ export default function App() {
                         <div className="text-[13px] font-semibold uppercase tracking-[0.2em] text-black/50">
                           {t("choosePaymentMethod")}
                         </div>
+                        {currentUser && storeCredit > 0 && paymentMethod !== "stripe" && storeCreditApplied === 0 && <p className="mt-3 text-sm leading-6 text-black/65">
+                          {tx("Choose card payment to use your store credit toward this order.", "Выберите оплату картой, чтобы использовать кредит магазина для этого заказа.")}
+                        </p>}
                         {/* ── Payment method list (same style on all screen sizes) ── */}
                         <div className="mt-3 grid grid-cols-1 gap-2 pt-2 md:w-full md:grid-cols-2 md:grid-flow-col md:grid-rows-3 md:gap-4">
 
@@ -21220,52 +21062,27 @@ export default function App() {
                             type="button"
                             disabled={stripeTemporarilyDisabled}
                             onClick={() => { if (stripeTemporarilyDisabled) return; setPaymentMethod("stripe"); requestAnimationFrame(() => { const el = choosePaymentMethodRef.current; if (!el) return; window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - 130), behavior: "auto" }); }); }}
-                            className={`relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border px-4 py-3.5 md:py-1 text-left ${stripeTemporarilyDisabled ? "border-black/10 bg-white/60 cursor-not-allowed" : paymentMethod === "stripe" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left ${stripeTemporarilyDisabled ? "border-black/10 bg-white/60 cursor-not-allowed" : paymentMethod === "stripe" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
                           >
-                            <div className="relative shrink-0">
-                              <div className="flex h-10 w-10 items-center justify-center rounded-xl overflow-hidden" style={{background:"#635BFF"}}>
-                                <svg width="28" height="20" viewBox="0 0 28 20" fill="none">
-                                  {/* Card body */}
-                                  <rect x="1" y="1" width="26" height="18" rx="2.5" fill="white" fillOpacity="0.22" stroke="white" strokeOpacity="0.3" strokeWidth="0.8"/>
-                                  {/* Magnetic stripe */}
-                                  <rect x="1" y="5" width="26" height="4.5" fill="white" fillOpacity="0.28"/>
-                                  {/* Chip */}
-                                  <rect x="3" y="2.5" width="5" height="3.5" rx="0.8" fill="#fbbf24" fillOpacity="0.95"/>
-                                  <line x1="5.5" y1="2.5" x2="5.5" y2="6" stroke="#d97706" strokeWidth="0.6"/>
-                                  <line x1="3" y1="4.2" x2="8" y2="4.2" stroke="#d97706" strokeWidth="0.6"/>
-                                  {/* Card number dots */}
-                                  <circle cx="4" cy="14" r="1" fill="white" fillOpacity="0.9"/>
-                                  <circle cx="7" cy="14" r="1" fill="white" fillOpacity="0.9"/>
-                                  <circle cx="10" cy="14" r="1" fill="white" fillOpacity="0.9"/>
-                                  <circle cx="13" cy="14" r="1" fill="white" fillOpacity="0.9"/>
-                                  {/* Contactless symbol */}
-                                  <path d="M20 11.5 A3 3 0 0 1 20 12.5" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeOpacity="0.6"/>
-                                  <path d="M18.5 10 A5 5 0 0 1 18.5 14" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeOpacity="0.8"/>
-                                  <path d="M17 8.5 A7 7 0 0 1 17 15.5" stroke="white" strokeWidth="1.4" strokeLinecap="round"/>
-                                </svg>
-                              </div>
+                            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${stripeTemporarilyDisabled ? "bg-slate-100 text-slate-400" : "bg-slate-800 text-white"}`}>
+                              <svg width="27" height="21" viewBox="0 0 28 22" fill="none" aria-hidden="true">
+                                <rect x="1.25" y="1.25" width="25.5" height="19.5" rx="3.5" stroke="currentColor" strokeWidth="1.7" />
+                                <path d="M2 7h24M5.5 15h5M19 14h3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                              </svg>
                             </div>
-                            <div className="flex-1 min-w-0 pr-7">
-                              <div className={`text-[14px] font-semibold leading-tight md:text-[12px] ${stripeTemporarilyDisabled ? "text-black/30" : ""}`}>Apple Pay · Google Pay · Cards · Stripe</div>
-                              <div className="mt-1.5 md:mt-0.5 flex flex-nowrap items-center gap-1.5">
+                            <div className={`flex-1 min-w-0 ${stripeTemporarilyDisabled ? "opacity-40" : ""}`}>
+                              <div className="flex h-5 items-center gap-3 whitespace-nowrap">
+                                <span className="text-[14px] font-semibold leading-5">{tx("Card", "Карта")}</span>
+                                <span className="inline-flex shrink-0 items-center gap-3">
+                                  <img src={paymentMethod === "stripe" && !stripeTemporarilyDisabled ? applePayMarkDark : applePayMark} alt="Apple Pay" width="43" height="18" className="h-[18px] w-[43px] object-contain" />
+                                  <img src={paymentMethod === "stripe" && !stripeTemporarilyDisabled ? googlePayMarkDark : googlePayMark} alt="Google Pay" width="46" height="18" className="h-[18px] w-[46px] object-contain" />
+                                </span>
+                              </div>
+                              <div className="mt-1 flex flex-nowrap items-center gap-1.5">
                                 {stripeTemporarilyDisabled ? (
-                                  <div>
-                                    <span className="inline-flex rounded-md bg-gray-400 px-2 py-0.5 text-[11px] font-black text-white">Unavailable</span>
-                                    <div className="mt-1 md:mt-0 text-[10px] font-semibold leading-tight text-black/35">
-                                      {tx(
-                                        "We're looking for a new provider.",
-                                        "Мы ищем нового провайдера.",
-                                        "Ми шукаємо нового провайдера.",
-                                        "Wir suchen einen neuen Anbieter.",
-                                        "Estamos buscando un nuevo proveedor."
-                                      )}
-                                    </div>
-                                  </div>
+                                  <span className="inline-flex rounded-md border border-gray-300 bg-gray-100 px-2 py-0.5 text-[11px] font-black">{tx("Unavailable", "Недоступно")}</span>
                                 ) : (
-                                  <>
-                                    <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "stripe" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>No KYC</span>
-                                    <span className={`text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "stripe" ? "text-white/70" : "text-black/70"}`}>FEE 2.95%</span>
-                                  </>
+                                  <span className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "stripe" ? "border-white/20 bg-white/15 text-white" : "border-slate-200 bg-slate-100 text-slate-700"}`}>{meritSurchargePercent}% {tx("fee", "комиссия")}</span>
                                 )}
                               </div>
                             </div>
@@ -21275,7 +21092,7 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => { setPaymentMethod("crypto"); requestAnimationFrame(() => { const el = choosePaymentMethodRef.current; if (!el) return; window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - 130), behavior: "auto" }); }); }}
-                            className={`relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border px-4 py-3.5 md:py-1 text-left ${paymentMethod === "crypto" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left ${paymentMethod === "crypto" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
                           >
                             <div className="relative shrink-0">
                               <img src={getPreloadedDisplayImageUrl(bitcoinLogo)} alt="" className="h-10 w-10 object-contain" />
@@ -21284,26 +21101,26 @@ export default function App() {
                             <div className="flex-1 min-w-0">
                               <div className="text-[14px] font-semibold">{tx("Crypto", "Крипто", "Крипто", "Krypto", "Cripto")}</div>
                               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                                <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "crypto" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>No KYC</span>
                                 <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "crypto" ? "bg-emerald-400/25 text-emerald-300" : "bg-emerald-500 text-white"}`}>2.5% OFF</span>
                               </div>
                             </div>
                             {paymentMethod === "crypto" && <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500"><svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>}
                           </button>
 
-                          {/* M3 — Cash App */}
+                          {/* M3 — Bitcoin Lightning via Cash App */}
                           {(() => {
                             const cashAppEnabled = !cashAppOverLimit;
                             return cashAppEnabled ? (
                               <button type="button" onClick={() => setPaymentMethod("cashapp")}
-                                className={`relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border px-4 py-3.5 md:py-1 text-left ${paymentMethod === "cashapp" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                                className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left ${paymentMethod === "cashapp" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
                               >
                                 <div className="relative shrink-0">
                                   <img src={getPreloadedDisplayImageUrl(cashAppLogo)} alt="" className="h-10 w-10 rounded-xl object-contain" />
                                   <span className={`absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-sm px-1 py-px text-[9px] font-black uppercase tracking-[0.06em] ${paymentMethod === "cashapp" ? "bg-emerald-500/40 text-emerald-200" : "bg-emerald-500 text-white"}`}>★ Best</span>
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <div className="text-[14px] font-semibold">Cash App</div>
+                                  <div className="pr-5 text-[14px] font-semibold leading-[18px]">{cashAppPaymentLabel}</div>
+                                  <div className="mt-0.5 text-[11px] leading-[14px] opacity-60">{cashAppLightningLabel}</div>
                                   <div className="mt-1.5 flex flex-nowrap items-center gap-1.5">
                                     <span className={`shrink-0 inline-flex rounded-md px-1.5 py-0.5 text-[11px] font-black uppercase tracking-[0.1em] ${paymentMethod === "cashapp" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>NO KYC</span>
                                   </div>
@@ -21311,10 +21128,11 @@ export default function App() {
                                 {paymentMethod === "cashapp" && <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500"><svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>}
                               </button>
                             ) : (
-                              <button type="button" disabled className="relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border border-black/10 bg-white/60 px-4 py-3.5 md:py-1 text-left cursor-not-allowed">
+                              <button type="button" disabled className="relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border border-black/10 bg-white/60 px-4 py-3 md:py-1 text-left cursor-not-allowed">
                                 <img src={getPreloadedDisplayImageUrl(cashAppLogo)} alt="" className="h-10 w-10 shrink-0 rounded-xl object-contain opacity-40" />
                                 <div className="flex-1 min-w-0">
-                                  <div className="text-[14px] font-semibold text-black/30">Cash App</div>
+                                  <div className="text-[14px] font-semibold leading-[18px] text-black/30">{cashAppPaymentLabel}</div>
+                                  <div className="mt-0.5 text-[11px] leading-[14px] text-black/30">{cashAppLightningLabel}</div>
                                   <div className="mt-1.5">
                                     <span className="inline-flex rounded-md bg-red-500 px-2 py-0.5 text-[11px] font-black text-black">Limit $999</span>
                                   </div>
@@ -21325,14 +21143,14 @@ export default function App() {
 
                           {/* M4 — Paylio */}
                           <button type="button" onClick={() => setPaymentMethod("paylio")}
-                            className={`relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border px-4 py-3.5 md:py-1 text-left ${paymentMethod === "paylio" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left ${paymentMethod === "paylio" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
                           >
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white">
                               <img src={getPreloadedDisplayImageUrl(paypalMark)} alt="" className="h-9 w-9 object-contain" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="text-[14px] font-semibold leading-snug md:text-[12px]">PayPal (US), Apple Pay,<br/>Google Pay, Cards</div>
-                              <div className="mt-1.5 md:mt-0.5 flex flex-nowrap items-center gap-1.5">
+                              <div className="text-[14px] font-semibold leading-tight">PayPal (US)</div>
+                              <div className="mt-1.5 flex flex-nowrap items-center gap-1.5">
                                 <span className="shrink-0 inline-flex rounded-md bg-sky-500 px-1.5 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] text-white">KYC Required</span>
                               </div>
                             </div>
@@ -21341,7 +21159,7 @@ export default function App() {
 
                           {/* M5 — Wire */}
                           <button type="button" onClick={() => setPaymentMethod("wire")}
-                            className={`relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border px-4 py-3.5 md:py-1 text-left ${paymentMethod === "wire" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left ${paymentMethod === "wire" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
                           >
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl overflow-hidden" style={{background:"#1e293b"}}>
                               <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
@@ -21362,164 +21180,10 @@ export default function App() {
                             <div className="flex-1 min-w-0">
                               <div className="text-[14px] font-semibold">Wire Transfer</div>
                               <div className={`mt-1 text-[12px] font-medium ${paymentMethod === "wire" ? "text-white/55" : "text-black/45"}`}>SWIFT / IBAN · Worldwide</div>
-                              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                                <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "wire" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>No KYC</span>
-                              </div>
                             </div>
                             {paymentMethod === "wire" && <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500"><svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>}
                           </button>
 
-                        </div>
-
-                        {/* ── DESKTOP grid (hidden below md, original layout) ── */}
-                        <div className="hidden">
-                          {/* 1 — Stripe / Apple Pay / Google Pay */}
-                          <button
-                            type="button"
-                            disabled={stripeTemporarilyDisabled}
-                            onClick={() => {
-                              if (stripeTemporarilyDisabled) return;
-                              setPaymentMethod("stripe");
-                              requestAnimationFrame(() => {
-                                const el = choosePaymentMethodRef.current;
-                                if (!el) return;
-                                const y = el.getBoundingClientRect().top + window.scrollY - 130;
-                                window.scrollTo({ top: Math.max(0, y), behavior: "auto" });
-                              });
-                            }}
-                            className={`relative flex flex-col items-center justify-start text-center rounded-[1.3rem] border px-2.5 pt-6 pb-3 md:px-3 md:pt-7 md:pb-3 min-h-[148px] md:min-h-[160px] ${stripeTemporarilyDisabled ? "border-black/10 bg-white/60 cursor-not-allowed" : paymentMethod === "stripe" ? "border-black bg-black text-white" : "border-black/10 bg-white text-black hover:bg-black/5"}`}
-                          >
-                            {stripeTemporarilyDisabled ? (
-                              <span className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-gray-400 px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-white shadow-sm">Unavailable</span>
-                            ) : (
-                              <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">No KYC</span>
-                            )}
-                            <div className={`leading-snug flex flex-col items-center gap-0.5 ${stripeTemporarilyDisabled ? "text-black/30" : ""}`}>
-                              <div className="text-sm font-semibold md:text-base">Stripe</div>
-                              <div className="text-xs font-semibold md:text-sm">Apple Pay</div>
-                              <div className="text-xs font-semibold md:text-sm">Google Pay</div>
-                              <div className="text-xs font-semibold md:text-sm">Cards</div>
-                            </div>
-                            <div className="mt-2 flex flex-col items-center gap-0.5">
-                              <div className={`text-sm font-black uppercase tracking-[0.1em] ${stripeTemporarilyDisabled ? "text-black/25" : paymentMethod === "stripe" ? "text-white" : "text-black/70"}`}>FEE 2.95%</div>
-                              {stripeTemporarilyDisabled && (
-                                <div className="mt-1 max-w-[145px] text-[9px] font-semibold leading-[1.25] text-black/30">
-                                  {tx(
-                                    "We're looking for a new provider.",
-                                    "Мы ищем нового провайдера.",
-                                    "Ми шукаємо нового провайдера.",
-                                    "Wir suchen einen neuen Anbieter.",
-                                    "Estamos buscando un nuevo proveedor."
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </button>
-                          {/* 2 — Crypto (BEST OPTION) */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPaymentMethod("crypto");
-                              requestAnimationFrame(() => {
-                                const el = choosePaymentMethodRef.current;
-                                if (!el) return;
-                                const y = el.getBoundingClientRect().top + window.scrollY - 130;
-                                window.scrollTo({ top: Math.max(0, y), behavior: "auto" });
-                              });
-                            }}
-                            className={`relative flex flex-col items-center justify-start text-center rounded-[1.3rem] border px-2.5 pt-6 pb-3 md:px-3 md:pt-7 md:pb-3 min-h-[148px] md:min-h-[160px] ${
-                              paymentMethod === "crypto"
-                                ? "border-black bg-black text-white"
-                                : "border-black/10 bg-white text-black hover:bg-black/5"
-                            }`}
-                          >
-                            <span className="absolute -top-1 left-2 rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-white shadow-sm">BEST</span>
-                            <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">No KYC</span>
-                            <div className="text-[10px] uppercase tracking-[0.18em] opacity-70 md:text-[11px] md:tracking-[0.2em]">
-                              {t("method")}
-                            </div>
-                            <div className="mt-1.5 text-base font-semibold md:mt-2 md:text-lg">
-                              {tx("Crypto", "Крипто", "Крипто", "Krypto", "Cripto")}
-                            </div>
-                            <div className="mt-1.5">
-                              <span className={`inline-flex rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] ${paymentMethod === "crypto" ? "bg-emerald-400/25 text-emerald-300" : "bg-emerald-500 text-white"}`}>2.5% OFF</span>
-                            </div>
-                          </button>
-                          {/* 3 — Cash App */}
-                          {(() => {
-                            const cashAppEnabled = !cashAppOverLimit;
-                            return cashAppEnabled ? (
-                              <button
-                                type="button"
-                                onClick={() => setPaymentMethod("cashapp")}
-                                className={`relative flex flex-col items-center justify-start text-center rounded-[1.3rem] border px-2.5 pt-6 pb-3 md:px-3 md:pt-7 md:pb-3 min-h-[148px] md:min-h-[160px] ${
-                                  paymentMethod === "cashapp"
-                                    ? "border-black bg-black text-white"
-                                    : "border-black/10 bg-white text-black hover:bg-black/5"
-                                }`}
-                              >
-                                 <span className="absolute -top-1 left-2 rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-white shadow-sm">BEST</span>
-                                <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">No KYC</span>
-                                <div className="text-[10px] uppercase tracking-[0.18em] opacity-70 md:text-[11px] md:tracking-[0.2em]">
-                                  {t("method")}
-                                </div>
-                                <div className="mt-1.5 leading-snug flex flex-col items-center gap-0.5">
-                                  <div className="text-sm font-semibold md:text-base">Cash App</div>
-                                </div>
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                disabled
-                                className="relative flex flex-col items-center justify-start text-center rounded-[1.3rem] border px-2.5 pt-6 pb-3 md:px-3 md:pt-7 md:pb-3 min-h-[148px] md:min-h-[160px] border-black/10 bg-white/60 cursor-not-allowed"
-                              >
-                                <span className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-red-500 px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">Limit $999</span>
-                                <div className="mt-1.5 leading-snug flex flex-col items-center gap-0.5 text-black/30">
-                                  <div className="text-sm font-semibold md:text-base">Cash App</div>
-                                </div>
-                              </button>
-                            );
-                          })()}
-                          {/* 4 — Paylio (Apple Pay / PayPal / Cards) */}
-                          <button
-                            type="button"
-                            onClick={() => setPaymentMethod("paylio")}
-                            className={`relative flex flex-col items-center justify-start text-center rounded-[1.3rem] border px-2.5 pt-6 pb-3 md:px-3 md:pt-7 md:pb-3 min-h-[148px] md:min-h-[160px] ${
-                              paymentMethod === "paylio"
-                                ? "border-black bg-black text-white"
-                                : "border-black/10 bg-white text-black hover:bg-black/5"
-                            }`}
-                          >
-                            <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">KYC Required</span>
-                            <div className="text-[10px] uppercase tracking-[0.18em] opacity-70 md:text-[11px] md:tracking-[0.2em]">
-                              {t("method")}
-                            </div>
-                            <div className="mt-1.5 leading-snug flex flex-col items-center gap-0.5">
-                              <div className={`text-sm font-semibold md:text-base ${paymentMethod === "paylio" ? "text-white" : "text-black"}`}>PayPal (US)</div>
-                              <div className={`text-sm font-semibold md:text-base ${paymentMethod === "paylio" ? "text-white" : "text-black"}`}>Apple Pay</div>
-                              <div className={`text-sm font-semibold md:text-base ${paymentMethod === "paylio" ? "text-white" : "text-black"}`}>Google Pay</div>
-                              <div className={`text-sm font-semibold md:text-base ${paymentMethod === "paylio" ? "text-white" : "text-black"}`}>Cards</div>
-                            </div>
-                          </button>
-                          {/* 5 — Wire Transfer */}
-                          <button
-                            type="button"
-                            onClick={() => setPaymentMethod("wire")}
-                            className={`relative flex flex-col items-center justify-start text-center rounded-[1.3rem] border px-2.5 pt-6 pb-3 md:px-3 md:pt-7 md:pb-3 min-h-[148px] md:min-h-[160px] ${
-                              paymentMethod === "wire"
-                                ? "border-black bg-black text-white"
-                                : "border-black/10 bg-white text-black hover:bg-black/5"
-                            }`}
-                          >
-                            <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">No KYC</span>
-                            <div className="text-[10px] uppercase tracking-[0.18em] opacity-70 md:text-[11px] md:tracking-[0.2em]">
-                              {t("method")}
-                            </div>
-                            <div className="mt-1.5 leading-snug flex flex-col items-center gap-0.5">
-                              <div className="text-sm font-semibold md:text-base">Wire Transfer</div>
-                              <div className="text-sm font-semibold md:text-base opacity-70">SWIFT / IBAN</div>
-                            </div>
-                          </button>
                         </div>
 
                         {/* cashapp / CatalystPay BTC section */}
@@ -21528,32 +21192,24 @@ export default function App() {
                             <div className="flex items-center gap-3 mb-4">
                               <img src={getPreloadedDisplayImageUrl(cashAppLogo)} alt="" className="h-10 w-10 shrink-0 rounded-2xl shadow-[0_10px_30px_rgba(0,214,79,0.25)] md:h-11 md:w-11" />
                               <div>
-                                <div className="text-[15px] font-semibold tracking-[-0.02em] text-black md:text-[18px]">Cash App</div>
+                                <div className="text-[15px] font-semibold tracking-[-0.02em] text-black md:text-[18px]">{cashAppPaymentLabel}</div>
+                                <div className="mt-0.5 text-[12px] text-black/50">{cashAppLightningLabel}</div>
                               </div>
                             </div>
+                            <p id="cashapp-lightning-help" className="mb-4 text-[13px] leading-5 text-black/65">
+                              {tx(
+                                "On the next page, tap “Open Wallet” and choose Cash App if prompted.",
+                                "На следующей странице нажмите «Open Wallet» и выберите Cash App, если появится запрос.",
+                                "На наступній сторінці натисніть «Open Wallet» і виберіть Cash App, якщо з’явиться запит.",
+                                "Tippen Sie auf der nächsten Seite auf „Open Wallet“ und wählen Sie bei Bedarf Cash App.",
+                                "En la siguiente página, pulsa «Open Wallet» y elige Cash App si se te solicita."
+                              )}
+                            </p>
                             {catalystPayError && (
                               <div className="mb-3 rounded-xl bg-red-50 px-4 py-2.5 text-[13px] text-red-600">{catalystPayError}</div>
                             )}
-                            <button
-                              type="button"
-                              disabled={catalystPayLoading || hasOutOfStockInCart}
-                              onClick={createCatalystPayment}
-                              className={`flex w-full items-center justify-between rounded-[1.2rem] bg-[#00D64F] px-5 py-4 text-[14px] font-bold text-white transition-all hover:bg-[#00b844] active:scale-[0.98] ${(catalystPayLoading || hasOutOfStockInCart) ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
-                            >
-                              <span>{catalystPayLoading
-                                ? tx("Creating invoice…", "Создаём инвойс…", "Створюємо інвойс…", "Rechnung wird erstellt…", "Creando factura…")
-                                : tx("Pay with Cash App", "Оплатить через Cash App", "Оплатити через Cash App", "Mit Cash App zahlen", "Pagar con Cash App")}</span>
-                              {!catalystPayLoading && <span>${finalTotal.toFixed(2)}</span>}
-                            </button>
-                            <div className="mt-3 text-center text-[13px] text-black/60">
-                              {tx(
-                                <>Redirects to a secure page<br className="md:hidden" /> to pay with Cash App.</>,
-                                <>Перенаправление на защищённую страницу<br className="md:hidden" /> оплаты через Cash App.</>,
-                                <>Перенаправлення на захищену сторінку<br className="md:hidden" /> оплати через Cash App.</>,
-                                <>Weiterleitung zur sicheren<br className="md:hidden" /> Zahlung mit Cash App.</>,
-                                <>Redirección a una página segura<br className="md:hidden" /> para pagar con Cash App.</>
-                              )}
-                            </div>
+                            <CashAppPaymentGuide tx={tx} loading={catalystPayLoading} disabled={hasOutOfStockInCart}
+                              amount={finalTotal} onContinue={createCatalystPayment} />
                           </div>
                         )}
 
@@ -21629,8 +21285,7 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* Always render so PayPal SDK loads & buttons mount in background; hidden when not selected */}
-                        <div style={paymentMethod === "paypal" ? {} : { visibility: "hidden", height: 0, overflow: "hidden" }}>
+                        {paymentMethod === "paypal" && checkoutStep === "payment" && finalTotal > 0 && storeCreditApplied === 0 && <div>
                           <div className="mt-6 rounded-[1.8rem] border border-black/10 bg-white p-4 shadow-[0_20px_50px_rgba(0,0,0,0.05)] md:p-6">
                             <div className="mt-0 rounded-[1.4rem] border border-black/10 bg-black/[0.03] p-4 md:p-5">
                               <div className="text-[10px] uppercase tracking-[0.2em] text-black/50 md:text-[11px] md:tracking-[0.22em]">
@@ -21660,6 +21315,7 @@ export default function App() {
                               <PayPalButton
                                 disabled={paypalPaymentLoading}
                                 createOrder={async () => {
+                                  assertPaypalCheckoutReady();
                                   const checkoutSnapshot = readCheckoutSnapshot();
                                   const snapAmount = Number(finalTotal.toFixed(2));
                                   paypalSnapshotRef.current = {
@@ -21674,7 +21330,7 @@ export default function App() {
                                     affiliateCode: affiliateTrackingCode,
                                     affiliateOwnerEmail: affiliateTrackingOwnerEmail,
                                     affiliateCommission: Number(affiliateCommission.toFixed(2)),
-                                    items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
+                                    items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}), ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}) })),
                                   };
                                   await markPaypalCheckoutStarted(checkoutSnapshot);
                                   const res = await fetch("/api/paypal?action=create-order", {
@@ -21698,7 +21354,7 @@ export default function App() {
                               />
                             </div>
                           </div>
-                        </div>
+                        </div>}
 
                         {paymentMethod === "stripe" && (
                           <div className="mt-6 rounded-[1.8rem] border border-black/10 bg-white p-4 shadow-[0_20px_50px_rgba(0,0,0,0.05)] md:p-6">
@@ -21729,37 +21385,38 @@ export default function App() {
                                 </div>
                               </div>
                             </div>
-                            {stripeClientSecret ? (
+                            <p className="mt-4 text-sm leading-6 text-black/65">
+                              {tx("Card surcharge", "Доплата за карту")} {meritSurchargePercent}%: +{formatPricePrecise(stripeFeeAmount)}.
+                              {" "}{tx("The final total is confirmed before you pay.", "Итоговая сумма подтверждается до оплаты.")}
+                            </p>
+                            {(storeCreditApplied > 0 || meritActiveSession?.storeCreditUsedCents > 0) && <p className="mt-2 text-sm leading-6 text-black/65">
+                              {meritActiveSession
+                                ? tx("Your store credit is applied. The card surcharge is calculated on the order total before credit.", "Кредит магазина применён. Доплата за карту рассчитывается на сумму заказа до вычета кредита.")
+                                : tx("Your store credit will be checked before payment. The card surcharge is calculated on the order total before credit.", "Кредит магазина будет проверен до оплаты. Доплата за карту рассчитывается на сумму заказа до вычета кредита.")}
+                            </p>}
+                            {stripeError && <p className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">{stripeError}</p>}
+                            {meritActiveSession ? (
                               <Suspense fallback={<div className="mt-4 min-h-[190px]" aria-busy="true" />}>
-                                <StripeCheckoutPanel
-                                  clientSecret={stripeClientSecret}
-                                  orderNumber={orderNumber}
-                                  onSuccess={(pi) => {
-                                    const piParam = pi?.id ? `&pi=${encodeURIComponent(pi.id)}` : "";
-                                    window.location.assign(`/?payment=success&order=${encodeURIComponent(orderNumber)}&provider=stripe${piParam}`);
-                                  }}
-                                />
+                                <MeritCheckoutPanel session={meritActiveSession} language={language.toLowerCase()}
+                                  onReconcile={meritApi.reconcile} onPaid={acceptMeritPaid} onState={handleMeritState} />
                               </Suspense>
-                            ) : stripeError ? (
-                              <div className="mt-4">
-                                <div className="rounded-[1.2rem] border border-red-200 bg-red-50 px-4 py-4 text-[14px] leading-6 text-red-700">
-                                  {stripeError}
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => { setStripeError(""); handleStripePayment(); }}
-                                  className="mt-3 w-full rounded-[1.2rem] border border-black/10 bg-white py-3 text-[13px] font-semibold text-black/60 hover:bg-black/5 transition-colors"
-                                >
-                                  {tx("Try again", "Повторить", "Спробувати знову", "Erneut versuchen", "Intentar de nuevo")}
-                                </button>
-                              </div>
                             ) : (
-                              <div className="mt-6 flex items-center justify-center gap-3 py-6 text-[14px] text-black/40">
-                                <svg className="animate-spin text-[#635BFF]" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                  <circle cx="12" cy="12" r="10" strokeOpacity="0.2"/>
-                                  <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" stroke="#635BFF"/>
-                                </svg>
-                                {tx("Loading payment form…", "Загрузка формы…", "Завантаження форми…", "Formular wird geladen…", "Cargando formulario…")}
+                              <div className="mt-4">
+                                <button type="button" disabled={stripeLoading || stripeTemporarilyDisabled}
+                                  onClick={handleStripePayment}
+                                  aria-describedby="card-verification-email-help"
+                                  className="mt-3 min-h-12 w-full rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white disabled:opacity-40">
+                                  {stripeLoading ? tx("Preparing secure payment…", "Подготавливаем защищённую оплату…") : tx("Verify email and continue", "Подтвердить email и продолжить")}
+                                </button>
+                                <p id="card-verification-email-help" className="mt-3 text-sm leading-6 text-black/65">
+                                  {tx(
+                                    "If you don’t see the verification email, check your spam or junk folder.",
+                                    "Если письмо с кодом не пришло, проверьте папку «Спам» или «Нежелательная почта».",
+                                    "Якщо листа з кодом немає, перевірте папку «Спам» або «Небажана пошта».",
+                                    "Falls die Bestätigungs-E-Mail nicht ankommt, prüfen Sie Ihren Spam- oder Junk-Ordner.",
+                                    "Si no ves el correo de verificación, revisa la carpeta de spam o correo no deseado."
+                                  )}
+                                </p>
                               </div>
                             )}
                           </div>
@@ -22028,8 +21685,8 @@ export default function App() {
                             {t("orderSummary")}
                           </div>
                           <div className="mt-4 space-y-3 text-sm text-black/70">
-                            {cart.map((item) => {
-                              const isOOS = products.some((p) => p.name === item.name && p.dose === item.dose && p.outOfStock && (p.warehouse !== "us" || item.fromWarehouse === "us"));
+                            {checkoutInvoice.items.map((item) => {
+                              const isOOS = !meritActiveSession && !isCartOfferAvailable(item);
                               return (
                               <div
                                 key={getProductId(item)}
@@ -22054,29 +21711,29 @@ export default function App() {
                             })}
                             <div className="flex items-center justify-between border-t border-black/10 pt-3">
                               <span>{t("subtotal")}</span>
-                              <span>{formatPricePrecise(subtotal)}</span>
+                              <span>{formatPricePrecise(checkoutInvoice.subtotal)}</span>
                             </div>
-                            {automaticDiscount > 0 && (
+                            {checkoutInvoice.automaticDiscount > 0 && (
                               <div className="flex items-center justify-between">
                                 <span>{t("automaticDiscount")}</span>
                                 <span>
-                                  -{formatPricePrecise(automaticDiscount)}
+                                  -{formatPricePrecise(checkoutInvoice.automaticDiscount)}
                                 </span>
                               </div>
                             )}
-                            {promoDiscountRate > 0 && (
+                            {checkoutInvoice.promoDiscount > 0 && (
                               <div className="flex items-center justify-between">
-                                <span>{t("promoCode")} {appliedPromo?.code} ({+(((appliedPromo?.rate || 0) * 100).toFixed(2))}% off)</span>
+                                <span>{t("promoCode")} {checkoutInvoice.promoCode}</span>
                                 <span>
-                                  -{formatPricePrecise(promoDiscount)}
+                                  -{formatPricePrecise(checkoutInvoice.promoDiscount)}
                                 </span>
                               </div>
                             )}
-                            {affiliateDiscount > 0 && (
+                            {checkoutInvoice.affiliateDiscount > 0 && (
                               <div className="flex items-center justify-between">
                                 <span>{tx("Affiliate discount", "Партнёрская скидка", "Партнерська знижка", "Affiliate-Rabatt", "Descuento de afiliado")}</span>
                                 <span>
-                                  -{formatPricePrecise(affiliateDiscount)}
+                                  -{formatPricePrecise(checkoutInvoice.affiliateDiscount)}
                                 </span>
                               </div>
                             )}
@@ -22088,7 +21745,7 @@ export default function App() {
                             )}
                             {stripeFeeAmount > 0 && (
                               <div className="flex items-center justify-between">
-                                <span>Card processing fee (2.95%)</span>
+                                <span>{tx("Card surcharge", "Доплата за карту")} ({meritSurchargePercent}%)</span>
                                 <span>+{formatPricePrecise(stripeFeeAmount)}</span>
                               </div>
                             )}
@@ -22097,15 +21754,15 @@ export default function App() {
                                 {t("shipping")}
                                 {" "}
                                 <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/50">
-                                  ({shippingType === "express"
+                                  ({checkoutInvoice.shippingType === "us-warehouse" ? tx("US warehouse", "Склад США") : checkoutInvoice.shippingType === "express"
                                     ? tx("Express", "Экспресс", "Експрес", "Express", "Exprés")
                                     : tx("Standard", "Стандарт", "Стандарт", "Standard", "Estándar")})
                                 </span>
                               </span>
                               <span>
-                                {shipping === 0
+                                {checkoutInvoice.shipping === 0
                                   ? "FREE"
-                                  : formatPricePrecise(shipping)}
+                                  : formatPricePrecise(checkoutInvoice.shipping)}
                               </span>
                             </div>
                             {paypalFee > 0 && (
@@ -22120,8 +21777,12 @@ export default function App() {
                                 <span className="font-semibold text-emerald-600">−{formatPricePrecise(storeCreditApplied)}</span>
                               </div>
                             )}
+                            {meritSelected && storeCreditApplied > 0 && <div className="flex items-center justify-between text-black/65">
+                              <span>{tx("Remaining before card surcharge", "Остаток до доплаты за карту")}</span>
+                              <span>{formatPricePrecise(meritCreditSplit.cardBaseAmountCents / 100)}</span>
+                            </div>}
                             <div className="flex items-center justify-between border-t border-black/10 pt-3 text-base font-semibold text-black">
-                              <span>{t("total")}</span>
+                              <span>{meritSelected ? tx("Card payment", "Оплата картой") : t("total")}</span>
                               <span>
                                 {formatPricePrecise(finalTotal)}
                               </span>
@@ -22146,82 +21807,9 @@ export default function App() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (!currentUser?.email) {
-                        handleCheckout();
-                        return;
-                      }
-                      const syncedForm = {
-                        email:
-                          checkoutInputRefs.current.email?.value ||
-                          checkoutForm.email ||
-                          currentUser?.email ||
-                          "",
-                        firstName:
-                          checkoutInputRefs.current.firstName?.value ||
-                          checkoutForm.firstName,
-                        lastName:
-                          checkoutInputRefs.current.lastName?.value ||
-                          checkoutForm.lastName,
-                        country:
-                          checkoutInputRefs.current.country?.value ||
-                          checkoutForm.country,
-                        address:
-                          checkoutInputRefs.current.address?.value ||
-                          checkoutForm.address,
-                        address2:
-                          checkoutInputRefs.current.address2?.value ||
-                          checkoutForm.address2,
-                        city:
-                          checkoutInputRefs.current.city?.value ||
-                          checkoutForm.city,
-                        state:
-                          checkoutInputRefs.current.state?.value ||
-                          checkoutForm.state,
-                        postalCode:
-                          checkoutInputRefs.current.postalCode?.value ||
-                          checkoutForm.postalCode,
-                        phone:
-                          checkoutInputRefs.current.phone?.value ||
-                          checkoutForm.phone,
-                      };
-                      const errors = validateCheckoutForm(syncedForm);
-
-                      if (Object.keys(errors).length > 0) {
-                        setCheckoutErrors(errors);
-                        const firstErrorField = Object.keys(errors)[0];
-                        const fieldRef = checkoutInputRefs.current[firstErrorField];
-                        if (fieldRef) {
-                          fieldRef.scrollIntoView({ behavior: "smooth", block: "center" });
-                          fieldRef.focus();
-                        } else if (formSectionRef.current) {
-                          formSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-                        }
-                        return;
-                      }
-
-                      if (
-                        !researchAccepted ||
-                        !qualifiedAccepted ||
-                        !termsAccepted
-                      ) {
-                        if (termsSectionRef.current) {
-                          termsSectionRef.current.scrollIntoView({
-                            behavior: "smooth",
-                            block: "center",
-                          });
-                        }
-                        setCheckboxHighlight(true);
-                        setTimeout(
-                          () => setCheckboxHighlight(false),
-                          900
-                        );
-                        return;
-                      }
-
-                      handleCheckout();
-                    }}
-                    className="shrink-0 rounded-full bg-white px-5 py-3 text-[13px] font-bold uppercase tracking-[0.22em] text-black transition hover:bg-white/90"
+                    onClick={requestCheckoutAttestation}
+                    disabled={cart.length === 0 || hasOutOfStockInCart}
+                    className="shrink-0 rounded-full bg-white px-5 py-3 text-[13px] font-bold uppercase tracking-[0.22em] text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:bg-white/50 disabled:text-black/50"
                   >
                     {t("proceedCheckout")}
                   </button>

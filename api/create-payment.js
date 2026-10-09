@@ -1,5 +1,8 @@
+import { requireLegacyOrderAccess } from "./_order-access.js";
+import { legacyCreditStartError, legacyExistingCreditOrderError } from "./_legacy-store-credit.js";
 import { validateAndPriceItems, getShippingPrice, getAutomaticDiscountRate } from "./_catalog.js";
 import { verifyPromoCode } from "./_promo.js";
+import { isDeepStrictEqual } from "node:util";
 
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
@@ -11,7 +14,20 @@ const sbH = () => ({
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const creditError = legacyCreditStartError(req.body);
+  if (creditError) {
+    const { status, ...body } = creditError;
+    return res.status(status).json(body);
+  }
+  const access = await requireLegacyOrderAccess(req, res, { orderId: req.body?.order_id });
+  if (!access) return;
+  const existingCreditError = await legacyExistingCreditOrderError(req.body);
+  if (existingCreditError) {
+    const { status, ...body } = existingCreditError;
+    return res.status(status).json(body);
+  }
 
+  req.body = { ...req.body, email: access.identity.email, customer_email: access.identity.email };
   try {
     const apiKey = process.env.NOWPAYMENTS_API_KEY || process.env.NOW_PAYMENTS_API_KEY || "";
     if (!apiKey) return res.status(500).json({ error: "NOWPAYMENTS_API_KEY not set" });
@@ -65,14 +81,18 @@ export default async function handler(req, res) {
     // which can legitimately be up to 100%) and apply its verified rate.
     let promoDiscount = 0;
     let verifiedPromoFreeShipping = false;
+    let discountRule = null;
     if (String(promoCode || "").trim()) {
       const verifiedPromo = await verifyPromoCode({
         code: promoCode,
         email: customer_email,
         sbUrl: SB_URL,
         sbKey: SB_KEY,
+        subtotalCents: Math.round(subtotal * 100),
       });
+      if (!verifiedPromo) return res.status(400).json({ code: "PROMO_UNAVAILABLE", error: "This promo code is unavailable for this checkout. Review or remove it before paying." });
       if (verifiedPromo) {
+        discountRule = verifiedPromo.rule;
         promoDiscount = Math.round(subtotal * verifiedPromo.rate * 100) / 100;
         verifiedPromoFreeShipping = !!verifiedPromo.freeShipping;
       }
@@ -140,62 +160,71 @@ export default async function handler(req, res) {
     // only needs the order_id to look them up.
     const orderDescription = String(order_id);
 
-    // Mark order as checkout started in Supabase.
-    // NEVER overwrite an already-paid order: if the customer re-opens/retries the
-    // NOWPayments invoice creation after their payment was already confirmed by the
-    // IPN webhook (e.g. double-clicking "Pay", reloading the checkout tab), this
-    // used to unconditionally reset status back to "checkout (clicked pay)",
-    // making a genuinely paid order look pending again in the admin panel even
-    // though the confirmation email had already gone out.
-    if (SB_URL && SB_KEY && order_id) {
-      try {
-        const existing = await fetch(
-          `${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(order_id))}&select=status,metadata`,
-          { headers: sbH() }
-        );
-        const rows = existing.ok ? await existing.json() : [];
-        const currentStatus = String(rows?.[0]?.status || "").toLowerCase();
-        const existingMeta = (rows?.[0]?.metadata && typeof rows[0].metadata === "object") ? rows[0].metadata : {};
-        if (currentStatus !== "paid") {
-          await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(order_id))}`, {
-            method: "PATCH",
-            headers: { ...sbH(), Prefer: "return=minimal" },
-            body: JSON.stringify({
-              status: "checkout (clicked pay)",
-              // Persisted explicitly (not just relying on a prior client-side
-              // upsert) so customer/shipping/pricing details survive even if
-              // that earlier client write raced with or lost to this
-              // server-side PATCH — mirrors the CatalystPay session fix.
-              metadata: {
-                ...existingMeta,
-                total: Number(price_amount),
-                subtotal: Number(subtotal),
-                shipping: Number(shipping),
-                automaticDiscount: Number(finalAutomaticDiscount),
-                promoDiscount: Number(promoDiscount),
-                promoCode: String(promoCode || ""),
-                affiliateDiscount: Number(finalAffiliateDiscount),
-                cryptoDiscount: Number(cryptoDiscount),
-                storeCreditUsed: Number(safeStoreCreditUsed),
-                affiliateCode: String(affiliateCode || "").trim().toUpperCase(),
-                affiliateOwnerEmail: String(affiliateOwnerEmail || ""),
-                shippingType: String(shippingType),
-                items: pricedItems,
-                firstName: String(firstName || existingMeta.firstName || ""),
-                lastName: String(lastName || existingMeta.lastName || ""),
-                country: String(country || existingMeta.country || ""),
-                address: String(address || existingMeta.address || ""),
-                address2: String(address2 || existingMeta.address2 || ""),
-                city: String(city || existingMeta.city || ""),
-                state: String(state || existingMeta.state || ""),
-                postalCode: String(postalCode || existingMeta.postalCode || ""),
-                phone: String(phone || existingMeta.phone || ""),
-                taxId: String(taxId || existingMeta.taxId || ""),
-              },
-            }),
-          }).catch(() => {});
-        }
-      } catch {}
+    // Save and acknowledge the server quote before creating a payable invoice.
+    // The callback compares the provider amount with this canonical total.
+    // This is a conditional snapshot save, not an immutable payment ledger.
+    try {
+      const storageUrl = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!storageUrl || !serviceKey) throw new Error("Private quote storage unavailable");
+      const headers = { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" };
+      const readQuery = new URLSearchParams({ id: `eq.${order_id}`, select: "id,user_id,email,status,total,metadata,payment_id,payment_provider", limit: "2" });
+      const readResponse = await fetch(`${storageUrl}/rest/v1/orders?${readQuery}`, { headers, signal: AbortSignal.timeout(10000), redirect: "error" });
+      if (!readResponse.ok) throw new Error("Quote order unavailable");
+      const rows = await readResponse.json();
+      const current = Array.isArray(rows) && rows.length === 1 ? rows[0] : null;
+      if (!current || current.id !== order_id || typeof current.email !== "string"
+        || current.email.trim().toLowerCase() !== access.identity.email
+        || (current.user_id != null && current.user_id !== access.identity.id)
+        || !["pending", "checkout", "checkout (clicked pay)", "wire_pending"].includes(current.status)
+        || (current.metadata != null && (typeof current.metadata !== "object" || Array.isArray(current.metadata)))
+        || Number(current.metadata?.storeCreditUsed ?? 0) !== 0 || current.payment_id) {
+        return res.status(409).json({ code: "CHECKOUT_ORDER_CHANGED", error: "This order has changed. Refresh checkout before continuing." });
+      }
+      const existingMeta = current.metadata || {};
+      const metadata = {
+        ...existingMeta,
+        total: Number(price_amount),
+        subtotal: Number(subtotal),
+        shipping: Number(shipping),
+        automaticDiscount: Number(finalAutomaticDiscount),
+        promoDiscount: Number(promoDiscount),
+        discountRule,
+        promoCode: String(promoCode || ""),
+        affiliateDiscount: Number(finalAffiliateDiscount),
+        cryptoDiscount: Number(cryptoDiscount),
+        storeCreditUsed: 0,
+        affiliateCode: String(affiliateCode || "").trim().toUpperCase(),
+        affiliateOwnerEmail: String(affiliateOwnerEmail || ""),
+        shippingType: String(shippingType),
+        items: pricedItems,
+        firstName: String(firstName || existingMeta.firstName || ""),
+        lastName: String(lastName || existingMeta.lastName || ""),
+        country: String(country || existingMeta.country || ""),
+        address: String(address || existingMeta.address || ""),
+        address2: String(address2 || existingMeta.address2 || ""),
+        city: String(city || existingMeta.city || ""),
+        state: String(state || existingMeta.state || ""),
+        postalCode: String(postalCode || existingMeta.postalCode || ""),
+        phone: String(phone || existingMeta.phone || ""),
+        taxId: String(taxId || existingMeta.taxId || ""),
+      };
+      const query = new URLSearchParams({ id: `eq.${current.id}`, email: `eq.${current.email}`, status: `eq.${current.status}` });
+      for (const field of ["user_id", "total", "payment_id", "payment_provider"]) query.set(field, current[field] == null ? "is.null" : `eq.${current[field]}`);
+      const response = await fetch(`${storageUrl}/rest/v1/orders?${query}`, {
+        method: "PATCH", headers: { ...headers, Prefer: "return=representation" },
+        body: JSON.stringify({ status: "checkout (clicked pay)", total: price_amount, items: pricedItems, metadata }),
+        signal: AbortSignal.timeout(10000), redirect: "error",
+      });
+      if (!response.ok) throw new Error("Quote save unavailable");
+      const savedRows = await response.json();
+      const saved = Array.isArray(savedRows) && savedRows.length === 1 ? savedRows[0] : null;
+      if (!saved || saved.id !== current.id || saved.email !== current.email || saved.user_id !== current.user_id
+        || saved.status !== "checkout (clicked pay)" || Number(saved.total) !== price_amount
+        || saved.payment_id !== current.payment_id || saved.payment_provider !== current.payment_provider
+        || !isDeepStrictEqual(saved.items, pricedItems) || !isDeepStrictEqual(saved.metadata, metadata)) throw new Error("Quote save not acknowledged");
+    } catch {
+      return res.status(503).json({ code: "PAYMENT_QUOTE_UNACKNOWLEDGED", error: "The checkout quote could not be saved. Please try again before paying." });
     }
 
     const nowRes = await fetch("https://api.nowpayments.io/v1/invoice", {
@@ -208,8 +237,8 @@ export default async function handler(req, res) {
         order_id,
         order_description: orderDescription,
         ipn_callback_url: ipnCallbackUrl,
-        success_url: success_url || `${baseUrl}/?payment=success&order=${encodeURIComponent(order_id)}`,
-        cancel_url: cancel_url || `${baseUrl}/?payment=cancelled&order=${encodeURIComponent(order_id)}`,
+        success_url: success_url || `${baseUrl}/?payment=pending&provider=nowpayments&order=${encodeURIComponent(order_id)}`,
+        cancel_url: cancel_url || `${baseUrl}/?payment=cancelled&provider=nowpayments&order=${encodeURIComponent(order_id)}`,
         customer_email,
         is_fixed_rate: false,
         is_fee_paid_by_user: false,
@@ -230,6 +259,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json(data);
   } catch (err) {
+    if (err?.code === "PROMO_LOOKUP_UNAVAILABLE") return res.status(503).json({ code: err.code, error: err.message });
     console.error("create-payment error:", err.message);
     return res.status(500).json({ error: err.message || "Payment creation failed" });
   }

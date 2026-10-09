@@ -96,7 +96,6 @@ export default function AffiliateProgramPage({
   onCopyEmail,
   onContact,
   getPublicImageUrl = (src) => src,
-  onVialImageLoad,
   onVialImageError,
 }) {
   const [openFaq, setOpenFaq] = useState(-1);
@@ -335,8 +334,7 @@ export default function AffiliateProgramPage({
               className="relative z-[1] h-[58%] max-h-[285px] w-[28%] translate-x-8 object-contain drop-shadow-[0_20px_22px_rgba(0,0,0,.55)] sm:translate-x-12 lg:translate-x-16"
               loading="eager"
               fetchPriority="high"
-              decoding="sync"
-              onLoad={onVialImageLoad}
+              decoding="async"
               onError={onVialImageError}
             />
             <img
@@ -347,8 +345,7 @@ export default function AffiliateProgramPage({
               className="relative z-[2] h-[78%] max-h-[380px] w-[34%] object-contain drop-shadow-[0_24px_28px_rgba(0,0,0,.65)]"
               loading="eager"
               fetchPriority="high"
-              decoding="sync"
-              onLoad={onVialImageLoad}
+              decoding="async"
               onError={onVialImageError}
             />
             <img
@@ -359,8 +356,7 @@ export default function AffiliateProgramPage({
               className="relative z-[1] h-[62%] max-h-[310px] w-[28%] -translate-x-8 object-contain drop-shadow-[0_20px_22px_rgba(0,0,0,.55)] sm:-translate-x-12 lg:-translate-x-16"
               loading="eager"
               fetchPriority="high"
-              decoding="sync"
-              onLoad={onVialImageLoad}
+              decoding="async"
               onError={onVialImageError}
             />
           </div>

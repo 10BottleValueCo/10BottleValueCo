@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Trophy } from "lucide-react";
 import "./BpcCatalogCard.css";
 import UsFlag from "./UsFlag.jsx";
+import { observeCatalogTitle } from "../catalog-title-layout.js";
 
 const PACK_SIZES = [1, 5, 10];
 const displayDose = (value) => value.replace(/\s+each\b/gi, "").trim().toUpperCase();
@@ -27,6 +28,7 @@ export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLab
   const doseMenuRef = useRef(null);
   const doseTriggerRef = useRef(null);
   const doseOptionRefs = useRef([]);
+  const cardRef = useRef(null);
   const titleRef = useRef(null);
   const titleMeasureRef = useRef(null);
   const [fittedTitleSize, setFittedTitleSize] = useState(null);
@@ -47,33 +49,8 @@ export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLab
   }, [storedDose, firstAvailableDose, doses.join("|")]);
 
   useEffect(() => {
-    const title = titleRef.current;
-    const measure = titleMeasureRef.current;
-    if (!title || !measure) return;
-
-    let mounted = true;
-    function fitTitle() {
-      const baseSize = parseFloat(getComputedStyle(title).fontSize);
-      measure.style.fontSize = `${baseSize}px`;
-      const needed = measure.getBoundingClientRect().width;
-      const available = title.clientWidth;
-      const ratio = available / needed;
-      const nextSize = ratio < 1 && ratio >= 0.72
-        ? Math.floor(baseSize * ratio * 10) / 10
-        : null;
-      setFittedTitleSize((previous) => previous === nextSize ? previous : nextSize);
-    }
-
-    fitTitle();
-    const observer = new ResizeObserver(fitTitle);
-    observer.observe(title);
-    window.addEventListener("resize", fitTitle);
-    document.fonts?.ready.then(() => { if (mounted) fitTitle(); });
-    return () => {
-      mounted = false;
-      observer.disconnect();
-      window.removeEventListener("resize", fitTitle);
-    };
+    return observeCatalogTitle(cardRef.current, titleRef.current, titleMeasureRef.current,
+      (nextSize) => setFittedTitleSize((previous) => previous === nextSize ? previous : nextSize));
   }, [name, noteLabel]);
 
   useEffect(() => {
@@ -119,7 +96,7 @@ export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLab
   }
 
   return (
-    <article id={id} className={`bpc-catalog-card bpc-catalog-card--quantity-list${catalogStyle ? " bpc-catalog-card--catalog" : ""}${worldwideStyle ? " bpc-catalog-card--worldwide" : ""}${usWarehouseStyle ? " bpc-catalog-card--us-warehouse" : ""}${name.length > 18 ? " bpc-catalog-card--long-name" : ""}`} aria-label={`${name}${noteLabel ? ` ${noteLabel}` : ""}`}>
+    <article ref={cardRef} id={id} data-dose-menu-open={doseMenuOpen ? "true" : undefined} className={`bpc-catalog-card bpc-catalog-card--quantity-list${catalogStyle ? " bpc-catalog-card--catalog" : ""}${worldwideStyle ? " bpc-catalog-card--worldwide" : ""}${usWarehouseStyle ? " bpc-catalog-card--us-warehouse" : ""}${name.length > 18 ? " bpc-catalog-card--long-name" : ""}`} aria-label={`${name}${noteLabel ? ` ${noteLabel}` : ""}`}>
       <button type="button" className="bpc-catalog-card__product-link" aria-label={`${name} ${displayDose(dose)}`} onClick={open}>
         <div className="bpc-catalog-card__vial">
           {renderVial(dose)}

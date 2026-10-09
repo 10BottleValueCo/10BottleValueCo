@@ -1,3 +1,5 @@
+import { normalizePackCount, resolveWarehouseOffer } from "../shared/warehouse-offer.js";
+
 // Server-side price and stock snapshot. Keep this aligned with PRODUCTS_BASE
 // in artifacts/10-bottle-value/src/App.jsx; catalog-sync.test.mjs enforces it.
 // Tuples: name, dose, worldwide price, US base price, warehouse, note label, out of stock.
@@ -173,10 +175,6 @@ function normalize(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-function normalizeDose(value) {
-  return normalize(value).replace(/(\d)\s+([a-z])/g, "$1$2");
-}
-
 function namesMatch(catalogName, clientName) {
   const catalog = normalize(catalogName);
   const client = normalize(clientName);
@@ -188,18 +186,17 @@ export function findCatalogProduct({
   dose,
   noteLabel,
   fromWarehouse,
+  vials,
 }) {
-  const wantsUs = fromWarehouse === "us";
-  const matches = PRODUCTS.filter(
-    (product) =>
-      namesMatch(product.name, name) &&
-      normalizeDose(product.dose) === normalizeDose(dose) &&
-      normalize(product.noteLabel) === normalize(noteLabel),
-  );
-
-  const exact = matches.find((product) => (product.warehouse === "us") === wantsUs);
-  if (exact) return exact;
-  return !wantsUs ? matches[0] || null : null;
+  if (fromWarehouse !== undefined && fromWarehouse !== "" && fromWarehouse !== "us") return null;
+  const matches = PRODUCTS.filter(product => namesMatch(product.name, name));
+  return resolveWarehouseOffer(matches, {
+    name: matches[0]?.name ?? name,
+    dose,
+    noteLabel,
+    warehouse: fromWarehouse,
+    vials,
+  });
 }
 
 export function getUnitPrice(product, fromWarehouse) {
@@ -240,8 +237,11 @@ export function validateAndPriceItems(items) {
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > 50) {
       throw new Error("Invalid item quantity.");
     }
-    if (rawItem?.fromWarehouse && rawItem.fromWarehouse !== "us") {
+    if (rawItem?.fromWarehouse !== undefined && rawItem.fromWarehouse !== "" && rawItem.fromWarehouse !== "us") {
       throw new Error("Invalid product warehouse.");
+    }
+    if (normalizePackCount(rawItem?.vials) === null) {
+      throw new Error("Invalid product pack size.");
     }
 
     const fromWarehouse = rawItem?.fromWarehouse === "us" ? "us" : undefined;
@@ -250,6 +250,7 @@ export function validateAndPriceItems(items) {
       dose: rawItem?.dose,
       noteLabel: rawItem?.noteLabel,
       fromWarehouse,
+      vials: rawItem?.vials,
     });
     if (!product) throw new Error("An item in this cart is no longer available.");
     if (product.outOfStock) {
@@ -261,6 +262,8 @@ export function validateAndPriceItems(items) {
     if (fromWarehouse === "us") usSubtotal += lineTotal;
     else regularSubtotal += lineTotal;
 
+    // Current offers are ten-vial packs. Validate that selector above but keep
+    // the established snapshot shape so open payment resumes remain unchanged.
     pricedItems.push({
       name: product.name,
       dose: product.dose,

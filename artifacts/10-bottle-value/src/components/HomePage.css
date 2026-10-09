@@ -110,29 +110,6 @@
     letter-spacing: .04em !important;
   }
 
-  .tbv-app-shell--home > header[data-home-header="true"] nav {
-    min-width: 0;
-    gap: 0;
-  }
-
-  .tbv-app-shell--home > header[data-home-header="true"] nav > a {
-    flex: 0 1 auto;
-    padding: 4px 4px !important;
-    font-size: 10px !important;
-    letter-spacing: .025em !important;
-    line-height: 1.1;
-  }
-
-  .tbv-app-shell--home > header[data-home-header="true"] nav > a[aria-label] {
-    width: 30px !important;
-    height: 32px !important;
-  }
-
-  .tbv-app-shell--home > header[data-home-header="true"] nav > a[aria-label] svg {
-    width: 16px;
-    height: 16px;
-  }
-
   .tbv-app-shell--home > [data-home-cookie="true"] {
     position: absolute;
     z-index: 210;
@@ -145,9 +122,6 @@
     min-height: 0;
   }
 
-  .tbv-home__hero--reference .tbv-home__hero-reference-actions {
-    top: 64%;
-  }
 }
 
 .tbv-home * { box-sizing: border-box; }
@@ -306,6 +280,9 @@
   gap: 8px;
 }
 .tbv-home__warehouse-switch-label--short { display: none; }
+.tbv-home__warehouse-switch-options { display: grid; }
+.tbv-home__warehouse-switch-options > span { grid-area: 1 / 1; }
+.tbv-home__warehouse-switch-options > span[data-active="false"] { visibility: hidden; }
 
 .tbv-home__proofline {
   display: flex;
@@ -479,6 +456,30 @@
 .tbv-home__hero-reference-action:focus-visible {
   outline: 3px solid #7e9fff;
   outline-offset: 3px;
+}
+
+/* Keep the headline and its actions in one flow, so font/viewport changes
+   cannot put warehouse buttons on top of the headline. Mobile retains its
+   existing placement around the portrait image. */
+.tbv-home__hero-reference-content { display: contents; }
+@media (min-width: 641px) {
+  .tbv-home__hero-reference-content {
+    position: absolute;
+    z-index: 3;
+    top: calc(38% - 1cm);
+    left: 4%;
+    display: block;
+    width: 50%;
+  }
+  .tbv-home__hero-reference-content .tbv-home__hero-reference-copy {
+    position: static;
+    width: 100%;
+  }
+  .tbv-home__hero-reference-content .tbv-home__hero-reference-actions {
+    position: static;
+    margin-top: clamp(16px, 2vw, 28px);
+    transform: none;
+  }
 }
 
 @media (min-width: 1024px) {
@@ -740,6 +741,7 @@
 }
 .tbv-home__section-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: end;
   justify-content: space-between;
   gap: 18px;
@@ -800,7 +802,8 @@
   scroll-snap-type: none;
   scrollbar-width: thin;
   scrollbar-color: rgba(207,216,255,.55) rgba(255,255,255,.12);
-  touch-action: pan-y;
+  touch-action: auto;
+  -webkit-overflow-scrolling: touch;
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;

@@ -1,0 +1,55 @@
+/* Keep the glass colors, borders and original photography. Limit removal to
+   persistent page surfaces: modal, verification and menu backdrops keep their
+   existing separation/contrast. No full-page wildcard reset is used. */
+#root .tbv-app-shell > header,
+#root [data-mobile-announcement="true"] > [data-nosnippet],
+#root .tbv-home__hero-tag,
+#root .tbv-home__social-link,
+#root .lab-sidebar,
+#root .lab-panel,
+#root .account-messages {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* Retain every product in the document, including browser find and keyboard
+   access, while allowing offscreen card descendants to skip layout/paint.
+   The remembered size replaces the estimate as each card is displayed. */
+@supports (content-visibility: auto) {
+  .bpc-catalog-card--catalog {
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto 434px;
+  }
+
+  .bpc-catalog-card--catalog:focus-within,
+  .bpc-catalog-card--catalog[data-dose-menu-open="true"] {
+    content-visibility: visible;
+  }
+
+  @media (min-width: 768px) {
+    .bpc-catalog-card--catalog {
+      contain-intrinsic-block-size: auto 593px;
+    }
+  }
+}
+
+/* Match the catalog's fixed backdrop layering on the two information routes.
+   The photograph stays fixed while the content can scroll independently. */
+.tbv-app-shell--info-background {
+  position: relative;
+  isolation: isolate;
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+.tbv-app-shell--info-background::before {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  background-image: var(--tbv-info-background-image);
+  background-position: center top;
+  background-repeat: no-repeat;
+  background-size: cover;
+}

@@ -1,3 +1,4 @@
+import { promoRows, promoFromRow } from "./_promo.js";
 const CODE_PATTERN = /^[A-Z0-9_-]{1,80}$/;
 
 class PromoCodeError extends Error {
@@ -32,35 +33,7 @@ function getSupabaseConfig() {
 
 async function getPublicPromoRows(code) {
   const { url, key } = getSupabaseConfig();
-  const query = new URLSearchParams({
-    select: "code,rate",
-    email: "eq.__PUBLIC__",
-    code: `eq.${code}`,
-    used: "eq.false",
-    limit: "2",
-  });
-
-  let response;
-  try {
-    response = await fetch(`${url}/rest/v1/user_promos?${query}`, {
-      headers: {
-        apikey: key,
-        Authorization: `Bearer ${key}`,
-      },
-      signal: AbortSignal.timeout(10000),
-    });
-  } catch {
-    throw new PromoCodeError(503, "Promo code validation is unavailable.");
-  }
-
-  if (!response.ok) {
-    throw new PromoCodeError(503, "Promo code validation is unavailable.");
-  }
-  const rows = await response.json().catch(() => null);
-  if (!Array.isArray(rows)) {
-    throw new PromoCodeError(503, "Promo code validation is unavailable.");
-  }
-  return rows;
+  return promoRows({ code, email: "__PUBLIC__", sbUrl: url, sbKey: key });
 }
 
 export default async function handler(req, res) {
@@ -73,20 +46,12 @@ export default async function handler(req, res) {
   try {
     const code = normalizeCode(req.query?.code);
     const rows = await getPublicPromoRows(code);
-    if (rows.length > 1) {
-      throw new PromoCodeError(409, "This promo code needs support review.");
-    }
 
-    const row = rows[0];
-    const rate = Number(row?.rate);
-    const promo =
-      row &&
-      Number.isFinite(rate) &&
-      rate > 0 &&
-      rate <= 1 &&
-      String(row.code || "").trim().toUpperCase() === code
-        ? { code, rate }
-        : null;
+    const subtotal = req.query?.subtotal === undefined ? undefined : Number(req.query.subtotal);
+    if (subtotal !== undefined && (!Number.isFinite(subtotal) || subtotal < 0 || subtotal > 100000)) throw new PromoCodeError(400, "Invalid cart subtotal.");
+    const benefit = promoFromRow(rows[0], { code, email: "__PUBLIC__", subtotalCents: subtotal === undefined ? undefined : Math.round(subtotal * 100) });
+    const promo = benefit ? { code, rate: benefit.rate, minimumSubtotal: benefit.rule.minimumSubtotalCents / 100,
+      startsAt: benefit.rule.startsAt, endsAt: benefit.rule.endsAt } : null;
 
     return res.status(200).json({ ok: true, promo });
   } catch (error) {

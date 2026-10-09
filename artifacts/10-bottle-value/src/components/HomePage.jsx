@@ -39,8 +39,6 @@ export default function HomePage({
     usVariants: tx("US Warehouse products", "Товары со склада США", "Товари зі складу США", "Produkte aus dem US-Lager", "Productos del almacén de EE. UU."),
     showUsProducts: tx("Switch to US products", "Переключить на товары из США", "Перемкнути на товари зі США", "Zu US-Produkten wechseln", "Cambiar a productos de EE. UU."),
     showWorldwideProducts: tx("Switch to worldwide", "Переключить на товары со всего мира", "Перемкнути на товари з усього світу", "Zu weltweiten Produkten wechseln", "Cambiar a productos de todo el mundo"),
-    showUsProductsAction: tx("To US products", "На товары из США", "На товари зі США", "Zu US-Produkten", "A productos de EE. UU."),
-    showWorldwideProductsAction: tx("To worldwide", "На товары со всего мира", "На товари з усього світу", "Zu weltweiten Produkten", "A productos de todo el mundo"),
     showUsProductsShort: tx("Switch to US", "В США", "У США", "Zu US", "A EE. UU."),
     showWorldwideProductsShort: tx("Switch to global", "В МИР", "У СВІТ", "Weltweit", "Global"),
     showAllProducts: tx("Show all products", "Показать все товары", "Показати всі товари", "Alle Produkte anzeigen", "Mostrar todos los productos"),
@@ -120,7 +118,9 @@ export default function HomePage({
   );
 
   function handleProductsPointerDown(event) {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
+    // Touch and pen use the browser's native momentum scrolling. Capturing
+    // those pointers interrupts horizontal swipes, particularly in Safari.
+    if (event.pointerType !== "mouse" || event.button !== 0) return;
     const track = event.currentTarget;
     if (track.scrollWidth <= track.clientWidth) return;
     productsDragRef.current = {
@@ -197,41 +197,43 @@ export default function HomePage({
                 fetchPriority="high"
               />
             </picture>
-            <div className="tbv-home__hero-reference-copy">
-              <h1 id="tbv-home-heading" data-testid="text-homepage-headline">
-                <span>{copy.headlineOne}</span>
-                <span>{copy.headlineTwo} {copy.headlineThree}</span>
-              </h1>
-            </div>
-            <div className="tbv-home__hero-reference-actions">
-              <div className="tbv-home__hero-reference-shop-actions">
+            <div className="tbv-home__hero-reference-content">
+              <div className="tbv-home__hero-reference-copy">
+                <h1 id="tbv-home-heading" data-testid="text-homepage-headline">
+                  <span>{copy.headlineOne}</span>
+                  <span>{copy.headlineTwo} {copy.headlineThree}</span>
+                </h1>
+              </div>
+              <div className="tbv-home__hero-reference-actions">
+                <div className="tbv-home__hero-reference-shop-actions">
+                  <button
+                    className="tbv-home__button tbv-home__button--primary tbv-home__hero-reference-action"
+                    type="button"
+                    data-testid="button-home-shop-worldwide"
+                    onClick={() => onOpenShop()}
+                  >
+                    {worldwideIcon}<span>{copy.shopWorldwide}</span><span className="tbv-home__arrow" aria-hidden="true">→</span>
+                  </button>
+                  <button
+                    className="tbv-home__button tbv-home__button--secondary tbv-home__hero-reference-action"
+                    type="button"
+                    data-testid="button-home-shop-us"
+                    onClick={onOpenUsWarehouse}
+                  >
+                    {usFlagIcon}<span>{copy.usWarehouse}</span><span className="tbv-home__arrow" aria-hidden="true">→</span>
+                  </button>
+                </div>
                 <button
-                  className="tbv-home__button tbv-home__button--primary tbv-home__hero-reference-action"
+                  className="tbv-home__button tbv-home__button--secondary tbv-home__hero-reference-action tbv-home__hero-register-action"
                   type="button"
-                  data-testid="button-home-shop-worldwide"
-                  onClick={() => onOpenShop()}
+                  data-testid="button-home-register"
+                  onClick={onOpenRegister}
                 >
-                  {worldwideIcon}<span>{copy.shopWorldwide}</span><span className="tbv-home__arrow" aria-hidden="true">→</span>
-                </button>
-                <button
-                  className="tbv-home__button tbv-home__button--secondary tbv-home__hero-reference-action"
-                  type="button"
-                  data-testid="button-home-shop-us"
-                  onClick={onOpenUsWarehouse}
-                >
-                  {usFlagIcon}<span>{copy.usWarehouse}</span><span className="tbv-home__arrow" aria-hidden="true">→</span>
+                  <UserRound aria-hidden="true" className="tbv-home__button-icon" strokeWidth={1.8} />
+                  <span>{copy.register}</span>
+                  <span className="tbv-home__arrow" aria-hidden="true">→</span>
                 </button>
               </div>
-              <button
-                className="tbv-home__button tbv-home__button--secondary tbv-home__hero-reference-action tbv-home__hero-register-action"
-                type="button"
-                data-testid="button-home-register"
-                onClick={onOpenRegister}
-              >
-                <UserRound aria-hidden="true" className="tbv-home__button-icon" strokeWidth={1.8} />
-                <span>{copy.register}</span>
-                <span className="tbv-home__arrow" aria-hidden="true">→</span>
-              </button>
             </div>
           </>
         ) : (
@@ -311,8 +313,10 @@ export default function HomePage({
                 onClick={() => setIsShowingUsProducts((showingUs) => !showingUs)}
               >
                 <span className="tbv-home__warehouse-switch-label tbv-home__warehouse-switch-label--full">
-                  <span>Switch</span>
-                  {isShowingUsProducts ? copy.showWorldwideProductsAction : copy.showUsProductsAction}
+                  <span className="tbv-home__warehouse-switch-options">
+                    <span aria-hidden={isShowingUsProducts} data-active={!isShowingUsProducts}>{copy.showUsProducts}</span>
+                    <span aria-hidden={!isShowingUsProducts} data-active={isShowingUsProducts}>{copy.showWorldwideProducts}</span>
+                  </span>
                   <RefreshCw className="tbv-home__switch-icon tbv-home__switch-icon--full" size={14} strokeWidth={1.8} aria-hidden="true" />
                 </span>
                 <span className="tbv-home__warehouse-switch-label--short">
@@ -324,7 +328,7 @@ export default function HomePage({
                 className="tbv-home__text-link"
                 type="button"
                 data-testid="button-home-show-all-products"
-                onClick={() => onOpenShop()}
+                onClick={() => isShowingUsProducts ? onOpenUsWarehouse() : onOpenShop()}
               >
                 {copy.showAllProducts}
                 <span className="tbv-home__arrow tbv-home__arrow--show-all" aria-hidden="true">→</span>

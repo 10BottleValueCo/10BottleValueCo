@@ -1,30 +1,42 @@
-import { useDeferredValue, useMemo, useState } from "react";
+import { memo, useDeferredValue, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { buildFaqs } from "../data/faqData.js";
 
 let cachedFaqSearchInput = "";
+// Keep the same per-visit persistence when routes unmount, without storing FAQ
+// interaction state in App (which also retains the hidden product catalog).
+let cachedFaqOpenSections = { shipping: -1, orders: -1, product: -1 };
 
-export default function PublicInfoPages({
-  page,
-  language,
-  tx,
-  openFaqs,
-  toggleFaq,
-  getFaqParagraphs,
-  getPreloadedDisplayImageUrl,
-  aboutBottleWiggle,
-  setAboutBottleWiggle,
-  handlePublicPageLink,
-}) {
-  const [faqSearchInput, setFaqSearchInput] = useState(
-    () => cachedFaqSearchInput,
-  );
-  const deferredFaqSearchInput = useDeferredValue(faqSearchInput);
-  const faqs = useMemo(
-    () => (page === "faq" ? buildFaqs(tx) : []),
-    [page, language],
-  );
-  const faqSearchQuery = deferredFaqSearchInput.trim().toLocaleLowerCase();
+function getFaqParagraphs(text) {
+  if (!text) return [];
+
+  if (text.includes("\n\n")) {
+    return text
+      .split("\n\n")
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
+  if (text.length > 120) {
+    const parts = text.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g);
+    if (parts && parts.length > 1) {
+      return parts.map((part) => part.trim()).filter(Boolean);
+    }
+  }
+
+  return [text];
+}
+
+const FaqResults = memo(function FaqResults({ language, tx, faqs, faqSearchQuery }) {
+  const [openFaqs, setOpenFaqs] = useState(() => cachedFaqOpenSections);
+  function toggleFaq(sectionKey, index) {
+    const next = {
+      ...openFaqs,
+      [sectionKey]: openFaqs[sectionKey] === index ? -1 : index,
+    };
+    cachedFaqOpenSections = next;
+    setOpenFaqs(next);
+  }
   const faqSearchMatchIds = useMemo(
     () =>
       new Set(
@@ -39,57 +51,6 @@ export default function PublicInfoPages({
 
   return (
     <>
-      {page === "faq" && (
-        <main className="mx-auto max-w-7xl px-4 pt-10 pb-12 md:-mt-5 md:px-10 md:pt-0 md:pb-16">
-          <div className="mb-5 md:mb-8">
-            <div className="lg:max-w-[48%] lg:translate-y-20">
-              <h1 className="text-3xl font-semibold uppercase tracking-[0.08em] text-white md:text-4xl xl:text-5xl">
-                {tx("COMMON QUESTIONS", "ЧАСТЫЕ ВОПРОСЫ", "ПОШИРЕНІ ПИТАННЯ", "HÄUFIGE FRAGEN", "PREGUNTAS COMUNES")}
-              </h1>
-              <p className="mt-4 max-w-2xl text-base uppercase tracking-[0.08em] leading-7 text-white/60 md:text-sm lg:text-xs xl:text-sm">
-                {language === "RU"
-                  ? "ЧЁТКИЕ ОТВЕТЫ О ДОСТАВКЕ, ЗАКАЗАХ И ДЕТАЛЯХ ПРОДУКТОВ."
-                  : language === "UA"
-                  ? "ЧІТКІ ВІДПОВІДІ ПРО ДОСТАВКУ, ЗАМОВЛЕННЯ ТА ДЕТАЛІ ПРОДУКТІВ."
-                  : language === "DE"
-                  ? "KLARE ANTWORTEN ZU VERSAND, BESTELLUNGEN UND PRODUKTDETAILS."
-                  : language === "ES"
-                  ? "RESPUESTAS CLARAS SOBRE ENVÍOS, PEDIDOS Y DETALLES DEL PRODUCTO."
-                  : "CLEAR ANSWERS ABOUT SHIPPING, ORDERS AND PRODUCT DETAILS."}
-              </p>
-            </div>
-            <div className="relative ml-auto mt-5 w-full max-w-lg lg:max-w-md xl:max-w-lg">
-              <Search
-                aria-hidden="true"
-                className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-white/45"
-                strokeWidth={1.8}
-              />
-              <input
-                type="search"
-                value={faqSearchInput}
-                onChange={(event) => {
-                  cachedFaqSearchInput = event.target.value;
-                  setFaqSearchInput(event.target.value);
-                }}
-                placeholder={tx(
-                  "Search questions and answers...",
-                  "Поиск по вопросам и ответам...",
-                  "Пошук запитань і відповідей...",
-                  "Fragen und Antworten durchsuchen...",
-                  "Buscar preguntas y respuestas...",
-                )}
-                aria-label={tx(
-                  "Search questions and answers",
-                  "Поиск по вопросам и ответам",
-                  "Пошук запитань і відповідей",
-                  "Fragen und Antworten durchsuchen",
-                  "Buscar preguntas y respuestas",
-                )}
-                className="h-12 w-full rounded-2xl border border-white/15 bg-black/25 pl-12 pr-4 text-sm text-white placeholder:text-white/45 focus:border-white/35 focus:outline-none focus:ring-2 focus:ring-white/15"
-              />
-            </div>
-          </div>
-
           {faqSearchQuery && faqSearchMatchIds.size === 0 && (
             <div
               className="mb-8 rounded-2xl border border-white/15 bg-black/20 px-5 py-6 text-sm text-white/65"
@@ -267,6 +228,88 @@ export default function PublicInfoPages({
               );
             })}
           </div>
+    </>
+  );
+});
+
+export default function PublicInfoPages({
+  page,
+  language,
+  tx,
+  getPreloadedDisplayImageUrl,
+  aboutBottleWiggle,
+  setAboutBottleWiggle,
+  handlePublicPageLink,
+}) {
+  const [faqSearchInput, setFaqSearchInput] = useState(
+    () => cachedFaqSearchInput,
+  );
+  const deferredFaqSearchInput = useDeferredValue(faqSearchInput);
+  const faqs = useMemo(
+    () => (page === "faq" ? buildFaqs(tx) : []),
+    [page, language],
+  );
+  const faqSearchQuery = deferredFaqSearchInput.trim().toLocaleLowerCase();
+
+  return (
+    <>
+      {page === "faq" && (
+        <main className="mx-auto max-w-7xl px-4 pt-10 pb-12 md:-mt-5 md:px-10 md:pt-0 md:pb-16">
+          <div className="mb-5 md:mb-8">
+            <div className="lg:max-w-[48%] lg:translate-y-20">
+              <h1 className="text-3xl font-semibold uppercase tracking-[0.08em] text-white md:text-4xl xl:text-5xl">
+                {tx("COMMON QUESTIONS", "ЧАСТЫЕ ВОПРОСЫ", "ПОШИРЕНІ ПИТАННЯ", "HÄUFIGE FRAGEN", "PREGUNTAS COMUNES")}
+              </h1>
+              <p className="mt-4 max-w-2xl text-base uppercase tracking-[0.08em] leading-7 text-white/60 md:text-sm lg:text-xs xl:text-sm">
+                {language === "RU"
+                  ? "ЧЁТКИЕ ОТВЕТЫ О ДОСТАВКЕ, ЗАКАЗАХ И ДЕТАЛЯХ ПРОДУКТОВ."
+                  : language === "UA"
+                  ? "ЧІТКІ ВІДПОВІДІ ПРО ДОСТАВКУ, ЗАМОВЛЕННЯ ТА ДЕТАЛІ ПРОДУКТІВ."
+                  : language === "DE"
+                  ? "KLARE ANTWORTEN ZU VERSAND, BESTELLUNGEN UND PRODUKTDETAILS."
+                  : language === "ES"
+                  ? "RESPUESTAS CLARAS SOBRE ENVÍOS, PEDIDOS Y DETALLES DEL PRODUCTO."
+                  : "CLEAR ANSWERS ABOUT SHIPPING, ORDERS AND PRODUCT DETAILS."}
+              </p>
+            </div>
+            <div className="relative ml-auto mt-5 w-full max-w-lg lg:max-w-md xl:max-w-lg">
+              <Search
+                aria-hidden="true"
+                className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-white/45"
+                strokeWidth={1.8}
+              />
+              <input
+                type="search"
+                value={faqSearchInput}
+                onChange={(event) => {
+                  cachedFaqSearchInput = event.target.value;
+                  setFaqSearchInput(event.target.value);
+                }}
+                placeholder={tx(
+                  "Search questions and answers...",
+                  "Поиск по вопросам и ответам...",
+                  "Пошук запитань і відповідей...",
+                  "Fragen und Antworten durchsuchen...",
+                  "Buscar preguntas y respuestas...",
+                )}
+                aria-label={tx(
+                  "Search questions and answers",
+                  "Поиск по вопросам и ответам",
+                  "Пошук запитань і відповідей",
+                  "Fragen und Antworten durchsuchen",
+                  "Buscar preguntas y respuestas",
+                )}
+                className="h-12 w-full rounded-2xl border border-white/15 bg-black/25 pl-12 pr-4 text-sm text-white placeholder:text-white/45 focus:border-white/35 focus:outline-none focus:ring-2 focus:ring-white/15"
+              />
+            </div>
+          </div>
+
+          <FaqResults
+            language={language}
+            tx={tx}
+            faqs={faqs}
+            faqSearchQuery={faqSearchQuery}
+          />
         </main>
       )}
 

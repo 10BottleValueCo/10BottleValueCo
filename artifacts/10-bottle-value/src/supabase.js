@@ -1,3 +1,4 @@
+import { saveCheckoutProfile } from "./checkout-details.js";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
@@ -76,6 +77,7 @@ export function userFromSupabase(supabaseUser) {
   if (!supabaseUser) return null;
   const meta = supabaseUser.user_metadata || {};
   return {
+    id: supabaseUser.id,
     email: supabaseUser.email,
     createdAt: supabaseUser.created_at || new Date().toISOString(),
     affiliateCode: meta.affiliateCode || "",
@@ -92,4 +94,8 @@ export function userFromSupabase(supabaseUser) {
     phone: meta.phone || "",
     carrierPreference: meta.carrierPreference || "",
   };
+}
+
+export function saveAccountCheckoutDetails(user, form) {
+  return saveCheckoutProfile({ auth: supabase.auth, url: supabaseUrl, anonKey: supabaseAnonKey, user, form });
 }

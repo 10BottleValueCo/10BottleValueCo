@@ -4,16 +4,9 @@ import {
   getShippingPrice,
   validateAndPriceItems,
 } from "./_catalog.js";
+import { verifyPromoCode, PromoLookupError } from "./_promo.js";
 import { requireVerifiedCustomer } from "./_require-customer.js";
 
-const STATIC_PROMOS = {
-  REVIEW10: { rate: 0.1, freeShipping: false },
-  OWNERFREESHIP: {
-    rate: 0,
-    freeShipping: true,
-    emailLock: "support@10bottlevalue.co",
-  },
-};
 const EXPRESS_COUNTRIES = new Set([
   "United States",
   "Puerto Rico",
@@ -159,7 +152,8 @@ function readCheckoutInput(body, customerEmail) {
       name: cleanString(item.name, "product name", 160, true),
       dose: cleanString(item.dose, "product size", 80, true),
       quantity: item.quantity,
-      ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+      ...(item.fromWarehouse !== undefined ? { fromWarehouse: item.fromWarehouse } : {}),
+      ...(item.vials !== undefined ? { vials: item.vials } : {}),
       ...(item.noteLabel
         ? { noteLabel: cleanString(item.noteLabel, "product option", 80) }
         : {}),
@@ -231,7 +225,11 @@ function readCheckoutInput(body, customerEmail) {
 
   const fingerprintInput = {
     customerEmail,
-    items,
+    // Explicit ten-vial/empty-worldwide selectors mean the same legacy offer.
+    // Keep their prior fingerprint while retaining other values for rejection.
+    items: items.map(item => Object.fromEntries(Object.entries(item).filter(([key, value]) =>
+      !(key === "vials" && value === 10) && !(key === "fromWarehouse" && value === "")
+    ))),
     shippingType,
     paymentMethod,
     promoCode,
@@ -291,76 +289,22 @@ function getMetadata(value) {
   return null;
 }
 
-async function verifyPromo({ code, email }) {
+async function verifyPromo({ code, email, subtotal }) {
   if (!code) return { rate: 0, freeShipping: false, userPromoId: null };
-
-  const fixed = STATIC_PROMOS[code];
-  if (fixed) {
-    if (fixed.emailLock && normalizeEmail(email) !== fixed.emailLock) {
-      throw new CheckoutError(400, "That promo code is not valid.");
-    }
-    return { ...fixed, userPromoId: null };
+  const { url, key } = getSupabaseConfig();
+  try {
+    const promo = await verifyPromoCode({ code, email, sbUrl: url, sbKey: key, subtotalCents: Math.round(subtotal * 100) });
+    if (!promo) throw new CheckoutError(409, "This promo code is unavailable for this checkout. Review or remove it before paying.");
+    return promo;
+  } catch (error) {
+    if (error instanceof PromoLookupError) throw new CheckoutError(503, error.message);
+    throw error;
   }
-
-  const personalRows = await supabaseServiceJson(
-    `user_promos?select=id,email,code,rate,used&email=eq.${encodeURIComponent(email)}&code=eq.${encodeURIComponent(code)}&used=eq.false&limit=2`,
-  );
-  if (!Array.isArray(personalRows)) {
-    throw new CheckoutError(503, "Could not verify the promo code.");
-  }
-  if (personalRows.length > 1) {
-    throw new CheckoutError(409, "This promo code needs support review.");
-  }
-  const publicRows =
-    personalRows.length === 0
-      ? await supabaseServiceJson(
-          `user_promos?select=id,email,code,rate,used&email=eq.__PUBLIC__&code=eq.${encodeURIComponent(code)}&used=eq.false&limit=2`,
-        )
-      : [];
-  if (!Array.isArray(publicRows)) {
-    throw new CheckoutError(503, "Could not verify the promo code.");
-  }
-  if (publicRows.length > 1) {
-    throw new CheckoutError(409, "This promo code needs support review.");
-  }
-
-  const row = personalRows[0] || publicRows[0];
-  const rate = Number(row?.rate);
-  if (!row || !Number.isFinite(rate) || rate <= 0 || rate > 1) {
-    throw new CheckoutError(400, "That promo code is not valid or has been used.");
-  }
-  return {
-    rate,
-    freeShipping: false,
-    userPromoId: personalRows.length === 1 ? String(row.id) : null,
-  };
 }
 
-async function verifyAffiliate({ code, email }) {
+async function verifyAffiliate({ code }) {
   if (!code) return null;
-
-  const rows = await supabaseServiceJson(
-    `affiliates?select=code,email,active&code=eq.${encodeURIComponent(code)}&limit=2`,
-  );
-  if (!Array.isArray(rows) || rows.length !== 1 || rows[0].active === false) {
-    throw new CheckoutError(400, "That affiliate code is not active.");
-  }
-  const ownerEmail = normalizeEmail(rows[0].email);
-  if (!ownerEmail || ownerEmail === email) {
-    throw new CheckoutError(400, "That affiliate code cannot be used for this order.");
-  }
-
-  const previousOrders = await supabaseServiceJson(
-    `orders?select=id&email=eq.${encodeURIComponent(email)}&status=in.(paid,done)&limit=1`,
-  );
-  if (!Array.isArray(previousOrders)) {
-    throw new CheckoutError(503, "Could not verify affiliate eligibility.");
-  }
-  return {
-    code: String(rows[0].code),
-    ownerEmail,
-    firstTimeBuyer: previousOrders.length === 0,
-  };
+  throw new CheckoutError(409, "This affiliate code needs verification before Store Credit checkout. Remove the code or contact support.");
 }
 
 function errorForRpcCode(code) {
@@ -368,10 +312,35 @@ function errorForRpcCode(code) {
     INSUFFICIENT_CREDIT: "Your Store Credit no longer covers this order.",
     CREDIT_ROW_AMBIGUOUS:
       "We could not safely verify your Store Credit. Please contact support.",
+    MERIT_CREDIT_BALANCE_UNAVAILABLE:
+      "We could not safely verify your Store Credit balance. Please contact support.",
+    MERIT_CREDIT_PENDING:
+      "A previous Store Credit checkout needs reconciliation. Contact support before starting another payment.",
     PROMO_ALREADY_USED: "That promo code has already been used.",
     ORDER_ID_CONFLICT: "This checkout request was already used. Refresh and try again.",
   };
   return messages[code] || "Store Credit checkout could not be completed.";
+}
+
+async function completeCreditCheckout({ input, customerEmail, customerId, order, amount, userPromoId = null }) {
+  const resultData = await supabaseServiceJson("rpc/checkout_store_credit", {
+    method: "POST",
+    body: { p_customer_email: customerEmail, p_order: order,
+      p_store_credit_used: amount, p_user_promo_id: userPromoId, p_customer_id: customerId },
+  });
+  const result = Array.isArray(resultData) && resultData.length === 1 ? resultData[0] : resultData;
+  if (!result || result.ok !== true) throw new CheckoutError(409, errorForRpcCode(String(result?.error || "")));
+  const balance = result.balance;
+  const savedOrder = getMetadata(result.order);
+  if (!savedOrder || result.orderId !== input.orderId || savedOrder.id !== input.orderId
+    || savedOrder.email !== customerEmail || savedOrder.paymentProvider !== "StoreCredit"
+    || savedOrder.status !== "paid" || savedOrder.total !== 0
+    || savedOrder.checkoutFingerprint !== input.checkoutFingerprint
+    || typeof savedOrder.storeCreditUsed !== "number" || Math.round(savedOrder.storeCreditUsed * 100) !== input.requestedCents
+    || typeof balance !== "number" || !Number.isFinite(balance) || balance < 0
+    || !Number.isSafeInteger(Math.round(balance * 100)) || Math.abs(balance * 100 - Math.round(balance * 100)) > 1e-7
+    || typeof result.replayed !== "boolean") throw new CheckoutError(503, "The order result could not be confirmed.");
+  return { ok: true, order: savedOrder, balance, replayed: result.replayed };
 }
 
 async function handler(req, res) {
@@ -412,12 +381,12 @@ async function handler(req, res) {
         metadata?.checkoutFingerprint === input.checkoutFingerprint &&
         Number.isFinite(balance)
       ) {
-        return res.status(200).json({
-          ok: true,
-          order: metadata,
-          balance,
-          replayed: true,
-        });
+        // Public order metadata is only a lookup hint. The private ledger must
+        // acknowledge this exact completed attempt before it is shown as paid.
+        const result = await completeCreditCheckout({ input, customerEmail: customer.email, customerId: customer.id,
+          order: metadata, amount: input.requestedCents / 100 });
+        if (!result.replayed) throw new CheckoutError(503, "The order result could not be confirmed.");
+        return res.status(200).json(result);
       }
       return res.status(409).json({
         ok: false,
@@ -434,7 +403,7 @@ async function handler(req, res) {
     const { pricedItems, subtotal, regularSubtotal } = priced;
     const promo = await verifyPromo({
       code: input.promoCode,
-      email: customer.email,
+      email: customer.email, subtotal,
     });
     const affiliate = await verifyAffiliate({
       code: input.affiliateCode,
@@ -473,11 +442,8 @@ async function handler(req, res) {
     );
     const cryptoDiscount =
       input.paymentMethod === "crypto" ? roundMoney(baseTotal * 0.025) : 0;
-    const stripeFee =
-      input.paymentMethod === "stripe" ? roundMoney(baseTotal * 0.0295) : 0;
-    const storeCreditUsed = roundMoney(
-      baseTotal - cryptoDiscount + stripeFee,
-    );
+    // A fully credit-funded order has no card tender and no card surcharge.
+    const storeCreditUsed = roundMoney(baseTotal - cryptoDiscount);
     if (storeCreditUsed <= 0) {
       throw new CheckoutError(400, "The order total must be greater than zero.");
     }
@@ -522,6 +488,7 @@ async function handler(req, res) {
       automaticDiscount,
       promoDiscount,
       promoCode: input.promoCode,
+      ...(promo.rule ? { discountRule: promo.rule } : {}),
       promoFreeShipping: Boolean(promo.freeShipping),
       affiliateDiscount,
       cryptoDiscount,
@@ -536,40 +503,8 @@ async function handler(req, res) {
       checkoutFingerprint: input.checkoutFingerprint,
     };
 
-    const resultData = await supabaseServiceJson("rpc/checkout_store_credit", {
-      method: "POST",
-      body: {
-        p_customer_email: customer.email,
-        p_order: order,
-        p_store_credit_used: storeCreditUsed,
-        p_user_promo_id: promo.userPromoId,
-      },
-    });
-    const result = Array.isArray(resultData) ? resultData[0] : resultData;
-    if (!result || result.ok !== true) {
-      const code = String(result?.error || "");
-      return res.status(409).json({
-        ok: false,
-        error: errorForRpcCode(code),
-      });
-    }
-
-    const balance = Number(result.balance);
-    const savedOrder = getMetadata(result.order);
-    if (
-      !savedOrder ||
-      savedOrder.id !== input.orderId ||
-      savedOrder.paymentProvider !== "StoreCredit" ||
-      !Number.isFinite(balance)
-    ) {
-      throw new CheckoutError(503, "The order result could not be confirmed.");
-    }
-    return res.status(200).json({
-      ok: true,
-      order: savedOrder,
-      balance,
-      replayed: Boolean(result.replayed),
-    });
+    return res.status(200).json(await completeCreditCheckout({ input, customerEmail: customer.email, customerId: customer.id,
+      order, amount: storeCreditUsed, userPromoId: promo.userPromoId }));
   } catch (error) {
     if (error instanceof CheckoutError) {
       return res.status(error.status).json({ ok: false, error: error.message });

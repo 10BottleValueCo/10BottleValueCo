@@ -1,3 +1,4 @@
+import { requireLegacyOrderAccess } from "./_order-access.js";
 import { processNowPaymentsStatus } from "./_nowpayments-shared.js";
 
 // Fallback endpoint: the frontend calls this right after the customer is
@@ -11,6 +12,9 @@ import { processNowPaymentsStatus } from "./_nowpayments-shared.js";
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
+  const access = await requireLegacyOrderAccess(req, res, { orderId: req.body?.order_id, payable: false, allowAdmin: true });
+  if (!access) return;
+
   try {
     const apiKey = process.env.NOWPAYMENTS_API_KEY || process.env.NOW_PAYMENTS_API_KEY || "";
     const { payment_id, order_id } = req.body || {};
@@ -22,7 +26,7 @@ export default async function handler(req, res) {
 
     if (payment_id) {
       const nowRes = await fetch(`https://api.nowpayments.io/v1/payment/${encodeURIComponent(String(payment_id))}`, {
-        headers: { "x-api-key": apiKey },
+        headers: { "x-api-key": apiKey }, signal: AbortSignal.timeout(8000),
       });
       if (nowRes.ok) data = await nowRes.json();
     }
@@ -36,7 +40,7 @@ export default async function handler(req, res) {
     if (!data && order_id) {
       const listRes = await fetch(
         `https://api.nowpayments.io/v1/payment/?orderId=${encodeURIComponent(String(order_id))}&limit=1&sortField=created_at&sortDirection=-1`,
-        { headers: { "x-api-key": apiKey } }
+        { headers: { "x-api-key": apiKey }, signal: AbortSignal.timeout(8000) }
       );
       if (listRes.ok) {
         const listData = await listRes.json();
@@ -49,7 +53,14 @@ export default async function handler(req, res) {
       return res.status(200).json({ received: false, skipped: "nowpayments_lookup_failed" });
     }
 
-    const result = await processNowPaymentsStatus(data);
+    // The provider lookup must identify the authorized order; do not let a
+    // caller pair their order number with another customer's payment ID.
+    let description = {};
+    try { description = typeof data.order_description === "string" ? JSON.parse(data.order_description) : {}; } catch {}
+    const describedOrder = description?.order_id || description?.orderId;
+    if (String(data.order_id || "") !== order_id || (describedOrder && describedOrder !== order_id))
+      return res.status(409).json({ received: false, code: "PAYMENT_ORDER_MISMATCH", error: "Payment does not match this order." });
+    const result = await processNowPaymentsStatus(data, { providerVerified: true });
     return res.status(200).json(result);
   } catch (err) {
     console.error("verify-nowpayments-payment error:", err.message);

@@ -1,3 +1,5 @@
+import { requireLegacyOrderAccess } from "./_order-access.js";
+import { assertLegacyCreditPaidAcknowledgement, debitLegacyOrderCredit } from "./_legacy-store-credit.js";
 // This file is the Vercel serverless version of /api/confirm-stripe-payment
 // Copy this content to api/confirm-stripe-payment.js in the GitHub repo
 import Stripe from "stripe";
@@ -36,6 +38,8 @@ export default async function handler(req, res) {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
   }
+  const access = await requireLegacyOrderAccess(req, res, { orderId: req.body?.orderId, payable: false, allowAdmin: true });
+  if (!access) return;
   try {
     const { orderId, paymentIntentId } = req.body || {};
     if (!orderId) return res.status(400).json({ error: "Missing orderId" });
@@ -46,15 +50,17 @@ export default async function handler(req, res) {
     const stripe = new Stripe(secretKey);
 
     let paymentSucceeded = false;
+    let verifiedIntent = null;
     let paidAt = new Date().toISOString();
 
     if (paymentIntentId && String(paymentIntentId).startsWith("pi_")) {
       const intent = await stripe.paymentIntents.retrieve(String(paymentIntentId));
-      if (intent.metadata?.orderId && intent.metadata.orderId !== orderId) {
+      if (intent.metadata?.orderId !== orderId) {
         console.error(`orderId mismatch — intent has ${intent.metadata.orderId}, request has ${orderId}`);
         return res.status(400).json({ error: "orderId mismatch", confirmed: false });
       }
       paymentSucceeded = intent.status === "succeeded";
+      if (paymentSucceeded) verifiedIntent = intent;
       if (intent.created) paidAt = new Date(intent.created * 1000).toISOString();
     } else {
       // Fallback: search recent payment intents by orderId in metadata
@@ -65,6 +71,7 @@ export default async function handler(req, res) {
       const succeeded = list.data.find((pi) => pi.status === "succeeded");
       if (succeeded) {
         paymentSucceeded = true;
+        verifiedIntent = succeeded;
         if (succeeded.created) paidAt = new Date(succeeded.created * 1000).toISOString();
       }
     }
@@ -74,15 +81,64 @@ export default async function handler(req, res) {
       return res.json({ confirmed: false, message: "Payment not yet succeeded" });
     }
 
+    const rows = await supabaseAdmin(`orders?id=eq.${encodeURIComponent(orderId)}&select=id,user_id,email,status,metadata,total,payment_provider&limit=1`);
+    const order = Array.isArray(rows) ? rows[0] : null;
+    if (!order) return res.status(503).json({ confirmed: false, code: "ORDER_RECONCILIATION_REQUIRED" });
+    const payableStates = new Set(["pending", "checkout", "checkout (clicked pay)", "wire_pending"]);
+    const fulfilledStates = new Set(["paid", "done", "processing", "shipped", "delivered", "completed"]);
+    const savedStatus = String(order.status || "").toLowerCase();
+    if (!payableStates.has(savedStatus) && !fulfilledStates.has(savedStatus))
+      return res.status(409).json({ confirmed: false, code: "ORDER_STATE_REQUIRES_REVIEW" });
+    if (String(order.payment_provider || "").toLowerCase() === "merit"
+      || String(order.metadata?.paymentProvider || "").toLowerCase() === "merit")
+      return res.status(409).json({ confirmed: false, code: "PAYMENT_PROVIDER_MISMATCH" });
+    {
+      const moneyCents = value => {
+        if (!["number", "string"].includes(typeof value)) return null;
+        const valueNumber = Number(value), cents = Math.round(valueNumber * 100);
+        return Number.isFinite(valueNumber) && valueNumber >= 0 && Number.isSafeInteger(cents)
+          && Math.abs(valueNumber * 100 - cents) < 1e-7 ? cents : null;
+      };
+      const ownerEmail = String(order.email || "").trim().toLowerCase();
+      const providerEmail = String(verifiedIntent?.metadata?.email || "").trim().toLowerCase();
+      const creditCents = moneyCents(order.metadata?.storeCreditUsed ?? 0);
+      const amountCents = moneyCents(order.total ?? order.metadata?.total);
+      if (!ownerEmail || providerEmail !== ownerEmail || verifiedIntent?.metadata?.orderId !== orderId
+          || creditCents === null || moneyCents(verifiedIntent?.metadata?.storeCreditUsed ?? 0) !== creditCents
+          || amountCents === null || amountCents <= 0 || verifiedIntent.currency !== "usd"
+          || verifiedIntent.amount !== amountCents || verifiedIntent.amount_received !== amountCents
+          || moneyCents(verifiedIntent?.metadata?.total) !== amountCents) {
+        return res.status(503).json({ confirmed: false, code: "CREDIT_RECONCILIATION_REQUIRED" });
+      }
+    }
+    // Successful payment intents remain succeeded after refunds. A replay must
+    // never reset a terminal/refunded order or undo fulfillment progression.
+    if (fulfilledStates.has(savedStatus)) return res.json({ confirmed: true, dbUpdated: false });
+    if (payableStates.has(savedStatus)) {
+      await debitLegacyOrderCredit({
+        orderId, email: verifiedIntent?.metadata?.email || verifiedIntent?.receipt_email || order.email,
+        creditAmount: verifiedIntent?.metadata?.storeCreditUsed ?? order.metadata?.storeCreditUsed ?? 0,
+        provider: "stripe",
+      });
+    }
+
     // Mark order paid in Supabase using service role key (bypasses RLS)
-    await supabaseAdmin(`orders?id=eq.${encodeURIComponent(orderId)}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        status: "paid",
-        payment_provider: "Stripe",
-        paid_at: paidAt,
-      }),
+    const paidPatch = {
+      status: "paid",
+      payment_provider: "Stripe",
+      paid_at: paidAt,
+    };
+    const conditions = new URLSearchParams({
+      id: `eq.${orderId}`, status: `eq.${order.status}`, email: `eq.${order.email}`,
+      total: `eq.${order.total}`,
+      user_id: order.user_id === null ? "is.null" : `eq.${order.user_id}`,
     });
+    const updatedRows = await supabaseAdmin(`orders?${conditions}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify(paidPatch),
+    });
+    assertLegacyCreditPaidAcknowledgement(updatedRows, { id: orderId, email: order.email, ...paidPatch });
 
     console.log(`Order ${orderId} marked paid via Stripe verification ✓`);
     return res.json({ confirmed: true, dbUpdated: true });

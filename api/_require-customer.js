@@ -3,12 +3,12 @@ function reject(res, status, error) {
   return null;
 }
 
-export async function requireVerifiedCustomer(req, res) {
+export async function requireVerifiedCustomer(req, res, { purpose = "Store Credit" } = {}) {
   res.setHeader("Cache-Control", "no-store");
 
   const authorization = String(req.headers?.authorization || "");
   const token = /^Bearer\s+(.+)$/i.exec(authorization)?.[1];
-  if (!token) return reject(res, 401, "Sign in to use Store Credit.");
+  if (!token) return reject(res, 401, `Sign in to use ${purpose}.`);
 
   const supabaseUrl = String(
     process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "",
@@ -31,11 +31,11 @@ export async function requireVerifiedCustomer(req, res) {
 
     const user = await response.json();
     const email = String(user?.email || "").trim().toLowerCase();
-    const verified = Boolean(user?.email_confirmed_at || user?.confirmed_at);
+    const verified = Boolean(user?.email_confirmed_at);
     if (!verified || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return reject(res, 403, "Verify your email before using Store Credit.");
+      return reject(res, 403, `Verify your email before using ${purpose}.`);
     }
-    return { email };
+    return { email, id: String(user?.id || "") };
   } catch {
     return reject(res, 503, "Could not verify your sign-in.");
   }
