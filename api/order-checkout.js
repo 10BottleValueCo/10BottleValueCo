@@ -1,4 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { requireVerifiedCustomer } from "./_require-customer.js";
 
 const ACCESS_COOKIE = "tbv_checkout_access";
 const ALLOWED_STATUSES = new Set(["pending", "checkout", "wire_pending"]);
@@ -240,19 +241,30 @@ function readOrderIdFromUrl(req) {
 }
 
 async function getOrderStatus(req, res) {
+  res.setHeader("Vary", "Authorization");
+  const customer = await requireVerifiedCustomer(req, res, { purpose: "order status" });
+  if (!customer) return;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(customer.id)) {
+    throw new CheckoutError(403, "Verify your account before checking order status.");
+  }
+  res.setHeader("Cache-Control", "private, no-store");
   const id = readOrderIdFromUrl(req).trim().toUpperCase();
   if (!/^INV-[A-Z0-9]{6,32}$/.test(id)) {
     throw new CheckoutError(400, "The order number is invalid.");
   }
-  const access = readAccessCookie(req);
-  if (!access || access.id !== id) {
+  // Existing legacy rows are owned by their recorded email. This read uses
+  // only established columns; the wider orders/Paylio cutover is separate.
+  const query = new URLSearchParams({ id: `eq.${id}`, select: "id,email,status", limit: "2" });
+  const rows = await supabaseJson(`orders?${query.toString()}`);
+  if (!Array.isArray(rows) || rows.length > 1) {
+    throw new CheckoutError(503, "Order status is unavailable.");
+  }
+  const row = rows[0];
+  if (!row || typeof row.email !== "string" || row.email.trim().toLowerCase() !== customer.email) {
     throw new CheckoutError(404, "Order status is unavailable.");
   }
-
-  const rows = await supabaseJson(orderQuery(id));
-  const row = Array.isArray(rows) ? rows[0] : null;
-  if (!row || !matchesAccessHash(row.checkout_access_hash, access.token)) {
-    throw new CheckoutError(404, "Order status is unavailable.");
+  if (row.id !== id || typeof row.status !== "string") {
+    throw new CheckoutError(503, "Order status is unavailable.");
   }
   res.status(200).json({
     ok: true,

@@ -83,9 +83,22 @@
           "value": "noindex, nofollow"
         }
       ]
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "operations.10bottlevalue.co" }],
+      "headers": [
+        { "key": "Cache-Control", "value": "private, no-store" },
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
+      ]
     }
   ],
   "rewrites": [
+    {
+      "source": "/",
+      "has": [{ "type": "host", "value": "operations.10bottlevalue.co" }],
+      "destination": "/operations.html"
+    },
     {
       "source": "/operations",
       "destination": "/operations.html"
