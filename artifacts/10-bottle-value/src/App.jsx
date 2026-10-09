@@ -32,6 +32,8 @@ import vialCManifest from "./data/vialCManifest.json";
 import cashAppLogo from "./assets/payment-logos/cash-app.svg";
 import bitcoinLogo from "./assets/payment-logos/bitcoin.svg";
 import paypalMark from "./assets/payment-logos/paypal-mark.svg";
+import applePayMark from "./assets/payment-logos/apple-pay.svg";
+import googlePayMark from "./assets/payment-logos/google-pay.svg";
 import faqBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_34_14_1791041667847.webp";
 import laboratoryBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791041778846.webp";
 import legalPolicyBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791210990340.webp";
@@ -21043,7 +21045,7 @@ export default function App() {
                               ? tx("Card", "Карта")
                               : paymentMethod === "cashapp"
                               ? "Cash App"
-                              : <span className="block md:inline">PayPal (US) · Apple Pay · Google Pay · Cards</span>}
+                              : "PayPal (US)"}
                           </div>
                         </div>
                       </div>
@@ -21065,48 +21067,27 @@ export default function App() {
                             type="button"
                             disabled={stripeTemporarilyDisabled}
                             onClick={() => { if (stripeTemporarilyDisabled) return; setPaymentMethod("stripe"); requestAnimationFrame(() => { const el = choosePaymentMethodRef.current; if (!el) return; window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - 130), behavior: "auto" }); }); }}
-                            className={`relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border px-4 py-3.5 md:py-1 text-left ${stripeTemporarilyDisabled ? "border-black/10 bg-white/60 cursor-not-allowed" : paymentMethod === "stripe" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left ${stripeTemporarilyDisabled ? "border-black/10 bg-white/60 cursor-not-allowed" : paymentMethod === "stripe" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
                           >
-                            <div className="relative shrink-0">
-                              <div className="flex h-10 w-10 items-center justify-center rounded-xl overflow-hidden" style={{background:"#635BFF"}}>
-                                <svg width="28" height="20" viewBox="0 0 28 20" fill="none">
-                                  {/* Card body */}
-                                  <rect x="1" y="1" width="26" height="18" rx="2.5" fill="white" fillOpacity="0.22" stroke="white" strokeOpacity="0.3" strokeWidth="0.8"/>
-                                  {/* Magnetic stripe */}
-                                  <rect x="1" y="5" width="26" height="4.5" fill="white" fillOpacity="0.28"/>
-                                  {/* Chip */}
-                                  <rect x="3" y="2.5" width="5" height="3.5" rx="0.8" fill="#fbbf24" fillOpacity="0.95"/>
-                                  <line x1="5.5" y1="2.5" x2="5.5" y2="6" stroke="#d97706" strokeWidth="0.6"/>
-                                  <line x1="3" y1="4.2" x2="8" y2="4.2" stroke="#d97706" strokeWidth="0.6"/>
-                                  {/* Card number dots */}
-                                  <circle cx="4" cy="14" r="1" fill="white" fillOpacity="0.9"/>
-                                  <circle cx="7" cy="14" r="1" fill="white" fillOpacity="0.9"/>
-                                  <circle cx="10" cy="14" r="1" fill="white" fillOpacity="0.9"/>
-                                  <circle cx="13" cy="14" r="1" fill="white" fillOpacity="0.9"/>
-                                  {/* Contactless symbol */}
-                                  <path d="M20 11.5 A3 3 0 0 1 20 12.5" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeOpacity="0.6"/>
-                                  <path d="M18.5 10 A5 5 0 0 1 18.5 14" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeOpacity="0.8"/>
-                                  <path d="M17 8.5 A7 7 0 0 1 17 15.5" stroke="white" strokeWidth="1.4" strokeLinecap="round"/>
-                                </svg>
-                              </div>
+                            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${stripeTemporarilyDisabled ? "bg-slate-100 text-slate-400" : "bg-slate-800 text-white"}`}>
+                              <svg width="27" height="21" viewBox="0 0 28 22" fill="none" aria-hidden="true">
+                                <rect x="1.25" y="1.25" width="25.5" height="19.5" rx="3.5" stroke="currentColor" strokeWidth="1.7" />
+                                <path d="M2 7h24M5.5 15h5M19 14h3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                              </svg>
                             </div>
-                            <div className="flex-1 min-w-0 pr-7">
-                              <div className={`text-[14px] font-semibold leading-tight md:text-[12px] ${stripeTemporarilyDisabled ? "text-black/30" : ""}`}>Apple Pay · Google Pay · Cards</div>
-                              <div className="mt-1.5 md:mt-0.5 flex flex-nowrap items-center gap-1.5">
+                            <div className={`flex-1 min-w-0 ${stripeTemporarilyDisabled ? "opacity-40" : ""}`}>
+                              <div className="flex items-center gap-2 whitespace-nowrap">
+                                <span className="text-[14px] font-semibold leading-tight">{tx("Card", "Карта")}</span>
+                                <span className="flex shrink-0 items-center gap-2 rounded bg-white px-1">
+                                  <img src={applePayMark} alt="Apple Pay" width="42" height="27" className="h-[27px] w-[42px] object-contain" />
+                                  <img src={googlePayMark} alt="Google Pay" width="41" height="17" className="h-[17px] w-[41px] object-contain" />
+                                </span>
+                              </div>
+                              <div className="mt-1 flex flex-nowrap items-center gap-1.5">
                                 {stripeTemporarilyDisabled ? (
-                                  <div>
-                                    <span className="inline-flex rounded-md bg-gray-400 px-2 py-0.5 text-[11px] font-black text-white">{tx("Unavailable", "Недоступно")}</span>
-                                    <div className="mt-1 md:mt-0 text-[10px] font-semibold leading-tight text-black/35">
-                                      {tx(
-                                        "Card payment is temporarily unavailable.",
-                                        "Оплата картой временно недоступна."
-                                      )}
-                                    </div>
-                                  </div>
+                                  <span className="inline-flex rounded-md border border-gray-300 bg-gray-100 px-2 py-0.5 text-[11px] font-black">{tx("Unavailable", "Недоступно")}</span>
                                 ) : (
-                                  <>
-                                    <span className={`text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "stripe" ? "text-white/70" : "text-black/70"}`}>{tx("Card surcharge", "Доплата за карту")} {meritSurchargePercent}%</span>
-                                  </>
+                                  <span className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "stripe" ? "border-white/20 bg-white/15 text-white" : "border-slate-200 bg-slate-100 text-slate-700"}`}>{meritSurchargePercent}% {tx("fee", "комиссия")}</span>
                                 )}
                               </div>
                             </div>
@@ -21116,7 +21097,7 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => { setPaymentMethod("crypto"); requestAnimationFrame(() => { const el = choosePaymentMethodRef.current; if (!el) return; window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - 130), behavior: "auto" }); }); }}
-                            className={`relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border px-4 py-3.5 md:py-1 text-left ${paymentMethod === "crypto" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left ${paymentMethod === "crypto" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
                           >
                             <div className="relative shrink-0">
                               <img src={getPreloadedDisplayImageUrl(bitcoinLogo)} alt="" className="h-10 w-10 object-contain" />
@@ -21136,7 +21117,7 @@ export default function App() {
                             const cashAppEnabled = !cashAppOverLimit;
                             return cashAppEnabled ? (
                               <button type="button" onClick={() => setPaymentMethod("cashapp")}
-                                className={`relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border px-4 py-3.5 md:py-1 text-left ${paymentMethod === "cashapp" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                                className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left ${paymentMethod === "cashapp" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
                               >
                                 <div className="relative shrink-0">
                                   <img src={getPreloadedDisplayImageUrl(cashAppLogo)} alt="" className="h-10 w-10 rounded-xl object-contain" />
@@ -21151,7 +21132,7 @@ export default function App() {
                                 {paymentMethod === "cashapp" && <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500"><svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>}
                               </button>
                             ) : (
-                              <button type="button" disabled className="relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border border-black/10 bg-white/60 px-4 py-3.5 md:py-1 text-left cursor-not-allowed">
+                              <button type="button" disabled className="relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border border-black/10 bg-white/60 px-4 py-3 md:py-1 text-left cursor-not-allowed">
                                 <img src={getPreloadedDisplayImageUrl(cashAppLogo)} alt="" className="h-10 w-10 shrink-0 rounded-xl object-contain opacity-40" />
                                 <div className="flex-1 min-w-0">
                                   <div className="text-[14px] font-semibold text-black/30">Cash App</div>
@@ -21165,14 +21146,14 @@ export default function App() {
 
                           {/* M4 — Paylio */}
                           <button type="button" onClick={() => setPaymentMethod("paylio")}
-                            className={`relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border px-4 py-3.5 md:py-1 text-left ${paymentMethod === "paylio" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left ${paymentMethod === "paylio" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
                           >
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white">
                               <img src={getPreloadedDisplayImageUrl(paypalMark)} alt="" className="h-9 w-9 object-contain" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="text-[14px] font-semibold leading-snug md:text-[12px]">PayPal (US), Apple Pay,<br/>Google Pay, Cards</div>
-                              <div className="mt-1.5 md:mt-0.5 flex flex-nowrap items-center gap-1.5">
+                              <div className="text-[14px] font-semibold leading-tight">PayPal (US)</div>
+                              <div className="mt-1.5 flex flex-nowrap items-center gap-1.5">
                                 <span className="shrink-0 inline-flex rounded-md bg-sky-500 px-1.5 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] text-white">KYC Required</span>
                               </div>
                             </div>
@@ -21181,7 +21162,7 @@ export default function App() {
 
                           {/* M5 — Wire */}
                           <button type="button" onClick={() => setPaymentMethod("wire")}
-                            className={`relative flex md:h-[77px] items-center gap-3.5 rounded-2xl border px-4 py-3.5 md:py-1 text-left ${paymentMethod === "wire" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left ${paymentMethod === "wire" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
                           >
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl overflow-hidden" style={{background:"#1e293b"}}>
                               <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
@@ -21206,149 +21187,6 @@ export default function App() {
                             {paymentMethod === "wire" && <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500"><svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>}
                           </button>
 
-                        </div>
-
-                        {/* ── DESKTOP grid (hidden below md, original layout) ── */}
-                        <div className="hidden">
-                          {/* 1 — Stripe / Apple Pay / Google Pay */}
-                          <button
-                            type="button"
-                            disabled={stripeTemporarilyDisabled}
-                            onClick={() => {
-                              if (stripeTemporarilyDisabled) return;
-                              setPaymentMethod("stripe");
-                              requestAnimationFrame(() => {
-                                const el = choosePaymentMethodRef.current;
-                                if (!el) return;
-                                const y = el.getBoundingClientRect().top + window.scrollY - 130;
-                                window.scrollTo({ top: Math.max(0, y), behavior: "auto" });
-                              });
-                            }}
-                            className={`relative flex flex-col items-center justify-start text-center rounded-[1.3rem] border px-2.5 pt-6 pb-3 md:px-3 md:pt-7 md:pb-3 min-h-[148px] md:min-h-[160px] ${stripeTemporarilyDisabled ? "border-black/10 bg-white/60 cursor-not-allowed" : paymentMethod === "stripe" ? "border-black bg-black text-white" : "border-black/10 bg-white text-black hover:bg-black/5"}`}
-                          >
-                            {stripeTemporarilyDisabled ? (
-                              <span className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-gray-400 px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-white shadow-sm">{tx("Unavailable", "Недоступно")}</span>
-                            ) : null}
-                            <div className={`leading-snug flex flex-col items-center gap-0.5 ${stripeTemporarilyDisabled ? "text-black/30" : ""}`}>
-                              <div className="text-sm font-semibold md:text-base">{tx("Card payment", "Оплата картой")}</div>
-                              <div className="text-xs font-semibold md:text-sm">Apple Pay</div>
-                              <div className="text-xs font-semibold md:text-sm">Google Pay</div>
-                              <div className="text-xs font-semibold md:text-sm">Cards</div>
-                            </div>
-                            <div className="mt-2 flex flex-col items-center gap-0.5">
-                              <div className={`text-sm font-black uppercase tracking-[0.1em] ${stripeTemporarilyDisabled ? "text-black/25" : paymentMethod === "stripe" ? "text-white" : "text-black/70"}`}>{tx("Card surcharge", "Доплата за карту")} {meritSurchargePercent}%</div>
-                              {stripeTemporarilyDisabled && (
-                                <div className="mt-1 max-w-[145px] text-[9px] font-semibold leading-[1.25] text-black/30">
-                                  {tx(
-                                    "Card payment is temporarily unavailable.",
-                                    "Оплата картой временно недоступна."
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </button>
-                          {/* 2 — Crypto (BEST OPTION) */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPaymentMethod("crypto");
-                              requestAnimationFrame(() => {
-                                const el = choosePaymentMethodRef.current;
-                                if (!el) return;
-                                const y = el.getBoundingClientRect().top + window.scrollY - 130;
-                                window.scrollTo({ top: Math.max(0, y), behavior: "auto" });
-                              });
-                            }}
-                            className={`relative flex flex-col items-center justify-start text-center rounded-[1.3rem] border px-2.5 pt-6 pb-3 md:px-3 md:pt-7 md:pb-3 min-h-[148px] md:min-h-[160px] ${
-                              paymentMethod === "crypto"
-                                ? "border-black bg-black text-white"
-                                : "border-black/10 bg-white text-black hover:bg-black/5"
-                            }`}
-                          >
-                            <span className="absolute -top-1 left-2 rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-white shadow-sm">BEST</span>
-                            <div className="text-[10px] uppercase tracking-[0.18em] opacity-70 md:text-[11px] md:tracking-[0.2em]">
-                              {t("method")}
-                            </div>
-                            <div className="mt-1.5 text-base font-semibold md:mt-2 md:text-lg">
-                              {tx("Crypto", "Крипто", "Крипто", "Krypto", "Cripto")}
-                            </div>
-                            <div className="mt-1.5">
-                              <span className={`inline-flex rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] ${paymentMethod === "crypto" ? "bg-emerald-400/25 text-emerald-300" : "bg-emerald-500 text-white"}`}>2.5% OFF</span>
-                            </div>
-                          </button>
-                          {/* 3 — Cash App */}
-                          {(() => {
-                            const cashAppEnabled = !cashAppOverLimit;
-                            return cashAppEnabled ? (
-                              <button
-                                type="button"
-                                onClick={() => setPaymentMethod("cashapp")}
-                                className={`relative flex flex-col items-center justify-start text-center rounded-[1.3rem] border px-2.5 pt-6 pb-3 md:px-3 md:pt-7 md:pb-3 min-h-[148px] md:min-h-[160px] ${
-                                  paymentMethod === "cashapp"
-                                    ? "border-black bg-black text-white"
-                                    : "border-black/10 bg-white text-black hover:bg-black/5"
-                                }`}
-                              >
-                                 <span className="absolute -top-1 left-2 rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-white shadow-sm">BEST</span>
-                                <div className="text-[10px] uppercase tracking-[0.18em] opacity-70 md:text-[11px] md:tracking-[0.2em]">
-                                  {t("method")}
-                                </div>
-                                <div className="mt-1.5 leading-snug flex flex-col items-center gap-0.5">
-                                  <div className="text-sm font-semibold md:text-base">Cash App</div>
-                                </div>
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                disabled
-                                className="relative flex flex-col items-center justify-start text-center rounded-[1.3rem] border px-2.5 pt-6 pb-3 md:px-3 md:pt-7 md:pb-3 min-h-[148px] md:min-h-[160px] border-black/10 bg-white/60 cursor-not-allowed"
-                              >
-                                <span className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-red-500 px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">Limit $999</span>
-                                <div className="mt-1.5 leading-snug flex flex-col items-center gap-0.5 text-black/30">
-                                  <div className="text-sm font-semibold md:text-base">Cash App</div>
-                                </div>
-                              </button>
-                            );
-                          })()}
-                          {/* 4 — Paylio (Apple Pay / PayPal / Cards) */}
-                          <button
-                            type="button"
-                            onClick={() => setPaymentMethod("paylio")}
-                            className={`relative flex flex-col items-center justify-start text-center rounded-[1.3rem] border px-2.5 pt-6 pb-3 md:px-3 md:pt-7 md:pb-3 min-h-[148px] md:min-h-[160px] ${
-                              paymentMethod === "paylio"
-                                ? "border-black bg-black text-white"
-                                : "border-black/10 bg-white text-black hover:bg-black/5"
-                            }`}
-                          >
-                            <span className="absolute -top-1 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-black shadow-sm">KYC Required</span>
-                            <div className="text-[10px] uppercase tracking-[0.18em] opacity-70 md:text-[11px] md:tracking-[0.2em]">
-                              {t("method")}
-                            </div>
-                            <div className="mt-1.5 leading-snug flex flex-col items-center gap-0.5">
-                              <div className={`text-sm font-semibold md:text-base ${paymentMethod === "paylio" ? "text-white" : "text-black"}`}>PayPal (US)</div>
-                              <div className={`text-sm font-semibold md:text-base ${paymentMethod === "paylio" ? "text-white" : "text-black"}`}>Apple Pay</div>
-                              <div className={`text-sm font-semibold md:text-base ${paymentMethod === "paylio" ? "text-white" : "text-black"}`}>Google Pay</div>
-                              <div className={`text-sm font-semibold md:text-base ${paymentMethod === "paylio" ? "text-white" : "text-black"}`}>Cards</div>
-                            </div>
-                          </button>
-                          {/* 5 — Wire Transfer */}
-                          <button
-                            type="button"
-                            onClick={() => setPaymentMethod("wire")}
-                            className={`relative flex flex-col items-center justify-start text-center rounded-[1.3rem] border px-2.5 pt-6 pb-3 md:px-3 md:pt-7 md:pb-3 min-h-[148px] md:min-h-[160px] ${
-                              paymentMethod === "wire"
-                                ? "border-black bg-black text-white"
-                                : "border-black/10 bg-white text-black hover:bg-black/5"
-                            }`}
-                          >
-                            <div className="text-[10px] uppercase tracking-[0.18em] opacity-70 md:text-[11px] md:tracking-[0.2em]">
-                              {t("method")}
-                            </div>
-                            <div className="mt-1.5 leading-snug flex flex-col items-center gap-0.5">
-                              <div className="text-sm font-semibold md:text-base">Wire Transfer</div>
-                              <div className="text-sm font-semibold md:text-base opacity-70">SWIFT / IBAN</div>
-                            </div>
-                          </button>
                         </div>
 
                         {/* cashapp / CatalystPay BTC section */}
