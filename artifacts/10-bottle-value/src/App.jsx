@@ -4070,6 +4070,8 @@ export default function App() {
   const effectiveShippingType = cart.length > 0 && cart.every(i => i.fromWarehouse === "us") ? "us-warehouse" : shippingType;
   const [showScrollTop, setShowScrollTop] = useState(false);
   useEffect(() => {
+    if (page !== "shop") return undefined;
+
     let lastVisibleState = null;
     const onScroll = () => {
       const nextVisibleState = window.scrollY > 400;
@@ -4080,7 +4082,7 @@ export default function App() {
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [page]);
 
   const [cartToast, setCartToast] = useState("");
   const productPrimaryActionRef = useRef(null);

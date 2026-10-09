@@ -13,18 +13,30 @@ const ast = parse(source, { sourceType: 'module', plugins: ['jsx'] });
 const appBody = ast.program.body.find(node => node.type === 'ExportDefaultDeclaration' && node.declaration.id?.name === 'App').declaration.body.body;
 const scrollEffects = appBody
   .filter(node => node.type === 'ExpressionStatement' && node.expression.callee?.name === 'useEffect')
-  .map(node => node.expression.arguments[0])
-  .map(node => source.slice(node.start, node.end))
-  .filter(callback => callback.includes('window.addEventListener("scroll"'));
+  .map(node => source.slice(node.expression.start, node.expression.end))
+  .filter(effect => effect.includes('window.addEventListener("scroll"'));
 assert.ok(scrollEffects.length, 'App has window scroll effects to exercise');
 
 // Execute every actual window-scroll effect, with dropdowns closed as on a
 // normal storefront page. Observe App state notifications rather than copies
 // of the threshold logic. A mobile-only header flag would fail the first test.
-function fixture({ width = 390, scrollY = 0 } = {}) {
+function fixture({ width = 390, scrollY = 0, page = 'shop' } = {}) {
   const listeners = new Map();
   const updates = [];
-  const context = vm.createContext({ isCountryDropdownOpen: false });
+  const effects = [];
+  let effectIndex = 0;
+  const context = vm.createContext({
+    isCountryDropdownOpen: false,
+    page,
+    useEffect(callback, dependencies) {
+      const index = effectIndex++;
+      const previous = effects[index];
+      if (previous && dependencies.length === previous.dependencies.length
+        && dependencies.every((value, at) => Object.is(value, previous.dependencies[at]))) return;
+      previous?.cleanup?.();
+      effects[index] = { dependencies: [...dependencies], cleanup: callback() };
+    },
+  });
   for (const callback of scrollEffects) {
     for (const name of callback.match(/\bset[A-Z]\w*/g) ?? []) {
       context[name] = value => updates.push([name, value]);
@@ -36,20 +48,26 @@ function fixture({ width = 390, scrollY = 0 } = {}) {
       assert.equal(query, '(max-width: 767px)');
       return { get matches() { return width <= 767; } };
     },
-    addEventListener: (type, callback) => {
+    addEventListener: (type, callback, options) => {
+      if (type === 'scroll') assert.equal(options?.passive, true);
       if (!listeners.has(type)) listeners.set(type, new Set());
       listeners.get(type).add(callback);
     },
     removeEventListener: (type, callback) => listeners.get(type)?.delete(callback),
   };
   context.window = view;
-  const cleanups = scrollEffects.map(callback => vm.runInContext(`(${callback})()`, context));
+  const render = () => {
+    effectIndex = 0;
+    for (const effect of scrollEffects) vm.runInContext(effect, context);
+  };
+  render();
   const emit = type => listeners.get(type)?.forEach(callback => callback({ type }));
   return {
     updates,
     scroll(value) { view.scrollY = value; emit('scroll'); },
     resize(value) { width = value; emit('resize'); },
-    cleanup() { cleanups.forEach(cleanup => cleanup?.()); },
+    navigate(nextPage) { context.page = nextPage; render(); },
+    cleanup() { effects.forEach(effect => effect.cleanup?.()); },
     get listenerCount() { return [...listeners.values()].reduce((total, group) => total + group.size, 0); },
   };
 }
@@ -88,4 +106,40 @@ test('restored scroll position initializes the button and resize adds no header 
   for (const width of [767, 768, 1536, 390]) f.resize(width);
   assert.deepEqual(f.updates, []);
   f.cleanup();
+});
+
+for (const page of ['faq', 'affiliate', 'bonuses']) {
+  test(`${page} has no App scroll listener or notifications across the button threshold`, () => {
+    const f = fixture({ page, scrollY: 700 });
+    assert.equal(f.listenerCount, 0);
+    for (const y of [0, 1, 400, 401, 700, 400, 0]) f.scroll(y);
+    assert.deepEqual(f.updates, []);
+    f.cleanup();
+  });
+}
+
+test('leaving shop removes its listener and returning initializes from the current scroll position', () => {
+  const f = fixture();
+  f.scroll(700);
+  f.updates.length = 0;
+  f.navigate('faq');
+  assert.equal(f.listenerCount, 0);
+  for (const y of [0, 401, 700]) f.scroll(y);
+  f.navigate('affiliate');
+  assert.deepEqual(f.updates, []);
+  assert.equal(f.listenerCount, 0);
+
+  f.navigate('shop');
+  assert.equal(f.listenerCount, 1);
+  assert.deepEqual(f.updates, [['setShowScrollTop', true]]);
+  f.scroll(0);
+  assert.deepEqual(f.updates.at(-1), ['setShowScrollTop', false]);
+  f.navigate('faq');
+  f.scroll(200);
+  f.updates.length = 0;
+  f.navigate('shop');
+  assert.equal(f.listenerCount, 1);
+  assert.deepEqual(f.updates, [['setShowScrollTop', false]]);
+  f.cleanup();
+  assert.equal(f.listenerCount, 0);
 });
