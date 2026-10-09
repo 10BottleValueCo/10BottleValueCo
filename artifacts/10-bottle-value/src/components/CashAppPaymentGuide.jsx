@@ -41,7 +41,7 @@ export default function CashAppPaymentGuide({ tx, loading, disabled, amount, onC
       <dialog
         ref={dialogRef}
         aria-labelledby="cashapp-guide-title"
-        aria-describedby="cashapp-guide-instructions"
+        aria-describedby="cashapp-guide-instructions cashapp-guide-computer"
         onCancel={() => setOpen(false)}
         onClick={event => { if (event.target === event.currentTarget) setOpen(false); }}
         className="m-auto max-h-[90dvh] w-[calc(100%-32px)] max-w-[420px] overflow-y-auto rounded-[24px] border-0 bg-white p-0 text-black shadow-2xl backdrop:bg-black/65"
@@ -67,6 +67,15 @@ export default function CashAppPaymentGuide({ tx, loading, disabled, amount, onC
           <div className="my-5 rounded-2xl bg-[#1c2056] px-5 py-5 text-center" aria-hidden="true">
             <span className="inline-flex rounded-full border border-white/70 px-6 py-3 text-[15px] font-semibold text-white">Open Wallet <span className="ml-3">↗</span></span>
           </div>
+          <p id="cashapp-guide-computer" className="mb-5 rounded-xl bg-black/[0.04] px-4 py-3 text-[13px] leading-5 text-black/70">
+            {tx(
+              "On a computer? Scan the QR code on the next page with Cash App on your phone.",
+              "Вы на компьютере? Отсканируйте QR-код на следующей странице через Cash App на телефоне.",
+              "Ви на комп’ютері? Відскануйте QR-код на наступній сторінці через Cash App на телефоні.",
+              "Am Computer? Scannen Sie den QR-Code auf der nächsten Seite mit Cash App auf Ihrem Telefon.",
+              "¿Estás en un ordenador? Escanea el código QR de la siguiente página con Cash App en tu teléfono."
+            )}
+          </p>
           <button type="button" onClick={continueToPayment} disabled={loading || disabled}
             className="w-full rounded-2xl bg-[#00D64F] px-4 py-3.5 text-[14px] font-bold text-white hover:bg-[#00b844] disabled:cursor-not-allowed disabled:opacity-60">
             {tx("Got it — continue", "Понятно — продолжить", "Зрозуміло — продовжити", "Verstanden — weiter", "Entendido — continuar")}
