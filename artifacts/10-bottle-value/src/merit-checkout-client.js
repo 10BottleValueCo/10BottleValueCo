@@ -1,3 +1,5 @@
+import { observeMeritCodeCells } from "./merit-code-input.js";
+
 const SESSION_ERROR = "Secure payment is unavailable. Reload checkout and try again.";
 export const MERIT_ATTEMPT_STORAGE_KEY = "tbv-merit-checkout-attempt";
 
@@ -48,10 +50,14 @@ export function saveMeritAttempt(storage, value) {
   storage.setItem(MERIT_ATTEMPT_STORAGE_KEY, JSON.stringify({ key: value.key, digest: value.digest, orderId: value.orderId || "", submitted: value.submitted === true, ...(value.createRequested === true ? { createRequested: true } : {}) }));
 }
 
-export async function verifyMeritCheckoutBuyer(email, otp = globalThis.window?.AttestlyOTP) {
+export async function verifyMeritCheckoutBuyer(email, otp = globalThis.window?.AttestlyOTP, { signal } = {}) {
   const normalizedEmail = String(email || "").trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) || typeof otp?.verify !== "function") throw new Error(SESSION_ERROR);
-  const result = await otp.verify({ email: normalizedEmail });
+  let disposeCodeCells = () => {};
+  try { disposeCodeCells = observeMeritCodeCells({ signal }); } catch { /* Appearance must never block verification. */ }
+  let result;
+  try { result = await otp.verify({ email: normalizedEmail }); }
+  finally { try { disposeCodeCells(); } catch { /* Preserve the provider result if its DOM changed during cleanup. */ } }
   if (!result?.verified) return null;
   if (result.verified !== true || result.skipped || typeof result.token !== "string" || !result.token.trim()
     || String(result.email || "").trim().toLowerCase() !== normalizedEmail) throw new Error(SESSION_ERROR);

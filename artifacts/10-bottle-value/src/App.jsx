@@ -8142,6 +8142,8 @@ export default function App() {
   const [meritReturnChecking, setMeritReturnChecking] = useState(false);
   const [meritReturnError, setMeritReturnError] = useState("");
   const meritCreateBusyRef = useRef(false);
+  const meritVerificationAbortRef = useRef(null);
+  useEffect(() => () => meritVerificationAbortRef.current?.abort(), []);
   const meritReturnBusyRef = useRef(false);
   const meritAttemptRef = useRef(readMeritAttempt(window.sessionStorage));
   const meritInputsRef = useRef("");
@@ -10627,7 +10629,9 @@ export default function App() {
       const attempt = previous?.digest === digest ? previous : { key: window.crypto.randomUUID(), digest, orderId: "", submitted: false };
       meritAttemptRef.current = attempt;
       saveMeritAttempt(window.sessionStorage, attempt);
-      const proof = await verifyMeritCheckoutBuyer(currentUser.email);
+      const verificationAbort = new AbortController();
+      meritVerificationAbortRef.current = verificationAbort;
+      const proof = await verifyMeritCheckoutBuyer(currentUser.email, undefined, { signal: verificationAbort.signal });
       if (!proof) return;
       if (meritInputsRef.current !== requestedInputs || meritSelectionRef.current.method !== "stripe" || meritSelectionRef.current.step !== "payment") throw new Error("checkout_changed");
       // Persist before network I/O: a lost create response may already hold
@@ -10674,7 +10678,12 @@ export default function App() {
         : error?.message === "checkout_changed"
           ? tx("Your checkout changed. Review the total and continue again.", "Данные заказа изменились. Проверьте сумму и продолжите снова.")
           : tx("We could not open secure payment. Continue again to recover the same checkout.", "Не удалось открыть защищённую оплату. Продолжите снова, чтобы восстановить то же оформление.")));
-    } finally { meritCreateBusyRef.current = false; setStripeLoading(false); }
+    } finally {
+      meritVerificationAbortRef.current?.abort();
+      meritVerificationAbortRef.current = null;
+      meritCreateBusyRef.current = false;
+      setStripeLoading(false);
+    }
   }
 
   async function handleWireConfirm() {

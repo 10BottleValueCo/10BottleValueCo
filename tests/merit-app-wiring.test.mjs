@@ -60,13 +60,13 @@ function fixture() {
   const calls = [];
   const form = { email: 'buyer@example.test', firstName: 'Test', lastName: 'Buyer', address: 'One Road', country: 'United States', city: 'City', state: 'CA', postalCode: '90210', phone: '+15555555555' };
   const context = {
-    Date, Math, Number, Object, JSON, URLSearchParams, Promise, console, setTimeout: () => 0,
+    Date, Math, Number, Object, JSON, URLSearchParams, Promise, AbortController, console, setTimeout: () => 0,
     legacyCheckoutHeaders, supabase: { auth: { getSession: async () => ({ data: { session: { access_token: 'synthetic-token', user: { id: 'buyer-fixture', email: 'buyer@example.test' } } } }) } },
     currentUser: { email: 'buyer@example.test' }, researchAccepted: true, qualifiedAccepted: true, termsAccepted: true,
     cart: [{ name: 'BPC-157', dose: '5 mg', quantity: 1, price: 100 }],
     readCheckoutSnapshot: () => ({ ...form }), validateCheckoutForm: () => ({}),
     deferredLegacyOrderRef: { current: null }, meritAttemptRef: { current: null },
-    meritCreateBusyRef: { current: false }, meritInputsRef: { current: '' },
+    meritCreateBusyRef: { current: false }, meritVerificationAbortRef: { current: null }, meritInputsRef: { current: '' },
     meritSelectionRef: { current: { method: 'stripe', step: 'payment' } },
     checkoutInputRefs: { current: {} }, formSectionRef: { current: null }, termsSectionRef: { current: null },
     effectiveShippingType: 'standard', subtotal: 100, shipping: 39.99, automaticDiscount: 0, promoDiscount: 0,
@@ -109,6 +109,20 @@ function checkoutEntryFixture(overrides = {}) {
   }
   return result;
 }
+
+test('App unmount disposes the code-field adapter through its signal', () => {
+  const effect = appBody.find(node => node.type === 'ExpressionStatement'
+    && node.expression.callee?.name === 'useEffect'
+    && source.slice(node.start, node.end).includes('meritVerificationAbortRef.current?.abort'))?.expression;
+  assert.ok(effect);
+  const controller = new AbortController();
+  const cleanup = vm.runInNewContext(`(${source.slice(effect.arguments[0].start, effect.arguments[0].end)})()`, {
+    meritVerificationAbortRef: { current: controller },
+  });
+  assert.equal(controller.signal.aborted, false);
+  cleanup();
+  assert.equal(controller.signal.aborted, true);
+});
 
 test('bottom and mobile sticky checkout open confirmations when the closed modal has no terms ref', () => {
   assert.equal(proceedButtons.length, 2);
