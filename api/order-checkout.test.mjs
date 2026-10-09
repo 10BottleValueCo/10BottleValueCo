@@ -5,6 +5,7 @@ import handler from "./order-checkout.js";
 
 const ORDER_ID = "INV-ABC12345";
 const EMAIL = "guest@example.org";
+const USER_ID = "11111111-1111-4111-8111-111111111111";
 
 function makeResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -37,6 +38,7 @@ function makeRequest({ method = "POST", body, url = "/api/order-checkout", cooki
     method,
     url,
     headers: {
+      authorization: "Bearer fixture-session",
       ...(body ? { "content-type": "application/json" } : {}),
       ...(cookie ? { cookie } : {}),
     },
@@ -68,12 +70,18 @@ function withTestEnvironment(t, fetchMock) {
 
 function createSupabaseMock() {
   const rows = [];
+  const bindings = [];
   const calls = [];
   const fetchMock = async (input, options = {}) => {
     const url = new URL(input);
     const method = options.method || "GET";
+    if (url.pathname === "/auth/v1/user") return makeResponse({ id: USER_ID, email: EMAIL, email_confirmed_at: "2026-10-08T00:00:00Z" });
     calls.push({ method, url, body: options.body });
     const id = url.searchParams.get("id")?.replace(/^eq\./, "");
+
+    if (url.pathname.endsWith("/paylio_payment_attempts") && method === "GET") {
+      return makeResponse(bindings.filter(row => row.order_id === url.searchParams.get("order_id")?.replace(/^eq\./, "")));
+    }
 
     if (url.pathname.endsWith("/orders") && method === "GET") {
       return makeResponse(rows.filter((row) => row.id === id));
@@ -103,7 +111,7 @@ function createSupabaseMock() {
     }
     throw new Error(`Unexpected mock request: ${method} ${url.pathname}`);
   };
-  return { fetchMock, rows, calls };
+  return { fetchMock, rows, calls, bindings };
 }
 
 function checkoutOrder(overrides = {}) {
@@ -120,7 +128,7 @@ function checkoutOrder(overrides = {}) {
   };
 }
 
-test("guest order writes use a scoped HttpOnly capability and expose status only", async (t) => {
+test("authenticated order writes use a scoped HttpOnly capability and expose status only", async (t) => {
   const supabase = createSupabaseMock();
   withTestEnvironment(t, supabase.fetchMock);
 
@@ -176,7 +184,7 @@ test("guest order writes use a scoped HttpOnly capability and expose status only
   });
 });
 
-test("guest checkout cannot write paid status or update without its capability", async (t) => {
+test("authenticated checkout cannot write paid status or update without its capability", async (t) => {
   const supabase = createSupabaseMock();
   withTestEnvironment(t, supabase.fetchMock);
 
@@ -206,7 +214,7 @@ test("guest checkout cannot write paid status or update without its capability",
   assert.equal(supabase.calls.filter((call) => call.method === "PATCH").length, 0);
 });
 
-test("guest checkout cannot change a paid order", async (t) => {
+test("authenticated checkout cannot change a paid order", async (t) => {
   const supabase = createSupabaseMock();
   withTestEnvironment(t, supabase.fetchMock);
 
@@ -228,4 +236,87 @@ test("guest checkout cannot change a paid order", async (t) => {
   assert.equal(updateResponse.statusCode, 409);
   assert.equal(supabase.rows[0].status, "paid");
   assert.equal(supabase.calls.filter((call) => call.method === "PATCH").length, 0);
+});
+
+
+test("anonymous and unconfirmed checkout cannot read or create an order", async t => {
+  const supabase = createSupabaseMock();
+  withTestEnvironment(t, supabase.fetchMock);
+  for (const method of ["GET", "POST"]) {
+    const req = makeRequest({ method, body: { order: checkoutOrder() }, url: `/api/order-checkout?orderId=${ORDER_ID}` });
+    delete req.headers.authorization;
+    const res = makeRes(); await handler(req, res);
+    assert.equal(res.statusCode, 401); assert.equal(supabase.calls.length, 0);
+  }
+  globalThis.fetch = async () => makeResponse({ id: USER_ID, email: EMAIL, email_confirmed_at: null });
+  const res = makeRes(); await handler(makeRequest({ body: { order: checkoutOrder() } }), res);
+  assert.equal(res.statusCode, 403); assert.equal(supabase.rows.length, 0);
+});
+
+test("confirmed identity binds new rows and email spoofing creates no row", async t => {
+  const supabase = createSupabaseMock(); withTestEnvironment(t, supabase.fetchMock);
+  const spoofed = makeRes(); await handler(makeRequest({ body: { order: checkoutOrder({ email: "other@example.test" }) } }), spoofed);
+  assert.equal(spoofed.statusCode, 403); assert.equal(supabase.rows.length, 0);
+  const created = makeRes(); await handler(makeRequest({ body: { order: checkoutOrder({ user_id: "22222222-2222-4222-8222-222222222222" }) } }), created);
+  assert.equal(created.statusCode, 200); assert.equal(supabase.rows[0].user_id, USER_ID);
+});
+
+test("GET needs actual owner; same-email foreign UUID and missing order are indistinguishable", async t => {
+  const supabase = createSupabaseMock(); withTestEnvironment(t, supabase.fetchMock);
+  supabase.rows.push({ ...checkoutOrder(), user_id: "22222222-2222-4222-8222-222222222222" });
+  const responseBodies = [];
+  for (const id of [ORDER_ID, "INV-MISSING1"]) {
+    const res = makeRes(); await handler(makeRequest({ method: "GET", url: `/api/order-checkout?orderId=${id}` }), res);
+    assert.equal(res.statusCode, 404); responseBodies.push(res.body);
+  }
+  assert.deepEqual(responseBodies[0], responseBodies[1]);
+  supabase.rows[0].user_id = null;
+  const legacy = makeRes(); await handler(makeRequest({ method: "GET", url: `/api/order-checkout?orderId=${ORDER_ID}` }), legacy);
+  assert.equal(legacy.statusCode, 200); assert.deepEqual(Object.keys(legacy.body).sort(), ["id", "ok", "status"]);
+});
+
+test("an edit capability cannot override a different recorded UUID owner", async t => {
+  const supabase = createSupabaseMock(); withTestEnvironment(t, supabase.fetchMock);
+  const created = makeRes(); await handler(makeRequest({ body: { order: checkoutOrder() } }), created);
+  supabase.rows[0].user_id = "22222222-2222-4222-8222-222222222222";
+  const res = makeRes(); await handler(makeRequest({ cookie: created.headers["Set-Cookie"].split(";")[0], body: { order: checkoutOrder({ status: "checkout" }) } }), res);
+  assert.equal(res.statusCode, 403); assert.equal(supabase.calls.filter(x => x.method === "PATCH").length, 0);
+});
+
+test("owned frozen Paylio checkout resumes without changing its order or amount", async t => {
+  const sb = createSupabaseMock(); withTestEnvironment(t, sb.fetchMock);
+  const metadata = {
+    items: [{name: "Example product", dose: "5 mg", quantity: 1, price: 129.5}],
+    subtotal: 129.5, shipping: 0, automaticDiscount: 0, promoDiscount: 0,
+    affiliateDiscount: 0, storeCreditUsed: 0, shippingType: "standard",
+    firstName: "Test", address: "Fixture address", country: "US",
+  };
+  const created = makeRes();
+  await handler(makeRequest({body: {order: checkoutOrder({metadata})}}), created);
+  const cookie = created.headers['Set-Cookie'].split(';')[0];
+  sb.rows[0].status = 'checkout (clicked pay)';
+  sb.bindings.push({order_id: ORDER_ID, customer_id: USER_ID, email: EMAIL,
+    state: 'ready', amount_cents: 12950, quote: structuredClone(metadata)});
+  const before = structuredClone(sb.rows[0]);
+  const resumed = makeRes();
+  await handler(makeRequest({cookie, body: {order: checkoutOrder({status:'checkout', metadata})}}), resumed);
+  assert.equal(resumed.statusCode, 200);
+  assert.deepEqual(resumed.body, {ok:true, id:ORDER_ID, status:'checkout (clicked pay)', locked:true, saved:false});
+  assert.deepEqual(sb.rows[0], before);
+  assert.equal(sb.calls.filter(c=>c.method==='PATCH').length, 0);
+  for (const change of [{total: 1}, {metadata:{...metadata, address:'Changed destination'}},
+    {metadata:{...metadata, items:[{...metadata.items[0],quantity:2}]}}]) {
+    const changed = makeRes();
+    await handler(makeRequest({cookie, body:{order:checkoutOrder({metadata,...change})}}), changed);
+    assert.equal(changed.statusCode, 409);
+    assert.deepEqual(sb.rows[0], before);
+  }
+  const missingCapability = makeRes();
+  await handler(makeRequest({body:{order:checkoutOrder({metadata})}}), missingCapability);
+  assert.equal(missingCapability.statusCode, 403);
+  sb.rows[0].status = 'refunded';
+  const refunded = makeRes();
+  await handler(makeRequest({cookie, body:{order:checkoutOrder({metadata})}}), refunded);
+  assert.equal(refunded.statusCode, 409);
+  assert.equal(sb.rows[0].status, 'refunded');
 });

@@ -502,6 +502,8 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
     CREATE TABLE public.orders(id text PRIMARY KEY,email text,status text,total numeric,metadata jsonb,created_at timestamptz DEFAULT now(),updated_at timestamptz,items jsonb,payment_provider text,payment_id text,paid_at timestamptz,admin_note text,tracking_number text,tracking_number_2 text,tracking_number_sent_at timestamptz,affiliate_commission_adjustment numeric);
     CREATE TABLE public.user_promos(id text PRIMARY KEY,email text,code text,rate numeric,used boolean DEFAULT false,updated_at timestamptz DEFAULT now());
     CREATE TABLE public.user_credits(email text,amount numeric,note text,updated_at timestamptz DEFAULT now());
+    CREATE TABLE public.affiliate_customers(email text PRIMARY KEY,affiliate_code text);
+    CREATE TABLE public.affiliate_orders(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,order_id text UNIQUE,affiliate_code text,commission_amount numeric,shipping_type text,created_at timestamptz);
     GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role;
     GRANT ALL ON public.orders,public.user_promos TO anon,authenticated,service_role;
     ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
@@ -1000,6 +1002,191 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
     }
     const id=`ZERO-${randomUUID()}`;assert.equal((await rest("anon","/orders",{method:"POST",body:{id,email:"buyer@example.test",status:"pending",metadata:{storeCreditUsed:0}}})).status,201);
     const forged=await rest("anon",`/orders?id=eq.${id}`,{method:"PATCH",body:{metadata:{storeCreditUsed:20}}});assert.equal(forged.data.message,"STORE_CREDIT_CLAIM_REQUIRES_PRIVATE_RESERVATION");
+  });
+
+  const orderAccessMigrationPath = new URL('../../supabase/migrations/20261009010000_orders_access_containment.sql', import.meta.url);
+  const orderAccessPreflightPath = new URL('../../supabase/review/orders_access_preflight.sql', import.meta.url);
+  for (const source of [orderAccessMigrationPath, orderAccessPreflightPath]) evidence.sourceSha256[path.relative(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'), fileURLToPath(source))] = createHash('sha256').update(await readFile(source)).digest('hex');
+  const beforeAccess = await scalar(await readFile(orderAccessPreflightPath, 'utf8'));
+  await sql('GRANT SELECT(email), UPDATE(status) ON public.orders TO PUBLIC,anon;');
+  await sql(await readFile(orderAccessMigrationPath, 'utf8'));
+  await sql("NOTIFY pgrst, 'reload schema';");
+  await until(async () => (await rest('service_role', '/orders?select=user_id&limit=0')).status === 200, 'new owner column in native PostgREST');
+  const afterAccess = await scalar(await readFile(orderAccessPreflightPath, 'utf8'));
+  evidence.orderAccessPreflight = { before: beforeAccess, after: afterAccess };
+  await t.test('orders containment preserves every existing payment policy/function/trigger and removes table plus column grants', async () => {
+    for (const policy of beforeAccess.ordersPolicies) assert.deepEqual(afterAccess.ordersPolicies.find(p => p.policyname === policy.policyname), policy);
+    for (const fn of beforeAccess.protectedFunctions) assert.deepEqual(afterAccess.protectedFunctions.find(f => f.signature === fn.signature), fn);
+    assert.deepEqual(afterAccess.ordersTriggers, beforeAccess.ordersTriggers);
+    const anon = afterAccess.ordersPrivileges.find(r => r.role === 'anon');
+    for (const privilege of ['select','insert','update','delete','truncate','references','trigger']) assert.equal(anon[privilege], false);
+    assert.equal(await scalar("SELECT to_jsonb(has_column_privilege('anon','public.orders','email','SELECT'));"), false);
+    assert.equal(await scalar("SELECT to_jsonb(has_column_privilege('anon','public.orders','status','UPDATE'));"), false);
+  });
+  await sql(`INSERT INTO orders(id,user_id,email,status,total,metadata) VALUES
+    ('ACCESS-OWNER',${q(customerId)},'buyer@example.test','pending',100,'{"storeCreditUsed":0}'),
+    ('ACCESS-LEGACY',NULL,'buyer@example.test','pending',100,'{"storeCreditUsed":0}'),
+    ('ACCESS-FOREIGN',${q(siblingId)},'buyer@example.test','pending',100,'{"storeCreditUsed":0}');`);
+  await t.test('native HTTP anonymous legacy access is denied and a customer cannot mutate or create orders', async () => {
+    for (const method of ['GET','POST','PATCH','DELETE']) {
+      const response = await rest('anon', '/orders?id=eq.ACCESS-OWNER', {method, ...(method === 'POST' ? {body:{id:'ACCESS-FORGED',email:'buyer@example.test',status:'paid'}} : method === 'PATCH' ? {body:{status:'paid'}} : {})});
+      assert.ok([401,403].includes(response.status), `${method} ${JSON.stringify(response)}`);
+    }
+    assert.equal((await rest('authenticated', '/orders', {method:'POST', body:{id:'ACCESS-FORGED',email:'buyer@example.test',status:'pending'}})).status,403);
+    for (const method of ['PATCH','DELETE']) {
+      const response=await rest('authenticated','/orders?id=eq.ACCESS-OWNER',{method,headers:{Prefer:'return=representation'},...(method==='PATCH'?{body:{status:'paid'}}:{})});
+      assert.equal(response.status,200);assert.deepEqual(response.data,[]);
+    }
+    assert.equal((await order('ACCESS-OWNER')).status,'pending');
+  });
+  await t.test('native HTTP confirmed UUID owner and legacy fallback work without trusting forged email claims', async () => {
+    const own=await rest('authenticated','/orders?id=in.(ACCESS-OWNER,ACCESS-LEGACY,ACCESS-FOREIGN)&order=id',{claims:{email:'support@10bottlevalue.co'}});
+    assert.equal(own.status,200);assert.deepEqual(own.data.map(o=>o.id),['ACCESS-LEGACY','ACCESS-OWNER']);
+    const sibling=await rest('authenticated','/orders?id=in.(ACCESS-OWNER,ACCESS-LEGACY,ACCESS-FOREIGN)&order=id',{sub:siblingId});
+    assert.deepEqual(sibling.data.map(o=>o.id),['ACCESS-FOREIGN','ACCESS-LEGACY']);
+    for(const sub of [unconfirmedSupportId,randomUUID()]){
+      const response=await rest('authenticated','/orders?id=eq.ACCESS-OWNER',{sub,claims:{email:'support@10bottlevalue.co'}});assert.equal(response.status,200);assert.deepEqual(response.data,[]);
+    }
+    const support=await rest('authenticated','/orders?id=in.(ACCESS-OWNER,ACCESS-LEGACY,ACCESS-FOREIGN)',{sub:supportId});assert.equal(support.data.length,3);
+  });
+  await t.test('new containment retains real Merit creation, paid finalization, owner privacy and safe support fulfillment', async () => {
+    const created=(await reserve(quote())).data;assert.equal(created.ok,true);
+    const bound=(await rpc('bind_merit_checkout',bindBody(created.attempt))).data.attempt;
+    assert.equal((await rpc('finalize_merit_checkout',finalBody(bound))).data.ok,true);
+    const target=`/orders?id=eq.${bound.order_id}`;
+    assert.equal((await rest('authenticated',target)).data.length,1);
+    assert.deepEqual((await rest('authenticated',target,{sub:siblingId})).data,[]);
+    const existing=await order(bound.order_id);
+    const safe=await rest('authenticated',target,{method:'PATCH',sub:supportId,body:{metadata:{...existing.metadata,adminNote:'synthetic verified fulfillment'}},headers:{Prefer:'return=representation'}});
+    assert.equal(safe.status,200);assert.equal(safe.data[0].metadata.adminNote,'synthetic verified fulfillment');
+    const denied=await rest('authenticated',target,{method:'PATCH',sub:supportId,body:{total:1}});assert.equal(denied.status,400);assert.equal(denied.data.code,'23514');
+  });
+  await t.test('new containment retains full-credit RPC completion and duplicate replay',async()=>{
+    const sub=randomUUID(),email='containment-credit@example.test',id='INV-'+randomUUID().replaceAll('-','').toUpperCase();
+    await sql(`INSERT INTO auth.users VALUES(${q(sub)},${q(email)},now()); INSERT INTO user_credits(email,amount) VALUES(${q(email)},100);`);
+    const body={p_customer_email:email,p_order:{id,email,status:'paid',paymentProvider:'StoreCredit',checkoutFingerprint:'c'.repeat(64),storeCreditUsed:30,total:0,items:[{name:'Fixture'}]},p_store_credit_used:30,p_user_promo_id:null,p_customer_id:sub};
+    const first=await rpc('checkout_store_credit',body);assert.equal(first.data.ok,true,JSON.stringify(first));
+    const again=await rpc('checkout_store_credit',body);assert.equal(again.data.replayed,true);assert.equal(await scalar(`SELECT amount FROM user_credits WHERE email=${q(email)};`),70);
+    assert.equal((await rest('authenticated',`/orders?id=eq.${id}`,{sub})).data.length,1);
+    assert.deepEqual((await rest('authenticated',`/orders?id=eq.${id}`,{sub:siblingId})).data,[]);
+  });
+  await t.test('actual order-checkout handler creates UUID-bound drafts and reads only owned status through native PostgREST',async()=>{
+    const handler=(await import('../../api/order-checkout.js')).default;
+    await sql('ALTER TABLE orders ADD COLUMN IF NOT EXISTS checkout_access_hash text; NOTIFY pgrst, \'reload schema\';');
+    await until(async()=> {const schema=(await rest('service_role','/')).data;return !!schema?.definitions?.orders?.properties?.checkout_access_hash && !!schema?.definitions?.orders?.properties?.user_id;},'checkout schema cache');
+    const originalFetch=globalThis.fetch,keys=['SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY'];
+    const old=Object.fromEntries(keys.map(k=>[k,process.env[k]]));process.env.SUPABASE_URL=origin;process.env.SUPABASE_SERVICE_ROLE_KEY=token('service_role');
+    const res=()=>({statusCode:200,headers:{},setHeader(k,v){this.headers[k]=v},status(n){this.statusCode=n;return this},json(body){this.body=body;return this}});
+    let user=customerId;let email='buyer@example.test';
+    globalThis.fetch=async(input,init)=>{const url=new URL(input);assert.equal(url.origin,origin);if(url.pathname==='/auth/v1/user')return new Response(JSON.stringify({id:user,email,email_confirmed_at:'2026-10-09T00:00:00Z'}));assert.ok(url.pathname.startsWith('/rest/v1/'));return originalFetch(`${origin}${url.pathname.slice('/rest/v1'.length)}${url.search}`,init)};
+    try{
+      const id='INV-NATIVEOWN123',body={order:{id,email,status:'pending',total:100,metadata:{items:[{name:'Fixture',quantity:1}]}}};
+      const created=res();await handler({method:'POST',headers:{authorization:'Bearer synthetic-session','content-type':'application/json'},body},created);assert.equal(created.statusCode,200,JSON.stringify(created.body));
+      assert.equal((await order(id)).user_id,customerId);
+      const status=res();await handler({method:'GET',url:`/api/order-checkout?orderId=${id}`,headers:{authorization:'Bearer synthetic-session'}},status);assert.deepEqual(status.body,{ok:true,id,status:'pending'});
+      user=siblingId;const other=res();await handler({method:'GET',url:`/api/order-checkout?orderId=${id}`,headers:{authorization:'Bearer synthetic-session'}},other);assert.equal(other.statusCode,404);
+    }finally{globalThis.fetch=originalFetch;for(const [k,v] of Object.entries(old)){if(v===undefined)delete process.env[k];else process.env[k]=v}}
+  });
+
+  const paylioMigrationPath=new URL('../../supabase/migrations/20261009020000_paylio_payment_bindings.sql',import.meta.url);
+  evidence.sourceSha256['supabase/migrations/20261009020000_paylio_payment_bindings.sql']=createHash('sha256').update(await readFile(paylioMigrationPath)).digest('hex');
+  await sql(await readFile(paylioMigrationPath,'utf8'));
+  await sql("NOTIFY pgrst, 'reload schema';");
+  await until(async()=>!!(await rest('service_role','/')).data?.definitions?.paylio_payment_attempts,'private Paylio schema');
+  let paylioAttempt;
+  const paylioOrderId='INV-NATIVEPAYLIO1';
+  const paylioRequest={p_id:randomUUID(),p_order_id:paylioOrderId,p_customer_id:customerId,p_email:'buyer@example.test',p_fingerprint:'d'.repeat(64),p_account_fingerprint:'e'.repeat(64),p_payout_address:'synthetic-payout-address',p_amount_cents:12345,p_quote:{total:123.45,subtotal:100,shipping:33.45,shippingType:'standard',storeCreditUsed:0,promoCode:'PAYLIO_PERSONAL',promoDiscount:10,promoUsageRequired:true,affiliateCode:'PAYLIO_NEW',affiliateAttributionCode:'PAYLIO_ORIGINAL',affiliateCommission:10,items:[{name:'Fixture',dose:'5 mg',quantity:1,price:100}]}};
+  await sql(`INSERT INTO orders(id,user_id,email,status,total,metadata) VALUES(${q(paylioOrderId)},${q(customerId)},'buyer@example.test','pending',123.45,'{"storeCreditUsed":0}');`);
+  await t.test('native Paylio reservation is private, immutable and serialized for concurrent same-order starts',async()=>{
+    for(const role of ['anon','authenticated']){
+      assert.ok([401,403].includes((await rest(role,'/paylio_payment_attempts')).status));
+      assert.ok([401,403].includes((await rpc('reserve_paylio_checkout',paylioRequest,role)).status));
+    }
+    const replies=await simultaneous('Paylio same order reservation',`SELECT id FROM orders WHERE id=${q(paylioOrderId)} FOR UPDATE`,[()=>rpc('reserve_paylio_checkout',paylioRequest),()=>rpc('reserve_paylio_checkout',{...paylioRequest,p_id:randomUUID()})]);
+    assert.ok(replies.every(r=>r.status===200),JSON.stringify(replies));assert.equal(replies.filter(r=>r.data.created).length,1);
+    assert.equal(replies[0].data.attempt.id,replies[1].data.attempt.id);paylioAttempt=replies[0].data.attempt;
+    assert.equal((await order(paylioOrderId)).total,123.45);
+    assert.equal((await rpc('reserve_paylio_checkout',{...paylioRequest,p_amount_cents:1})).status,400);
+    for(const body of [{total:1},{user_id:siblingId},{metadata:{storeCreditUsed:0,items:[]}}])assert.equal((await rest('service_role',`/orders?id=eq.${paylioOrderId}`,{method:'PATCH',body})).status,400);
+    assert.ok([401,403].includes((await rest('service_role','/paylio_payment_attempts',{method:'PATCH',body:{amount_cents:1}})).status));
+  });
+  const paylioBind=()=>({p_id:paylioAttempt.id,p_payment_id:'native_paylio_123',p_ipn_token:'synthetic-private-ipn-token',p_checkout_url:'https://paylio.org/pay/native_paylio_123',p_amount_cents:12345});
+  const paylioFinalize=()=>({p_id:paylioAttempt.id,p_payment_id:'native_paylio_123',p_amount_cents:12345,p_currency:'USD',p_account_fingerprint:'e'.repeat(64),p_paid_at:new Date().toISOString()});
+  await t.test('native Paylio binding and finalization reject different payment, money, currency and account',async()=>{
+    assert.equal((await rpc('bind_paylio_checkout',{...paylioBind(),p_amount_cents:1})).status,400);
+    const ready=await rpc('bind_paylio_checkout',paylioBind());assert.equal(ready.status,200);assert.equal(ready.data.state,'ready');
+    for(const change of [{p_payment_id:'another-id'},{p_amount_cents:1},{p_currency:'EUR'},{p_account_fingerprint:'f'.repeat(64)}])assert.equal((await rpc('finalize_paylio_checkout',{...paylioFinalize(),...change})).status,400);
+    assert.equal((await order(paylioOrderId)).status,'checkout (clicked pay)');
+    const paid=await rpc('finalize_paylio_checkout',paylioFinalize());assert.equal(paid.data.ok,true);assert.equal(paid.data.transitioned,true);
+    const replay=await rpc('finalize_paylio_checkout',paylioFinalize());assert.equal(replay.data.ok,true);assert.equal(replay.data.transitioned,false);
+    assert.equal(await scalar(`SELECT count(*) FROM paylio_order_write_permits;`),0);
+  });
+  const paylioEffects=()=>rpc('apply_paylio_order_effects',{p_id:paylioAttempt.id});
+  const paylioEffectState=()=>scalar(`SELECT jsonb_build_object('state',state,'appliedAt',effects_applied_at,'error',effects_error) FROM paylio_payment_attempts WHERE id=${q(paylioAttempt.id)};`);
+  await t.test('native Paylio database effects are private and missing personal promo rolls back commission and mapping without undoing paid state',async()=>{
+    for(const role of ['anon','authenticated'])assert.ok([401,403].includes((await rpc('apply_paylio_order_effects',{p_id:paylioAttempt.id},role)).status));
+    const before=await order(paylioOrderId),response=await paylioEffects();
+    assert.equal(response.status,200);assert.deepEqual(response.data,{ok:false,applied:false,orderId:paylioOrderId});
+    assert.deepEqual(await order(paylioOrderId),before);
+    assert.equal(await scalar(`SELECT count(*) FROM affiliate_orders WHERE order_id=${q(paylioOrderId)};`),0);
+    assert.equal(await scalar("SELECT count(*) FROM affiliate_customers WHERE email='buyer@example.test';"),0);
+    const pending=await paylioEffectState();assert.equal(pending.state,'paid');assert.equal(pending.appliedAt,null);assert.equal(pending.error,'P0001');
+  });
+  await t.test('native Paylio suppressed affiliate insert cannot count as acknowledgement or consume the promo',async()=>{
+    await sql("INSERT INTO user_promos(id,email,code,rate,used) VALUES('paylio-personal','buyer@example.test','PAYLIO_PERSONAL',0.1,false);");
+    await sql(`CREATE FUNCTION public.fixture_paylio_affiliate_suppress() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.order_id=${q(paylioOrderId)} THEN RETURN NULL; END IF; RETURN NEW; END $$; CREATE TRIGGER fixture_paylio_affiliate_suppress BEFORE INSERT ON affiliate_orders FOR EACH ROW EXECUTE FUNCTION fixture_paylio_affiliate_suppress();`);
+    try{
+      const response=await paylioEffects();assert.equal(response.status,200);assert.equal(response.data.ok,false);
+      assert.equal(await scalar(`SELECT count(*) FROM affiliate_orders WHERE order_id=${q(paylioOrderId)};`),0);
+      assert.equal(await scalar("SELECT count(*) FROM affiliate_customers WHERE email='buyer@example.test';"),0);
+      assert.equal(await scalar("SELECT to_jsonb(used) FROM user_promos WHERE id='paylio-personal';"),false);
+      assert.equal((await paylioEffectState()).state,'paid');
+    }finally{await sql('DROP TRIGGER fixture_paylio_affiliate_suppress ON affiliate_orders; DROP FUNCTION fixture_paylio_affiliate_suppress();')}
+  });
+  await t.test('native Paylio missing promo update acknowledgement rolls back earlier mapping and commission writes',async()=>{
+    await sql("CREATE FUNCTION public.fixture_paylio_promo_suppress() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id='paylio-personal' THEN RETURN NULL; END IF; RETURN NEW; END $$; CREATE TRIGGER fixture_paylio_promo_suppress BEFORE UPDATE ON user_promos FOR EACH ROW EXECUTE FUNCTION fixture_paylio_promo_suppress();");
+    try{
+      const response=await paylioEffects();assert.equal(response.status,200);assert.equal(response.data.ok,false);
+      assert.equal(await scalar(`SELECT count(*) FROM affiliate_orders WHERE order_id=${q(paylioOrderId)};`),0);
+      assert.equal(await scalar("SELECT count(*) FROM affiliate_customers WHERE email='buyer@example.test';"),0);
+      assert.equal(await scalar("SELECT to_jsonb(used) FROM user_promos WHERE id='paylio-personal';"),false);
+      const pending=await paylioEffectState();assert.equal(pending.state,'paid');assert.equal(pending.appliedAt,null);assert.equal(pending.error,'P0001');
+    }finally{await sql('DROP TRIGGER fixture_paylio_promo_suppress ON user_promos; DROP FUNCTION fixture_paylio_promo_suppress();')}
+  });
+  await t.test('native concurrent Paylio effects retries apply mapping, commission and personal promo once after failure',async()=>{
+    const before=await order(paylioOrderId);
+    const replies=await simultaneous('Paylio paid ancillary effects replay',`SELECT id FROM orders WHERE id=${q(paylioOrderId)} FOR UPDATE`,[paylioEffects,paylioEffects]);
+    assert.ok(replies.every(r=>r.status===200&&r.data.ok&&r.data.orderId===paylioOrderId),JSON.stringify(replies));
+    assert.equal(replies.filter(r=>r.data.applied).length,1);
+    assert.equal(await scalar(`SELECT count(*) FROM affiliate_orders WHERE order_id=${q(paylioOrderId)};`),1);
+    const commission=await scalar(`SELECT jsonb_build_object('code',affiliate_code,'amount',commission_amount,'shipping',shipping_type) FROM affiliate_orders WHERE order_id=${q(paylioOrderId)};`);
+    assert.deepEqual(commission,{code:'PAYLIO_ORIGINAL',amount:10,shipping:'standard'});
+    assert.equal(await scalar("SELECT to_jsonb(affiliate_code) FROM affiliate_customers WHERE email='buyer@example.test';"),'PAYLIO_ORIGINAL');
+    assert.equal(await scalar("SELECT to_jsonb(used) FROM user_promos WHERE id='paylio-personal';"),true);
+    const complete=await paylioEffectState();assert.equal(complete.state,'paid');assert.ok(complete.appliedAt);assert.equal(complete.error,null);
+    assert.deepEqual((await paylioEffects()).data,{ok:true,applied:false,orderId:paylioOrderId});
+    assert.deepEqual(await order(paylioOrderId),before);
+    evidence.paylioEffects={privateRpc:true,missingPersonalPromoRollback:true,suppressedAffiliateInsertRejected:true,suppressedPromoUpdateRejected:true,paidPreservedOnFailure:true,concurrentRetryExactlyOnce:true,frozenReferralAttribution:true,errorClearedAfterSuccess:true};
+  });
+  await t.test('native Paylio static promo effects complete without fabricating a personal promo row',async()=>{
+    const id='INV-NATIVEPAYLIOSTATIC',request={...paylioRequest,p_id:randomUUID(),p_order_id:id,p_quote:{...paylioRequest.p_quote,promoCode:'REVIEW10',promoUsageRequired:false}};
+    await sql(`INSERT INTO orders(id,user_id,email,status,total,metadata) VALUES(${q(id)},${q(customerId)},'buyer@example.test','pending',123.45,'{"storeCreditUsed":0}');`);
+    const created=await rpc('reserve_paylio_checkout',request);assert.equal(created.status,200);assert.equal(created.data.created,true);
+    const binding={...paylioBind(),p_id:created.data.attempt.id,p_payment_id:'native_paylio_static',p_checkout_url:'https://paylio.org/pay/native_paylio_static'};
+    assert.equal((await rpc('bind_paylio_checkout',binding)).data.state,'ready');
+    assert.equal((await rpc('finalize_paylio_checkout',{...paylioFinalize(),p_id:binding.p_id,p_payment_id:binding.p_payment_id})).data.transitioned,true);
+    assert.deepEqual((await rpc('apply_paylio_order_effects',{p_id:binding.p_id})).data,{ok:true,applied:true,orderId:id});
+    assert.equal(await scalar("SELECT count(*) FROM user_promos WHERE code='REVIEW10';"),0);
+    evidence.paylioEffects.staticPromoRequiresNoPersonalRow=true;
+  });
+  await t.test('native Paylio paid support fulfillment survives replay while refunds cannot be resurrected',async()=>{
+    const saved=await order(paylioOrderId);
+    const note=await rest('authenticated',`/orders?id=eq.${paylioOrderId}`,{method:'PATCH',sub:supportId,body:{status:'shipped',metadata:{...saved.metadata,status:'shipped',adminNote:'synthetic support note'}}});assert.equal(note.status,204);
+    const replay=await rpc('finalize_paylio_checkout',paylioFinalize());assert.equal(replay.data.status,'shipped');assert.equal(replay.data.transitioned,false);
+    assert.equal((await rest('authenticated',`/orders?id=eq.${paylioOrderId}`,{method:'PATCH',sub:supportId,body:{total:1}})).status,400);
+    assert.equal((await rest('authenticated',`/orders?id=eq.${paylioOrderId}`,{method:'PATCH',sub:supportId,body:{status:'refunded'}})).status,204);
+    assert.equal((await rpc('finalize_paylio_checkout',paylioFinalize())).status,400);assert.equal((await order(paylioOrderId)).status,'refunded');
+    assert.equal((await paylioEffects()).status,400);assert.equal((await order(paylioOrderId)).status,'refunded');
   });
 
 });

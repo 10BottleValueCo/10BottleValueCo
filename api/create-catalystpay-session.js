@@ -1,3 +1,4 @@
+import { requireLegacyOrderAccess } from "./_order-access.js";
 import { legacyCreditStartError, legacyExistingCreditOrderError } from "./_legacy-store-credit.js";
 import { validateAndPriceItems, getShippingPrice, getAutomaticDiscountRate } from "./_catalog.js";
 import { verifyPromoCode } from "./_promo.js";
@@ -25,15 +26,18 @@ export default async function handler(req, res) {
     const { status, ...body } = creditError;
     return res.status(status).json(body);
   }
+  const access = await requireLegacyOrderAccess(req, res, { orderId: req.body?.order_id });
+  if (!access) return;
   const existingCreditError = await legacyExistingCreditOrderError(req.body);
   if (existingCreditError) {
     const { status, ...body } = existingCreditError;
     return res.status(status).json(body);
   }
 
+  req.body = { ...req.body, email: access.identity.email, customer_email: access.identity.email };
   try {
-    if (!MERCHANT_ID || !API_TOKEN) {
-      return res.status(500).json({ error: "CATALYSTPAY credentials not configured" });
+    if (!MERCHANT_ID || !API_TOKEN || !process.env.CATALYSTPAY_WEBHOOK_SECRET) {
+      return res.status(500).json({ error: "Payment verification is temporarily unavailable." });
     }
 
     const {
@@ -189,7 +193,7 @@ export default async function handler(req, res) {
           is_production: IS_PRODUCTION,
           merchant_id_set: !!MERCHANT_ID,
           token_set: !!API_TOKEN,
-          token_prefix: API_TOKEN ? API_TOKEN.slice(0, 6) + "..." : "MISSING",
+
         },
         ...data,
       });

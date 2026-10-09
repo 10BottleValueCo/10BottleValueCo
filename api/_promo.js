@@ -10,8 +10,9 @@ const STATIC_PROMO_CODES = {
   OWNERFREESHIP: { rate: 0,   freeShipping: true, emailLock: "support@10bottlevalue.co" },
 };
 
-async function lookupUserPromo({ code, email, sbUrl, sbKey }) {
+async function lookupUserPromo({ code, email, sbUrl, sbKey, requireEmailMatch = false }) {
   if (!sbUrl || !sbKey) return null;
+  if (requireEmailMatch && !email) return null;
 
   try {
     // Primary lookup: by code + email (ignore `used` — used flag is set by the
@@ -37,15 +38,16 @@ async function lookupUserPromo({ code, email, sbUrl, sbKey }) {
     const rows = await res.json();
 
     if (Array.isArray(rows) && rows.length > 0) {
+      if (requireEmailMatch && (rows.length !== 1 || String(rows[0].email || "").trim().toLowerCase() !== String(email).trim().toLowerCase())) return null;
       const rate = Number(rows[0].rate);
       if (Number.isFinite(rate) && rate > 0 && rate <= 1) {
-        return { rate, freeShipping: false };
+        return { rate, freeShipping: false, source: "personal" };
       }
     }
 
     // Fallback: if email was provided but found nothing, try without email
     // (handles case where stored email differs slightly from checkout email)
-    if (email) {
+    if (email && !requireEmailMatch) {
       const fallbackUrl =
         `${sbUrl}/rest/v1/user_promos?code=eq.${encodeURIComponent(code)}&select=rate,email,used`;
       const fallbackRes = await fetch(fallbackUrl, {
@@ -57,7 +59,7 @@ async function lookupUserPromo({ code, email, sbUrl, sbKey }) {
           const rate = Number(fallbackRows[0].rate);
           if (Number.isFinite(rate) && rate > 0 && rate <= 1) {
             console.error(`[promo] Used fallback (no-email) lookup for code=${code}`);
-            return { rate, freeShipping: false };
+            return { rate, freeShipping: false, source: "personal" };
           }
         }
       }
@@ -70,7 +72,7 @@ async function lookupUserPromo({ code, email, sbUrl, sbKey }) {
 }
 
 // Returns { rate, freeShipping } for a verified promo code, or null if invalid/unverifiable.
-async function verifyPromoCode({ code, email, sbUrl, sbKey }) {
+async function verifyPromoCode({ code, email, sbUrl, sbKey, requireEmailMatch = false }) {
   const normalized = String(code || "").trim().toUpperCase();
   if (!normalized) return null;
 
@@ -79,10 +81,10 @@ async function verifyPromoCode({ code, email, sbUrl, sbKey }) {
     if (staticPromo.emailLock && String(email || "").trim().toLowerCase() !== staticPromo.emailLock.toLowerCase()) {
       return null;
     }
-    return { rate: staticPromo.rate, freeShipping: !!staticPromo.freeShipping };
+    return { rate: staticPromo.rate, freeShipping: !!staticPromo.freeShipping, source: "static" };
   }
 
-  return lookupUserPromo({ code: normalized, email, sbUrl, sbKey });
+  return lookupUserPromo({ code: normalized, email, sbUrl, sbKey, requireEmailMatch });
 }
 
 export { verifyPromoCode };

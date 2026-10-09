@@ -8,7 +8,8 @@ import "./operations-shell.css";
 const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const configured = !!url && !!anonKey;
-// Same origin + Supabase's default storage key reuse the existing site session.
+// /operations reuses the same-origin site session. The Operations subdomain
+// has its own browser storage and requires its own sign-in.
 const supabase = configured ? createClient(url, anonKey) : null;
 const emailCodeEnabled = import.meta.env.VITE_OPERATIONS_EMAIL_CODE_ENABLED === "true";
 const words = {
@@ -105,7 +106,7 @@ export function OperationsApp() {
   }
 
   return <div className="operations-shell">
-    <nav className="operations-nav" aria-label="Operations"><a className="operations-brand" href="/">10<span>BOTTLE</span>VALUE</a><div>
+    <nav className="operations-nav" aria-label="Operations"><a className="operations-brand" href="https://10bottlevalue.co/">10<span>BOTTLE</span>VALUE</a><div>
       <div className="operations-language" role="group" aria-label={t.language}>{["en", "ru"].map(code => <button type="button" key={code} aria-pressed={language === code} onClick={() => setLanguage(code)}>{code.toUpperCase()}</button>)}</div>
       {key && <button type="button" className="operations-logout" disabled={form.busy} onClick={signOut}>{form.busy ? t.busy : t.logout}</button>}
     </div></nav>
@@ -125,7 +126,7 @@ export function OperationsApp() {
           {(form.notice || auth.error) && <p role="status">{t[form.notice] || t.unavailable}</p>}
           {emailCodeEnabled && <button type="button" className="operations-switch" disabled={form.busy} onClick={() => { setMode(mode === "password" ? "email_code" : "password"); setPassword(""); setToken(""); setForm({ busy: false, notice: "" }); }}>{mode === "password" ? t.code : t.passwordMode}</button>}
         </form>}
-      </section><a className="operations-back" href="/">← {t.back}</a>
+      </section><a className="operations-back" href="https://10bottlevalue.co/">← {t.back}</a>
     </main>}
   </div>;
 }

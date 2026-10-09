@@ -1,3 +1,5 @@
+import { requireOrderIdentity, ownsOrder } from "./_order-access.js";
+import { paylioResumeMatchesOrder } from "./_paylio-binding.js";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 const ACCESS_COOKIE = "tbv_checkout_access";
@@ -160,7 +162,7 @@ function matchesAccessHash(storedHash, token) {
 function orderQuery(id) {
   const query = new URLSearchParams({
     id: `eq.${id}`,
-    select: "id,email,status,metadata,checkout_access_hash,total",
+    select: "id,user_id,email,status,metadata,checkout_access_hash,total",
     limit: "1",
   });
   return `orders?${query.toString()}`;
@@ -240,18 +242,15 @@ function readOrderIdFromUrl(req) {
 }
 
 async function getOrderStatus(req, res) {
+  const identity = await requireOrderIdentity(req, res);
+  if (!identity) return;
   const id = readOrderIdFromUrl(req).trim().toUpperCase();
   if (!/^INV-[A-Z0-9]{6,32}$/.test(id)) {
     throw new CheckoutError(400, "The order number is invalid.");
   }
-  const access = readAccessCookie(req);
-  if (!access || access.id !== id) {
-    throw new CheckoutError(404, "Order status is unavailable.");
-  }
-
   const rows = await supabaseJson(orderQuery(id));
   const row = Array.isArray(rows) ? rows[0] : null;
-  if (!row || !matchesAccessHash(row.checkout_access_hash, access.token)) {
+  if (!row || !ownsOrder(row, identity)) {
     throw new CheckoutError(404, "Order status is unavailable.");
   }
   res.status(200).json({
@@ -262,12 +261,15 @@ async function getOrderStatus(req, res) {
 }
 
 async function saveOrder(req, res) {
+  const identity = await requireOrderIdentity(req, res);
+  if (!identity) return;
   const contentType = String(req.headers?.["content-type"] || "");
   if (contentType && !contentType.toLowerCase().includes("application/json")) {
     throw new CheckoutError(415, "Checkout order data must be JSON.");
   }
 
   const order = validateOrder(req.body);
+  if (order.email !== identity.email) throw new CheckoutError(403, "Checkout email must match your signed-in account.");
   const rows = await supabaseJson(orderQuery(order.id));
   const existing = Array.isArray(rows) ? rows[0] : null;
   const access = readAccessCookie(req);
@@ -275,6 +277,7 @@ async function saveOrder(req, res) {
 
   if (existing) {
     if (
+      !ownsOrder(existing, identity) ||
       !access ||
       access.id !== order.id ||
       !matchesAccessHash(existing.checkout_access_hash, access.token)
@@ -284,8 +287,31 @@ async function saveOrder(req, res) {
     if (String(existing.email || "").toLowerCase() !== order.email) {
       throw new CheckoutError(403, "This checkout session cannot update that order.");
     }
-    if (!ALLOWED_STATUSES.has(String(existing.status || "").toLowerCase())) {
+    const existingStatus = String(existing.status || "").toLowerCase();
+    if (!ALLOWED_STATUSES.has(existingStatus) && existingStatus !== "checkout (clicked pay)") {
       throw new CheckoutError(409, "A completed order cannot be changed at checkout.");
+    }
+
+    // Resume a privately frozen payment without rewriting its quote. The next
+    // provider request rechecks the saved fingerprint before reusing its URL.
+    const bindings = await supabaseJson(`paylio_payment_attempts?${new URLSearchParams({
+      order_id: `eq.${order.id}`,
+      select: "order_id,customer_id,email,state,amount_cents,quote",
+      limit: "2",
+    })}`);
+    if (!Array.isArray(bindings) || bindings.length > 1) {
+      throw new CheckoutError(503, "Checkout payment information is unavailable.");
+    }
+    if (bindings.length) {
+      if (!paylioResumeMatchesOrder(bindings[0], identity, order)) {
+        throw new CheckoutError(409, "This payment has already started. Restore its original checkout or contact support.");
+      }
+      setAccessCookie(res, order.id, access.token);
+      res.status(200).json({ ok: true, id: existing.id, status: existing.status, locked: true, saved: false });
+      return;
+    }
+    if (!ALLOWED_STATUSES.has(existingStatus)) {
+      throw new CheckoutError(409, "This payment has already started. Contact support before changing it.");
     }
 
     const currentMetadata =
@@ -304,7 +330,8 @@ async function saveOrder(req, res) {
     };
     const query = new URLSearchParams({
       id: `eq.${order.id}`,
-      email: `eq.${order.email}`,
+      email: `eq.${existing.email}`,
+      user_id: existing.user_id === null ? "is.null" : `eq.${existing.user_id}`,
       status: "in.(pending,checkout,wire_pending)",
       checkout_access_hash: `eq.${existing.checkout_access_hash}`,
       select: "id,status",
@@ -318,7 +345,7 @@ async function saveOrder(req, res) {
         metadata: mergedMetadata,
       },
     });
-    if (!Array.isArray(updated) || updated.length !== 1) {
+    if (!Array.isArray(updated) || updated.length !== 1 || updated[0].id !== order.id || updated[0].status !== order.status) {
       throw new CheckoutError(409, "A completed order cannot be changed at checkout.");
     }
     token = access.token;
@@ -329,14 +356,17 @@ async function saveOrder(req, res) {
       headers: { Prefer: "return=representation" },
       body: {
         id: order.id,
-        email: order.email,
+        user_id: identity.id,
+        email: identity.email,
         status: order.status,
         total: order.total,
         metadata: order.metadata,
         checkout_access_hash: hashToken(token),
       },
     });
-    if (!Array.isArray(inserted) || inserted.length !== 1) {
+    if (!Array.isArray(inserted) || inserted.length !== 1 || inserted[0].id !== order.id
+      || inserted[0].user_id !== identity.id || inserted[0].email !== identity.email
+      || inserted[0].status !== order.status || Number(inserted[0].total) !== order.total) {
       throw new CheckoutError(503, "The checkout order could not be saved.");
     }
   }

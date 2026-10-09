@@ -3,12 +3,15 @@
 // @ts-nocheck
 import { publicPaymentMethod } from "../../../shared/payment-method-label.js";
 import { Fragment, lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, Search, Tag, UserRound, X } from "lucide-react";
 import { ErrorBoundary } from "./components/error-boundary.tsx";
 import ShippingPricesPage from "./components/ShippingPricesPage.jsx";
 import worldwideCatalogBackground from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791141018882.webp";
 import { supabase, userFromSupabase } from "./supabase.js";
 import { adjustStoreCredit } from "./store-credit-admin-client.js";
+import { readPaymentReturn, checkLegacyPaymentReturn, legacyCheckoutHeaders, syncVerifiedLegacyOrder, isLegacyPaidStatus } from "./legacy-payment-return.js";
+import { startVisiblePolling } from "./visible-poll.js";
 import { buildMeritCheckoutPayload, estimateMeritCreditSplit, meritCheckoutBusinessError, meritCartMatchesOrder, meritOrderCardSurcharge, createMeritApiClient, meritPayloadDigest, readMeritAttempt, saveMeritAttempt, verifyMeritCheckoutBuyer, MERIT_ATTEMPT_STORAGE_KEY } from "./merit-checkout-client.js";
 import { ACCOUNT_AVATARS, getAccountAvatar } from "./account-avatars.js";
 import { track, trackPageView } from "./analytics.js";
@@ -19,6 +22,8 @@ import BpcCatalogCard from "./components/BpcCatalogCard.jsx";
 import { BufferedInput, BufferedTextarea } from "./components/BufferedTextField.jsx";
 import CatalogSearchInput from "./components/CatalogSearchInput.jsx";
 import HomePage from "./components/HomePage.jsx";
+import PaymentReturnHeader from "./components/PaymentReturnHeader.jsx";
+import PaymentReturnReadStatus from "./components/PaymentReturnReadStatus.jsx";
 import ProductPackSelector from "./components/ProductPackSelector.jsx";
 import UsFlag from "./components/UsFlag.jsx";
 import ResearcherEntryGate, { hasResearcherEntryAcceptance } from "./components/ResearcherEntryGate.jsx";
@@ -3843,6 +3848,23 @@ export default function App() {
       setSearchTerm(value);
     });
   }, []);
+  // The announcement can wrap at desktop widths or after translation/font
+  // loading. Keep the sticky header below its actual rendered height.
+  const announcementBarRef = useRef(null);
+  const [announcementHeight, setAnnouncementHeight] = useState(32);
+  useLayoutEffect(() => {
+    const bar = announcementBarRef.current;
+    if (!bar) return;
+    const measure = () => setAnnouncementHeight(Math.ceil(bar.getBoundingClientRect().height));
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(bar);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [page]);
   const [isScrolled, setIsScrolled] = useState(false);
   const [showCookieBanner, setShowCookieBanner] = useState(false);
   useEffect(() => {
@@ -4313,58 +4335,27 @@ export default function App() {
     }
     setLogoBumpKey((k) => k + 1);
   };
-  const [paymentReturn, setPaymentReturn] = useState(() => {
-    const _params = new URLSearchParams(window.location.search || "");
-    const _payment = (_params.get("payment") || "").toLowerCase().trim();
-    if (["success", "pending", "cancelled", "cancel", "failed"].includes(_payment)) {
-      const _provider = (_params.get("provider") || "").toLowerCase().trim();
-      // CatalystPay always redirects to ?payment=success even on cancel.
-      // Start as "cancelled" immediately to prevent flashing ORDER CONFIRMED;
-      // the useEffect will upgrade to "success" if Supabase confirms paid.
-      const _status = (_provider === "merit" ? "pending" : _payment === "cancel" ? "cancelled" : _payment === "success" && _provider === "catalystpay" ? "cancelled" : _payment);
-      // Capture pi_id from URL — set by onSuccess handler or by Stripe's own
-      // redirect (which appends ?payment_intent=pi_xxx for 3DS flows).
-      const _piId = (_params.get("pi") || _params.get("payment_intent") || "").trim();
-      return { status: _status, order: _params.get("order") || "INV-DEMO", provider: _provider, piId: _piId };
-    }
-    return { status: "", order: "", provider: "", piId: "" };
-  });
+  const [paymentReturn, setPaymentReturn] = useState(() => readPaymentReturn(window.location.search));
   const [paymentReturnOrder, setPaymentReturnOrder] = useState(null);
+  const [legacyReturnReadStatus, setLegacyReturnReadStatus] = useState("checking");
+  const [legacyReturnRetry, setLegacyReturnRetry] = useState(0);
+  const legacyReturnResumeRef = useRef(false);
+  const legacyReturnContextRef = useRef(null);
+  legacyReturnContextRef.current = { account: currentUser, page, order: paymentReturn.order, provider: paymentReturn.provider };
+  // Clear a previous account's local receipt before paint. Even the same email
+  // must be checked again after an authentication identity/session change.
+  useLayoutEffect(() => {
+    if (paymentReturn.origin !== "provider-return" || paymentReturn.provider === "merit") return;
+    setPaymentReturnOrder(null);
+    setPaymentReturn(current => current.origin === "provider-return" && current.provider !== "merit"
+      ? { ...current, status: "pending", confirmedForEmail: "" } : current);
+  }, [currentUser]);
   useEffect(() => {
-    if (paymentReturn.status === "success" && paymentReturn.provider === "stripe" && paymentReturn.order) {
-      (async () => {
-        try {
-          // ── Server-side Stripe verification + Supabase status update ──────
-          // The server verifies the payment intent with Stripe's API and writes
-          // status="paid" using the service role key — bypasses any RLS issues.
-          const piId = paymentReturn.piId || "";
-          try {
-            const confirmRes = await fetch("/api/confirm-stripe-payment", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ orderId: paymentReturn.order, paymentIntentId: piId }),
-            });
-            const confirmData = await confirmRes.json().catch(() => ({}));
-            if (!confirmData.confirmed) {
-              console.error("confirm-stripe-payment: payment not confirmed by server", confirmData);
-            } else if (!confirmData.dbUpdated) {
-              console.error("confirm-stripe-payment: DB update failed on server", confirmData.dbError);
-            } else {
-              console.log("confirm-stripe-payment: order marked paid server-side ✓");
-            }
-          } catch (confirmErr) {
-            console.error("confirm-stripe-payment fetch failed:", confirmErr);
-          }
-
-          // Affiliate order details are read from the paid order through the
-          // authenticated affiliate-account endpoint; the browser does not
-          // write to the affiliate ledger.
-        } catch (e) {
-          console.error("Stripe success handler failed:", e);
-        }
-      })();
+    if (legacyReturnResumeRef.current && currentUser?.email && paymentReturn.origin === "provider-return") {
+      legacyReturnResumeRef.current = false;
+      setPage("payment-return");
     }
-  }, []);
+  }, [currentUser]);
   useEffect(() => {
     if (page !== "payment-return" || paymentReturn.status !== "success") return;
     let isActive = true;
@@ -4441,11 +4432,12 @@ export default function App() {
     };
   }, [page, paymentReturn.status]);
   useEffect(() => {
-    if (paymentReturn.provider !== "merit" && paymentReturn.status === "success" && paymentReturn.order) {
-      const stored = getStoredOrders().find(o => o.id === paymentReturn.order);
-      if (stored) setPaymentReturnOrder(stored);
-    }
-  }, [paymentReturn.order]);
+    if (paymentReturn.provider === "merit" || paymentReturn.origin === "provider-return") return;
+    const stored = paymentReturn.status === "success" && currentUser?.email
+      ? getStoredOrders().find(o => o.id === paymentReturn.order && normalizeEmail(o.email) === normalizeEmail(currentUser.email))
+      : null;
+    setPaymentReturnOrder(stored || null);
+  }, [paymentReturn.order, paymentReturn.status, paymentReturn.provider, paymentReturn.origin, currentUser]);
   const [pendingCheckoutAfterAuth, setPendingCheckoutAfterAuth] = useState(false);
   const [adminActiveTab, setAdminActiveTab] = useState("orders");
   const [revPeriod, setRevPeriod] = useState("month");
@@ -6696,7 +6688,7 @@ export default function App() {
           for (const o of stuck) {
             fetch("/api/verify-nowpayments-payment", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: await legacyCheckoutHeaders(supabase, currentUser?.email),
               body: JSON.stringify({ order_id: o.id, payment_id: o.paymentId || undefined }),
             })
               .then((r) => r.json())
@@ -6804,7 +6796,7 @@ export default function App() {
       method: "POST",
       credentials: "same-origin",
       cache: "no-store",
-      headers: { "Content-Type": "application/json" },
+      headers: await legacyCheckoutHeaders(supabase, order.email),
       body: JSON.stringify({ order }),
     });
     const result = await response.json().catch(() => ({}));
@@ -6932,164 +6924,52 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (paymentReturn.origin !== "provider-return") return;
+    // Keep a reloadable lookup, without URL success claims or provider secrets.
+    const params = new URLSearchParams({ payment: "pending", order: paymentReturn.order });
+    if (paymentReturn.provider) params.set("provider", paymentReturn.provider);
+    window.history.replaceState({}, "", `/?${params}`);
+    setPage("payment-return");
+  }, []);
 
-    const params = new URLSearchParams(window.location.search || "");
-    const payment = (params.get("payment") || "").toLowerCase().trim();
-    const order = (params.get("order") || "").trim();
-    const npId = (params.get("NP_id") || params.get("payment_id") || "").trim();
-
-    if ((params.get("provider") || "").toLowerCase().trim() === "merit") {
-      // Stripe redirects can append a client secret. Keep only the order lookup
-      // in browser history; neither the secret nor a URL status confirms payment.
-      window.history.replaceState({}, "", `/?${new URLSearchParams({ provider: "merit", payment: "pending", order })}`);
-      setPage("payment-return");
-      return; // Merit URL parameters are never payment confirmation.
-    }
-
-    if (["success", "cancelled", "cancel", "failed"].includes(payment)) {
-      const urlProvider = (params.get("provider") || "").toLowerCase().trim();
-      const isCatalystPay = urlProvider === "catalystpay";
-
-      // CatalystPay always redirects to ?payment=success even on cancel.
-      // useState already initialised status="cancelled" so there is zero
-      // flash of ORDER CONFIRMED. "Payment Cancelled" shows immediately.
-      //
-      // In the background we silently poll Supabase for up to ~60s so that
-      // a real payment (where the webhook arrives slightly after the redirect)
-      // still upgrades to ORDER CONFIRMED without requiring a new redirect.
-      // The user sees nothing change while cancelled — only if the webhook
-      // fires and Supabase confirms "paid" does the screen flip to success.
-      if (payment === "success" && isCatalystPay && order) {
-        setPage("payment-return");
-        setCatalystPayPending(true);
-        const upgradeCatalystPayIfPaid = async (attempt) => {
-          try {
-            const response = await fetch(
-              `/api/order-checkout?orderId=${encodeURIComponent(order)}`,
-              { credentials: "same-origin", cache: "no-store" }
-            );
-            const data = response.ok ? await response.json().catch(() => null) : null;
-            if (String(data?.status || "").toLowerCase() === "paid") {
-              let payProvider = "CatalystPay BTC";
-              try {
-                const s = localStorage.getItem(`tbv-pay-method-${order}`);
-                if (s) { payProvider = s; localStorage.removeItem(`tbv-pay-method-${order}`); }
-              } catch {}
-              const nextOrders = markOrderPaidById(order, payProvider, npId);
-              if (currentUser?.email) setUserOrders(getPaidOrdersForEmail(currentUser.email, nextOrders));
-              const paidOrder = (Array.isArray(nextOrders) ? nextOrders : []).find((o) => o.id === order);
-              const creditEmail = paidOrder?.email || currentUser?.email;
-              const creditUsedCatalyst = Number(paidOrder?.storeCreditUsed || 0);
-              if (creditUsedCatalyst > 0) {
-                setStoreCredit((prev) => Math.max(0, prev - creditUsedCatalyst));
-              }
-              if (creditEmail) {
-                loadStoreCredit(creditEmail);
-                setTimeout(() => loadStoreCredit(creditEmail), 6000);
-              }
-              setPaymentReturn({ status: "success", order, paymentId: npId });
-              setCatalystPayPending(false);
-              setCart([]);
-              return; // stop retrying
-            }
-          } catch {}
-          // Retry 24× at 5s intervals = 120s total window for delayed webhooks.
-          // After that the order is genuinely cancelled/expired — stop silently.
-          if (attempt < 24) {
-            setTimeout(() => upgradeCatalystPayIfPaid(attempt + 1), 5000);
-          } else {
-            setCatalystPayPending(false);
-            setCatalystPayTimedOut(true);
-          }
-        };
-        upgradeCatalystPayIfPaid(0);
-        window.history.replaceState({}, "", `${window.location.origin}${window.location.pathname}`);
-        return;
-      }
-
-      setPaymentReturn({ status: payment, order, paymentId: npId });
-      setPage("payment-return");
-
-      if (payment === "success" && order) {
+  useEffect(() => {
+    if (page !== "payment-return" || paymentReturn.origin !== "provider-return" || paymentReturn.provider === "merit") return;
+    if (paymentReturn.status === "success" && paymentReturn.confirmedForEmail === normalizeEmail(currentUser?.email)) return;
+    setPaymentReturnOrder(null);
+    const email = normalizeEmail(currentUser?.email);
+    if (!email) { setLegacyReturnReadStatus("signin"); return; }
+    const account = currentUser;
+    let active = true;
+    const isCurrent = () => {
+      const latest = legacyReturnContextRef.current;
+      return active && latest.account === account && latest.page === "payment-return"
+        && latest.order === paymentReturn.order && latest.provider === paymentReturn.provider;
+    };
+    setLegacyReturnReadStatus("checking");
+    const stop = startVisiblePolling(async ({ attempt, signal }) => {
+      const result = await checkLegacyPaymentReturn({ supabase, expectedEmail: email, paymentReturn, attempt, signal, isCurrent });
+      if (!isCurrent() || !result) return false;
+      if (result.status === "paid") {
+        // This read confirmed only status/ownership. Keep cached details scoped
+        // to this account and never use them to prove payment or mutate money.
+        let receipt = null;
         try {
-          // Determine payment provider: Stripe uses ?provider=stripe in return URL
-          let payProvider = urlProvider === "stripe" ? "Stripe" : "NOWPayments";
-          try {
-            const stored = localStorage.getItem(`tbv-pay-method-${order}`);
-            if (stored) { payProvider = stored; localStorage.removeItem(`tbv-pay-method-${order}`); }
-          } catch {}
-          const nextOrders = markOrderPaidById(order, payProvider, npId);
-          if (currentUser?.email) {
-            setUserOrders(getPaidOrdersForEmail(currentUser.email, nextOrders));
-          }
-          // Resync the displayed store-credit balance using the ORDER's own email,
-          // not currentUser — currentUser's async session restore frequently hasn't
-          // finished yet at this exact moment (right after the payment redirect),
-          // so gating on currentUser?.email silently skipped this refresh and left
-          // the header/account balance stale until the user happened to open the
-          // account/checkout page later. The order itself always has the email
-          // that was used to spend the credit, regardless of session state.
-          const paidOrderForCredit = (Array.isArray(nextOrders) ? nextOrders : []).find((o) => o.id === order);
-          const creditRefreshEmail = paidOrderForCredit?.email || currentUser?.email;
-          // Optimistically deduct credits immediately so the balance updates
-          // before the server-side webhook has a chance to run.
-          const creditUsedNow = Number(paidOrderForCredit?.storeCreditUsed || 0);
-          if (creditUsedNow > 0) {
-            setStoreCredit((prev) => Math.max(0, prev - creditUsedNow));
-          }
-          if (creditRefreshEmail) {
-            loadStoreCredit(creditRefreshEmail);
-            // Re-sync after 6s to pick up any webhook-written value
-            setTimeout(() => loadStoreCredit(creditRefreshEmail), 6000);
-          }
-
-          // Fallback for crypto orders: the DB "paid" status is normally set by the
-          // NOWPayments IPN webhook, which can be delayed or occasionally never
-          // arrive. Directly ask NOWPayments for the real status of this payment
-          // and let the server apply the same paid-order logic once it's confirmed.
-          // A single check right at redirect time is not enough — crypto payments
-          // often aren't confirmed by the blockchain yet at that exact moment — so
-          // retry a few times over several minutes instead of checking only once.
-          // IMPORTANT: NOWPayments' hosted invoice page does NOT always append
-          // NP_id/payment_id to the success redirect, so this used to silently
-          // never run at all for some orders (order stuck as "checkout (clicked
-          // pay)" forever, even though the customer paid and NOWPayments itself
-          // shows "Finished"). We always have our own order id, so pass that too
-          // and let the server look the payment up by order_id when npId is missing.
-          if (payProvider === "NOWPayments" && (npId || order)) {
-            const checkNowPaymentsStatus = async (attempt) => {
-              try {
-                const r = await fetch(`/api/verify-nowpayments-payment`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ payment_id: npId || undefined, order_id: order || undefined }),
-                });
-                const result = await r.json().catch(() => ({}));
-                // Only stop retrying once the order is actually confirmed paid in the
-                // database (dbMarkedPaid / alreadyPaidInDb) — NOT just when the payment
-                // provider says "paid" (result.isPaid). The Supabase write can fail
-                // transiently; if we stop on isPaid alone, a failed write leaves the
-                // order permanently stuck even though a "payment confirmed" email
-                // already went out.
-                if (result?.dbMarkedPaid || result?.alreadyPaidInDb) return;
-              } catch {}
-              if (attempt < 20) {
-                setTimeout(() => checkNowPaymentsStatus(attempt + 1), 20000);
-              }
-            };
-            checkNowPaymentsStatus(0);
-          }
-        } catch (error) {
-          console.error("Failed to mark order as paid", error);
-        }
-        setCart([]);
+          const synced = syncVerifiedLegacyOrder(getStoredOrders(), result.order, email);
+          receipt = synced.receipt;
+          saveStoredOrders(synced.orders);
+          setUserOrders(synced.orders.filter(order => normalizeEmail(order.email) === email && isLegacyPaidStatus(order.status)));
+        } catch { /* Browser storage failure cannot reverse server confirmation. */ }
+        setPaymentReturnOrder(receipt);
+        setPaymentReturn(current => ({ ...current, status: "success", confirmedForEmail: email }));
+        if (receipt) setCart(current => meritCartMatchesOrder(current, receipt) ? [] : current);
+        return false;
       }
-
-      // Remove payment query params after processing so refresh does not reopen the payment result modal.
-      window.history.replaceState({}, "", `${window.location.origin}${window.location.pathname}`);
-    }
-  }, [currentUser?.email]);
+      const terminal = ["signin", "not-found", "unconfirmed"].includes(result.status);
+      setLegacyReturnReadStatus(attempt >= 8 && result.status === "pending" ? "exhausted" : result.status);
+      return !terminal && attempt < 8;
+    }, { intervalMs: 3000, maxIntervalMs: 20000, maxAttempts: 8, backoff: true });
+    return () => { active = false; stop(); };
+  }, [page, paymentReturn.origin, paymentReturn.provider, paymentReturn.order, paymentReturn.status, currentUser, legacyReturnRetry]);
 
   const translations = {
     EN: {
@@ -8264,16 +8144,6 @@ export default function App() {
   const [paylioPaymentError, setPaylioPaymentError] = useState("");
   const [catalystPayLoading, setCatalystPayLoading] = useState(false);
   const [catalystPayError, setCatalystPayError] = useState("");
-  const [catalystPayPending, setCatalystPayPending] = useState(() => {
-    if (typeof window === "undefined") return false;
-    const _p = new URLSearchParams(window.location.search || "");
-    return (
-      (_p.get("payment") || "").toLowerCase().trim() === "success" &&
-      (_p.get("provider") || "").toLowerCase().trim() === "catalystpay" &&
-      !!(_p.get("order") || "").trim()
-    );
-  });
-  const [catalystPayTimedOut, setCatalystPayTimedOut] = useState(false);
   const [stripeLoading, setStripeLoading] = useState(false);
   const [stripeError, setStripeError] = useState("");
   const [meritConfig, setMeritConfig] = useState(null);
@@ -10409,14 +10279,12 @@ export default function App() {
 
       const res = await fetch("/api/create-payment", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: await legacyCheckoutHeaders(supabase, email),
         body: JSON.stringify({
           pay_currency: payCurrency,
           order_id: orderNumber,
-          success_url: `${window.location.origin}/?payment=success&order=${encodeURIComponent(orderNumber)}`,
-          cancel_url: `${window.location.origin}/?payment=cancelled&order=${encodeURIComponent(orderNumber)}`,
+          success_url: `${window.location.origin}/?provider=nowpayments&payment=pending&order=${encodeURIComponent(orderNumber)}`,
+          cancel_url: `${window.location.origin}/?provider=nowpayments&payment=cancelled&order=${encodeURIComponent(orderNumber)}`,
           customer_email: email || "",
           promoDiscount: Number(promoDiscount.toFixed(2)),
           promoCode: appliedPromo?.code || "",
@@ -10543,7 +10411,7 @@ export default function App() {
       });
       const res = await fetch("/api/create-catalystpay-session", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await legacyCheckoutHeaders(supabase, email),
         body: JSON.stringify({
           order_id: orderNumber,
           customer_email: email || "",
@@ -10600,15 +10468,15 @@ export default function App() {
       const orderDescription = `10BottleValueCo ${orderNumber}`;
       const res = await fetch("/api/create-paylio-payment", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await legacyCheckoutHeaders(supabase, email),
         body: JSON.stringify({
           amount: Number(finalTotal.toFixed(2)),
           currency: "USD",
           orderId: orderNumber,
           note: orderDescription,
           provider: provider || "",
-          return_url: `${window.location.origin}/?payment=success&order=${encodeURIComponent(orderNumber)}`,
-          cancel_url: `${window.location.origin}/?payment=cancelled&order=${encodeURIComponent(orderNumber)}`,
+          return_url: `${window.location.origin}/?provider=paylio&payment=pending&order=${encodeURIComponent(orderNumber)}`,
+          cancel_url: `${window.location.origin}/?provider=paylio&payment=cancelled&order=${encodeURIComponent(orderNumber)}`,
           email,
           customer: {
             email,
@@ -13602,6 +13470,7 @@ export default function App() {
         </div>
       )}
       <div
+        ref={announcementBarRef}
         className="relative md:sticky md:top-0 z-[100]"
         data-affiliate-backdrop={page === "affiliate" ? "true" : undefined}
         data-mobile-announcement="true"
@@ -13735,7 +13604,8 @@ export default function App() {
           data-nosnippet
           data-home-header={page === "home" ? "true" : undefined}
           data-affiliate-header={page === "affiliate" ? "true" : undefined}
-          className={`sticky top-0 md:top-[32px] z-[200] border-b border-white/20 pb-0 md:pb-[3px] ${
+          style={{ "--tbv-announcement-height": `${announcementHeight}px` }}
+          className={`sticky top-0 md:top-[var(--tbv-announcement-height)] z-[200] border-b border-white/20 pb-0 md:pb-[3px] ${
             page === "admin"
               ? "bg-black"
               : pageBackdropImage || usesCatalogBackground
@@ -13771,7 +13641,7 @@ export default function App() {
             </a>
 
             {/* Desktop nav */}
-            <nav className={`ml-auto hidden flex-1 items-center justify-end gap-1 ${isScrolled ? "-translate-x-16" : ""} 2xl:flex ${page === "home" ? "lg:flex" : ""}`}>
+            <nav className={`ml-auto hidden flex-1 items-center justify-end gap-1 ${isScrolled ? "-translate-x-16" : ""} 2xl:flex`}>
               {showScrollTop && page === "shop" && (
                 <button
                   onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
@@ -13830,7 +13700,7 @@ export default function App() {
             </nav>
 
             {/* Mobile: cart pill + hamburger */}
-            <div className={`ml-auto flex items-center gap-2 2xl:hidden ${page === "home" ? "lg:hidden" : ""}`}>
+            <div className="ml-auto flex items-center gap-2 2xl:hidden">
               <a
                 href="/cart"
                 onClick={(event) => handlePublicPageLink(event, "cart")}
@@ -13891,8 +13761,9 @@ export default function App() {
           </button>
         )}
 
-        {/* Mobile menu drawer */}
-        {isMobileMenuOpen && (
+        {/* Portal escapes the homepage's isolated stacking context so the
+            announcement cannot cover the menu heading or close control. */}
+        {isMobileMenuOpen && createPortal(
           <div className="fixed inset-0 z-[200] 2xl:hidden" role="dialog" aria-modal="true">
             <div
               className="absolute inset-0 bg-black/60"
@@ -13941,7 +13812,8 @@ export default function App() {
                 ))}
               </nav>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
 
         {page === "home" && (
@@ -19876,37 +19748,18 @@ export default function App() {
         )}
 
         {page === "payment-return" && (
-          <main className="mx-auto max-w-2xl px-5 pt-4 pb-12 md:pt-6 md:pb-20">
+          <main className="payment-return-page mx-auto px-4 pt-4 pb-12 md:pt-6 md:pb-20">
             {paymentReturn.status === "success" ? (
-              <section className="overflow-hidden rounded-[2.4rem] border border-white/15 bg-black/25 shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
-                {/* Top accent bar */}
-                <div className="h-1 w-full bg-gradient-to-r from-emerald-400 via-emerald-300 to-teal-400" />
-
-                <div className="px-8 pt-10 pb-4 text-center md:px-12">
-                  {/* Icon */}
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-400/20 border border-emerald-400/40">
-                    <svg className="h-8 w-8 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  </div>
-
-                  <div className="mt-5 text-[10px] font-black uppercase tracking-[0.35em] text-emerald-400/80">
-                    {tx("Payment received", "Оплата получена", "Оплату отримано", "Zahlung erhalten", "Pago recibido")}
-                  </div>
-                  <h1 className="mt-3 text-3xl font-black uppercase tracking-[0.08em] text-white md:text-4xl">
-                    {tx("Order Confirmed", "Заказ подтверждён", "Замовлення підтверджено", "Bestellung bestätigt", "Pedido confirmado")}
-                  </h1>
-
-                  {paymentReturn.order && (
-                    <div className="mx-auto mt-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-5 py-2">
-                      <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white">{tx("Order", "Заказ", "Замовлення", "Bestellung", "Pedido")}</span>
-                      <span className="font-mono text-sm font-bold text-white">{paymentReturn.order}</span>
-                    </div>
-                  )}
-                </div>
+              <section className="payment-return-card">
+                <PaymentReturnHeader tone="success"
+                  eyebrow={tx("Payment received", "Оплата получена", "Оплату отримано", "Zahlung erhalten", "Pago recibido")}
+                  title={tx("Order Confirmed", "Заказ подтверждён", "Замовлення підтверджено", "Bestellung bestätigt", "Pedido confirmado")}
+                  order={paymentReturn.order}
+                  orderLabel={tx("Order", "Заказ", "Замовлення", "Bestellung", "Pedido")}
+                />
 
                 {/* Steps */}
-                <div className="mx-8 mt-6 mb-6 overflow-hidden rounded-[1.4rem] border border-white/25 bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] md:mx-12">
+                <div className="payment-return-block payment-return-steps mx-8 mt-6 mb-6 overflow-hidden rounded-[1.4rem] border border-white/25 bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] md:mx-12">
                   {[
                     {
                       icon: "✓",
@@ -19947,7 +19800,7 @@ export default function App() {
 
                 {/* Items ordered */}
                 {paymentReturnOrder && Array.isArray(paymentReturnOrder.items) && paymentReturnOrder.items.length > 0 && (
-                  <div className="mx-8 mb-6 overflow-hidden rounded-[1.4rem] border border-white/25 bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] md:mx-12">
+                  <div className="payment-return-block mx-8 mb-6 overflow-hidden rounded-[1.4rem] border border-white/25 bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] md:mx-12">
                     <div className="px-5 py-3 border-b border-white/15 bg-white/[0.04]">
                       <div className="text-[10px] font-black uppercase tracking-[0.28em] text-white">{tx("Items ordered", "Состав заказа", "Склад замовлення", "Bestellte Artikel", "Artículos pedidos")}</div>
                     </div>
@@ -20003,7 +19856,7 @@ export default function App() {
 
                 {/* Shipping method chosen */}
                 {paymentReturnOrder && (
-                  <div className="mx-8 mb-6 rounded-[1.2rem] border border-white/25 bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] px-5 py-4 md:mx-12">
+                  <div className="payment-return-block mx-8 mb-6 rounded-[1.2rem] border border-white/25 bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] px-5 py-4 md:mx-12">
                     <div className="text-[10px] font-black uppercase tracking-[0.28em] text-white text-center mb-3">
                       {tx("Your shipping method", "Ваш способ доставки", "Ваш спосіб доставки", "Ihre Versandart", "Tu método de envío")}
                     </div>
@@ -20052,7 +19905,7 @@ export default function App() {
 
                 {/* Delivery (shown only when no order data yet) */}
                 {!paymentReturnOrder && (
-                <div className="mx-8 mb-6 rounded-[1.2rem] border border-white/10 bg-white/[0.04] px-5 py-4 md:mx-12">
+                <div className="payment-return-block mx-8 mb-6 rounded-[1.2rem] border border-white/10 bg-white/[0.04] px-5 py-4 md:mx-12">
                   <div className="text-[10px] font-black uppercase tracking-[0.28em] text-white text-center mb-3">
                     {tx("Estimated delivery", "Примерные сроки доставки", "Орієнтовні терміни доставки", "Geschätzte Lieferzeit", "Entrega estimada")}
                   </div>
@@ -20070,7 +19923,7 @@ export default function App() {
                 )}
 
                 {/* Notes */}
-                <div className="mx-8 mb-8 space-y-2.5 md:mx-12">
+                <div className="payment-return-block mx-8 mb-8 space-y-2.5 md:mx-12">
                   {/* Note 1 */}
                   <div className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/25 px-4 py-3">
                     <span className="mt-0.5 text-base shrink-0">✉️</span>
@@ -20110,10 +19963,10 @@ export default function App() {
                 </div>
 
                 {/* Buttons */}
-                <div className="border-t border-white/10 px-8 py-6 md:px-12">
+                <div className="payment-return-actions border-t border-white/10 px-8 py-6 md:px-12">
                   <div className="flex flex-col gap-3 sm:flex-row">
                     <button type="button" onClick={() => { setAccountPromoCodeInput(""); setPage("account"); if (currentUser?.email && !isAdminUser()) refreshUserOrdersFromSupabase(currentUser.email); }}
-                      className="flex-1 rounded-full border border-white/40 bg-black/40 py-3.5 text-[11px] font-black uppercase tracking-[0.22em] text-white shadow-[0_4px_16px_rgba(0,0,0,0.25)] transition hover:bg-black/55 hover:border-white/60">
+                      className="payment-return-primary flex-1 rounded-full border border-white/40 bg-black/40 py-3.5 text-[11px] font-black uppercase tracking-[0.22em] text-white shadow-[0_4px_16px_rgba(0,0,0,0.25)] transition hover:bg-black/55 hover:border-white/60">
                       {tx("View Account", "Мой аккаунт", "Мій акаунт", "Mein Konto", "Mi cuenta")}
                     </button>
                     <button type="button" onClick={() => { setAccountPromoCodeInput(""); setPage("shop"); }}
@@ -20128,13 +19981,15 @@ export default function App() {
                 </div>
               </section>
             ) : paymentReturn.provider === "merit" ? (
-              <section className="rounded-[2.4rem] border border-white/15 bg-black/25 px-8 py-12 text-center text-white">
-                <div className="text-xs font-bold uppercase tracking-widest text-white/60">{tx("Card payment", "Оплата картой")}</div>
-                <h1 className="mt-4 text-3xl font-black">{tx("Checking payment", "Проверяем оплату")}</h1>
-                <p className="mx-auto mt-5 max-w-lg text-sm leading-7 text-white/65">
-                  {tx("Your payment is not confirmed yet. Check its status before trying another payment.", "Оплата пока не подтверждена. Проверьте статус, прежде чем оплачивать повторно.")}
-                </p>
-                <p className="mt-4 font-mono text-sm">{paymentReturn.order}</p>
+              <section className="payment-return-card text-white">
+                <PaymentReturnHeader
+                  eyebrow={tx("Card payment", "Оплата картой")}
+                  title={tx("Checking payment", "Проверяем оплату")}
+                  description={tx("Your payment is not confirmed yet. Check its status before trying another payment.", "Оплата пока не подтверждена. Проверьте статус, прежде чем оплачивать повторно.")}
+                  order={paymentReturn.order}
+                  orderLabel={tx("Order", "Заказ", "Замовлення", "Bestellung", "Pedido")}
+                />
+                <div className="payment-return-pending-body">
                 {meritReturnError && <p className="mx-auto mt-4 max-w-lg text-sm text-amber-200" role="alert">{meritReturnError}</p>}
                 {currentUser?.email ? (
                   <button type="button" disabled={meritReturnChecking} onClick={checkMeritReturn}
@@ -20142,72 +19997,26 @@ export default function App() {
                     {meritReturnChecking ? tx("Checking…", "Проверяем…") : tx("Check payment status", "Проверить статус оплаты")}
                   </button>
                 ) : (
-                  <button type="button" onClick={() => { setAuthMode("login"); setPage("account"); }}
+                  <button type="button" onClick={() => { setAuthMode("signin"); setPage("account"); }}
                     className="mt-6 rounded-full bg-white px-7 py-3 text-sm font-semibold text-black">
                     {tx("Sign in to check payment", "Войти и проверить оплату")}
                   </button>
                 )}
-              </section>
-            ) : (catalystPayPending && paymentReturn.status !== "cancelled") ? (
-              <section className="overflow-hidden rounded-[2.4rem] border border-white/15 bg-black/25 shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
-                <div className="h-1 w-full bg-gradient-to-r from-amber-400 via-orange-300 to-amber-400" />
-                <div className="px-8 pt-12 pb-10 text-center md:px-12">
-                  {/* Spinner icon */}
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-amber-400/15 border border-amber-400/30">
-                    <svg className="h-8 w-8 text-amber-300 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"/>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
-                    </svg>
-                  </div>
-                  <div className="mt-5 text-[10px] font-black uppercase tracking-[0.35em] text-amber-400/80">
-                    {tx("Bitcoin payment", "Bitcoin оплата", "Bitcoin оплата", "Bitcoin-Zahlung", "Pago Bitcoin")}
-                  </div>
-                  <h1 className="mt-3 text-3xl font-black uppercase tracking-[0.08em] text-white md:text-4xl">
-                    {tx("Processing Payment", "Обработка платежа", "Обробка платежу", "Zahlung wird verarbeitet", "Procesando pago")}
-                  </h1>
-                  <p className="mx-auto mt-5 max-w-sm text-sm leading-7 text-white/60">
-                    {tx("Please wait while we confirm your payment. This usually takes a few seconds.",
-                      "Подождите, мы проверяем ваш платёж. Обычно это занимает несколько секунд.",
-                      "Зачекайте, ми перевіряємо ваш платіж.",
-                      "Bitte warten, wir prüfen Ihre Zahlung.",
-                      "Espere, estamos verificando su pago.")}
-                  </p>
-                  {paymentReturn.order && (
-                    <div className="mx-auto mt-5 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-5 py-2">
-                      <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/50">{tx("Order", "Заказ", "Замовлення", "Bestellung", "Pedido")}</span>
-                      <span className="font-mono text-sm font-bold text-white">{paymentReturn.order}</span>
-                    </div>
-                  )}
-                  <div className="mt-8 flex justify-center">
-                    <button type="button" onClick={() => { setAccountPromoCodeInput(""); setPage("contact"); }}
-                      className="rounded-full bg-white px-8 py-3.5 text-[11px] font-black uppercase tracking-[0.22em] text-black shadow-[0_8px_24px_rgba(0,0,0,0.2)] transition hover:bg-white/90">
-                      {tx("Contact Support", "Написать в поддержку", "Написати в підтримку", "Support kontaktieren", "Contactar soporte")}
-                    </button>
-                  </div>
                 </div>
               </section>
+            ) : paymentReturn.origin === "provider-return" ? (
+              <PaymentReturnReadStatus status={legacyReturnReadStatus} orderId={paymentReturn.order} tx={tx}
+                onSignIn={() => { legacyReturnResumeRef.current = true; setAuthMode("signin"); setPage("account"); }}
+                onRetry={() => setLegacyReturnRetry(value => value + 1)}
+                onSupport={() => { setAccountPromoCodeInput(""); setPage("contact"); }} />
             ) : (
-              <section className="overflow-hidden rounded-[2.4rem] border border-white/15 bg-black/25 shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
-                <div className="h-1 w-full bg-gradient-to-r from-red-400 via-orange-300 to-amber-400" />
-                <div className="px-8 pt-10 pb-8 text-center md:px-12">
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-400/15 border border-red-400/30">
-                    <svg className="h-8 w-8 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </div>
-                  <div className="mt-5 text-[10px] font-black uppercase tracking-[0.35em] text-red-400/70">
-                    {tx("Payment not completed", "Оплата не завершена", "Оплату не завершено", "Zahlung nicht abgeschlossen", "Pago no completado")}
-                  </div>
-                  <h1 className="mt-3 text-3xl font-black uppercase tracking-[0.08em] text-white md:text-4xl">
-                    {tx("Checkout Cancelled", "Оформление отменено", "Оформлення скасовано", "Checkout abgebrochen", "Pago cancelado")}
-                  </h1>
-                  <p className="mx-auto mt-5 max-w-sm text-sm leading-7 text-white/55">
-                    {tx("Payment was not completed or the window was closed. You can return to your cart and try again.",
-                      "Оплата не была завершена или окно закрыто. Вернитесь в корзину и попробуйте снова.",
-                      "Оплату не завершено або вікно закрито. Поверніться до кошика і спробуйте знову.",
-                      "Zahlung nicht abgeschlossen oder Fenster geschlossen. Zurück zum Warenkorb.",
-                      "El pago no se completó o se cerró la ventana. Vuelve al carrito e inténtalo de nuevo.")}
-                  </p>
+              <section className="payment-return-card">
+                <PaymentReturnHeader tone="cancelled"
+                  eyebrow={tx("Payment not completed", "Оплата не завершена", "Оплату не завершено", "Zahlung nicht abgeschlossen", "Pago no completado")}
+                  title={tx("Checkout Cancelled", "Оформление отменено", "Оформлення скасовано", "Checkout abgebrochen", "Pago cancelado")}
+                  description={tx("Payment was not completed or the window was closed. You can return to your cart and try again.", "Оплата не была завершена или окно закрыто. Вернитесь в корзину и попробуйте снова.", "Оплату не завершено або вікно закрито. Поверніться до кошика і спробуйте знову.", "Zahlung nicht abgeschlossen oder Fenster geschlossen. Zurück zum Warenkorb.", "El pago no se completó o se cerró la ventana. Vuelve al carrito e inténtalo de nuevo.")}
+                />
+                <div className="payment-return-pending-body">
                   <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
                     <button type="button" onClick={() => { setAccountPromoCodeInput(""); setPage("cart"); }}
                       className="rounded-full bg-white px-8 py-3.5 text-[11px] font-black uppercase tracking-[0.22em] text-black shadow-[0_8px_24px_rgba(0,0,0,0.2)] transition hover:bg-white/90">

@@ -1,4 +1,5 @@
-import { acknowledgeLegacyCreditPaid, debitLegacyOrderCredit } from "./_legacy-store-credit.js";
+import { acknowledgeLegacyPaid, inspectLegacyTransition, legacyTransitionError } from "./_legacy-paid-transition.js";
+import { debitLegacyOrderCredit } from "./_legacy-store-credit.js";
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
 const sbH = () => ({ apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" });
@@ -33,8 +34,7 @@ async function resolveAffiliate(email, code) {
 // pay_currency, actually_paid, payment_id, invoice_id).
 export async function processNowPaymentsStatus(data, { providerVerified = false } = {}) {
   const status = String(data.payment_status || "").toLowerCase();
-  const shouldEmail = ["confirming", "confirmed", "sending", "finished"].includes(status);
-  const isPaid = ["confirming", "confirmed", "sending", "finished"].includes(status);
+  const isPaid = status === "finished";
 
   // Log the raw payload for EVERY call, before any early return. Without this,
   // a call that bails out early (e.g. missing order_id/email in this specific
@@ -51,7 +51,12 @@ export async function processNowPaymentsStatus(data, { providerVerified = false 
     order_description: typeof data.order_description === "string" ? data.order_description.slice(0, 500) : data.order_description,
   }));
 
-  if (!shouldEmail) return { received: true, skipped: "not_relevant", status };
+  if (!isPaid) return { received: true, skipped: "not_relevant", status };
+  if (!providerVerified) {
+    const error = new Error("Authenticated provider verification is required.");
+    error.status = 503; error.code = "PAYMENT_VERIFICATION_REQUIRED"; throw error;
+  }
+
 
   const baseUrl = process.env.BASE_URL || "https://10bottlevalue.co";
   let metadata = {};
@@ -59,7 +64,9 @@ export async function processNowPaymentsStatus(data, { providerVerified = false 
     try { const p = JSON.parse(data.order_description); metadata = p && typeof p === "object" ? p : {}; } catch {}
   }
 
-  const orderId = metadata.order_id || metadata.orderId || data.order_id || data.payment_id || data.invoice_id;
+  const orderId = data.order_id;
+  const describedOrder = metadata.order_id || metadata.orderId;
+  if (describedOrder && String(describedOrder) !== String(orderId)) throw legacyTransitionError();
   const currency = String(data.pay_currency || "").toUpperCase();
 
   if (!orderId) {
@@ -72,11 +79,13 @@ export async function processNowPaymentsStatus(data, { providerVerified = false 
   let alreadyEmailSent = false;
   let alreadyPaidInDb = false;
   let orderReadVerified = false;
+  let savedOrder;
   if (SB_URL && SB_KEY) {
     try {
-      const sbRes = await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(orderId))}&select=metadata,items,status,email&limit=1`, { headers: sbH() });
+      const sbRes = await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(orderId))}&select=id,total,metadata,items,status,email,payment_id,payment_provider&limit=2`, { headers: sbH() });
       if (sbRes.ok) {
         const sbRows = await sbRes.json();
+        savedOrder = sbRows?.[0];
         orderReadVerified = Array.isArray(sbRows) && sbRows.length === 1 && !!sbRows[0] && typeof sbRows[0] === "object";
         if (sbRows?.length && sbRows[0].metadata && typeof sbRows[0].metadata === "object") {
           sbMeta = sbRows[0].metadata;
@@ -105,8 +114,7 @@ export async function processNowPaymentsStatus(data, { providerVerified = false 
   // column (written at checkout time, independent of NOWPayments' echo) is the
   // authoritative fallback so a truncated order_description no longer blocks processing.
   const email = String(
-    metadata.customer_email || metadata.email || data.customer_email || data.email ||
-    sbEmail || sbMeta.customer_email || sbMeta.email || ""
+    sbEmail
   );
 
   if (!email) {
@@ -114,30 +122,19 @@ export async function processNowPaymentsStatus(data, { providerVerified = false 
     return { received: true, skipped: "missing_email", status };
   }
 
-  if (alreadyEmailSent && !isPaid) {
-    return { received: true, skipped: "email_already_sent", status };
-  }
-
-  const declaredCredit = sbMeta.storeCreditUsed ?? metadata.storeCreditUsed ?? 0;
-  // Only the existing server-to-provider lookup can establish this flag.
-  // An unsigned IPN payload cannot authorize a balance debit or paid state.
-  if (Number(declaredCredit) !== 0 && providerVerified !== true) {
-    const error = new Error("Store credit requires verified payment reconciliation.");
-    error.code = "CREDIT_RECONCILIATION_REQUIRED";
-    error.status = 503;
-    throw error;
-  }
-  if (isPaid && !alreadyPaidInDb) {
-    await debitLegacyOrderCredit({
-      orderId, email, creditAmount: declaredCredit,
-      provider: "nowpayments",
-    });
-  }
-  const creditPaidAcknowledged = Number(declaredCredit) > 0 && !alreadyPaidInDb;
-  if (creditPaidAcknowledged) await acknowledgeLegacyCreditPaid({
-    id: String(orderId), email, status: "paid", payment_provider: `NOWPayments ${currency}`.trim(),
-    payment_id: String(data.payment_id || data.invoice_id || orderId), paid_at: new Date().toISOString(),
-  });
+  const expectedPaid = { id: String(orderId), email, status: "paid", payment_provider: `NOWPayments ${currency}`.trim(),
+    payment_id: String(data.payment_id || data.invoice_id || ""), paid_at: new Date().toISOString() };
+  if (!expectedPaid.payment_id) throw legacyTransitionError();
+  const quotedAmount = Number(data.price_amount), savedAmount = Number(savedOrder.total);
+  if (String(data.price_currency || "").toLowerCase() !== "usd" || !Number.isFinite(quotedAmount) || !Number.isFinite(savedAmount)
+      || savedAmount <= 0 || Math.round(quotedAmount * 100) !== Math.round(savedAmount * 100)) throw legacyTransitionError();
+  const transition = inspectLegacyTransition(savedOrder, expectedPaid);
+  alreadyPaidInDb = transition.alreadyPaid;
+  if (alreadyPaidInDb) return { received: true, status, isPaid: true, dbMarkedPaid: true, alreadyPaidInDb: true };
+  const declaredCredit = sbMeta.storeCreditUsed ?? 0;
+  await debitLegacyOrderCredit({ orderId, email, creditAmount: declaredCredit, provider: "nowpayments" });
+  await acknowledgeLegacyPaid(savedOrder, expectedPaid);
+  const dbMarkedPaid = true, dbWriteError = null;
 
   const resolvedAffiliate = await resolveAffiliate(email, String(sbMeta.affiliateCode || metadata.affiliateCode || metadata.affiliate_code || "")).catch(() => null);
   const affiliateCode = resolvedAffiliate || String(sbMeta.affiliateCode || metadata.affiliateCode || "").trim().toUpperCase();
@@ -174,7 +171,7 @@ export async function processNowPaymentsStatus(data, { providerVerified = false 
   const finalShippingType = String(sbMeta.shippingType || metadata.shippingType || "standard");
 
   if (!alreadyEmailSent) {
-    await fetch(`${baseUrl}/api/send-payment-confirmed-email`, {
+    const emailResponse = await fetch(`${baseUrl}/api/send-payment-confirmed-email`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -194,63 +191,14 @@ export async function processNowPaymentsStatus(data, { providerVerified = false 
     // Persist that the email was sent so a later duplicate status update (e.g. the
     // real IPN webhook arriving after our own fallback already handled it, or vice
     // versa) doesn't send a second confirmation email for the same order.
-    if (SB_URL && SB_KEY) {
-      await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(orderId))}`, {
+    if (emailResponse?.ok && SB_URL && SB_KEY) {
+      await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(orderId))}&status=eq.paid`, {
         method: "PATCH",
         headers: { ...sbH(), Prefer: "return=minimal" },
         body: JSON.stringify({ metadata: { ...sbMeta, confirmationEmailSentAt: new Date().toISOString() } }),
       }).catch(() => {});
     }
   }
-
-  let dbMarkedPaid = alreadyPaidInDb;
-  let dbWriteError = null;
-  if (isPaid && !alreadyPaidInDb && SB_URL && SB_KEY) {
-    // This PATCH is the ONLY thing that actually marks the order paid in Supabase.
-    // It used to be fire-and-forget (`.catch(() => {})` swallowing failures), and the
-    // frontend retry loop (verify-nowpayments-payment) stopped retrying as soon as the
-    // *payment provider* said "paid" — regardless of whether this write actually
-    // succeeded. A transient failure here (network blip, momentary Supabase hiccup)
-    // silently left the order stuck "checkout (clicked pay)" forever, even though the
-    // confirmation email had already gone out. Now we retry the write itself and report
-    // real success back, so the frontend knows to keep retrying if the DB write failed.
-    const patchOrderPaid = async () => {
-      try {
-        const r = await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(orderId))}`, {
-          method: "PATCH",
-          headers: { ...sbH(), Prefer: "return=representation" },
-          body: JSON.stringify({
-            status: "paid",
-            payment_provider: `NOWPayments ${currency}`.trim(),
-            payment_id: data.payment_id || data.invoice_id || orderId,
-            paid_at: new Date().toISOString(),
-          }),
-        });
-        if (!r.ok) {
-          dbWriteError = `HTTP ${r.status}: ${await r.text().catch(() => "")}`;
-          console.error("NOWPayments: failed to PATCH order paid:", orderId, dbWriteError);
-          return false;
-        }
-        const rows = await r.json().catch(() => []);
-        if (!Array.isArray(rows) || rows.length === 0) {
-          // 2xx with zero rows affected means the filter matched nothing — the order
-          // row doesn't actually exist under this id. Silently "succeeding" here is
-          // exactly what caused this to go undetected before: the promo/affiliate
-          // side effects ran as if paid, while the order itself stayed unpaid forever.
-          dbWriteError = `matched 0 rows for id=${orderId}`;
-          console.error("NOWPayments: order PATCH matched 0 rows:", orderId);
-          return false;
-        }
-        return true;
-      } catch (e) {
-        dbWriteError = String(e?.message || e);
-        console.error("NOWPayments: order PATCH threw:", orderId, dbWriteError);
-        return false;
-      }
-    };
-
-    dbMarkedPaid = creditPaidAcknowledged || await patchOrderPaid();
-    if (!dbMarkedPaid) dbMarkedPaid = await patchOrderPaid();
 
     // NOTE: deliberately not using on_conflict/merge-duplicates here — Postgres
     // requires UPDATE privilege on the table for "ON CONFLICT DO UPDATE" to even
@@ -294,7 +242,6 @@ export async function processNowPaymentsStatus(data, { providerVerified = false 
       ).catch(() => {});
     }
 
-  }
 
   return { received: true, status, isPaid, dbMarkedPaid, dbWriteError, affiliateCode, alreadyEmailSent, alreadyPaidInDb };
 }

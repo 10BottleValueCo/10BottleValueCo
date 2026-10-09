@@ -20,6 +20,11 @@ mock.module('../api/_catalog.js', { namedExports: {
   getShippingPrice: () => 10,
   getAutomaticDiscountRate: () => 0,
 } });
+// This suite isolates credit containment. Real authentication/ownership and
+// provider ordering are covered by order-access.test.mjs and native acceptance.
+mock.module('../api/_order-access.js', { namedExports: {
+  requireLegacyOrderAccess: async () => ({ identity: { id: '11111111-1111-4111-8111-111111111111', email: 'buyer@example.test' } }),
+} });
 const starts = await Promise.all(['create-payment', 'create-paylio-payment', 'create-stripe-session', 'create-payment-intent', 'create-catalystpay-session'].map(async name => [name, (await import(`../api/${name}.js`)).default]));
 const paylio = (await import('../api/paylio-callback.js')).default;
 const now = (await import('../api/_nowpayments-shared.js')).processNowPaymentsStatus;
@@ -36,12 +41,15 @@ const json = (value, status = 200) => new Response(JSON.stringify(value), { stat
 const receipt = overrides => ({ ok: true, orderId, email, creditCents: 1000, provider: 'stripe', alreadyDebited: true, balanceCents: 9000, ...overrides });
 
 for (const [name, handler] of starts) {
-  test(`${name}: partial credit rejected before any IO; zero credit still creates existing provider invoice`, async t => {
+  test(`${name}: partial credit rejected before any IO${name === 'create-paylio-payment' ? '' : '; zero credit still creates existing provider invoice'}`, async t => {
     stripeCreates = [];
     const calls = [];
     t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
       calls.push([String(url), options]);
-      if (String(url).includes('/rest/v1/orders?')) return json([{ metadata: { storeCreditUsed: 0 } }]);
+      if (String(url).includes('/rest/v1/orders?')) {
+        const row = { id: orderId, email, user_id: '11111111-1111-4111-8111-111111111111', status: 'checkout', total: 110, payment_id: null, payment_provider: null, metadata: { storeCreditUsed: 0 } };
+        return json([{ ...row, ...(options.method === 'PATCH' ? JSON.parse(options.body) : {}) }]);
+      }
       if (String(url).includes('/rest/v1/')) return json([]);
       return json({ id: 'invoice_fixture', payment_url: 'https://provider.example.test/pay' });
     });
@@ -55,6 +63,9 @@ for (const [name, handler] of starts) {
     }
     assert.deepEqual(calls, []);
     assert.deepEqual(stripeCreates, []);
+    // Paylio now requires its own private reservation/binding; its successful
+    // zero-credit path is exercised by the dedicated endpoint/native suites.
+    if (name === 'create-paylio-payment') return;
     const res = response();
     await handler({ method: 'POST', headers: {}, body: { ...base, storeCreditUsed: 0 } }, res);
     assert.equal(res.statusCode, 200, JSON.stringify(res.body));
@@ -95,12 +106,12 @@ test('RPC wrapper fails closed on missing service role, failed/malformed receipt
   assert.deepEqual(await debitLegacyOrderCredit({ creditAmount: 0 }, { env: {}, fetchImpl: () => assert.fail('zero credit must not fetch') }), { ok: true, skipped: true });
 });
 
-const callbackNames = ['paylio', 'nowpayments', 'catalystpay', 'stripe-session', 'stripe-intent', 'stripe-confirm'];
+const callbackNames = ['nowpayments', 'catalystpay', 'stripe-session', 'stripe-intent', 'stripe-confirm'];
 function callbackFixture(t, { name, amount = 10, paid = false, rpcFailure = false, paidWriteFails = false, providerVerified = true, signature = true, noCatalystSecret = false, intentOverride = {}, callbackBody = {}, orderReadMode = 'ok', paidReceiptMode = 'ok' } = {}) {
   const calls = [];
   const provider = name.startsWith('stripe') ? 'stripe' : name;
-  const paymentId = name === 'stripe-session' ? 'cs_fixture' : 'pi_fixture';
-  const row = { id: orderId, email, total: 90, metadata: { email, storeCreditUsed: amount, confirmationEmailSentAt: paid ? '2026-10-01T00:00:00Z' : undefined, total: 90, subtotal: 100, items: [{ name: 'Fixture', price: 100 }] }, items: [], status: paid ? 'paid' : 'checkout', payment_id: paymentId };
+  const paymentId = name === 'nowpayments' ? 'np_fixture' : name === 'catalystpay' ? 'invoice_fixture' : name === 'stripe-session' ? 'cs_fixture' : 'pi_fixture';
+  const row = { id: orderId, email, total: 90, metadata: { email, storeCreditUsed: amount, confirmationEmailSentAt: paid ? '2026-10-01T00:00:00Z' : undefined, total: 90, subtotal: 100, items: [{ name: 'Fixture', price: 100 }] }, items: [], status: paid ? 'paid' : 'checkout', payment_id: name.startsWith('stripe') || paid ? paymentId : null, payment_provider: paid && name === 'nowpayments' ? 'NOWPayments BTC' : paid && name === 'catalystpay' ? 'CatalystPay BTC' : null };
   let debitCount = 0; // A pre-existing private consumed receipt never debits again.
   let failPaid = paidWriteFails;
   t.mock.method(console, 'error', () => {});
@@ -138,7 +149,7 @@ function callbackFixture(t, { name, amount = 10, paid = false, rpcFailure = fals
     const res = response();
     if (name === 'paylio') await paylio({ method: 'POST', body: { status: 'paid', order_id: orderId, email }, query: {} }, res);
     if (name === 'nowpayments') {
-      try { res.body = await now({ payment_status: 'finished', order_id: orderId, email, ...callbackBody }, { providerVerified }); }
+      try { res.body = await now({ payment_status: 'finished', order_id: orderId, payment_id: paymentId, price_amount: 90, price_currency: 'usd', pay_currency: 'btc', email, ...callbackBody }, { providerVerified }); }
       catch (error) { res.statusCode = error.status || 500; res.body = { error: error.message }; }
     }
     if (name === 'catalystpay') {
@@ -196,7 +207,7 @@ for (const name of callbackNames) {
   });
 }
 
-for (const payment_status of ['waiting', 'failed', 'expired']) {
+for (const payment_status of ['waiting', 'confirming', 'confirmed', 'sending', 'partially_paid', 'failed', 'expired']) {
   test(`NOWPayments ${payment_status}: no debit, paid transition or side effects`, async t => {
     t.mock.method(console, 'error', () => {});
     t.mock.method(globalThis, 'fetch', () => assert.fail('Nonpayment status must not perform IO'));
@@ -311,4 +322,10 @@ test('NOWPayments numeric payment IDs are normalized before positive-credit paid
   assert.equal(result.statusCode, 200);
   const paid = fixture.calls.find(call => call.body?.status === 'paid');
   assert.equal(paid.body.payment_id, '123456789');
+});
+
+for (const amount of [0, 10]) test(`legacy Paylio callback without private attempt cannot claim paid or spend credit (${amount})`,async t=>{
+  t.mock.method(globalThis,'fetch',()=>assert.fail('unbound callback must not query provider or storage'));
+  const res=response();await paylio({method:'POST',headers:{},body:{status:'paid',order_id:orderId,email,metadata:{storeCreditUsed:amount}},query:{}},res);
+  assert.equal(res.statusCode,409);assert.equal(res.body.code,'PAYLIO_LEGACY_RECONCILIATION_REQUIRED');
 });

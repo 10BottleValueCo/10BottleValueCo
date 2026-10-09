@@ -1,3 +1,5 @@
+import { PaylioError, reservePaylio, bindPaylio, paylioCheckoutUrl, paylioStorage } from "./_paylio-binding.js";
+import { requireLegacyOrderAccess } from "./_order-access.js";
 import { legacyCreditStartError, legacyExistingCreditOrderError } from "./_legacy-store-credit.js";
 import {
   validateAndPriceItems,
@@ -18,12 +20,15 @@ export default async function handler(req, res) {
     const { status, ...body } = creditError;
     return res.status(status).json(body);
   }
+  const access = await requireLegacyOrderAccess(req, res, { orderId: req.body?.order_id || req.body?.orderId, provider: "paylio" });
+  if (!access) return;
   const existingCreditError = await legacyExistingCreditOrderError(req.body);
   if (existingCreditError) {
     const { status, ...body } = existingCreditError;
     return res.status(status).json(body);
   }
 
+  req.body = { ...req.body, email: access.identity.email, customer_email: access.identity.email };
   try {
     const {
       currency = "USD",
@@ -44,6 +49,9 @@ export default async function handler(req, res) {
       storeCreditUsed = 0,
     } = req.body || {};
 
+    if (String(currency).toUpperCase() !== "USD") return res.status(400).json({ error: "This checkout is priced in USD." });
+    if (provider && !["multi","moonpay","wert","revolut","cryptocom","rampnetwork","transak","coinbase","paypal","stripe","banxa","klarna"].includes(provider))
+      return res.status(400).json({ error: "Invalid payment provider." });
     const finalOrderId = order_id || orderId;
     const finalEmail = customer_email || email || "";
 
@@ -77,16 +85,20 @@ export default async function handler(req, res) {
 
     let promoDiscount = 0;
     let verifiedPromoFreeShipping = false;
+    let promoUsageRequired = false;
     if (String(promoCode || "").trim()) {
       const verifiedPromo = await verifyPromoCode({
         code: promoCode,
         email: finalEmail,
         sbUrl: SB_URL,
         sbKey: SB_KEY,
+        requireEmailMatch: true,
       });
+      if (!verifiedPromo) return res.status(400).json({ code: "PAYLIO_PROMO_UNAVAILABLE", error: "This promo code is unavailable for this checkout." });
       if (verifiedPromo) {
         promoDiscount = Math.round(subtotal * verifiedPromo.rate * 100) / 100;
         verifiedPromoFreeShipping = !!verifiedPromo.freeShipping;
+        promoUsageRequired = verifiedPromo.source === "personal";
       }
     }
 
@@ -108,6 +120,11 @@ export default async function handler(req, res) {
 
     let affiliateDiscount = 0;
     const finalAffiliateCode = String(affiliateCode || affiliate_code || "").trim().toUpperCase();
+    const affiliateRows = await paylioStorage(`affiliate_customers?${new URLSearchParams({email: `eq.${finalEmail}`, select: "affiliate_code", limit: "2"})}`);
+    if (!Array.isArray(affiliateRows) || affiliateRows.length > 1) throw new PaylioError("PAYLIO_ATTRIBUTION_UNAVAILABLE");
+    const affiliateAttributionCode = affiliateRows.length
+      ? String(affiliateRows[0].affiliate_code || "").trim().toUpperCase() : finalAffiliateCode;
+    if (affiliateRows.length && !affiliateAttributionCode) throw new PaylioError("PAYLIO_ATTRIBUTION_UNAVAILABLE");
     if (!promoDiscount && isFirstTimeBuyer && finalAffiliateCode && Number(clientAffiliateDiscount) > 0) {
       const impliedRate = Number(clientAffiliateDiscount) / (subtotal || 1);
       affiliateDiscount = impliedRate <= MAX_AFFILIATE_RATE
@@ -144,103 +161,47 @@ export default async function handler(req, res) {
 
     const safeAmount = amount.toFixed(2);
     const baseUrl = process.env.BASE_URL || "https://10bottlevalue.co";
-
-    const payload = {
-      order_id: finalOrderId,
-      orderId: finalOrderId,
-      customer_email: finalEmail,
-      email: finalEmail,
-      total: Number(safeAmount),
-      subtotal: Number(subtotal),
-      shipping: Number(shipping),
-      automaticDiscount: Number(finalAutomaticDiscount),
-      promoDiscount: Number(promoDiscount),
-      affiliateDiscount: Number(finalAffiliateDiscount),
-      affiliateCode: finalAffiliateCode,
-      affiliate_code: finalAffiliateCode,
-      affiliateOwnerEmail: affiliateOwnerEmail || "",
-      affiliateCommission: Number(affiliateCommission || 0),
-      shippingType: shippingType || "standard",
-      storeCreditUsed: Number(safeStoreCreditUsed.toFixed(2)),
-      paymentProvider: "Paylio Card",
-      items: pricedItems,
+    const source = access.order.metadata || {};
+    const address = Object.fromEntries(["firstName","lastName","address","address2","city","state","postalCode","country","phone","taxId","orderNotes"]
+      .map(key => [key, String(source[key] || "").slice(0, 2000)]));
+    const quote = {
+      ...address, orderId: finalOrderId, email: finalEmail, total: Number(safeAmount),
+      subtotal, shipping, automaticDiscount: finalAutomaticDiscount, promoDiscount,
+      promoCode: promoDiscount > 0 ? String(promoCode).trim().toUpperCase() : "", promoUsageRequired,
+      affiliateDiscount: finalAffiliateDiscount, affiliateCode: finalAffiliateCode,
+      affiliateAttributionCode,
+      affiliateCommission: Number((subtotal * 0.1).toFixed(2)),
+      shippingType: shippingType === "express" ? "express" : "standard",
+      storeCreditUsed: 0, paymentProvider: "Paylio Card", items: pricedItems,
     };
-
-    const callbackUrl =
-      `${baseUrl}/api/paylio-callback` +
-      `?order_id=${encodeURIComponent(payload.order_id)}` +
-      `&email=${encodeURIComponent(payload.email)}` +
-      `&total=${encodeURIComponent(payload.total)}` +
-      `&subtotal=${encodeURIComponent(payload.subtotal)}` +
-      `&shipping=${encodeURIComponent(payload.shipping)}` +
-      `&automaticDiscount=${encodeURIComponent(payload.automaticDiscount)}` +
-      `&promoDiscount=${encodeURIComponent(payload.promoDiscount)}` +
-      `&affiliateDiscount=${encodeURIComponent(payload.affiliateDiscount)}` +
-      `&affiliateCode=${encodeURIComponent(payload.affiliateCode)}` +
-      `&affiliateOwnerEmail=${encodeURIComponent(payload.affiliateOwnerEmail)}` +
-      `&affiliateCommission=${encodeURIComponent(payload.affiliateCommission)}` +
-      `&storeCreditUsed=${encodeURIComponent(payload.storeCreditUsed)}` +
-      `&shippingType=${encodeURIComponent(payload.shippingType)}` +
-      `&items=${encodeURIComponent(JSON.stringify(payload.items))}`;
-
+    const reservation = await reservePaylio(access, quote, provider);
+    if (!reservation.created) {
+      if (reservation.attempt.state !== "ready") throw new PaylioError("PAYLIO_CREATE_RECONCILIATION_REQUIRED", 409);
+      return res.status(200).json({ payment_url: paylioCheckoutUrl(reservation.attempt.checkout_url), verifiedAmount: reservation.attempt.amount_cents / 100 });
+    }
+    // There is no documented idempotent create contract. An uncertain provider
+    // response leaves the reservation locked for reconciliation, never auto-retried.
     const response = await fetch("https://paylio.org/api/v1/wallet", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.PAYLIO_API_KEY}`,
-        "Content-Type": "application/json",
-      },
+      method: "POST", redirect: "error", signal: AbortSignal.timeout(8000),
+      headers: { Authorization: `Bearer ${reservation.account.key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        address: process.env.PAYLIO_PAYOUT_ADDRESS,
-        callback: callbackUrl,
-        return_url: `${baseUrl}/?payment=success&order=${encodeURIComponent(finalOrderId)}`,
-        amount: safeAmount,
-        currency,
-        email: finalEmail,
-        note: note || finalOrderId || "10BottleValueCo order",
-        metadata: payload,
+        address: reservation.account.payout,
+        callback: `${baseUrl}/api/paylio-callback?attempt=${encodeURIComponent(reservation.attempt.id)}`,
+        return_url: `${baseUrl}/?payment=pending&provider=paylio&order=${encodeURIComponent(finalOrderId)}`,
+        amount: safeAmount, currency: "USD", passFeeToCustomer: false,
+        email: finalEmail, note: finalOrderId,
         ...(provider ? { provider } : {}),
       }),
     });
-
-    const rawText = await response.text();
-    let data = {};
-
-    try {
-      data = rawText ? JSON.parse(rawText) : {};
-    } catch {
-      console.error("[create-paylio-payment] Paylio non-JSON response:", rawText.slice(0, 500));
-      return res.status(502).json({
-        error: "Paylio returned an unexpected response (non-JSON). Try again in a moment.",
-        raw: rawText.slice(0, 200),
-      });
-    }
-
-    if (!response.ok) {
-      console.error("[create-paylio-payment] Paylio error:", response.status, data);
-      return res.status(response.status).json(data);
-    }
-
-    const paymentUrl =
-      data?.payment_url ||
-      data?.checkout_url ||
-      data?.url ||
-      data?.link ||
-      data?.short_url ||
-      data?.paymentLink;
-
-    if (!paymentUrl) {
-      console.error("[create-paylio-payment] Paylio returned no URL. Full response:", data);
-      return res.status(502).json({
-        error: "Paylio did not return a payment link. Please try again.",
-        paylio_response: data,
-      });
-    }
-
-    return res.status(200).json({ ...data, payment_url: paymentUrl, verifiedAmount: amount });
+    const raw = await response.text();
+    if (!response.ok || Buffer.byteLength(raw) > 50000) throw new PaylioError("PAYLIO_CREATION_UNAVAILABLE");
+    let data; try { data = JSON.parse(raw); } catch { throw new PaylioError("PAYLIO_CREATION_UNAVAILABLE"); }
+    // The binding is durably acknowledged before the customer receives a URL.
+    return res.status(200).json(await bindPaylio(reservation.attempt, data));
   } catch (error) {
-    console.error("[create-paylio-payment] Exception:", error?.message);
-    return res.status(500).json({
-      error: error?.message || "Payment creation failed",
+    return res.status(error instanceof PaylioError ? error.status : 503).json({
+      code: error instanceof PaylioError ? error.code : "PAYLIO_CREATION_UNAVAILABLE",
+      error: "Payment setup is pending. Please contact support before trying another payment.",
     });
   }
 }

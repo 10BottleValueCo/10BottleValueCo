@@ -6,6 +6,8 @@ import vm from 'node:vm';
 import { test } from 'node:test';
 import { buildMeritCheckoutPayload, estimateMeritCreditSplit, meritCheckoutBusinessError, meritPayloadDigest, saveMeritAttempt, readMeritAttempt } from '../artifacts/10-bottle-value/src/merit-checkout-client.js';
 
+import { readPaymentReturn, legacyCheckoutHeaders } from '../artifacts/10-bottle-value/src/legacy-payment-return.js';
+
 // Exercise the actual App event handlers with isolated I/O. Parsing the source
 // keeps these tests independent of browser/Stripe credentials and of hook order.
 const appRequire = createRequire(new URL('../artifacts/10-bottle-value/package.json', import.meta.url));
@@ -41,6 +43,7 @@ function fixture() {
   const form = { email: 'buyer@example.test', firstName: 'Test', lastName: 'Buyer', address: 'One Road', country: 'United States', city: 'City', state: 'CA', postalCode: '90210', phone: '+15555555555' };
   const context = {
     Date, Math, Number, Object, JSON, URLSearchParams, Promise, console, setTimeout: () => 0,
+    legacyCheckoutHeaders, supabase: { auth: { getSession: async () => ({ data: { session: { access_token: 'synthetic-token', user: { id: 'buyer-fixture', email: 'buyer@example.test' } } } }) } },
     currentUser: { email: 'buyer@example.test' }, researchAccepted: true, qualifiedAccepted: true, termsAccepted: true,
     cart: [{ name: 'BPC-157', dose: '5 mg', quantity: 1, price: 100 }],
     readCheckoutSnapshot: () => ({ ...form }), validateCheckoutForm: () => ({}),
@@ -72,7 +75,7 @@ function fixture() {
 
 test('Merit success/cancel URL claims all initialize as pending, never paid', () => {
   for (const payment of ['success', 'pending', 'cancelled', 'failed']) {
-    const state = initialState('paymentReturn', { URLSearchParams, window: { location: { search: `?provider=merit&payment=${payment}&order=INV-ABCDEF123` } } });
+    const state = initialState('paymentReturn', { readPaymentReturn, URLSearchParams, window: { location: { search: `?provider=merit&payment=${payment}&order=INV-ABCDEF123` } } });
     assert.equal(state.status, 'pending');
     assert.equal(state.provider, 'merit');
     assert.equal(state.order, 'INV-ABCDEF123');

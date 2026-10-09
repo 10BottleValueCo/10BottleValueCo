@@ -1,3 +1,4 @@
+import { requireLegacyOrderAccess } from "./_order-access.js";
 import { legacyCreditStartError, legacyExistingCreditOrderError } from "./_legacy-store-credit.js";
 import Stripe from "stripe";
 import {
@@ -17,12 +18,15 @@ export default async function handler(req, res) {
     const { status, ...body } = creditError;
     return res.status(status).json(body);
   }
+  const access = await requireLegacyOrderAccess(req, res, { orderId: req.body?.orderId });
+  if (!access) return;
   const existingCreditError = await legacyExistingCreditOrderError({ orderId: req.body?.orderId });
   if (existingCreditError) {
     const { status, ...body } = existingCreditError;
     return res.status(status).json(body);
   }
 
+  req.body = { ...req.body, email: access.identity.email, customer_email: access.identity.email };
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) return res.status(500).json({ error: "STRIPE_SECRET_KEY not configured on server." });
   const stripe = new Stripe(stripeKey);
