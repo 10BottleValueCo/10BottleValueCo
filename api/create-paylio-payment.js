@@ -102,22 +102,6 @@ export default async function handler(req, res) {
       }
     }
 
-    // Affiliate discount is first-order-only — verify server-side
-    const sbH = () => ({ apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" });
-    let isFirstTimeBuyer = true;
-    if (SB_URL && SB_KEY && finalEmail) {
-      try {
-        const checkResp = await fetch(
-          `${SB_URL}/rest/v1/orders?email=eq.${encodeURIComponent(String(finalEmail).toLowerCase().trim())}&status=in.(paid,done)&select=id&limit=1`,
-          { headers: sbH() }
-        );
-        if (checkResp.ok) {
-          const rows = await checkResp.json();
-          isFirstTimeBuyer = !Array.isArray(rows) || rows.length === 0;
-        }
-      } catch {}
-    }
-
     let affiliateDiscount = 0;
     const finalAffiliateCode = String(affiliateCode || affiliate_code || "").trim().toUpperCase();
     const affiliateRows = await paylioStorage(`affiliate_customers?${new URLSearchParams({email: `eq.${finalEmail}`, select: "affiliate_code", limit: "2"})}`);
@@ -125,11 +109,37 @@ export default async function handler(req, res) {
     const affiliateAttributionCode = affiliateRows.length
       ? String(affiliateRows[0].affiliate_code || "").trim().toUpperCase() : finalAffiliateCode;
     if (affiliateRows.length && !affiliateAttributionCode) throw new PaylioError("PAYLIO_ATTRIBUTION_UNAVAILABLE");
-    if (!promoDiscount && isFirstTimeBuyer && finalAffiliateCode && Number(clientAffiliateDiscount) > 0) {
-      const impliedRate = Number(clientAffiliateDiscount) / (subtotal || 1);
-      affiliateDiscount = impliedRate <= MAX_AFFILIATE_RATE
-        ? Math.min(Number(clientAffiliateDiscount), subtotal)
-        : Math.round(subtotal * MAX_AFFILIATE_RATE * 100) / 100;
+    const wantsAffiliateDiscount = !promoDiscount && finalAffiliateCode && Number(clientAffiliateDiscount) > 0;
+    // A new referral or discount must name an enabled affiliate other than the
+    // buyer. Existing attribution remains frozen, even if its account changes.
+    if (finalAffiliateCode && (!affiliateRows.length || wantsAffiliateDiscount)) {
+      if (!/^[A-Z0-9_-]{1,64}$/.test(finalAffiliateCode))
+        return res.status(400).json({ code: "PAYLIO_AFFILIATE_UNAVAILABLE", error: "This referral code is unavailable for this checkout." });
+      const affiliates = await paylioStorage(`affiliates?${new URLSearchParams({ code: `eq.${finalAffiliateCode}`, select: "code,email,active", limit: "2" })}`);
+      if (!Array.isArray(affiliates) || affiliates.length > 1
+        || (affiliates.length && (affiliates[0]?.code !== finalAffiliateCode
+          || typeof affiliates[0]?.email !== "string" || !affiliates[0].email.trim()
+          || ![true, false, null].includes(affiliates[0]?.active))))
+        throw new PaylioError("PAYLIO_ELIGIBILITY_UNAVAILABLE");
+      // Preserve the existing nullable-active convention used by the account UI.
+      if (!affiliates.length || affiliates[0].active === false || affiliates[0].email.trim().toLowerCase() === finalEmail)
+        return res.status(400).json({ code: "PAYLIO_AFFILIATE_UNAVAILABLE", error: "This referral code is unavailable for this checkout." });
+    }
+    if (wantsAffiliateDiscount) {
+      // A failed lookup is not evidence of a first purchase. Fulfilled orders
+      // still count after their status has advanced beyond paid.
+      const purchases = await paylioStorage(`orders?${new URLSearchParams({
+        email: `eq.${finalEmail}`, status: "in.(paid,done,processing,shipped,delivered)", select: "id", limit: "1",
+      })}`);
+      if (!Array.isArray(purchases) || purchases.length > 1
+        || purchases.some(purchase => typeof purchase?.id !== "string" || !purchase.id))
+        throw new PaylioError("PAYLIO_ELIGIBILITY_UNAVAILABLE");
+      if (purchases.length === 0) {
+        const impliedRate = Number(clientAffiliateDiscount) / (subtotal || 1);
+        affiliateDiscount = impliedRate <= MAX_AFFILIATE_RATE
+          ? Math.min(Number(clientAffiliateDiscount), subtotal)
+          : Math.round(subtotal * MAX_AFFILIATE_RATE * 100) / 100;
+      }
     }
 
     const finalAutomaticDiscount = promoDiscount > 0 || affiliateDiscount > 0 ? 0 : automaticDiscount;
