@@ -3,6 +3,7 @@
 // @ts-nocheck
 import { publicPaymentMethod } from "../../../shared/payment-method-label.js";
 import { Fragment, lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, Search, Tag, UserRound, X } from "lucide-react";
 import { ErrorBoundary } from "./components/error-boundary.tsx";
 import ShippingPricesPage from "./components/ShippingPricesPage.jsx";
@@ -3847,6 +3848,23 @@ export default function App() {
       setSearchTerm(value);
     });
   }, []);
+  // The announcement can wrap at desktop widths or after translation/font
+  // loading. Keep the sticky header below its actual rendered height.
+  const announcementBarRef = useRef(null);
+  const [announcementHeight, setAnnouncementHeight] = useState(32);
+  useLayoutEffect(() => {
+    const bar = announcementBarRef.current;
+    if (!bar) return;
+    const measure = () => setAnnouncementHeight(Math.ceil(bar.getBoundingClientRect().height));
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(bar);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [page]);
   const [isScrolled, setIsScrolled] = useState(false);
   const [showCookieBanner, setShowCookieBanner] = useState(false);
   useEffect(() => {
@@ -13452,6 +13470,7 @@ export default function App() {
         </div>
       )}
       <div
+        ref={announcementBarRef}
         className="relative md:sticky md:top-0 z-[100]"
         data-affiliate-backdrop={page === "affiliate" ? "true" : undefined}
         data-mobile-announcement="true"
@@ -13585,7 +13604,8 @@ export default function App() {
           data-nosnippet
           data-home-header={page === "home" ? "true" : undefined}
           data-affiliate-header={page === "affiliate" ? "true" : undefined}
-          className={`sticky top-0 md:top-[32px] z-[200] border-b border-white/20 pb-0 md:pb-[3px] ${
+          style={{ "--tbv-announcement-height": `${announcementHeight}px` }}
+          className={`sticky top-0 md:top-[var(--tbv-announcement-height)] z-[200] border-b border-white/20 pb-0 md:pb-[3px] ${
             page === "admin"
               ? "bg-black"
               : pageBackdropImage || usesCatalogBackground
@@ -13621,7 +13641,7 @@ export default function App() {
             </a>
 
             {/* Desktop nav */}
-            <nav className={`ml-auto hidden flex-1 items-center justify-end gap-1 ${isScrolled ? "-translate-x-16" : ""} 2xl:flex ${page === "home" ? "lg:flex" : ""}`}>
+            <nav className={`ml-auto hidden flex-1 items-center justify-end gap-1 ${isScrolled ? "-translate-x-16" : ""} 2xl:flex`}>
               {showScrollTop && page === "shop" && (
                 <button
                   onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
@@ -13680,7 +13700,7 @@ export default function App() {
             </nav>
 
             {/* Mobile: cart pill + hamburger */}
-            <div className={`ml-auto flex items-center gap-2 2xl:hidden ${page === "home" ? "lg:hidden" : ""}`}>
+            <div className="ml-auto flex items-center gap-2 2xl:hidden">
               <a
                 href="/cart"
                 onClick={(event) => handlePublicPageLink(event, "cart")}
@@ -13741,8 +13761,9 @@ export default function App() {
           </button>
         )}
 
-        {/* Mobile menu drawer */}
-        {isMobileMenuOpen && (
+        {/* Portal escapes the homepage's isolated stacking context so the
+            announcement cannot cover the menu heading or close control. */}
+        {isMobileMenuOpen && createPortal(
           <div className="fixed inset-0 z-[200] 2xl:hidden" role="dialog" aria-modal="true">
             <div
               className="absolute inset-0 bg-black/60"
@@ -13791,7 +13812,8 @@ export default function App() {
                 ))}
               </nav>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
 
         {page === "home" && (

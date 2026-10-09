@@ -110,29 +110,6 @@
     letter-spacing: .04em !important;
   }
 
-  .tbv-app-shell--home > header[data-home-header="true"] nav {
-    min-width: 0;
-    gap: 0;
-  }
-
-  .tbv-app-shell--home > header[data-home-header="true"] nav > a {
-    flex: 0 1 auto;
-    padding: 4px 4px !important;
-    font-size: 10px !important;
-    letter-spacing: .025em !important;
-    line-height: 1.1;
-  }
-
-  .tbv-app-shell--home > header[data-home-header="true"] nav > a[aria-label] {
-    width: 30px !important;
-    height: 32px !important;
-  }
-
-  .tbv-app-shell--home > header[data-home-header="true"] nav > a[aria-label] svg {
-    width: 16px;
-    height: 16px;
-  }
-
   .tbv-app-shell--home > [data-home-cookie="true"] {
     position: absolute;
     z-index: 210;
