@@ -21608,9 +21608,19 @@ export default function App() {
                               <div className="mt-4">
                                 <button type="button" disabled={stripeLoading || stripeTemporarilyDisabled}
                                   onClick={handleStripePayment}
+                                  aria-describedby="card-verification-email-help"
                                   className="mt-3 min-h-12 w-full rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white disabled:opacity-40">
                                   {stripeLoading ? tx("Preparing secure payment…", "Подготавливаем защищённую оплату…") : tx("Verify email and continue", "Подтвердить email и продолжить")}
                                 </button>
+                                <p id="card-verification-email-help" className="mt-3 text-sm leading-6 text-black/65">
+                                  {tx(
+                                    "If you don’t see the verification email, check your spam or junk folder.",
+                                    "Если письмо с кодом не пришло, проверьте папку «Спам» или «Нежелательная почта».",
+                                    "Якщо листа з кодом немає, перевірте папку «Спам» або «Небажана пошта».",
+                                    "Falls die Bestätigungs-E-Mail nicht ankommt, prüfen Sie Ihren Spam- oder Junk-Ordner.",
+                                    "Si no ves el correo de verificación, revisa la carpeta de spam o correo no deseado."
+                                  )}
+                                </p>
                               </div>
                             )}
                           </div>
