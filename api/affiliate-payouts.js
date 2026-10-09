@@ -58,7 +58,8 @@ async function requireAdmin(authorization, config, res) {
   }
 
   const user = await response.json();
-  if (!isRecord(user) || typeof user.email !== "string" || user.email.trim().toLowerCase() !== ADMIN_EMAIL) {
+  if (!isRecord(user) || !user.email_confirmed_at
+    || typeof user.email !== "string" || user.email.trim().toLowerCase() !== ADMIN_EMAIL) {
     res.status(403).json({ error: "Admin access is required to manage payouts." });
     return false;
   }
@@ -186,6 +187,8 @@ async function handleRecord(req, res, config) {
 }
 
 export default async function handler(req, res) {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Vary", "Authorization");
   const config = getSupabaseConfig();
   if (!config) {
     return res.status(503).json({ error: "Payout storage is not configured." });

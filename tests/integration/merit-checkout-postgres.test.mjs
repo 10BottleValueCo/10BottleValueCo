@@ -1213,4 +1213,264 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
     assert.equal((await paylioEffects()).status,400);assert.equal((await order(paylioOrderId)).status,'refunded');
   });
 
+  // The next cutover preserves these already-tested payment functions while
+  // containing legacy public promo and affiliate privileges. Deliberately seed
+  // permissive policies and independent column grants to reproduce both paths.
+  const promoAccessPath = new URL('../../supabase/migrations/20261009040000_promo_affiliate_access_containment.sql', import.meta.url);
+  const promoPreflightPath = new URL('../../supabase/review/promo_affiliate_access_preflight.sql', import.meta.url);
+  const promoVerifierPath = new URL('../../scripts/verify-promo-affiliate-containment.mjs', import.meta.url);
+  const otherCustomerId = randomUUID(), unconfirmedCustomerId = randomUUID();
+  await sql(`
+    CREATE TABLE public.affiliates(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),email text UNIQUE,code text UNIQUE,
+      created_at timestamp DEFAULT now(),active boolean DEFAULT true,commission integer DEFAULT 20);
+    CREATE TABLE public.affiliate_payouts(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,affiliate_code text,
+      amount numeric(10,2),note text,created_at timestamptz DEFAULT now());
+    ALTER TABLE user_promos ALTER COLUMN id SET DEFAULT gen_random_uuid()::text;
+    ALTER TABLE orders ADD COLUMN affiliate_code text;
+    INSERT INTO auth.users VALUES(${q(otherCustomerId)},'other@example.test',now()),(${q(unconfirmedCustomerId)},'buyer@example.test',NULL);
+    ALTER TABLE affiliates ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE affiliate_orders ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE affiliate_payouts ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY fixture_all_affiliates ON affiliates FOR ALL TO PUBLIC USING(true) WITH CHECK(true);
+    CREATE POLICY fixture_claimed_affiliate_admin ON affiliates FOR ALL TO authenticated
+      USING(auth.jwt()->>'email'='support@10bottlevalue.co') WITH CHECK(auth.jwt()->>'email'='support@10bottlevalue.co');
+    CREATE POLICY fixture_all_affiliate_orders ON affiliate_orders FOR ALL TO PUBLIC USING(true) WITH CHECK(true);
+    CREATE POLICY fixture_all_affiliate_payouts ON affiliate_payouts FOR ALL TO PUBLIC USING(true) WITH CHECK(true);
+    GRANT SELECT,INSERT,UPDATE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN ON affiliates TO anon,authenticated;
+    GRANT SELECT,INSERT,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN ON affiliate_orders TO anon,authenticated;
+    GRANT SELECT,INSERT,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN ON affiliate_payouts TO anon;
+    GRANT TRUNCATE,REFERENCES,TRIGGER,MAINTAIN ON affiliate_payouts TO authenticated;
+    GRANT SELECT,INSERT,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN ON affiliates,affiliate_payouts TO service_role;
+    GRANT SELECT,INSERT,UPDATE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN ON affiliate_orders TO service_role;
+    GRANT SELECT(email),UPDATE(rate) ON user_promos TO PUBLIC,anon,authenticated;
+    GRANT SELECT(email),UPDATE(code) ON affiliates TO PUBLIC,anon,authenticated;
+    GRANT SELECT(commission_amount),UPDATE(commission_amount) ON affiliate_orders TO PUBLIC,anon,authenticated;
+    GRANT SELECT(amount),UPDATE(amount) ON affiliate_payouts TO PUBLIC,anon,authenticated;
+    INSERT INTO user_promos(id,email,code,rate,used) VALUES
+      ('contain-own','buyer@example.test','OWN',0.1,false),
+      ('contain-delete','buyer@example.test','DELETE',0.1,false),
+      ('contain-other','other@example.test','OTHER',0.2,false),
+      ('contain-public','__PUBLIC__','PUBLIC_NATIVE',0.15,false),
+      ('contain-null','buyer@example.test','NULL_STATE',0.1,NULL);
+    INSERT INTO affiliates(email,code) VALUES('buyer@example.test','PARTNER_NATIVE'),('other@example.test','OTHER_NATIVE');
+    INSERT INTO orders(id,user_id,email,status,total,affiliate_code,metadata) VALUES
+      ('CONTAIN-AFF-ORDER',${q(otherCustomerId)},'other@example.test','paid',100,'PARTNER_NATIVE',
+        '{"affiliateCode":"PARTNER_NATIVE","affiliateCommission":10,"items":[{"name":"Fixture","quantity":1,"address":"private fixture"}],"address":"private fixture","email":"other@example.test"}'),
+      ('CONTAIN-ADMIN-ORDER',${q(customerId)},'buyer@example.test','pending',100,NULL,'{}'),
+      ('CONTAIN-CALLBACK-ORDER',${q(customerId)},'buyer@example.test','paid',100,NULL,'{}');
+    INSERT INTO affiliate_orders(order_id,affiliate_code,commission_amount,shipping_type,created_at)
+      VALUES('CONTAIN-AFF-ORDER','PARTNER_NATIVE',10,'standard',now());
+    INSERT INTO affiliate_payouts(affiliate_code,amount,note) VALUES('PARTNER_NATIVE',2.50,'synthetic historical record');
+  `);
+  for (const source of [promoAccessPath, promoPreflightPath, promoVerifierPath]) {
+    evidence.sourceSha256[path.relative(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'), fileURLToPath(source))] = createHash('sha256').update(await readFile(source)).digest('hex');
+  }
+  const promoMigrationSource = await readFile(promoAccessPath, 'utf8');
+  const promoBefore = await scalar(await readFile(promoPreflightPath, 'utf8'));
+  const financialSnapshot = () => scalar(`SELECT jsonb_build_object(
+    'promos',(SELECT jsonb_agg(to_jsonb(x) ORDER BY id) FROM user_promos x),
+    'affiliates',(SELECT jsonb_agg(to_jsonb(x) ORDER BY id) FROM affiliates x),
+    'commissions',(SELECT jsonb_agg(to_jsonb(x) ORDER BY id) FROM affiliate_orders x),
+    'payouts',(SELECT jsonb_agg(to_jsonb(x) ORDER BY id) FROM affiliate_payouts x),
+    'orders',(SELECT jsonb_agg(to_jsonb(x) ORDER BY id) FROM orders x),
+    'merit',(SELECT jsonb_agg(to_jsonb(x) ORDER BY id) FROM merit_payment_attempts x),
+    'paylio',(SELECT jsonb_agg(to_jsonb(x) ORDER BY id) FROM paylio_payment_attempts x),
+    'credits',(SELECT jsonb_agg(to_jsonb(x) ORDER BY order_id) FROM store_credit_ledger x));`);
+  const financialBefore = await financialSnapshot();
+  await sql(promoMigrationSource);
+  const promoAfter = await scalar(await readFile(promoPreflightPath, 'utf8'));
+  const { verifyPromoAffiliateContainment } = await import(promoVerifierPath.href);
+  const promoCatalogResult = verifyPromoAffiliateContainment(promoBefore, promoAfter, promoMigrationSource);
+  await sql("NOTIFY pgrst, 'reload schema';");
+  await until(async () => !!(await rest('service_role', '/')).data?.definitions?.affiliate_payouts, 'affiliate fixture schema');
+  evidence.promoAffiliateAccess = { catalog: promoCatalogResult, scope: 'Future public-role containment only; historical provenance and cross-order promo reuse unchanged' };
+
+  await t.test('promo affiliate migration preserves financial rows and all prior catalog controls while containing every public grant', async () => {
+    assert.equal(promoCatalogResult.failed, 0, JSON.stringify(promoCatalogResult.checks.filter(check => !check.passed)));
+    const corruptions = [
+      ['anonymous privilege', catalog => { catalog.relations.find(row => row.name === 'user_promos').privileges.find(row => row.role === 'anon').select = true; }],
+      ['guard security context', catalog => { catalog.functionMetadata.find(row => row.signature.endsWith('guard_user_promo_customer_update()')).definer = true; }],
+      ['old payment guard', catalog => { catalog.relations.find(row => row.name === 'user_promos').triggers.find(row => row.name === 'merit_reserved_promo_guard').enabled = 'D'; }],
+      ['policy boolean grouping', catalog => { catalog.relations.find(row => row.name === 'user_promos').policies.find(row => row.name === 'user_promos_verified_update_boundary').using = '(public.can_access_order_record(NULL,NULL,true) OR used IS FALSE) AND public.can_access_order_record(NULL,email,false)'; }],
+    ];
+    for (const [label, mutate] of corruptions) {
+      const changed = structuredClone(promoAfter); mutate(changed);
+      assert.ok(verifyPromoAffiliateContainment(promoBefore, changed, promoMigrationSource).failed > 0, `Verifier accepted ${label}`);
+    }
+    assert.ok(verifyPromoAffiliateContainment(promoBefore, {}, promoMigrationSource).failed > 0);
+    assert.deepEqual(await financialSnapshot(), financialBefore);
+    evidence.promoAffiliateAccess.historicalRowsUnchanged = true;
+    for (const table of ['user_promos', 'affiliates', 'affiliate_orders', 'affiliate_payouts']) {
+      for (const role of ['anon', 'authenticated']) {
+        for (const privilege of ['TRUNCATE', 'TRIGGER', 'REFERENCES', 'MAINTAIN']) {
+          assert.equal(await scalar(`SELECT to_jsonb(has_table_privilege(${q(role)},${q(table)},${q(privilege)}));`), false);
+        }
+        await assert.rejects(sql(`BEGIN; SET LOCAL ROLE ${role}; TRUNCATE TABLE public.${table}; COMMIT;`), /permission denied/);
+      }
+    }
+  });
+  await t.test('native anonymous access cannot use old permissive policies or independent column grants on any contained table', async () => {
+    const samples = {
+      user_promos: { email: 'buyer@example.test', code: 'FORGED', rate: 1, used: false },
+      affiliates: { email: 'buyer@example.test', code: 'FORGED' },
+      affiliate_orders: { order_id: 'CONTAIN-ADMIN-ORDER', affiliate_code: 'FORGED', commission_amount: 100 },
+      affiliate_payouts: { affiliate_code: 'FORGED', amount: 100 },
+    };
+    for (const [table, body] of Object.entries(samples)) {
+      for (const method of ['GET', 'POST', 'PATCH', 'DELETE']) {
+        const response = await rest('anon', `/${table}`, { method, ...(['POST', 'PATCH'].includes(method) ? { body } : {}) });
+        assert.ok([401, 403].includes(response.status), `${table} ${method}: ${JSON.stringify(response)}`);
+      }
+    }
+    for (const [table, column] of [['user_promos', 'rate'], ['affiliates', 'code'], ['affiliate_orders', 'commission_amount'], ['affiliate_payouts', 'amount']]) {
+      assert.equal(await scalar(`SELECT to_jsonb(has_column_privilege('anon',${q(table)},${q(column)},'UPDATE'));`), false);
+    }
+  });
+  await t.test('native confirmed customers see only their own personal promos and cannot forge issuance or affiliate ownership', async () => {
+    const own = await rest('authenticated', '/user_promos?id=like.contain-*&order=id', { claims: { email: 'support@10bottlevalue.co' } });
+    assert.deepEqual(own.data.map(row => row.id), ['contain-delete', 'contain-null', 'contain-own']);
+    const other = await rest('authenticated', '/user_promos?id=like.contain-*&order=id', { sub: otherCustomerId });
+    assert.deepEqual(other.data.map(row => row.id), ['contain-other']);
+    for (const sub of [unconfirmedCustomerId, unconfirmedSupportId, randomUUID()]) {
+      const response = await rest('authenticated', '/user_promos?id=like.contain-*', { sub, claims: { email: 'support@10bottlevalue.co' } });
+      assert.equal(response.status, 200); assert.deepEqual(response.data, []);
+    }
+    const forged = await rest('authenticated', '/user_promos', { method: 'POST', body: { email: 'buyer@example.test', code: 'FORGED', rate: 1, used: false } });
+    assert.equal(forged.status, 403);
+    for (const table of ['affiliates', 'affiliate_orders', 'affiliate_payouts']) {
+      const read = await rest('authenticated', `/${table}`, { claims: { email: 'support@10bottlevalue.co' } });
+      assert.equal(read.status, 200); assert.deepEqual(read.data, []);
+    }
+    const forgedAffiliate = await rest('authenticated', '/affiliates', { method: 'POST', body: { email: 'buyer@example.test', code: 'FORGED' }, claims: { email: 'support@10bottlevalue.co' } });
+    assert.equal(forgedAffiliate.status, 403);
+  });
+  await t.test('native customer promo edits preserve all fields including future columns; false-to-true remains the only update', async () => {
+    await sql("ALTER TABLE user_promos ADD COLUMN fixture_future_field text DEFAULT 'immutable'; NOTIFY pgrst, 'reload schema';");
+    await until(async () => !!(await rest('service_role', '/')).data?.definitions?.user_promos?.properties?.fixture_future_field, 'future promo column');
+    const target = '/user_promos?id=eq.contain-own';
+    for (const patch of [{ rate: 1 }, { code: 'CHANGED' }, { email: 'other@example.test' }, { id: 'CHANGED' },
+      { updated_at: '2026-01-01T00:00:00Z' }, { fixture_future_field: 'changed' }]) {
+      const response = await rest('authenticated', target, { method: 'PATCH', body: { ...patch, used: true } });
+      assert.equal(response.status, 403, JSON.stringify(response));
+    }
+    await assert.rejects(sql(`BEGIN; SET LOCAL ROLE authenticated;
+      SELECT set_config('request.jwt.claims',${q(JSON.stringify({ sub: customerId, role: 'service_role', email: 'support@10bottlevalue.co' }))},true);
+      UPDATE user_promos SET used=true,rate=1 WHERE id='contain-own'; COMMIT;`), /CUSTOMER_PROMO_UPDATE_REQUIRES_IMMUTABLE_MARK_USED/);
+    const marked = await rest('authenticated', target, { method: 'PATCH', body: { used: true }, headers: { Prefer: 'return=representation' } });
+    assert.equal(marked.status, 200); assert.equal(marked.data[0].used, true); assert.equal(Number(marked.data[0].rate), 0.1);
+    for (const body of [{ used: true }, { used: false }]) {
+      const response = await rest('authenticated', target, { method: 'PATCH', body, headers: { Prefer: 'return=representation' } });
+      assert.equal(response.status, 200); assert.deepEqual(response.data, []);
+    }
+    const unknown = await rest('authenticated', '/user_promos?id=eq.contain-null', { method: 'PATCH', body: { used: true }, headers: { Prefer: 'return=representation' } });
+    assert.equal(unknown.status, 200); assert.deepEqual(unknown.data, []);
+    assert.equal(await scalar("SELECT coalesce(to_jsonb(used),'null'::jsonb) FROM user_promos WHERE id='contain-null';"), null);
+    const deleted = await rest('authenticated', '/user_promos?id=eq.contain-delete', { method: 'DELETE', headers: { Prefer: 'return=representation' } });
+    assert.equal(deleted.status, 200); assert.equal(deleted.data.length, 1);
+    const crossOwner = await rest('authenticated', '/user_promos?id=eq.contain-other', { method: 'DELETE', headers: { Prefer: 'return=representation' } });
+    assert.equal(crossOwner.status, 200); assert.deepEqual(crossOwner.data, []);
+    evidence.promoAffiliateAccess.customerOwnMarkAndDelete = true;
+    evidence.promoAffiliateAccess.nullUsedNotReclassified = true;
+  });
+  await t.test('native confirmed support can manage all four tables while unconfirmed support cannot', async () => {
+    const creations = {
+      user_promos: { email: 'buyer@example.test', code: 'ADMIN_NATIVE', rate: 0.12, used: false },
+      affiliates: { email: 'managed@example.test', code: 'ADMIN_NATIVE' },
+      affiliate_orders: { order_id: 'CONTAIN-ADMIN-ORDER', affiliate_code: 'ADMIN_NATIVE', commission_amount: 10, shipping_type: 'standard' },
+      affiliate_payouts: { affiliate_code: 'ADMIN_NATIVE', amount: 2.50, note: 'synthetic admin' },
+    };
+    for (const [table, body] of Object.entries(creations)) {
+      const denied = await rest('authenticated', `/${table}`, { method: 'POST', sub: unconfirmedSupportId, body, claims: { email: 'support@10bottlevalue.co' } });
+      assert.equal(denied.status, 403, JSON.stringify(denied));
+      const created = await rest('authenticated', `/${table}`, { method: 'POST', sub: supportId, body, headers: { Prefer: 'return=representation' } });
+      assert.equal(created.status, 201, JSON.stringify(created));
+      const target = `/${table}?id=eq.${created.data[0].id}`;
+      const patch = table === 'user_promos' ? { rate: 0.2 } : table === 'affiliates' ? { active: false } : table === 'affiliate_orders' ? { commission_amount: 0 } : { note: 'synthetic correction' };
+      const updated = await rest('authenticated', target, { method: 'PATCH', sub: supportId, body: patch, headers: { Prefer: 'return=representation' } });
+      assert.equal(updated.status, 200, JSON.stringify(updated)); assert.equal(updated.data.length, 1);
+      const deleted = await rest('authenticated', target, { method: 'DELETE', sub: supportId, headers: { Prefer: 'return=representation' } });
+      assert.equal(deleted.status, 200); assert.equal(deleted.data.length, 1);
+    }
+  });
+  await t.test('native service callback promo and commission operations retain their existing grants and bypass only customer mutation limits', async () => {
+    const marked = await rest('service_role', '/user_promos?id=eq.contain-other', { method: 'PATCH', body: { used: true }, headers: { Prefer: 'return=representation' } });
+    assert.equal(marked.status, 200); assert.equal(marked.data[0].used, true);
+    const inserted = await rest('service_role', '/affiliate_orders', { method: 'POST', body: { order_id: 'CONTAIN-CALLBACK-ORDER', affiliate_code: 'PARTNER_NATIVE', commission_amount: 10, shipping_type: 'standard' } });
+    assert.equal(inserted.status, 201);
+    const updated = await rest('service_role', '/affiliate_orders?order_id=eq.CONTAIN-CALLBACK-ORDER', { method: 'PATCH', body: { commission_amount: 0 }, headers: { Prefer: 'return=representation' } });
+    assert.equal(updated.status, 200); assert.equal(Number(updated.data[0].commission_amount), 0);
+  });
+  await t.test('native private Merit reservation and held-promo guard still work after public-role containment', async () => {
+    await sql("INSERT INTO user_promos(id,email,code,rate,used) VALUES('contain-merit','buyer@example.test','MERIT_NATIVE',0.1,false);");
+    const value = quote({ p_user_promo_id: 'contain-merit', p_amount_cents: 11330 });
+    value.p_snapshot = { ...value.p_snapshot, total: 113.3, promoCode: 'MERIT_NATIVE', promoDiscount: 10, customerCardSurcharge: 3.3 };
+    const created = await reserve(value); assert.equal(created.status, 200); assert.equal(created.data.created, true);
+    assert.equal(await scalar("SELECT to_jsonb(used) FROM user_promos WHERE id='contain-merit';"), true);
+    for (const role of ['authenticated', 'service_role']) {
+      const deleted = await rest(role, '/user_promos?id=eq.contain-merit', { method: 'DELETE', sub: supportId });
+      assert.equal(deleted.status, 400); assert.equal(deleted.data.message, 'MERIT_PROMO_RESERVED');
+      const edited = await rest(role, '/user_promos?id=eq.contain-merit', { method: 'PATCH', sub: supportId, body: { rate: 1 } });
+      assert.equal(edited.status, 400); assert.equal(edited.data.message, 'MERIT_PROMO_RESERVED');
+    }
+    const binding = await rpc('bind_merit_checkout', bindBody(created.data.attempt));
+    const paid = await rpc('finalize_merit_checkout', finalBody(binding.data.attempt));
+    assert.equal(paid.data.paid, true);
+  });
+  await t.test('native Paylio owner-executed effects and full Store Credit completion retain private write authority', async () => {
+    await sql("INSERT INTO user_promos(id,email,code,rate,used) VALUES('contain-paylio','buyer@example.test','PAYLIO_NATIVE',0.1,false);");
+    const id = 'INV-CONTAINPAYLIO', request = { ...paylioRequest, p_id: randomUUID(), p_order_id: id, p_quote: { ...paylioRequest.p_quote, promoCode: 'PAYLIO_NATIVE' } };
+    await sql(`INSERT INTO orders(id,user_id,email,status,total,metadata) VALUES(${q(id)},${q(customerId)},'buyer@example.test','pending',123.45,'{"storeCreditUsed":0}');`);
+    const reserved = await rpc('reserve_paylio_checkout', request); assert.equal(reserved.data.created, true);
+    const binding = { ...paylioBind(), p_id: request.p_id, p_payment_id: 'paylio_containment', p_checkout_url: 'https://paylio.org/pay/paylio_containment' };
+    assert.equal((await rpc('bind_paylio_checkout', binding)).data.state, 'ready');
+    assert.equal((await rpc('finalize_paylio_checkout', { ...paylioFinalize(), p_id: request.p_id, p_payment_id: binding.p_payment_id })).data.transitioned, true);
+    assert.deepEqual((await rpc('apply_paylio_order_effects', { p_id: request.p_id })).data, { ok: true, applied: true, orderId: id });
+    assert.equal(await scalar("SELECT to_jsonb(used) FROM user_promos WHERE id='contain-paylio';"), true);
+    assert.deepEqual((await rpc('apply_paylio_order_effects', { p_id: request.p_id })).data, { ok: true, applied: false, orderId: id });
+    const creditSub = randomUUID(), creditEmail = 'promo-containment-credit@example.test', creditId = 'INV-' + randomUUID().replaceAll('-', '').toUpperCase();
+    await sql(`INSERT INTO auth.users VALUES(${q(creditSub)},${q(creditEmail)},now()); INSERT INTO user_credits(email,amount) VALUES(${q(creditEmail)},100);`);
+    const creditBody = { p_customer_email: creditEmail, p_order: { id: creditId, email: creditEmail, status: 'paid', paymentProvider: 'StoreCredit', checkoutFingerprint: 'd'.repeat(64), storeCreditUsed: 30, total: 0, items: [{ name: 'Fixture' }] }, p_store_credit_used: 30, p_user_promo_id: null, p_customer_id: creditSub };
+    assert.equal((await rpc('checkout_store_credit', creditBody)).data.ok, true);
+    assert.equal((await rpc('checkout_store_credit', creditBody)).data.replayed, true);
+    assert.equal(await scalar(`SELECT amount FROM user_credits WHERE email=${q(creditEmail)};`), 70);
+  });
+  await t.test('actual authenticated affiliate view, exact-code public promo lookup and confirmed payout API work against contained native tables', async () => {
+    const affiliateHandler = (await import('../../api/affiliate-account.js')).default;
+    const publicPromoHandler = (await import('../../api/public-promo-code.js')).default;
+    const payoutHandler = (await import('../../api/affiliate-payouts.js')).default;
+    const keys = ['SUPABASE_URL', 'VITE_SUPABASE_URL', 'SUPABASE_ANON_KEY', 'VITE_SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY'];
+    const previous = Object.fromEntries(keys.map(key => [key, process.env[key]])), originalFetch = globalThis.fetch;
+    for (const key of keys) delete process.env[key];
+    Object.assign(process.env, { SUPABASE_URL: origin, SUPABASE_ANON_KEY: 'synthetic-anon', SUPABASE_SERVICE_ROLE_KEY: token('service_role') });
+    let authUser = { id: customerId, email: 'buyer@example.test', email_confirmed_at: '2026-01-01T00:00:00Z' };
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(input); assert.equal(url.origin, origin);
+      if (url.pathname === '/auth/v1/user') return new Response(JSON.stringify(authUser));
+      assert.ok(url.pathname.startsWith('/rest/v1/'));
+      return originalFetch(`${origin}${url.pathname.slice('/rest/v1'.length)}${url.search}`, init);
+    };
+    const response = () => ({ statusCode: 200, headers: {}, setHeader(key, value) { this.headers[key] = value; }, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } });
+    try {
+      const affiliate = response(); await affiliateHandler({ method: 'GET', query: { orders: '1' }, headers: { authorization: 'Bearer synthetic-session' } }, affiliate);
+      assert.equal(affiliate.statusCode, 200, JSON.stringify(affiliate.body)); assert.equal(affiliate.body.affiliate.code, 'PARTNER_NATIVE');
+      assert.ok(affiliate.body.ledgerRows.every(row => row.affiliate_code === 'PARTNER_NATIVE'));
+      assert.equal(affiliate.body.payoutsTotal, 2.5);
+      const ownedView = affiliate.body.codeColumnOrders.find(row => row.id === 'CONTAIN-AFF-ORDER'); assert.ok(ownedView);
+      assert.equal(ownedView.metadata.email, undefined); assert.equal(ownedView.metadata.address, undefined); assert.equal(ownedView.metadata.items[0].address, undefined);
+      const publicPromo = response(); await publicPromoHandler({ method: 'GET', query: { code: 'PUBLIC_NATIVE' }, headers: {} }, publicPromo);
+      assert.equal(publicPromo.statusCode, 200); assert.deepEqual(publicPromo.body, { ok: true, promo: { code: 'PUBLIC_NATIVE', rate: 0.15 } });
+      authUser = { id: supportId, email: 'support@10bottlevalue.co', email_confirmed_at: '2026-01-01T00:00:00Z' };
+      const payout = response(); await payoutHandler({ method: 'POST', headers: { authorization: 'Bearer synthetic-session' }, body: { affiliate_code: 'PARTNER_NATIVE', amount: 1.25 } }, payout);
+      assert.equal(payout.statusCode, 201, JSON.stringify(payout.body));
+      const listed = response(); await payoutHandler({ method: 'GET', headers: { authorization: 'Bearer synthetic-session' } }, listed);
+      assert.equal(listed.statusCode, 200); assert.equal(listed.body.payouts.filter(row => row.affiliate_code === 'PARTNER_NATIVE').reduce((sum, row) => sum + row.amount, 0), 3.75);
+      authUser = { ...authUser, email_confirmed_at: null };
+      const denied = response(); await payoutHandler({ method: 'POST', headers: { authorization: 'Bearer synthetic-session' }, body: { affiliate_code: 'PARTNER_NATIVE', amount: 1.25 } }, denied);
+      assert.equal(denied.statusCode, 403);
+    } finally {
+      globalThis.fetch = originalFetch;
+      for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    }
+    evidence.promoAffiliateAccess.actualApiCompatibility = { affiliateAccount: true, publicExactCodePromo: true, confirmedAdminPayout: true };
+  });
 });
