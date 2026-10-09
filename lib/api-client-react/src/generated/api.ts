@@ -20,18 +20,10 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  CheckoutError,
-  HealthStatus,
-  LookupPublicPromoCodeParams,
-  PublicPromoCodeError,
-  PublicPromoCodeLookupResult,
-  StoreCreditCheckoutInput,
-  StoreCreditCheckoutResult,
-  SupportAttachmentAccessInput,
-  SupportAttachmentAccessResult,
-  SupportAttachmentError,
-  SupportAttachmentUploadInput,
-  SupportAttachmentUploadResult
+  CustomerSignupError,
+  CustomerSignupInput,
+  CustomerSignupResult,
+  HealthStatus
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -139,19 +131,18 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
 
 
-export const getStoreCreditCheckoutUrl = () => {
+export const getCustomerSignupUrl = () => {
 
 
 
 
-  return `/api/store-credit-checkout`
+  return `/api/customer-signup`
 }
 
 /**
- * Verifies the signed-in customer and delegates trusted pricing and atomic credit debit to the checkout service.
- * @summary Place a fully Store Credit-funded order
+ * @summary Create a customer account without email confirmation
  */
-export const storeCreditCheckout = async (storeCreditCheckoutInput: StoreCreditCheckoutInput, options?: Parameters<typeof customFetch>[1]): Promise<StoreCreditCheckoutResult> => {
+export const customerSignup = async (customerSignupInput: CustomerSignupInput, options?: Parameters<typeof customFetch>[1]): Promise<CustomerSignupResult> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -167,12 +158,12 @@ export const storeCreditCheckout = async (storeCreditCheckoutInput: StoreCreditC
     }
     return headers;
   };
-return customFetch<StoreCreditCheckoutResult>(getStoreCreditCheckoutUrl(),
+return customFetch<CustomerSignupResult>(getCustomerSignupUrl(),
   {
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(storeCreditCheckoutInput)
+    body: JSON.stringify(customerSignupInput)
   }
 );}
 
@@ -180,13 +171,13 @@ return customFetch<StoreCreditCheckoutResult>(getStoreCreditCheckoutUrl(),
 
 
 
-export const getStoreCreditCheckoutMutationKey = () => ['storeCreditCheckout'] as const;
+export const getCustomerSignupMutationKey = () => ['customerSignup'] as const;
 
-export const getStoreCreditCheckoutMutationOptions = <TError = ErrorType<CheckoutError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof storeCreditCheckout>>, TError,StoreCreditCheckoutMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof storeCreditCheckout>>, TError,StoreCreditCheckoutMutationVariables, TContext> => {
+export const getCustomerSignupMutationOptions = <TError = ErrorType<CustomerSignupError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof customerSignup>>, TError,CustomerSignupMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof customerSignup>>, TError,CustomerSignupMutationVariables, TContext> => {
 
-const mutationKey = getStoreCreditCheckoutMutationKey();
+const mutationKey = getCustomerSignupMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -196,10 +187,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof storeCreditCheckout>>, StoreCreditCheckoutMutationVariables> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof customerSignup>>, CustomerSignupMutationVariables> = (props) => {
           const {data} = props ?? {};
 
-          return  storeCreditCheckout(data,requestOptions)
+          return  customerSignup(data,requestOptions)
         }
 
 
@@ -209,285 +200,22 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type StoreCreditCheckoutMutationResult = NonNullable<Awaited<ReturnType<typeof storeCreditCheckout>>>
-    export type StoreCreditCheckoutMutationBody = BodyType<StoreCreditCheckoutInput>
-    export type StoreCreditCheckoutMutationError = ErrorType<CheckoutError>
-    export type StoreCreditCheckoutMutationVariables = {data: BodyType<StoreCreditCheckoutInput>}
+    export type CustomerSignupMutationResult = NonNullable<Awaited<ReturnType<typeof customerSignup>>>
+    export type CustomerSignupMutationBody = BodyType<CustomerSignupInput>
+    export type CustomerSignupMutationError = ErrorType<CustomerSignupError>
+    export type CustomerSignupMutationVariables = {data: BodyType<CustomerSignupInput>}
 
     /**
- * @summary Place a fully Store Credit-funded order
+ * @summary Create a customer account without email confirmation
  */
-export const useStoreCreditCheckout = <TError = ErrorType<CheckoutError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof storeCreditCheckout>>, TError,StoreCreditCheckoutMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+export const useCustomerSignup = <TError = ErrorType<CustomerSignupError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof customerSignup>>, TError,CustomerSignupMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
-        Awaited<ReturnType<typeof storeCreditCheckout>>,
+        Awaited<ReturnType<typeof customerSignup>>,
         TError,
-        StoreCreditCheckoutMutationVariables,
+        CustomerSignupMutationVariables,
         TContext
       > => {
-      return useMutation(getStoreCreditCheckoutMutationOptions(options));
-    }
-
-export const getLookupPublicPromoCodeUrl = (params: LookupPublicPromoCodeParams,) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : String(value))
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0 ? `/api/public-promo-code?${stringifiedParams}` : `/api/public-promo-code`
-}
-
-/**
- * Returns only the submitted active public code and its discount rate.
- * @summary Validate one public promo code
- */
-export const lookupPublicPromoCode = async (params: LookupPublicPromoCodeParams, options?: Parameters<typeof customFetch>[1]): Promise<PublicPromoCodeLookupResult> => {
-
-  return customFetch<PublicPromoCodeLookupResult>(getLookupPublicPromoCodeUrl(params),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getLookupPublicPromoCodeQueryKey = (params?: LookupPublicPromoCodeParams,) => {
-    return [
-    `/api/public-promo-code`, ...(params ? [params] : [])
-    ] as const;
-    }
-
-
-export const getLookupPublicPromoCodeQueryOptions = <TData = Awaited<ReturnType<typeof lookupPublicPromoCode>>, TError = ErrorType<PublicPromoCodeError>>(params: LookupPublicPromoCodeParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof lookupPublicPromoCode>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getLookupPublicPromoCodeQueryKey(params);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof lookupPublicPromoCode>>> = ({ signal }) => lookupPublicPromoCode(params, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof lookupPublicPromoCode>>, TError, TData> & { queryKey: QueryKey }
-}
-
-export type LookupPublicPromoCodeQueryResult = NonNullable<Awaited<ReturnType<typeof lookupPublicPromoCode>>>
-export type LookupPublicPromoCodeQueryError = ErrorType<PublicPromoCodeError>
-
-
-/**
- * @summary Validate one public promo code
- */
-
-export function useLookupPublicPromoCode<TData = Awaited<ReturnType<typeof lookupPublicPromoCode>>, TError = ErrorType<PublicPromoCodeError>>(
- params: LookupPublicPromoCodeParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof lookupPublicPromoCode>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-
- ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-
-  const queryOptions = getLookupPublicPromoCodeQueryOptions(params,options)
-
-  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-
-
-
-
-
-
-export const getRequestSupportAttachmentUploadUrlUrl = () => {
-
-
-
-
-  return `/api/support-attachments/upload-url`
-}
-
-/**
- * Creates a short-lived, single-use upload URL. Guest uploads are scoped to an HttpOnly capability cookie.
- * @summary Request a private support attachment upload URL
- */
-export const requestSupportAttachmentUploadUrl = async (supportAttachmentUploadInput: SupportAttachmentUploadInput, options?: Parameters<typeof customFetch>[1]): Promise<SupportAttachmentUploadResult> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Symbol.iterator in h) {
-      return Object.fromEntries(
-        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
-      );
-    }
-    const headers: Record<string, string | readonly string[]> = {};
-    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
-      if (value !== undefined) headers[name] = value;
-    }
-    return headers;
-  };
-return customFetch<SupportAttachmentUploadResult>(getRequestSupportAttachmentUploadUrlUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(supportAttachmentUploadInput)
-  }
-);}
-
-
-
-
-
-export const getRequestSupportAttachmentUploadUrlMutationKey = () => ['requestSupportAttachmentUploadUrl'] as const;
-
-export const getRequestSupportAttachmentUploadUrlMutationOptions = <TError = ErrorType<SupportAttachmentError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestSupportAttachmentUploadUrl>>, TError,RequestSupportAttachmentUploadUrlMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof requestSupportAttachmentUploadUrl>>, TError,RequestSupportAttachmentUploadUrlMutationVariables, TContext> => {
-
-const mutationKey = getRequestSupportAttachmentUploadUrlMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof requestSupportAttachmentUploadUrl>>, RequestSupportAttachmentUploadUrlMutationVariables> = (props) => {
-          const {data} = props ?? {};
-
-          return  requestSupportAttachmentUploadUrl(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type RequestSupportAttachmentUploadUrlMutationResult = NonNullable<Awaited<ReturnType<typeof requestSupportAttachmentUploadUrl>>>
-    export type RequestSupportAttachmentUploadUrlMutationBody = BodyType<SupportAttachmentUploadInput>
-    export type RequestSupportAttachmentUploadUrlMutationError = ErrorType<SupportAttachmentError>
-    export type RequestSupportAttachmentUploadUrlMutationVariables = {data: BodyType<SupportAttachmentUploadInput>}
-
-    /**
- * @summary Request a private support attachment upload URL
- */
-export const useRequestSupportAttachmentUploadUrl = <TError = ErrorType<SupportAttachmentError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestSupportAttachmentUploadUrl>>, TError,RequestSupportAttachmentUploadUrlMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof requestSupportAttachmentUploadUrl>>,
-        TError,
-        RequestSupportAttachmentUploadUrlMutationVariables,
-        TContext
-      > => {
-      return useMutation(getRequestSupportAttachmentUploadUrlMutationOptions(options));
-    }
-
-export const getRequestSupportAttachmentAccessUrlsUrl = () => {
-
-
-
-
-  return `/api/support-attachments/access-urls`
-}
-
-/**
- * Signs only attachments referenced by a message owned by the signed-in customer, a message viewed by support, or a guest capability cookie.
- * @summary Request temporary read URLs for support attachments
- */
-export const requestSupportAttachmentAccessUrls = async (supportAttachmentAccessInput: SupportAttachmentAccessInput, options?: Parameters<typeof customFetch>[1]): Promise<SupportAttachmentAccessResult> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Symbol.iterator in h) {
-      return Object.fromEntries(
-        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
-      );
-    }
-    const headers: Record<string, string | readonly string[]> = {};
-    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
-      if (value !== undefined) headers[name] = value;
-    }
-    return headers;
-  };
-return customFetch<SupportAttachmentAccessResult>(getRequestSupportAttachmentAccessUrlsUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(supportAttachmentAccessInput)
-  }
-);}
-
-
-
-
-
-export const getRequestSupportAttachmentAccessUrlsMutationKey = () => ['requestSupportAttachmentAccessUrls'] as const;
-
-export const getRequestSupportAttachmentAccessUrlsMutationOptions = <TError = ErrorType<SupportAttachmentError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestSupportAttachmentAccessUrls>>, TError,RequestSupportAttachmentAccessUrlsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof requestSupportAttachmentAccessUrls>>, TError,RequestSupportAttachmentAccessUrlsMutationVariables, TContext> => {
-
-const mutationKey = getRequestSupportAttachmentAccessUrlsMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof requestSupportAttachmentAccessUrls>>, RequestSupportAttachmentAccessUrlsMutationVariables> = (props) => {
-          const {data} = props ?? {};
-
-          return  requestSupportAttachmentAccessUrls(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type RequestSupportAttachmentAccessUrlsMutationResult = NonNullable<Awaited<ReturnType<typeof requestSupportAttachmentAccessUrls>>>
-    export type RequestSupportAttachmentAccessUrlsMutationBody = BodyType<SupportAttachmentAccessInput>
-    export type RequestSupportAttachmentAccessUrlsMutationError = ErrorType<SupportAttachmentError>
-    export type RequestSupportAttachmentAccessUrlsMutationVariables = {data: BodyType<SupportAttachmentAccessInput>}
-
-    /**
- * @summary Request temporary read URLs for support attachments
- */
-export const useRequestSupportAttachmentAccessUrls = <TError = ErrorType<SupportAttachmentError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestSupportAttachmentAccessUrls>>, TError,RequestSupportAttachmentAccessUrlsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof requestSupportAttachmentAccessUrls>>,
-        TError,
-        RequestSupportAttachmentAccessUrlsMutationVariables,
-        TContext
-      > => {
-      return useMutation(getRequestSupportAttachmentAccessUrlsMutationOptions(options));
+      return useMutation(getCustomerSignupMutationOptions(options));
     }
 

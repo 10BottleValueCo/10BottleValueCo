@@ -34,6 +34,14 @@ export async function meritPayloadDigest(payload, buyerEmail, surchargeBps, cryp
   return Array.from(new Uint8Array(await cryptoApi.subtle.digest("SHA-256", bytes)), byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
+export function meritOrderIdFromCheckoutKey(checkoutKey) {
+  const key = String(checkoutKey || "");
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(key)) {
+    throw new Error(SESSION_ERROR);
+  }
+  return `INV-${key.replaceAll("-", "").toUpperCase()}`;
+}
+
 export function readMeritAttempt(storage) {
   try {
     const value = JSON.parse(storage.getItem(MERIT_ATTEMPT_STORAGE_KEY) || "null");
@@ -41,13 +49,30 @@ export function readMeritAttempt(storage) {
       || !/^[a-f0-9]{64}$/.test(value?.digest || "")
       || (value.orderId && !/^INV-[A-Z0-9]{6,32}$/i.test(value.orderId))
       || (value.submitted === true && !value.orderId)) return null;
-    return { key: value.key, digest: value.digest, orderId: value.orderId || "", submitted: value.submitted === true, ...(value.createRequested === true ? { createRequested: true } : {}) };
+    const checkoutStartedAt = typeof value.checkoutStartedAt === "string" && Number.isFinite(Date.parse(value.checkoutStartedAt))
+      ? value.checkoutStartedAt
+      : "";
+    return {
+      key: value.key,
+      digest: value.digest,
+      orderId: value.orderId || "",
+      submitted: value.submitted === true,
+      ...(value.createRequested === true ? { createRequested: true } : {}),
+      ...(checkoutStartedAt ? { checkoutStartedAt } : {}),
+    };
   } catch { return null; }
 }
 
 export function saveMeritAttempt(storage, value) {
   // No contact information, OTP token, client secret, or bearer token in storage.
-  storage.setItem(MERIT_ATTEMPT_STORAGE_KEY, JSON.stringify({ key: value.key, digest: value.digest, orderId: value.orderId || "", submitted: value.submitted === true, ...(value.createRequested === true ? { createRequested: true } : {}) }));
+  storage.setItem(MERIT_ATTEMPT_STORAGE_KEY, JSON.stringify({
+    key: value.key,
+    digest: value.digest,
+    orderId: value.orderId || "",
+    submitted: value.submitted === true,
+    ...(value.createRequested === true ? { createRequested: true } : {}),
+    ...(typeof value.checkoutStartedAt === "string" ? { checkoutStartedAt: value.checkoutStartedAt } : {}),
+  }));
 }
 
 export async function verifyMeritCheckoutBuyer(email, otp = globalThis.window?.AttestlyOTP, { signal } = {}) {

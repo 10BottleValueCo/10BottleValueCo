@@ -2,10 +2,12 @@
 // cache-bust
 // @ts-nocheck
 import { publicPaymentMethod } from "../../../shared/payment-method-label.js";
+import { customerSignup } from "@workspace/api-client-react";
 import { Fragment, lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, Search, Tag, UserRound, X } from "lucide-react";
 import { ErrorBoundary } from "./components/error-boundary.tsx";
+import { getAdminInvoiceLabel, getAdminOrderStatusLabel, getAdminPaymentProviderLabel } from "./admin-order-display.js";
 import ShippingPricesPage from "./components/ShippingPricesPage.jsx";
 import worldwideCatalogBackground from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791141018882.webp";
 import { supabase, userFromSupabase, saveAccountCheckoutDetails } from "./supabase.js";
@@ -17,7 +19,7 @@ import { startVisiblePolling } from "./visible-poll.js";
 import { observeAnnouncementHeight } from "./announcement-height.js";
 import { createInfoPageImageWarmup, scheduleInfoPageWarmup } from "./preloadInfoPageImages.js";
 import { createLegacyAttemptManager } from "./legacy-checkout-attempt.js";
-import { buildMeritCheckoutPayload, estimateMeritCreditSplit, meritCheckoutBusinessError, meritCartMatchesOrder, meritOrderCardSurcharge, createMeritApiClient, meritPayloadDigest, readMeritAttempt, saveMeritAttempt, verifyMeritCheckoutBuyer, MERIT_ATTEMPT_STORAGE_KEY } from "./merit-checkout-client.js";
+import { buildMeritCheckoutPayload, estimateMeritCreditSplit, meritCheckoutBusinessError, meritCartMatchesOrder, meritOrderCardSurcharge, createMeritApiClient, meritPayloadDigest, meritOrderIdFromCheckoutKey, readMeritAttempt, saveMeritAttempt, verifyMeritCheckoutBuyer, MERIT_ATTEMPT_STORAGE_KEY } from "./merit-checkout-client.js";
 import { ACCOUNT_AVATARS, getAccountAvatar } from "./account-avatars.js";
 import { track, trackPageView } from "./analytics.js";
 import { useSEO } from "./useSEO.js";
@@ -899,7 +901,7 @@ function TrackingCardIcon({ type }) {
 
 function TrackingCardFrame({ type, children, footer }) {
   return (
-    <div className="rounded-[1.5rem] border border-white/20 bg-black/40 p-6 shadow-[0_10px_30px_rgba(0,0,0,0.08)] md:rounded-[2rem] md:p-8">
+    <div className="rounded-[1.5rem] border border-white/20 bg-black/55 p-6 shadow-[0_10px_30px_rgba(0,0,0,0.08)] md:rounded-[2rem] md:p-8">
       <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-[72px_1px_minmax(0,1fr)] sm:gap-x-5">
         <TrackingCardIcon type={type} />
         <div className="hidden h-[72px] w-px bg-white/20 sm:block" />
@@ -5870,7 +5872,7 @@ export default function App() {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.setTextColor(20, 20, 20);
-    doc.text(String(order.invoiceId || order.id || "—"), margin, y);
+    doc.text(getAdminInvoiceLabel(order), margin, y);
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
     doc.text(fmtDate, W / 2 + 5, y);
@@ -5983,7 +5985,7 @@ export default function App() {
     doc.text(`Shipping method: ${order.shippingType || "standard"}`, margin, y);
     if (order.trackingNumber) { doc.text(`Tracking: ${order.trackingNumber}`, margin + 75, y); }
 
-    doc.save(`Invoice_${order.id || "order"}.pdf`);
+    doc.save(`Invoice_${getAdminInvoiceLabel(order).replace(/[^A-Z0-9-]/gi, "") || "order"}.pdf`);
   }
 
   function updateOrderAdminField(orderId, field, value) {
@@ -8083,6 +8085,26 @@ export default function App() {
     return () => { active = false; };
   }, [meritApi]);
   useEffect(() => {
+    if (page !== "cart" || checkoutStep !== "payment") return undefined;
+    let active = true;
+    const refreshMeritConfig = () => {
+      meritApi.configuration()
+        .then(config => { if (active) setMeritConfig(config); })
+        .catch(() => {});
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refreshMeritConfig();
+    };
+    refreshMeritConfig();
+    window.addEventListener("focus", refreshMeritConfig);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", refreshMeritConfig);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [meritApi, page, checkoutStep]);
+  useEffect(() => {
     if (paymentReturn.provider !== "merit" && meritAttemptRef.current?.submitted && meritAttemptRef.current.orderId) openMeritPending();
   }, []);
   const [wireLoading, setWireLoading] = useState(false);
@@ -9876,7 +9898,6 @@ export default function App() {
   // Lightning orders are capped at $999 against the pre-credit base amount.
   const CASHAPP_LIMIT = 999;
   const cashAppPaymentLabel = "Cash App";
-  const cashAppLightningLabel = tx("via Bitcoin Lightning", "через Bitcoin Lightning", "через Bitcoin Lightning", "über Bitcoin Lightning", "a través de Bitcoin Lightning");
   const cashAppEligibleAmount = Math.max(0, baseTotal - storeCreditApplied);
   const cashAppOverLimit = cashAppEligibleAmount > CASHAPP_LIMIT;
 
@@ -10576,8 +10597,49 @@ export default function App() {
       const previous = meritAttemptRef.current;
       if (previous?.createRequested && previous.digest !== digest) { showMeritReservedAttempt(); return; }
       const attempt = previous?.digest === digest ? previous : { key: window.crypto.randomUUID(), digest, orderId: "", submitted: false };
+      const canonicalOrderId = meritOrderIdFromCheckoutKey(attempt.key);
+      if (attempt.orderId && attempt.orderId !== canonicalOrderId) throw new Error("merit_order_id_mismatch");
+      attempt.orderId = canonicalOrderId;
+      attempt.checkoutStartedAt = attempt.checkoutStartedAt || new Date().toISOString();
       meritAttemptRef.current = attempt;
       saveMeritAttempt(window.sessionStorage, attempt);
+      const checkoutClickOrder = {
+        id: attempt.orderId,
+        invoiceId: getAdminInvoiceLabel({ id: attempt.orderId, paymentProvider: "Merit" }),
+        email: normalizeEmail(currentUser.email),
+        status: "checkout",
+        paymentProvider: "Merit",
+        checkoutStartedAt: attempt.checkoutStartedAt,
+        verificationPending: true,
+        total: Number(finalTotal.toFixed(2)),
+        subtotal: Number(subtotal.toFixed(2)),
+        shipping: Number(shipping.toFixed(2)),
+        shippingType: effectiveShippingType,
+        automaticDiscount: Number(automaticDiscount.toFixed(2)),
+        promoDiscount: Number(promoDiscount.toFixed(2)),
+        promoCode: appliedPromo?.code || "",
+        affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
+        affiliateCode: affiliateTrackingCode,
+        items: cart.map(item => ({
+          name: item.name,
+          dose: item.dose,
+          quantity: item.quantity ?? item.qty ?? 1,
+          price: Number.isFinite(Number(item.price)) ? Number(item.price) : 0,
+          ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}),
+          ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+          ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}),
+        })),
+      };
+      await persistOrderToServer({
+        id: checkoutClickOrder.id,
+        email: checkoutClickOrder.email,
+        status: checkoutClickOrder.status,
+        total: checkoutClickOrder.total,
+        metadata: checkoutClickOrder,
+      });
+      if (meritInputsRef.current !== requestedInputs || meritSelectionRef.current.method !== "stripe" || meritSelectionRef.current.step !== "payment") {
+        throw new Error("checkout_changed");
+      }
       const verificationAbort = new AbortController();
       meritVerificationAbortRef.current = verificationAbort;
       const proof = await verifyMeritCheckoutBuyer(currentUser.email, undefined, { signal: verificationAbort.signal });
@@ -10588,7 +10650,7 @@ export default function App() {
       attempt.createRequested = payload.useStoreCredit === true;
       saveMeritAttempt(window.sessionStorage, attempt);
       const result = await meritApi.create({ checkoutKey: attempt.key, payload, proof });
-      attempt.orderId = result.session.orderId;
+      if (result.session.orderId !== attempt.orderId) throw new Error("merit_order_id_mismatch");
       if (result.session.storeCreditUsedCents === 0) attempt.createRequested = false;
       if (result.paid === true) {
         // A recovered create response may describe an already-paid attempt.
@@ -10611,6 +10673,23 @@ export default function App() {
         }
         return;
       }
+      const meritOrder = {
+        ...result.order,
+        id: result.session.orderId,
+        invoiceId: getAdminInvoiceLabel({ ...result.order, id: result.session.orderId, paymentProvider: "Merit" }),
+        email: normalizeEmail(currentUser.email),
+        status: "checkout",
+        paymentProvider: "Merit",
+        checkoutStartedAt: attempt.checkoutStartedAt,
+        verificationPending: false,
+      };
+      await persistOrderToServer({
+        id: meritOrder.id,
+        email: meritOrder.email,
+        status: meritOrder.status,
+        total: meritOrder.total,
+        metadata: meritOrder,
+      });
       saveMeritAttempt(window.sessionStorage, attempt);
       if (meritInputsRef.current !== requestedInputs || meritSelectionRef.current.method !== "stripe" || meritSelectionRef.current.step !== "payment") throw new Error("checkout_changed");
       setOrderNumber(result.session.orderId);
@@ -12070,62 +12149,78 @@ export default function App() {
       }
 
       setAccountMessage(tx("Creating account…", "Создаём аккаунт…", "Створюємо акаунт…", "Konto wird erstellt…", "Creando cuenta…"));
-      requireSignupVerificationRef.current = true;
-      let signUpData;
-      let signUpError;
+      requireSignupVerificationRef.current = false;
+      const affiliateCode = (activeAffiliateCode || browserAffiliateCode || registrationPromoCode || "").trim().toUpperCase();
       try {
-        ({ data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              affiliateCode: (activeAffiliateCode || browserAffiliateCode || registrationPromoCode || "").trim().toUpperCase(),
-              promoLockedAt: (activeAffiliateCode || browserAffiliateCode || registrationPromoCode) ? new Date().toISOString() : "",
-            },
-          },
-        }));
+        const signupResult = await customerSignup({ email, password, affiliateCode });
+        if (signupResult?.ok !== true) throw new Error("signup_failed");
       } catch (error) {
-        requireSignupVerificationRef.current = false;
-        setAccountMessage(error?.message || tx(
-          "Could not create the account. Please try again.",
-          "Не удалось создать аккаунт. Попробуйте ещё раз.",
-          "Не вдалося створити акаунт. Спробуйте ще раз.",
-          "Das Konto konnte nicht erstellt werden. Bitte versuchen Sie es erneut.",
-          "No se pudo crear la cuenta. Inténtalo de nuevo."
-        ));
+        setAccountMessage(error?.status === 429
+          ? tx(
+              "Too many attempts. Please wait and try again.",
+              "Слишком много попыток. Подождите и попробуйте снова.",
+              "Забагато спроб. Зачекайте й спробуйте знову.",
+              "Zu viele Versuche. Bitte warten Sie und versuchen Sie es erneut.",
+              "Demasiados intentos. Espera e inténtalo de nuevo."
+            )
+          : tx(
+              "Could not create the account. Please try again or sign in.",
+              "Не удалось создать аккаунт. Попробуйте ещё раз или войдите.",
+              "Не вдалося створити акаунт. Спробуйте ще раз або увійдіть.",
+              "Das Konto konnte nicht erstellt werden. Bitte versuchen Sie es erneut oder melden Sie sich an.",
+              "No se pudo crear la cuenta. Inténtalo de nuevo o inicia sesión."
+            ));
         return;
       }
 
-      if (signUpError) {
-        requireSignupVerificationRef.current = false;
-        setAccountMessage(signUpError.message);
-        return;
+      sessionStorage.removeItem("tbv-pw-recovery");
+      sessionStorage.removeItem("tbv-recovery-at");
+      sessionStorage.removeItem("tbv-recovery-rt");
+      let signInData;
+      let signInError;
+      try {
+        ({ data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password }));
+      } catch {
+        signInError = new Error("automatic_signin_failed");
       }
 
-      if (signUpData?.session) {
-        await supabase.auth.signOut();
+      if (signInError || !signInData?.session?.user) {
+        setAuthMode("signin");
+        setAccountForm({ email, password: "", confirmPassword: "" });
         setAccountMessage(tx(
-          "Email confirmation is not enabled for this site. Please contact support before signing in.",
-          "Подтверждение email не включено на этом сайте. Перед входом обратитесь в поддержку.",
-          "Підтвердження email не ввімкнено на цьому сайті. Перед входом зверніться до служби підтримки.",
-          "Die E-Mail-Bestätigung ist auf dieser Website nicht aktiviert. Bitte wenden Sie sich vor der Anmeldung an den Support.",
-          "La confirmación por email no está activada en este sitio. Contacta con soporte antes de iniciar sesión."
+          "Account created. Please sign in to continue.",
+          "Аккаунт создан. Войдите, чтобы продолжить.",
+          "Акаунт створено. Увійдіть, щоб продовжити.",
+          "Konto erstellt. Bitte melden Sie sich an, um fortzufahren.",
+          "Cuenta creada. Inicia sesión para continuar."
         ));
         return;
       }
 
-      setSignupVerificationEmail(email);
+      const newUser = userFromSupabase(signInData.session.user);
+      const confirmedAffiliateCode = String(newUser?.affiliateCode || affiliateCode).trim().toUpperCase();
+      setCurrentUser(newUser);
+      syncUserPaidOrders(newUser.email);
+      fetchUserPromos(newUser.email, appliedPromo);
+      loadStoreCredit(newUser.email);
+      setAccountForm({ email: newUser.email, password: "", confirmPassword: "" });
+      setAccountPromoCodeInput("");
+      setSignupVerificationEmail("");
       setSignupVerificationCode("");
-      setPendingRegistrationPromoCode(registrationPromoCode);
-      setAccountForm({ email, password: "", confirmPassword: "" });
-      setAuthMode("verify");
-      setAccountMessage(tx(
-        "A six-digit code was sent. Check your inbox and spam folder.",
-        "Отправили код из шести цифр. Проверьте входящие и папку со спамом.",
-        "Надіслали код із шести цифр. Перевірте вхідні та папку зі спамом.",
-        "Ein sechsstelliger Code wurde gesendet. Prüfen Sie Ihren Posteingang und Spam-Ordner.",
-        "Enviamos un código de seis dígitos. Revisa tu bandeja de entrada y correo no deseado."
-      ));
+      setPendingRegistrationPromoCode("");
+      setAuthMode("signin");
+      if (confirmedAffiliateCode) {
+        setActiveAffiliateCode(confirmedAffiliateCode);
+        try { localStorage.setItem("tbv-active-affiliate", confirmedAffiliateCode); } catch {}
+      } else {
+        setActiveAffiliateCode("");
+        try { localStorage.removeItem("tbv-active-affiliate"); } catch {}
+      }
+      setAccountMessage("");
+      if (pendingCheckoutAfterAuth && cart.length > 0) {
+        setPendingCheckoutAfterAuth(false);
+        setPage("cart");
+      }
       return;
     }
 
@@ -13065,9 +13160,7 @@ export default function App() {
     page === "account" && Boolean(currentUser) && authMode !== "reset";
   const currentAccountAvatar = getAccountAvatar(currentUser?.avatarId);
   const rawPageBackdropImage =
-    page === "admin"
-      ? laboratoryBackgroundImage
-      : page === "faq"
+    page === "faq"
       ? faqBackgroundImage
       : accountDashboardBackdrop
       ? laboratoryBackgroundImage
@@ -13076,12 +13169,14 @@ export default function App() {
       : page === "contact" || page === "track" || showAccountLoginBackdrop
       ? laboratoryBackgroundImage
       : null;
-  const pageBackdropImage = rawPageBackdropImage
+  const pageBackdropImage = page !== "admin" && rawPageBackdropImage
     ? getPreloadedDisplayImageUrl(rawPageBackdropImage)
     : null;
   const cachedCatalogBackground = getPreloadedDisplayImageUrl(worldwideCatalogBackground);
+  const catalogBackgroundOverlay =
+    ["contact", "track", "account"].includes(page) ? "0.46" : "0.38";
   const catalogBackgroundStyle = {
-    backgroundImage: `linear-gradient(rgba(18, 20, 22, 0.38), rgba(18, 20, 22, 0.38)), url("${cachedCatalogBackground}")`,
+    backgroundImage: `linear-gradient(rgba(18, 20, 22, ${catalogBackgroundOverlay}), rgba(18, 20, 22, ${catalogBackgroundOverlay})), url("${cachedCatalogBackground}")`,
     backgroundPosition: "center top",
     backgroundSize: "cover",
     backgroundAttachment: "fixed",
@@ -13091,6 +13186,8 @@ export default function App() {
     "--tbv-catalog-background-image": catalogBackgroundStyle.backgroundImage,
   };
   const usesCatalogBackground = page === "shop" || page === "product" || page === "us-warehouse" || page === "cart";
+  const usesWorldwideBackground =
+    usesCatalogBackground || ["contact", "track", "account"].includes(page);
   const openSupportAccountAuth = (mode) => {
     setContactModalOpen(false);
     setReplyPreview(null);
@@ -13151,22 +13248,22 @@ export default function App() {
 
       {/* Contact modal */}
       {contactModalOpen && (
-        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/70 px-4" onClick={() => setContactModalOpen(false)}>
-          <div className="w-full max-w-xl rounded-[2rem] bg-[#525252] shadow-[0_32px_80px_rgba(0,0,0,0.5)] flex flex-col max-h-[88vh]" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/20 px-4" onClick={() => setContactModalOpen(false)}>
+          <div className="w-full max-w-xl rounded-[1.65rem] border border-white/10 bg-[#111416]/95 shadow-[0_36px_100px_rgba(0,0,0,0.65)] backdrop-blur-2xl flex flex-col max-h-[88vh]" onClick={(e) => e.stopPropagation()}>
 
             {/* Header */}
-            <div className="flex items-center justify-between px-6 pt-6 pb-4 shrink-0">
+            <div className="flex items-center justify-between border-b border-white/[0.08] px-6 pt-6 pb-4 shrink-0">
               <div>
-                <div className="text-[10px] uppercase tracking-[0.26em] text-white/50">Support</div>
-                <h2 className="mt-0.5 text-lg font-semibold text-white leading-tight">
+                <div className="text-[10px] uppercase tracking-[0.28em] text-emerald-300/75">Support</div>
+                <h2 className="mt-1 text-lg font-semibold leading-tight tracking-[-0.02em] text-white">
                   {userInboxMessages.length > 0 ? `Messages (${userInboxMessages.length})` : "Contact us"}
                 </h2>
               </div>
-              <button onClick={() => setContactModalOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition">✕</button>
+              <button onClick={() => setContactModalOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.035] text-white/75 transition hover:border-white/20 hover:bg-white/10 hover:text-white">✕</button>
             </div>
 
             {/* Chat messages area */}
-            <div ref={inboxScrollRef} className="flex-1 overflow-y-auto overscroll-contain mx-4 mb-2 flex flex-col gap-2.5 rounded-2xl border border-white/8 bg-black/25 px-3 pt-3 pb-3 min-h-[120px] [&::-webkit-scrollbar]:w-[6px] [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/40 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-white/60">
+            <div ref={inboxScrollRef} className="mx-4 mb-2 flex min-h-[120px] flex-1 flex-col gap-3.5 overflow-y-auto overscroll-contain rounded-2xl border border-white/[0.09] bg-[#080b0c] px-3 pt-3 pb-3 [&::-webkit-scrollbar]:w-[6px] [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25 [&::-webkit-scrollbar-thumb]:hover:bg-emerald-300/50">
               {!currentUser?.email ? (
                 <div className="m-auto max-w-sm px-4 py-8 text-center text-sm leading-6 text-white/65">
                   Sign in or create an account to view your support messages.
@@ -13179,10 +13276,10 @@ export default function App() {
                 </div>
               )}
               {userInboxLoading && userInboxMessages.length === 0 && !userInboxError && (
-                <div className="py-10 text-center text-white/50 text-sm">Loading messages…</div>
+                <div className="py-10 text-center text-sm text-white/45">Loading messages…</div>
               )}
               {!userInboxLoading && !userInboxError && userInboxMessages.length === 0 && (
-                <div className="py-10 text-center text-white/25 text-sm">No messages yet — send us one below!</div>
+                <div className="py-10 text-center text-sm text-white/35">No messages yet — send us one below!</div>
               )}
               {buildSupportTimeline(userInboxMessages).map(({ msg, type }) => {
                 const fmt = (d) => d ? new Date(d).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
@@ -13237,14 +13334,14 @@ export default function App() {
                           </div>
                         ) : (
                           <div className="group flex flex-col items-end gap-1 max-w-[80%]">
-                            <div className="flex items-center gap-0.5 self-end rounded-full border border-white/20 bg-[#2c2c2c] px-2 py-1 shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity">
+                              <div className="flex items-center gap-0.5 self-end rounded-full border border-white/10 bg-[#111716] px-2 py-1 shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity">
                               {USER_REACTION_EMOJIS.map(e => (
                                 <button key={e} onClick={() => toggleReaction(rKeySent, e)} className={`text-[16px] leading-none hover:scale-125 active:scale-110 transition-transform px-0.5 ${msgReactions[rKeySent]?.[e] ? "opacity-100" : "opacity-60 hover:opacity-100"}`}>{e}</button>
                               ))}
                             </div>
-                            <div id={chatMsgDomId(msg.id, "msg")} className={`rounded-2xl rounded-br-sm bg-white/15 border border-white/10 px-3.5 py-2.5 transition-colors duration-500 ${highlightedMsgKey === chatMsgDomId(msg.id, "msg") ? "ring-2 ring-sky-400 bg-sky-400/25" : ""}`}>
+                            <div id={chatMsgDomId(msg.id, "msg")} className={`rounded-2xl rounded-br-sm border border-emerald-300/15 bg-[#17201c] px-3.5 py-2.5 shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition-colors duration-500 ${highlightedMsgKey === chatMsgDomId(msg.id, "msg") ? "ring-2 ring-sky-400 bg-sky-400/25" : ""}`}>
                               <div className="text-sm text-white leading-relaxed break-words overflow-hidden">{renderMsgContent(msg.message, msg.id, "message")}</div>
-                              <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-white/30">
+                              <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-white/40">
                                 <span>{fmt(msg.created_at)}</span>
                                 {msg.admin_reply
                                   ? <span title="Support replied in the site inbox — not an email delivery receipt" className="text-emerald-400 font-bold tracking-[-0.05em]">✓✓</span>
@@ -13254,7 +13351,7 @@ export default function App() {
                             {activeSent.length > 0 && (
                               <div className="flex flex-wrap gap-1 justify-end">
                                 {activeSent.map(e => (
-                                  <button key={e} onClick={() => toggleReaction(rKeySent, e)} className="flex items-center gap-0.5 rounded-full border border-white/25 bg-white/10 px-2 py-0.5 text-[13px] leading-none hover:bg-white/20 transition active:scale-95">{e}</button>
+                                  <button key={e} onClick={() => toggleReaction(rKeySent, e)} className="flex items-center gap-0.5 rounded-full border border-emerald-300/20 bg-[#121815] px-2 py-0.5 text-[13px] leading-none hover:bg-white/10 transition active:scale-95">{e}</button>
                                 ))}
                               </div>
                             )}
@@ -13264,24 +13361,24 @@ export default function App() {
                     )}
                     {type === "received" && (
                       <div className="flex items-end gap-2 group">
-                        <div className="w-6 h-6 rounded-full bg-emerald-400/20 flex items-center justify-center text-[10px] text-emerald-300 font-bold shrink-0 mb-0.5 self-end">S</div>
+                        <div className="w-6 h-6 rounded-full border border-emerald-300/20 bg-emerald-400/10 flex items-center justify-center text-[10px] text-emerald-300 font-bold shrink-0 mb-0.5 self-end">S</div>
                         <div className="group flex flex-col items-start gap-1 max-w-[80%]">
-                          <div className="flex items-center gap-0.5 self-start rounded-full border border-white/20 bg-[#2c2c2c] px-2 py-1 shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity">
+                          <div className="flex items-center gap-0.5 self-start rounded-full border border-white/10 bg-[#111716] px-2 py-1 shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity">
                             {USER_REACTION_EMOJIS.map(e => (
                               <button key={e} onClick={() => toggleReaction(rKeyRcvd, e)} className={`text-[16px] leading-none hover:scale-125 active:scale-110 transition-transform px-0.5 ${msgReactions[rKeyRcvd]?.[e] ? "opacity-100" : "opacity-60 hover:opacity-100"}`}>{e}</button>
                             ))}
                           </div>
-                          <div id={chatMsgDomId(msg.id, "reply")} className={`rounded-2xl rounded-bl-sm bg-black/40 border border-white/10 px-3.5 py-2.5 transition-colors duration-500 ${highlightedMsgKey === chatMsgDomId(msg.id, "reply") ? "ring-2 ring-sky-400 bg-sky-400/20" : ""}`}>
+                          <div id={chatMsgDomId(msg.id, "reply")} className={`rounded-2xl rounded-bl-sm border border-white/[0.08] bg-[#15191b] px-3.5 py-2.5 transition-colors duration-500 ${highlightedMsgKey === chatMsgDomId(msg.id, "reply") ? "ring-2 ring-sky-400 bg-sky-400/20" : ""}`}>
                             <div className="text-sm text-white/90 leading-relaxed break-words overflow-hidden">{renderMsgContent(msg.admin_reply, msg.id, "admin_reply")}</div>
-                            <div className="mt-1 flex items-center gap-2 text-[10px] text-white/30">
+                            <div className="mt-1 flex items-center gap-2 text-[10px] text-white/40">
                               <span>{fmt(msg.replied_at || msg.created_at)}</span>
-                              <button onClick={() => setReplyPreview(makeQuoteSnippet(msg.admin_reply, msg.id, "reply"))} className="flex items-center gap-0.5 font-semibold text-sky-300/90 hover:text-sky-200 transition-colors"><span>↩</span>Reply</button>
+                              <button onClick={() => setReplyPreview(makeQuoteSnippet(msg.admin_reply, msg.id, "reply"))} className="flex items-center gap-0.5 font-semibold text-emerald-300/90 hover:text-emerald-200 transition-colors"><span>↩</span>Reply</button>
                             </div>
                           </div>
                           {activeRcvd.length > 0 && (
                             <div className="flex flex-wrap gap-1 ml-1">
                               {activeRcvd.map(e => (
-                                <button key={e} onClick={() => toggleReaction(rKeyRcvd, e)} className="flex items-center gap-0.5 rounded-full border border-white/25 bg-white/10 px-2 py-0.5 text-[13px] leading-none hover:bg-white/20 transition active:scale-95">{e}</button>
+                                  <button key={e} onClick={() => toggleReaction(rKeyRcvd, e)} className="flex items-center gap-0.5 rounded-full border border-emerald-300/20 bg-[#121815] px-2 py-0.5 text-[13px] leading-none hover:bg-white/10 transition active:scale-95">{e}</button>
                               ))}
                             </div>
                           )}
@@ -13289,15 +13386,15 @@ export default function App() {
                       </div>
                     )}
                     {type === "sent" && !msg.admin_reply && (
-                      <p className="text-right text-[10px] text-white/25 pr-1 italic">Waiting for reply…</p>
+                      <p className="text-right text-[10px] text-white/35 pr-1 italic">Waiting for reply…</p>
                     )}
                   </div>
                 );
               })}
               {adminIsTyping && (
                 <div className="flex items-end gap-2 mt-1">
-                  <div className="w-6 h-6 rounded-full bg-emerald-400/20 flex items-center justify-center text-[10px] text-emerald-300 font-bold shrink-0">S</div>
-                  <div className="rounded-2xl rounded-bl-sm bg-black/40 border border-white/10 px-3.5 py-3">
+                  <div className="w-6 h-6 rounded-full border border-emerald-300/20 bg-emerald-400/10 flex items-center justify-center text-[10px] text-emerald-300 font-bold shrink-0">S</div>
+                  <div className="rounded-2xl rounded-bl-sm border border-white/[0.08] bg-[#15191b] px-3.5 py-3">
                     <div className="flex gap-1.5 items-center">
                       <span className="inline-block w-1.5 h-1.5 rounded-full bg-white/50 animate-bounce" style={{animationDelay:"0ms"}}/>
                       <span className="inline-block w-1.5 h-1.5 rounded-full bg-white/50 animate-bounce" style={{animationDelay:"160ms"}}/>
@@ -13313,7 +13410,7 @@ export default function App() {
             {/* Input area */}
             <div className="px-4 pb-5 flex flex-col gap-2 shrink-0">
               {!currentUser?.email ? (
-                <div className="flex flex-col items-center gap-3 rounded-2xl border border-white/10 bg-black/15 px-4 py-4 text-center">
+                  <div className="flex flex-col items-center gap-3 rounded-2xl border border-white/10 bg-[#0b0e0f] px-4 py-4 text-center">
                   <p className="text-xs leading-5 text-white/55">Support chat is available to signed-in customers.</p>
                   <div className="flex flex-wrap justify-center gap-2">
                     <button
@@ -13336,14 +13433,14 @@ export default function App() {
                 <>
               <input ref={userFileInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAndSendAttachment(f, sendAttachmentAsUserMessage); e.target.value = ''; }} />
               {replyPreview && (
-                <div className="flex items-center gap-2 rounded-xl border-l-2 border-emerald-400/60 bg-white/5 px-3 py-2">
+                <div className="flex items-center gap-2 rounded-xl border-l-2 border-emerald-400/60 bg-[#171b1b] px-3 py-2">
                   <div className="flex-1 min-w-0 text-xs text-white/50 italic truncate">Replying to: {replyPreview.text}</div>
                   <button onClick={() => setReplyPreview(null)} className="shrink-0 text-white/40 hover:text-white transition text-sm">✕</button>
                 </div>
               )}
               <div className="relative flex items-end gap-2">
                 {userEmojiOpen && (
-                  <div className="absolute bottom-full mb-2 left-0 z-50 rounded-2xl border border-white/20 bg-[#1e1e1e] p-2 shadow-2xl w-64">
+                  <div className="absolute bottom-full mb-2 left-0 z-50 w-64 rounded-2xl border border-white/10 bg-[#101416] p-2 shadow-2xl">
                     <div className="grid grid-cols-8 gap-0.5">
                       {["😊","😂","❤️","👍","🙏","😍","🔥","✅","💯","😅","🤔","👏","🎉","😢","😎","💪","🤝","👋","⭐","🚀","😉","🥳","😤","😬","😆","🫡","🙌","💥","⚡","🎯","🫶","😇","🥰","😋","🤩","😏","😔","😞","😓","🤗","🫠","😑","🤭","🙃","😌","🥹","😀","😃"].map(e => (
                         <button key={e} onClick={() => { setContactForm(f => ({ ...f, message: (f.message + e).slice(0, 1000) })); setUserEmojiOpen(false); }}
@@ -13369,22 +13466,22 @@ export default function App() {
                     onPaste={(e) => { const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/')); if (item) { e.preventDefault(); const f = item.getAsFile(); if (f) uploadAndSendAttachment(f, sendAttachmentAsUserMessage); } }}
                     rows={2}
                     maxLength={1000}
-                    className="w-full rounded-2xl border border-white/15 bg-black/20 px-4 py-2.5 text-sm text-white placeholder:text-white/30 outline-none resize-none"
+                    className="w-full resize-none rounded-2xl border border-white/10 bg-[#0b0e0f] px-4 py-2.5 text-sm text-white placeholder:text-white/35 outline-none transition focus:border-emerald-300/35 focus:ring-2 focus:ring-emerald-300/10"
                   />
                   <div className={`text-right text-[10px] pr-1 ${contactForm.message.length >= 900 ? "text-amber-300/90" : "text-white/20"}`}>{contactForm.message.length}/1000 symbols max</div>
                 </div>
                 <div className="flex flex-col gap-1.5 shrink-0">
                   <div className="flex gap-1.5">
-                    <button onClick={() => userFileInputRef.current?.click()} disabled={chatAttachmentUploading} title="Send image" className="w-9 h-9 rounded-full border border-white/15 bg-black/20 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition disabled:opacity-40">
+                    <button onClick={() => userFileInputRef.current?.click()} disabled={chatAttachmentUploading} title="Send image" className="w-9 h-9 rounded-full border border-white/10 bg-white/[0.035] flex items-center justify-center text-white/65 hover:text-white hover:bg-white/10 transition disabled:opacity-40">
                       {chatAttachmentUploading ? <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> : <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>}
                     </button>
-                    <button onClick={() => setUserEmojiOpen(v => !v)} title="Emoji" className="w-9 h-9 rounded-full border border-white/15 bg-black/20 flex items-center justify-center text-[18px] hover:bg-white/10 transition">😊</button>
+                    <button onClick={() => setUserEmojiOpen(v => !v)} title="Emoji" className="w-9 h-9 rounded-full border border-white/10 bg-white/[0.035] flex items-center justify-center text-[18px] text-white/75 hover:bg-white/10 hover:text-white transition">😊</button>
                   </div>
                   <button
                   ref={contactMessageSendButtonRef}
                   onClick={() => sendContactMessage(contactMessageInputRef.current?.value ?? contactForm.message)}
                   disabled={contactSending || !contactForm.message.trim()}
-                  className="rounded-full bg-emerald-400 px-5 py-2.5 text-[11px] font-black uppercase tracking-[0.15em] text-black hover:bg-emerald-300 disabled:opacity-30 transition"
+                  className="rounded-full border border-emerald-300/25 bg-emerald-400 px-5 py-2.5 text-[11px] font-black uppercase tracking-[0.15em] text-[#07110c] shadow-[0_6px_18px_rgba(0,0,0,0.25)] hover:bg-emerald-300 disabled:opacity-30 transition"
                 >{contactSending ? "…" : "Send"}</button>
                 </div>
               </div>
@@ -13399,10 +13496,10 @@ export default function App() {
         className="relative md:sticky md:top-0 z-[100]"
         data-affiliate-backdrop={page === "affiliate" ? "true" : undefined}
         data-mobile-announcement="true"
-        style={usesCatalogBackground ? catalogBackgroundStyle : undefined}
+        style={usesWorldwideBackground ? catalogBackgroundStyle : undefined}
       >
         {/* Mobile: thin ticker */}
-        <div data-nosnippet className={`lg:hidden w-full overflow-hidden ${usesCatalogBackground ? "bg-black/30 backdrop-blur-sm" : "bg-black"} px-3 py-1.5 text-[8px] font-semibold uppercase leading-[1.35] tracking-[0.06em] text-white`}>
+        <div data-nosnippet className={`lg:hidden w-full overflow-hidden ${usesWorldwideBackground ? "bg-black/30 backdrop-blur-sm" : "bg-black"} px-3 py-1.5 text-[8px] font-semibold uppercase leading-[1.35] tracking-[0.06em] text-white`}>
           <div className="mx-auto max-w-[720px]">
             <div className="shipping-announcement-viewport w-full overflow-hidden">
               <div className="shipping-announcement-track">
@@ -13423,7 +13520,7 @@ export default function App() {
           </div>
         </div>
         {/* Desktop: static row */}
-        <div data-nosnippet className={`hidden lg:flex relative z-[100] w-full ${usesCatalogBackground ? "bg-black/30 backdrop-blur-sm" : "bg-black"} px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white items-center justify-center gap-4`}>
+        <div data-nosnippet className={`hidden lg:flex relative z-[100] w-full ${usesWorldwideBackground ? "bg-black/30 backdrop-blur-sm" : "bg-black"} px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white items-center justify-center gap-4`}>
           <span className="text-center leading-tight">{i18n(legal.ruoStrict)}</span>
           <span className="text-white/30 font-light shrink-0">|</span>
           <span className="whitespace-nowrap shrink-0">US WAREHOUSE FREE SHIPPING</span>
@@ -13494,7 +13591,7 @@ export default function App() {
         </div>
       )}
       <div
-        className={`tbv-app-shell min-h-screen ${page === "admin" ? "bg-[#0a0c10]" : "bg-[#8f8f8f]"} text-white ${page === "home" ? "tbv-app-shell--home" : ""} ${usesCatalogBackground ? "tbv-app-shell--catalog-background" : ""} ${pageBackdropImage ? "tbv-app-shell--photo-backdrop" : ""} ${usesInfoPageBackdrop ? "tbv-app-shell--info-background" : ""}`}
+        className={`tbv-app-shell min-h-screen bg-[#8f8f8f] text-white ${page === "home" ? "tbv-app-shell--home" : ""} ${usesWorldwideBackground ? "tbv-app-shell--catalog-background" : ""} ${pageBackdropImage ? "tbv-app-shell--photo-backdrop" : ""} ${usesInfoPageBackdrop ? "tbv-app-shell--info-background" : ""}`}
         data-affiliate-backdrop={page === "affiliate" ? "true" : undefined}
         style={
           usesInfoPageBackdrop
@@ -13503,11 +13600,15 @@ export default function App() {
                   ? `linear-gradient(180deg, rgba(9, 13, 18, .32), rgba(9, 13, 18, .55)), url("${import.meta.env.BASE_URL}images/affiliate-lab-background.webp")`
                   : `linear-gradient(rgba(76, 80, 86, 0.66), rgba(55, 59, 66, 0.72)), url("${pageBackdropImage}")`,
               }
+            : usesWorldwideBackground
+            ? catalogShellBackgroundStyle
             : pageBackdropImage
             ? {
                 backgroundImage:
                   page === "admin"
                     ? `linear-gradient(rgba(10, 12, 16, 0.78), rgba(10, 12, 16, 0.82)), url("${pageBackdropImage}")`
+                    : ["contact", "track", "account"].includes(page)
+                    ? `url("${pageBackdropImage}")`
                     : `linear-gradient(rgba(76, 80, 86, 0.66), rgba(55, 59, 66, 0.72)), url("${pageBackdropImage}")`,
                 backgroundSize: "cover",
                 backgroundPosition: "center top",
@@ -13518,8 +13619,6 @@ export default function App() {
             ? {
                 "--tbv-home-lower-background": `url("${getPreloadedDisplayImageUrl(`${import.meta.env.BASE_URL}images/homepage-lower-background.webp`)}")`,
               }
-            : usesCatalogBackground
-            ? catalogShellBackgroundStyle
             : undefined
         }
       >
@@ -13532,7 +13631,7 @@ export default function App() {
           className={`sticky top-0 md:top-[var(--tbv-announcement-height)] z-[200] border-b border-white/20 pb-0 md:pb-[3px] ${
             page === "admin"
               ? "bg-black"
-              : pageBackdropImage || usesCatalogBackground
+              : pageBackdropImage || usesWorldwideBackground
               ? "bg-black/20 backdrop-blur-md"
               : "bg-[#8f8f8f]"
           }`}
@@ -15367,6 +15466,11 @@ export default function App() {
                           const netCommission = getAffiliateCommissionNetAmount(order);
                           const available = isAffiliateCommissionAvailable(order);
                           const hasAffiliate = Boolean(order.affiliateCode || order.affiliateOwnerEmail);
+                          const adminInvoiceId = getAdminInvoiceLabel(order);
+                          const adminStatusLabel = getAdminOrderStatusLabel(order);
+                          const adminStatusKey = adminStatusLabel === "Checkout Merit"
+                            ? "checkout"
+                            : String(order.status || "pending").toLowerCase();
                           const orderDate = order.createdAt || order.created_at || "";
                           const formattedDate = orderDate
                             ? new Date(orderDate).toLocaleString(adminDateLocale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
@@ -15378,20 +15482,20 @@ export default function App() {
                             checkout: "border-orange-400/50 bg-orange-400/10 text-orange-300",
                             refunded: "border-red-300/40 bg-red-300/10 text-red-200",
                             cancelled: "border-white/20 bg-white/5 text-white/60",
-                          }[String(order.status || "pending").toLowerCase()] || "border-amber-300/40 bg-amber-300/10 text-amber-200";
+                          }[adminStatusKey] || "border-amber-300/40 bg-amber-300/10 text-amber-200";
 
                           return (
-                            <div key={order.id} className="rounded-[1.4rem] border-2 border-white/40 bg-black/20 px-5 pt-5 pb-3">
+                            <div key={order.id} className="rounded-[1.4rem] border border-white/20 bg-[#202020] px-5 pt-5 pb-3">
                               {/* Header row */}
                               <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div className="flex flex-wrap items-center gap-3">
                                   <input
                                     type="text"
-                                    key={`inv-${order.id}-${order.invoiceId || ""}`}
-                                    defaultValue={order.invoiceId || order.id}
+                                    key={`inv-${order.id}-${adminInvoiceId}`}
+                                    defaultValue={adminInvoiceId}
                                     onBlur={(e) => {
                                       const val = e.target.value.trim();
-                                      const current = order.invoiceId || order.id;
+                                      const current = adminInvoiceId;
                                       if (val && val !== current) {
                                         updateOrderAdminField(order.id, "invoiceId", val);
                                       }
@@ -15401,9 +15505,9 @@ export default function App() {
                                   />
                                   <button
                                     onClick={() => {
-                                      const display = order.invoiceId || order.id;
+                                      const display = adminInvoiceId;
                                       navigator.clipboard.writeText(display).then(() => {
-                                        setAdminMessage("Order ID copied.");
+                                        setAdminMessage("Invoice ID copied.");
                                         window.clearTimeout(window.__tbvAdminMessageTimeout);
                                         window.__tbvAdminMessageTimeout = window.setTimeout(() => setAdminMessage(""), 2000);
                                       });
@@ -15414,7 +15518,7 @@ export default function App() {
                                     Copy Order ID
                                   </button>
                                   <span className={`inline-flex items-center rounded-full border px-2 py-[2px] text-[10px] font-bold uppercase tracking-[0.18em] ${statusColor}`}>
-                                    {String(order.status || "pending")}
+                                    {adminStatusLabel}
                                   </span>
                                   {Array.isArray(order.items) && order.items.some((i) => i.fromWarehouse === "us") && (
                                     <span className="inline-flex items-center gap-1 rounded-full border border-blue-400/50 bg-blue-500/20 px-2 py-[2px] text-[10px] font-bold uppercase tracking-[0.14em] text-blue-300">
@@ -15438,6 +15542,7 @@ export default function App() {
                                   >
                                     <option value="">— provider —</option>
                                     <option value="Stripe">Stripe</option>
+                                    <option value="Merit">Checkout Merit</option>
                                     <option value="CatalystPay BTC">CatalystPay BTC</option>
                                     <option value="CatalystPay ETH">CatalystPay ETH</option>
                                     <option value="CatalystPay USDT">CatalystPay USDT</option>
@@ -15464,13 +15569,15 @@ export default function App() {
                               </div>
                               {order.checkoutStartedAt && String(order.status || "").toLowerCase() === "checkout" && (
                                 <div className="mt-2 rounded-lg border border-orange-400/30 bg-orange-400/5 px-3 py-2 text-[11px] text-orange-300/90">
-                                  ⚠ Clicked "Continue to secure card payment" at {new Date(order.checkoutStartedAt).toLocaleString(adminDateLocale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} — did not complete payment.
+                                  ⚠ {getAdminPaymentProviderLabel(order) === "Checkout Merit"
+                                    ? `Clicked "Verify email and continue" at ${new Date(order.checkoutStartedAt).toLocaleString(adminDateLocale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} — ${order.verificationPending ? "email verification is pending; payment has not started." : "payment is not complete."}`
+                                    : `Clicked "Continue to secure card payment" at ${new Date(order.checkoutStartedAt).toLocaleString(adminDateLocale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} — did not complete payment.`}
                                 </div>
                               )}
 
                               {/* Shipping address */}
                               {(order.firstName || order.lastName || order.address || order.city || order.state || order.postalCode || order.country || order.phone || order.taxId) && (
-                                <div className="mt-2 rounded-lg admin-order-panel-outline bg-black/15 px-3 py-2 text-xs grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                                <div className="mt-2 rounded-lg admin-order-panel-outline bg-[#2a2a2a] px-3 py-2 text-xs grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
                                   {(order.firstName || order.lastName) && (<><span className="text-white/50 uppercase tracking-[0.12em]">Name</span><span className="text-white/85 font-semibold">{[order.firstName, order.lastName].filter(Boolean).join(" ")}</span></>)}
                                   {order.address && (<><span className="text-white/50 uppercase tracking-[0.12em]">Address</span><span className="text-white/70">{order.address}</span></>)}
                                   <><span className="text-white/50 uppercase tracking-[0.12em]">Apt/Suite</span><span className={order.address2 ? "text-white/70" : "text-white/30"}>{order.address2 || "—"}</span></>
@@ -15667,7 +15774,7 @@ export default function App() {
                                   />
                                 );
                                 return (
-                              <div className="mt-3 rounded-lg admin-order-panel-outline bg-black/15 px-3 py-2 text-xs grid grid-cols-[auto_auto] gap-x-4 gap-y-1.5 items-center w-fit">
+                              <div className="mt-3 rounded-lg admin-order-panel-outline bg-[#2a2a2a] px-3 py-2 text-xs grid grid-cols-[auto_auto] gap-x-4 gap-y-1.5 items-center w-fit">
                                 <span className="text-white/50 uppercase tracking-[0.12em]">Subtotal</span>
                                 {priceInput("subtotal", displaySubtotal)}
                                 <span className="text-white/50 uppercase tracking-[0.12em]">Shipping</span>
@@ -17062,7 +17169,7 @@ export default function App() {
                                     style={{borderBottom: isOpen?"none":"1px solid rgba(255,255,255,0.04)",cursor:"pointer"}}
                                     className="hover:bg-white/[0.04] transition-colors">
                                     <td className="px-4 py-2.5 whitespace-nowrap" style={{color:"rgba(255,255,255,0.45)"}}>{fmtDateTime(o.paidAt||o.createdAt)}</td>
-                                    <td className="px-4 py-2.5 whitespace-nowrap font-mono" style={{color:"rgba(255,255,255,0.6)"}}>{o.invoiceId||o.id||"—"}</td>
+                                    <td className="px-4 py-2.5 whitespace-nowrap font-mono" style={{color:"rgba(255,255,255,0.6)"}}>{getAdminInvoiceLabel(o)}</td>
                                     <td className="px-4 py-2.5" style={{color:"rgba(255,255,255,0.75)"}}>
                                       <div className="whitespace-nowrap">{[o.firstName,o.lastName].filter(Boolean).join(" ")||"—"}</div>
                                       <div className="text-[10px] mt-0.5" style={{color:"rgba(255,255,255,0.35)"}}>{o.email||""}</div>
@@ -17076,7 +17183,7 @@ export default function App() {
                                       {calc.profit===null?"?"+ fmtMoney(calc.revenue - calc.totalCogs) :fmtMoney(calc.profit)}
                                       {calc.hasUnknown && <span title="Some items have unknown cost" style={{color:"#fbbf24",marginLeft:4}}>⚠</span>}
                                     </td>
-                                    <td className="px-4 py-2.5 whitespace-nowrap" style={{color:"rgba(255,255,255,0.4)"}}>{o.paymentProvider||"—"}</td>
+                                    <td className="px-4 py-2.5 whitespace-nowrap" style={{color:"rgba(255,255,255,0.4)"}}>{getAdminPaymentProviderLabel(o)}</td>
                                   </tr>
                                   ,isOpen ? (
                                     <tr key={rowKey+"-expand"} style={{borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
@@ -18407,7 +18514,7 @@ export default function App() {
                         {changePasswordMessage ? (
                           <div className="text-sm text-white">{changePasswordMessage}</div>
                         ) : null}
-                        <div className="flex gap-3">
+                        <div className="flex flex-wrap gap-2 md:gap-3">
                           <button
                             type="button"
                             onClick={async () => {
@@ -18421,14 +18528,14 @@ export default function App() {
                               setChangePasswordForm({ newPassword: "", confirmPassword: "" });
                               window.setTimeout(() => { setIsChangingPassword(false); setChangePasswordMessage(""); }, 2000);
                             }}
-                            className="rounded-full bg-white !text-black px-6 py-2 text-[11px] font-extrabold uppercase tracking-[0.22em] shadow-[0_8px_25px_rgba(0,0,0,0.25)] transition hover:bg-white/90"
+                            className="min-h-[44px] whitespace-nowrap rounded-full bg-white !text-black px-3 py-2.5 text-[9px] font-extrabold uppercase tracking-[0.12em] shadow-[0_8px_25px_rgba(0,0,0,0.25)] transition hover:bg-white/90 md:min-h-0 md:px-6 md:py-2 md:text-[11px] md:tracking-[0.22em]"
                           >
                             {tx("Update password", "Обновить пароль", "Оновити пароль", "Passwort aktualisieren", "Actualizar contraseña")}
                           </button>
                           <button
                             type="button"
                             onClick={() => { setIsChangingPassword(false); setChangePasswordForm({ newPassword: "", confirmPassword: "" }); setChangePasswordMessage(""); }}
-                            className="rounded-full border border-white/30 bg-white/10 text-white px-6 py-2 text-[11px] font-extrabold uppercase tracking-[0.22em] transition hover:bg-white/20"
+                            className="min-h-[44px] whitespace-nowrap rounded-full border border-white/30 bg-white/10 text-white px-3 py-2.5 text-[9px] font-extrabold uppercase tracking-[0.12em] transition hover:bg-white/20 md:min-h-0 md:px-6 md:py-2 md:text-[11px] md:tracking-[0.22em]"
                           >
                             {tx("Cancel", "Отмена", "Скасувати", "Abbrechen", "Cancelar")}
                           </button>
@@ -21062,7 +21169,7 @@ export default function App() {
                             type="button"
                             disabled={stripeTemporarilyDisabled}
                             onClick={() => { if (stripeTemporarilyDisabled) return; setPaymentMethod("stripe"); requestAnimationFrame(() => { const el = choosePaymentMethodRef.current; if (!el) return; window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - 130), behavior: "auto" }); }); }}
-                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left ${stripeTemporarilyDisabled ? "border-black/10 bg-white/60 cursor-not-allowed" : paymentMethod === "stripe" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 ${stripeTemporarilyDisabled ? "border-slate-300 bg-slate-50 cursor-not-allowed" : paymentMethod === "stripe" ? "border-black bg-black text-white ring-1 ring-slate-300 shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-slate-300 bg-white text-black hover:border-slate-500 hover:shadow-[0_4px_14px_rgba(0,0,0,0.06)]"}`}
                           >
                             <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${stripeTemporarilyDisabled ? "bg-slate-100 text-slate-400" : "bg-slate-800 text-white"}`}>
                               <svg width="27" height="21" viewBox="0 0 28 22" fill="none" aria-hidden="true">
@@ -21092,7 +21199,7 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => { setPaymentMethod("crypto"); requestAnimationFrame(() => { const el = choosePaymentMethodRef.current; if (!el) return; window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - 130), behavior: "auto" }); }); }}
-                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left ${paymentMethod === "crypto" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 ${paymentMethod === "crypto" ? "border-black bg-black text-white ring-1 ring-slate-300 shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-slate-300 bg-white text-black hover:border-slate-500 hover:shadow-[0_4px_14px_rgba(0,0,0,0.06)]"}`}
                           >
                             <div className="relative shrink-0">
                               <img src={getPreloadedDisplayImageUrl(bitcoinLogo)} alt="" className="h-10 w-10 object-contain" />
@@ -21107,12 +21214,12 @@ export default function App() {
                             {paymentMethod === "crypto" && <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500"><svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>}
                           </button>
 
-                          {/* M3 — Bitcoin Lightning via Cash App */}
+                          {/* M3 — Cash App */}
                           {(() => {
                             const cashAppEnabled = !cashAppOverLimit;
                             return cashAppEnabled ? (
                               <button type="button" onClick={() => setPaymentMethod("cashapp")}
-                                className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left ${paymentMethod === "cashapp" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                                className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 ${paymentMethod === "cashapp" ? "border-black bg-black text-white ring-1 ring-slate-300 shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-slate-300 bg-white text-black hover:border-slate-500 hover:shadow-[0_4px_14px_rgba(0,0,0,0.06)]"}`}
                               >
                                 <div className="relative shrink-0">
                                   <img src={getPreloadedDisplayImageUrl(cashAppLogo)} alt="" className="h-10 w-10 rounded-xl object-contain" />
@@ -21120,7 +21227,6 @@ export default function App() {
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <div className="pr-5 text-[14px] font-semibold leading-[18px]">{cashAppPaymentLabel}</div>
-                                  <div className="mt-0.5 text-[11px] leading-[14px] opacity-60">{cashAppLightningLabel}</div>
                                   <div className="mt-1.5 flex flex-nowrap items-center gap-1.5">
                                     <span className={`shrink-0 inline-flex rounded-md px-1.5 py-0.5 text-[11px] font-black uppercase tracking-[0.1em] ${paymentMethod === "cashapp" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>NO KYC</span>
                                   </div>
@@ -21128,11 +21234,10 @@ export default function App() {
                                 {paymentMethod === "cashapp" && <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500"><svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>}
                               </button>
                             ) : (
-                              <button type="button" disabled className="relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border border-black/10 bg-white/60 px-4 py-3 md:py-1 text-left cursor-not-allowed">
+                              <button type="button" disabled className="relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 md:py-1 text-left cursor-not-allowed">
                                 <img src={getPreloadedDisplayImageUrl(cashAppLogo)} alt="" className="h-10 w-10 shrink-0 rounded-xl object-contain opacity-40" />
                                 <div className="flex-1 min-w-0">
                                   <div className="text-[14px] font-semibold leading-[18px] text-black/30">{cashAppPaymentLabel}</div>
-                                  <div className="mt-0.5 text-[11px] leading-[14px] text-black/30">{cashAppLightningLabel}</div>
                                   <div className="mt-1.5">
                                     <span className="inline-flex rounded-md bg-red-500 px-2 py-0.5 text-[11px] font-black text-black">Limit $999</span>
                                   </div>
@@ -21143,7 +21248,7 @@ export default function App() {
 
                           {/* M4 — Paylio */}
                           <button type="button" onClick={() => setPaymentMethod("paylio")}
-                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left ${paymentMethod === "paylio" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 ${paymentMethod === "paylio" ? "border-black bg-black text-white ring-1 ring-slate-300 shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-slate-300 bg-white text-black hover:border-slate-500 hover:shadow-[0_4px_14px_rgba(0,0,0,0.06)]"}`}
                           >
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white">
                               <img src={getPreloadedDisplayImageUrl(paypalMark)} alt="" className="h-9 w-9 object-contain" />
@@ -21159,7 +21264,7 @@ export default function App() {
 
                           {/* M5 — Wire */}
                           <button type="button" onClick={() => setPaymentMethod("wire")}
-                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left ${paymentMethod === "wire" ? "border-black bg-black text-white shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-black/10 bg-white text-black"}`}
+                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 ${paymentMethod === "wire" ? "border-black bg-black text-white ring-1 ring-slate-300 shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-slate-300 bg-white text-black hover:border-slate-500 hover:shadow-[0_4px_14px_rgba(0,0,0,0.06)]"}`}
                           >
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl overflow-hidden" style={{background:"#1e293b"}}>
                               <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
@@ -21193,7 +21298,6 @@ export default function App() {
                               <img src={getPreloadedDisplayImageUrl(cashAppLogo)} alt="" className="h-10 w-10 shrink-0 rounded-2xl shadow-[0_10px_30px_rgba(0,214,79,0.25)] md:h-11 md:w-11" />
                               <div>
                                 <div className="text-[15px] font-semibold tracking-[-0.02em] text-black md:text-[18px]">{cashAppPaymentLabel}</div>
-                                <div className="mt-0.5 text-[12px] text-black/50">{cashAppLightningLabel}</div>
                               </div>
                             </div>
                             <p id="cashapp-lightning-help" className="mb-4 text-[13px] leading-5 text-black/65">
@@ -21385,10 +21489,6 @@ export default function App() {
                                 </div>
                               </div>
                             </div>
-                            <p className="mt-4 text-sm leading-6 text-black/65">
-                              {tx("Card surcharge", "Доплата за карту")} {meritSurchargePercent}%: +{formatPricePrecise(stripeFeeAmount)}.
-                              {" "}{tx("The final total is confirmed before you pay.", "Итоговая сумма подтверждается до оплаты.")}
-                            </p>
                             {(storeCreditApplied > 0 || meritActiveSession?.storeCreditUsedCents > 0) && <p className="mt-2 text-sm leading-6 text-black/65">
                               {meritActiveSession
                                 ? tx("Your store credit is applied. The card surcharge is calculated on the order total before credit.", "Кредит магазина применён. Доплата за карту рассчитывается на сумму заказа до вычета кредита.")
@@ -21401,14 +21501,14 @@ export default function App() {
                                   onReconcile={meritApi.reconcile} onPaid={acceptMeritPaid} onState={handleMeritState} />
                               </Suspense>
                             ) : (
-                              <div className="mt-4">
+                              <div className="mt-1">
                                 <button type="button" disabled={stripeLoading || stripeTemporarilyDisabled}
                                   onClick={handleStripePayment}
                                   aria-describedby="card-verification-email-help"
-                                  className="mt-3 min-h-12 w-full rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white disabled:opacity-40">
+                                  className="mt-1 min-h-12 w-full rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white disabled:opacity-40">
                                   {stripeLoading ? tx("Preparing secure payment…", "Подготавливаем защищённую оплату…") : tx("Verify email and continue", "Подтвердить email и продолжить")}
                                 </button>
-                                <p id="card-verification-email-help" className="mt-3 text-sm leading-6 text-black/65">
+                                <p id="card-verification-email-help" className="mt-3 text-sm leading-6 text-black/65 uppercase">
                                   {tx(
                                     "If you don’t see the verification email, check your spam or junk folder.",
                                     "Если письмо с кодом не пришло, проверьте папку «Спам» или «Нежелательная почта».",
@@ -21522,8 +21622,8 @@ export default function App() {
                                       }
                                       className={`flex items-center justify-between rounded-[1.2rem] border px-4 py-4 text-left ${
                                         selectedNetwork === item.network
-                                          ? "border-black bg-black text-white shadow-[0_10px_25px_rgba(0,0,0,0.15)]"
-                                          : "border-black/10 bg-[#fcfcfc] text-black hover:bg-black/5"
+                                          ? "border-black bg-white text-black ring-1 ring-black shadow-[0_10px_25px_rgba(0,0,0,0.12)]"
+                                          : "border-black/10 bg-white text-black hover:border-black/25 hover:bg-white"
                                       }`}
                                     >
                                       <div className="flex items-center gap-3">
@@ -21572,10 +21672,10 @@ export default function App() {
 
                                       <div
                                         className={`rounded-full px-3 py-1 text-[10px] font-bold ${
-                                          selectedNetwork === item.network
-                                            ? "bg-white/20 text-white"
-                                            : item.network === "ERC20"
+                                          item.network === "ERC20"
                                             ? "bg-red-50 text-red-600"
+                                            : item.network === "Bitcoin" || item.network === "Ethereum"
+                                            ? "bg-slate-100 text-slate-600"
                                             : "bg-green-50 text-green-600"
                                         }`}
                                       >
