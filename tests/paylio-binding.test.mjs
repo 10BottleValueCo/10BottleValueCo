@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {paylioAccount,paylioCents,paylioCheckoutUrl,reservePaylio,bindPaylio,verifyPaylioAttempt} from '../api/_paylio-binding.js';
+import {paylioAccount,paylioCents,paylioCheckoutUrl,paylioCustomerUrl,reservePaylio,bindPaylio,verifyPaylioAttempt} from '../api/_paylio-binding.js';
 const id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',customer='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const env={SUPABASE_URL:'https://fixture.test',SUPABASE_SERVICE_ROLE_KEY:'fixture-private',PAYLIO_API_KEY:'fixture-paylio',PAYLIO_PAYOUT_ADDRESS:'0x'+'1'.repeat(40)};
 const created=new Date(Date.now()-60000).toISOString(),paid=new Date().toISOString();
@@ -24,6 +24,15 @@ test('money and checkout URL validation reject malformed amounts, external URLs 
  assert.equal(paylioCents('100.00'),10000);
  for(const url of ['http://paylio.org/pay/p','https://evil.test/pay/p','https://paylio.org.evil.test/pay/p','https://u:p@paylio.org/pay/p','https://paylio.org/pay/p?ipn_token=secret','https://paylio.org/api/pay'])assert.throws(()=>paylioCheckoutUrl(url));
  assert.equal(paylioCheckoutUrl(base.checkout_url),base.checkout_url);
+});
+test('documented provider prefill and auto parameters canonicalize without relaxing token or redirect containment',()=>{
+ for(const suffix of ['?email=buyer%40example.test','?email=buyer%40example.test&auto=1','?auto=1'])
+  assert.equal(paylioCheckoutUrl(base.checkout_url+suffix),base.checkout_url);
+ for(const suffix of ['?ipn_token=secret','?redirect=https://evil.test','?auto=0','?auto=1&auto=1','?email=bad','?email=a%40b.test&email=c%40d.test','#token','?email=buyer%40example.test&token=secret'])
+  assert.throws(()=>paylioCheckoutUrl(base.checkout_url+suffix),undefined,suffix);
+ assert.equal(paylioCustomerUrl(base.checkout_url,'buyer@example.test','paypal'),base.checkout_url+'?email=buyer%40example.test&auto=1');
+ assert.equal(paylioCustomerUrl(base.checkout_url+'?email=foreign%40example.test&auto=1','buyer@example.test','paypal'),base.checkout_url+'?email=buyer%40example.test&auto=1');
+ assert.equal(paylioCustomerUrl(base.checkout_url,'buyer@example.test','multi'),base.checkout_url);
 });
 test('callback lookup is fixed to privately bound ID, verifies exact amount and final provider state',async()=>{
  const {calls,deps}=fixture();const result=await verifyPaylioAttempt(id,deps);
@@ -50,6 +59,8 @@ test('binding requires durable exact provider response before exposing only the 
  const data={status:'unpaid',amount:'100.00',payment_id:base.payment_id,ipn_token:base.ipn_token,checkout_url:base.checkout_url};
  const calls=[];const deps={env,fetcher:async(input,options)=>{calls.push(JSON.parse(options.body));return json(base)}};
  const result=await bindPaylio(base,data,deps);assert.deepEqual(result,{payment_url:base.checkout_url,verifiedAmount:100});assert.equal(calls[0].p_ipn_token,'secret_fixture');assert.equal(JSON.stringify(result).includes('secret_fixture'),false);
+ const documented=await bindPaylio(base,{...data,checkout_url:base.checkout_url+'?email=buyer%40example.test&auto=1'},deps);
+ assert.deepEqual(documented,result);assert.equal(calls[1].p_checkout_url,base.checkout_url);
  for(const patch of [{amount:'99'},{status:'paid'},{payment_id:''},{ipn_token:''},{currency:'EUR'},{pass_fee_to_customer:true}])await assert.rejects(bindPaylio(base,{...data,...patch},deps));
  const failed={env,fetcher:async()=>new Response('{}',{status:500})};await assert.rejects(bindPaylio(base,data,failed));
 });

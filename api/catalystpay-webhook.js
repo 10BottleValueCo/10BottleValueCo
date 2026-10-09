@@ -1,6 +1,7 @@
 import { acknowledgeLegacyPaid, inspectLegacyTransition } from "./_legacy-paid-transition.js";
 import { debitLegacyOrderCredit } from "./_legacy-store-credit.js";
 import crypto from "crypto";
+import { catalystPayConfigured, verifyCatalystSettlement } from "./_catalystpay-provider.js";
 
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
@@ -46,7 +47,7 @@ async function readRawBody(req) {
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   res.setHeader("Cache-Control", "no-store");
-  if (!WEBHOOK_SECRET) return res.status(503).json({ received: false, code: "PAYMENT_VERIFICATION_UNAVAILABLE" });
+  if (!WEBHOOK_SECRET && !catalystPayConfigured()) return res.status(503).json({ received: false, code: "PAYMENT_VERIFICATION_UNAVAILABLE" });
 
 
   let rawBody = "";
@@ -60,23 +61,18 @@ export default async function handler(req, res) {
   let payload = {};
   try {
     payload = rawBody ? JSON.parse(rawBody) : {};
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Invalid object');
   } catch {
     return res.status(400).json({ error: "Invalid JSON body" });
   }
 
-  console.error("CatalystPay webhook raw payload:", JSON.stringify({
-    type: payload.type,
-    invoiceId: payload.invoiceId || payload.id,
-    metadata: payload.metadata,
-
-  }));
-
   if (WEBHOOK_SECRET) {
-    const sigHeader =
-      req.headers["x-signature"] ||
-      req.headers["x-webhook-signature"] ||
-      req.headers["x-paidly-signature"] ||
-      "";
+    // Paidly's documented header includes the algorithm prefix. Preserve the
+    // earlier explicit aliases, but never fall back from an invalid BTCPay-Sig.
+    const officialHeader = req.headers?.["btcpay-sig"];
+    const sigHeader = officialHeader !== undefined
+      ? (typeof officialHeader === "string" ? /^sha256=([a-f0-9]{64})$/i.exec(officialHeader)?.[1] : null)
+      : req.headers?.["x-signature"] || req.headers?.["x-webhook-signature"] || req.headers?.["x-paidly-signature"] || "";
     const expected = crypto
       .createHmac("sha256", WEBHOOK_SECRET)
       .update(rawBody, "utf8")
@@ -86,26 +82,23 @@ export default async function handler(req, res) {
       console.error("CatalystPay webhook: invalid signature");
       return res.status(401).json({ error: "Invalid webhook signature" });
     }
-  } else {
-    console.error("CatalystPay webhook: CATALYSTPAY_WEBHOOK_SECRET not set — skipping signature validation");
   }
 
   const eventType = String(payload.type || payload.eventType || "").toLowerCase();
-  const isSettled = eventType.includes("invoicesettled") || eventType.includes("invoice_settled") || eventType === "settled";
+  const isSettled = ['invoicesettled', 'invoice_settled', 'settled'].includes(eventType);
 
   if (!isSettled) {
     console.error("CatalystPay webhook: skipping non-settled event:", eventType);
     return res.status(200).json({ received: true, skipped: "not_settled", eventType });
   }
+  if (payload.manuallyMarked === true) return res.status(409).json({ received: false, code: 'PAYMENT_RECONCILIATION_REQUIRED' });
 
   const metadata = payload.metadata || {};
-  const orderId = String(metadata.OrderId || metadata.orderid || payload.orderId || payload.order_id || "");
+  const hintedOrderId = String(metadata.OrderId || metadata.orderid || payload.orderId || payload.order_id || "");
   const invoiceId = String(payload.invoiceId || payload.id || "");
 
-  if (!orderId) {
-    console.error("CatalystPay webhook: no OrderId in metadata:", JSON.stringify(metadata));
-    return res.status(200).json({ received: true, skipped: "missing_order_id" });
-  }
+  if ((hintedOrderId && !/^[A-Za-z0-9][A-Za-z0-9_-]{0,159}$/.test(hintedOrderId)) || !/^[A-Za-z0-9_-]{1,160}$/.test(invoiceId))
+    return res.status(400).json({ received: false, code: "INVALID_PAYMENT_REFERENCE" });
 
   let sbMeta = {};
   let sbEmail = "";
@@ -117,11 +110,13 @@ export default async function handler(req, res) {
   if (SB_URL && SB_KEY) {
     try {
       const sbRes = await fetch(
-        `${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(orderId)}&select=id,metadata,items,status,email,payment_id,payment_provider&limit=2`,
-        { headers: sbH() }
+        `${SB_URL}/rest/v1/orders?${new URLSearchParams({ 'metadata->>catalystpay_invoice_id': `eq.${invoiceId}`, select: 'id,metadata,items,status,email,payment_id,payment_provider,total', limit: '2' })}`,
+        { headers: sbH(), redirect: 'error', signal: AbortSignal.timeout(8000) }
       );
       if (sbRes.ok) {
-        const rows = await sbRes.json();
+        const raw = await sbRes.text();
+        if (Buffer.byteLength(raw) > 250000) throw new Error('Order response too large');
+        const rows = JSON.parse(raw);
         savedOrder = rows?.[0];
         orderReadVerified = Array.isArray(rows) && rows.length === 1 && !!rows[0] && typeof rows[0] === "object";
         if (rows?.length) {
@@ -140,8 +135,16 @@ export default async function handler(req, res) {
   }
 
   if (!orderReadVerified) return res.status(503).json({ received: false, code: "CREDIT_RECONCILIATION_REQUIRED" });
-  if (sbMeta.catalystpay_invoice_id && String(sbMeta.catalystpay_invoice_id) !== invoiceId) {
+  const orderId = savedOrder.id;
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,159}$/.test(orderId || '') || (hintedOrderId && hintedOrderId !== orderId)
+    || sbMeta.catalystpay_invoice_id !== invoiceId) {
     return res.status(409).json({ received: false, code: "PAYMENT_RECONCILIATION_REQUIRED" });
+  }
+  if (!WEBHOOK_SECRET) {
+    // An unsigned callback is only a bounded lookup hint. Settlement authority
+    // comes from authenticated Paidly GET, bound to this saved invoice/order.
+    try { await verifyCatalystSettlement(savedOrder, invoiceId); }
+    catch (error) { return res.status(error.status || 503).json({ received: false, code: error.code || "PAYMENT_VERIFICATION_UNAVAILABLE" }); }
   }
 
   const email = String(sbEmail || sbMeta.customer_email || sbMeta.email || "");

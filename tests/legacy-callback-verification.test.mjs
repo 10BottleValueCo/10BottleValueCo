@@ -43,3 +43,14 @@ test('Catalyst authenticates bounded raw stream without invoking a lazy parsed-b
   const response=res(),run=handler(req,response);req.end(raw);await run;assert.equal(response.statusCode,200);assert.equal(response.body.skipped,'not_settled');
   const large=res();await handler({method:'POST',headers:{'content-length':'65537'},body:raw},large);assert.equal(large.statusCode,400);
 });
+test('Catalyst accepts documented BTCPay-Sig sha256 signature and rejects malformed, duplicate or tampered signatures',async t=>{
+ const previous=process.env.CATALYSTPAY_WEBHOOK_SECRET;process.env.CATALYSTPAY_WEBHOOK_SECRET='synthetic-catalyst-secret';t.after(()=>{if(previous===undefined)delete process.env.CATALYSTPAY_WEBHOOK_SECRET;else process.env.CATALYSTPAY_WEBHOOK_SECRET=previous});
+ const handler=(await import('../api/catalystpay-webhook.js?official-signature-acceptance')).default;
+ t.mock.method(console,'error',()=>{});t.mock.method(globalThis,'fetch',()=>assert.fail('non-payment event must not fetch'));
+ const raw=Buffer.from('{ "type": "InvoiceExpired" }'),signature=createHmac('sha256','synthetic-catalyst-secret').update(raw).digest('hex');
+ const valid=res();await handler({method:'POST',headers:{'btcpay-sig':`sha256=${signature}`},body:raw},valid);assert.equal(valid.statusCode,200);assert.equal(valid.body.skipped,'not_settled');
+ for(const value of ['',signature,`sha1=${signature}`,`sha256=${'0'.repeat(64)}`,`sha256=${signature}, sha256=${signature}`,[`sha256=${signature}`]]){
+  const invalid=res();await handler({method:'POST',headers:{'btcpay-sig':value,'x-signature':signature},body:raw},invalid);assert.equal(invalid.statusCode,401);
+ }
+ const tampered=res();await handler({method:'POST',headers:{'btcpay-sig':`sha256=${signature}`},body:Buffer.from('{"type":"InvoiceSettled"}')},tampered);assert.equal(tampered.statusCode,401);
+});

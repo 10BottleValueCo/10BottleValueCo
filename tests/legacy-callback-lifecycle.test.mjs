@@ -12,7 +12,7 @@ const response=()=>({statusCode:200,setHeader(){},status(n){this.statusCode=n;re
 function fixture(t,{provider,status='checkout',patchMode='ok',emailStatus=200,paymentId=null,providerName=null,metadata={}}={}){
  const expectedId=provider==='nowpayments'?'1234':'invoice_fixture';
  const expectedProvider=provider==='nowpayments'?'NOWPayments BTC':'CatalystPay BTC';
- const row={id,email,status,total:100,payment_id:paymentId,payment_provider:providerName,metadata:{total:100,subtotal:100,storeCreditUsed:0,affiliateCode:'FIXTURE',promoCode:'TEST',...metadata},items:[]};
+ const row={id,email,status,total:100,payment_id:paymentId,payment_provider:providerName,metadata:{total:100,subtotal:100,storeCreditUsed:0,affiliateCode:'FIXTURE',promoCode:'TEST',...(provider==='catalystpay'?{catalystpay_invoice_id:expectedId}:{}),...metadata},items:[]};
  const calls=[];
  t.mock.method(console,'error',()=>{});
  t.mock.method(globalThis,'fetch',async(input,options={})=>{

@@ -39,8 +39,27 @@ export function paylioCheckoutUrl(value){
   if(typeof value!=='string')throw new PaylioError('PAYLIO_INVALID_CHECKOUT_RESPONSE');
   let url;try{url=new URL(value)}catch{throw new PaylioError('PAYLIO_INVALID_CHECKOUT_RESPONSE')}
   if(url.origin!=='https://paylio.org'||url.username||url.password||!/^\/(pay|p)\/[A-Za-z0-9_-]+$/.test(url.pathname))throw new PaylioError('PAYLIO_INVALID_CHECKOUT_RESPONSE');
-  // Provider responses must never smuggle the private callback signing token to the browser.
-  if(url.search||url.hash)throw new PaylioError('PAYLIO_INVALID_CHECKOUT_RESPONSE');
+  // PayLio documents email prefill and auto=1 on direct-provider links. Persist
+  // only the canonical URL accepted by the private binding contract; do not
+  // forward provider-supplied query strings or callback tokens to the customer.
+  if(url.hash)throw new PaylioError('PAYLIO_INVALID_CHECKOUT_RESPONSE');
+  const seen=new Set();
+  for(const [key,value] of url.searchParams){
+    if(seen.has(key)||(key==='auto'?value!=='1':key==='email'?(value.length>320||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)):true))
+      throw new PaylioError('PAYLIO_INVALID_CHECKOUT_RESPONSE');
+    seen.add(key);
+  }
+  url.search='';
+  return url.href;
+}
+export function paylioCustomerUrl(value,email,provider=''){
+  const url=new URL(paylioCheckoutUrl(value));
+  // Rebuild the documented direct-provider shortcut from verified request
+  // context, so create and retry return the same safe customer-facing URL.
+  if(provider&&provider!=='multi'){
+    if(typeof email!=='string'||email.length>320||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new PaylioError('PAYLIO_INVALID_CHECKOUT_RESPONSE');
+    url.searchParams.set('email',email);url.searchParams.set('auto','1');
+  }
   return url.href;
 }
 export async function bindPaylio(attempt,data,deps={}){

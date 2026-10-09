@@ -129,10 +129,6 @@ const routeChunkLoaders = {
   about: importPublicInfoPages,
   attestation: importPublicInfoPages,
 };
-const publicPagesToWarm = [
-  "bonuses", "affiliate", "faq", "about", "attestation",
-  "shipping", "refund", "privacy", "terms",
-];
 const prefetchedRouteChunks = new Set();
 const pendingRouteChunkPrefetches = new Map();
 
@@ -3781,40 +3777,8 @@ export default function App() {
     };
   }, [researcherEntryGateActive]);
 
-  useEffect(() => {
-    if (researcherEntryGateActive) return undefined;
-    let stopped = false;
-    let nextPageIndex = 0;
-    let startTimer = null;
-    let fallbackTimer = null;
-    let idleHandle = null;
-
-    const scheduleNext = () => {
-      if (stopped || nextPageIndex >= publicPagesToWarm.length) return;
-      const loadNext = () => {
-        idleHandle = null;
-        fallbackTimer = null;
-        if (stopped || nextPageIndex >= publicPagesToWarm.length) return;
-        const nextPage = publicPagesToWarm[nextPageIndex++];
-        prefetchRouteChunks(nextPage).finally(scheduleNext);
-      };
-      if (typeof window.requestIdleCallback === "function") {
-        idleHandle = window.requestIdleCallback(loadNext, { timeout: 1800 });
-      } else {
-        fallbackTimer = window.setTimeout(loadNext, 350);
-      }
-    };
-
-    startTimer = window.setTimeout(scheduleNext, 900);
-    return () => {
-      stopped = true;
-      if (startTimer !== null) window.clearTimeout(startTimer);
-      if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
-      if (idleHandle !== null && typeof window.cancelIdleCallback === "function") {
-        window.cancelIdleCallback(idleHandle);
-      }
-    };
-  }, [researcherEntryGateActive]);
+  // Route chunks warm on pointer/focus intent above. Do not download and
+  // parse every policy/affiliate page while a customer is browsing products.
 
   // Keep every public section on a stable, crawlable URL.
   useEffect(() => {

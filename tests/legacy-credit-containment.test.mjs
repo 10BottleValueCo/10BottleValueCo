@@ -51,7 +51,7 @@ for (const [name, handler] of starts) {
         return json([{ ...row, ...(options.method === 'PATCH' ? JSON.parse(options.body) : {}) }]);
       }
       if (String(url).includes('/rest/v1/')) return json([]);
-      return json({ id: 'invoice_fixture', payment_url: 'https://provider.example.test/pay' });
+      return json({ id: 'invoice_fixture', storeId: env.CATALYSTPAY_MERCHANT_ID, amount: '110.00', currency: 'USD', status: 'New', metadata: { OrderId: orderId }, payment_url: 'https://provider.example.test/pay', checkoutLink: 'https://provider.example.test/i/invoice_fixture' });
     });
     const base = { orderId, order_id: orderId, email, customer_email: email, items: [{}] };
     for (const credit of [10, '10.00', 0.001, 999999]) {
@@ -112,6 +112,7 @@ function callbackFixture(t, { name, amount = 10, paid = false, rpcFailure = fals
   const provider = name.startsWith('stripe') ? 'stripe' : name;
   const paymentId = name === 'nowpayments' ? 'np_fixture' : name === 'catalystpay' ? 'invoice_fixture' : name === 'stripe-session' ? 'cs_fixture' : 'pi_fixture';
   const row = { id: orderId, email, total: 90, metadata: { email, storeCreditUsed: amount, confirmationEmailSentAt: paid ? '2026-10-01T00:00:00Z' : undefined, total: 90, subtotal: 100, items: [{ name: 'Fixture', price: 100 }] }, items: [], status: paid ? 'paid' : 'checkout', payment_id: name.startsWith('stripe') || paid ? paymentId : null, payment_provider: paid && name === 'nowpayments' ? 'NOWPayments BTC' : paid && name === 'catalystpay' ? 'CatalystPay BTC' : null };
+  if (name === 'catalystpay') row.metadata.catalystpay_invoice_id = paymentId;
   let debitCount = 0; // A pre-existing private consumed receipt never debits again.
   let failPaid = paidWriteFails;
   t.mock.method(console, 'error', () => {});

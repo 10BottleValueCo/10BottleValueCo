@@ -9,7 +9,7 @@ const orderId='INV-PAYLIO123',customerId='11111111-1111-4111-8111-111111111111',
 const row={id:orderId,user_id:customerId,email,status:'checkout',total:110,metadata:{firstName:'Buyer',address:'Fixture address',storeCreditUsed:0},payment_provider:null};
 const res=()=>({statusCode:200,setHeader(){},status(code){this.statusCode=code;return this},json(body){this.body=body;return this}});
 const json=(body,status=200)=>new Response(JSON.stringify(body),{status});
-function fixture(t,{bindingFails=false,providerFails=false,pending=false,terminal=false,effectsFailOnce=false,emptyEffectsAck=false,existingAffiliate='',affiliateResponse,affiliateLookupFails=false,priorPurchases=[],historyFails=false}={}){
+function fixture(t,{bindingFails=false,providerFails=false,providerUrlSuffix='',pending=false,terminal=false,effectsFailOnce=false,emptyEffectsAck=false,existingAffiliate='',affiliateResponse,affiliateLookupFails=false,priorPurchases=[],historyFails=false}={}){
  const calls=[];let attempt,effectsCalls=0;
  t.mock.method(globalThis,'fetch',async(input,options={})=>{
   const url=new URL(input),body=options.body?JSON.parse(options.body):null;
@@ -36,7 +36,7 @@ function fixture(t,{bindingFails=false,providerFails=false,pending=false,termina
    assert.equal(body.currency,'USD');assert.equal(body.passFeeToCustomer,false);
    assert.equal(body.callback,`https://10bottlevalue.co/api/paylio-callback?attempt=${attempt.id}`);
    assert.ok(!body.callback.includes(email));
-   return providerFails?json({secret:'never-expose'},500):json({payment_id:'provider_fixture',ipn_token:'provider-secret-token',checkout_url:'https://paylio.org/pay/provider_fixture',amount:body.amount,status:'unpaid'});
+   return providerFails?json({secret:'never-expose'},500):json({payment_id:'provider_fixture',ipn_token:'provider-secret-token',checkout_url:'https://paylio.org/pay/provider_fixture'+providerUrlSuffix,amount:body.amount,status:'unpaid'});
   }
   if(url.pathname==='/rest/v1/rpc/bind_paylio_checkout'){
    if(bindingFails)return json({},500);
@@ -67,6 +67,22 @@ test('checkout URL is exposed only after private binding; retry reuses it withou
  const second=res();await create(request(),second);assert.equal(second.statusCode,200);assert.deepEqual(second.body,first.body);
  assert.equal(f.calls.filter(c=>c.url.pathname==='/api/v1/wallet').length,1);
  assert.equal(JSON.stringify(first.body).includes('token'),false);
+});
+test('documented PayPal direct link binds canonical URL and resumes the identical safe redirect',async t=>{
+ const f=fixture(t,{providerUrlSuffix:'?email=buyer%40example.test&auto=1'}),req={...request(),body:{...request().body,provider:'paypal'}},first=res();
+ await create(req,first);assert.equal(first.statusCode,200);
+ assert.equal(first.body.payment_url,'https://paylio.org/pay/provider_fixture?email=buyer%40example.test&auto=1');
+ assert.equal(f.attempt().checkout_url,'https://paylio.org/pay/provider_fixture');
+ const second=res();await create(req,second);assert.equal(second.statusCode,200);assert.deepEqual(second.body,first.body);
+ assert.equal(f.calls.filter(c=>c.url.pathname==='/api/v1/wallet').length,1);
+ assert.equal(JSON.stringify(first.body).includes('provider-secret-token'),false);
+});
+test('unknown provider URL query remains contained without exposing a link or creating a second payment',async t=>{
+ const f=fixture(t,{providerUrlSuffix:'?ipn_token=provider-secret-token'}),first=res();await create(request(),first);
+ assert.equal(first.statusCode,503);assert.equal(first.body.code,'PAYLIO_INVALID_CHECKOUT_RESPONSE');
+ assert.equal(f.calls.some(c=>c.url.pathname==='/rest/v1/rpc/bind_paylio_checkout'),false);
+ assert.doesNotMatch(JSON.stringify(first.body),/provider-secret-token|paylio\.org\/pay/);
+ const second=res();await create(request(),second);assert.equal(second.statusCode,409);assert.equal(f.calls.filter(c=>c.url.pathname==='/api/v1/wallet').length,1);
 });
 test('known customer referral is frozen separately from browser discount code',async t=>{
  const f=fixture(t,{existingAffiliate:'ORIGINAL'}),response=res();await create({...request(),body:{...request().body,affiliateCode:'NEWCODE'}},response);

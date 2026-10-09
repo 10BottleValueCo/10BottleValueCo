@@ -1,4 +1,4 @@
-import { PaylioError, reservePaylio, bindPaylio, paylioCheckoutUrl, paylioStorage } from "./_paylio-binding.js";
+import { PaylioError, reservePaylio, bindPaylio, paylioCustomerUrl, paylioStorage } from "./_paylio-binding.js";
 import { requireLegacyOrderAccess } from "./_order-access.js";
 import { legacyCreditStartError, legacyExistingCreditOrderError } from "./_legacy-store-credit.js";
 import {
@@ -187,7 +187,7 @@ export default async function handler(req, res) {
     const reservation = await reservePaylio(access, quote, provider);
     if (!reservation.created) {
       if (reservation.attempt.state !== "ready") throw new PaylioError("PAYLIO_CREATE_RECONCILIATION_REQUIRED", 409);
-      return res.status(200).json({ payment_url: paylioCheckoutUrl(reservation.attempt.checkout_url), verifiedAmount: reservation.attempt.amount_cents / 100 });
+      return res.status(200).json({ payment_url: paylioCustomerUrl(reservation.attempt.checkout_url, finalEmail, provider), verifiedAmount: reservation.attempt.amount_cents / 100 });
     }
     // There is no documented idempotent create contract. An uncertain provider
     // response leaves the reservation locked for reconciliation, never auto-retried.
@@ -207,7 +207,8 @@ export default async function handler(req, res) {
     if (!response.ok || Buffer.byteLength(raw) > 50000) throw new PaylioError("PAYLIO_CREATION_UNAVAILABLE");
     let data; try { data = JSON.parse(raw); } catch { throw new PaylioError("PAYLIO_CREATION_UNAVAILABLE"); }
     // The binding is durably acknowledged before the customer receives a URL.
-    return res.status(200).json(await bindPaylio(reservation.attempt, data));
+    const bound = await bindPaylio(reservation.attempt, data);
+    return res.status(200).json({ ...bound, payment_url: paylioCustomerUrl(bound.payment_url, finalEmail, provider) });
   } catch (error) {
     return res.status(error instanceof PaylioError ? error.status : 503).json({
       code: error instanceof PaylioError ? error.code : "PAYLIO_CREATION_UNAVAILABLE",
