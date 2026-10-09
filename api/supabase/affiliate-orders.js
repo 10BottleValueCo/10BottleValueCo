@@ -1,3 +1,5 @@
+import { requireAdmin } from "../_auth.js";
+
 const SUPABASE_URL = "https://danpkqqzcptamojrnrmk.supabase.co";
 
 function getServiceKey() {
@@ -26,9 +28,17 @@ async function supabaseAdmin(path, options = {}) {
 }
 
 export default async function handler(req, res) {
+  res.setHeader("Cache-Control", "no-store");
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
+  }
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+  // The service key bypasses table RLS. Require the real server-validated
+  // account's email confirmation even when an admin ID is configured.
+  if (!admin.email_confirmed_at) {
+    return res.status(403).json({ ok: false, error: "Confirmed administrator access required." });
   }
   try {
     await supabaseAdmin("affiliate_orders?on_conflict=order_id", {
