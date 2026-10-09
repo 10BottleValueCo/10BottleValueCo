@@ -152,5 +152,5 @@ test('navigation cleanup cancels queued work and cannot start requests for the p
   await f.scheduled[0]();
   assert.deepEqual(f.cancelled, [1]);
   assert.deepEqual(f.calls, []);
-  assert.deepEqual(f.states, ['loading']);
+  assert.deepEqual(f.states, []);
 });

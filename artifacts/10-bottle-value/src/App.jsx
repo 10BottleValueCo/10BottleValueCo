@@ -13,6 +13,7 @@ import { adjustStoreCredit } from "./store-credit-admin-client.js";
 import { readPaymentReturn, checkLegacyPaymentReturn, legacyCheckoutHeaders, syncVerifiedLegacyOrder, isLegacyPaidStatus } from "./legacy-payment-return.js";
 import { startVisiblePolling } from "./visible-poll.js";
 import { observeAnnouncementHeight } from "./announcement-height.js";
+import { createInfoPageImageWarmup, scheduleInfoPageWarmup } from "./preloadInfoPageImages.js";
 import { buildMeritCheckoutPayload, estimateMeritCreditSplit, meritCheckoutBusinessError, meritCartMatchesOrder, meritOrderCardSurcharge, createMeritApiClient, meritPayloadDigest, readMeritAttempt, saveMeritAttempt, verifyMeritCheckoutBuyer, MERIT_ATTEMPT_STORAGE_KEY } from "./merit-checkout-client.js";
 import { ACCOUNT_AVATARS, getAccountAvatar } from "./account-avatars.js";
 import { track, trackPageView } from "./analytics.js";
@@ -210,53 +211,24 @@ for (const [key, file] of Object.entries(vialCManifest)) {
 
 const publicImageLoads = new Map();
 const pendingPublicImageLoads = new Map();
-const preloadedDisplayImageUrls = new Map();
-const originalImageSourcesByObjectUrl = new Map();
-
 function canonicalImageUrl(src) {
   return typeof window === "undefined" ? src : new URL(src, window.location.href).href;
 }
 
 function getPreloadedDisplayImageUrl(src) {
-  return preloadedDisplayImageUrls.get(canonicalImageUrl(src)) || src;
+  return src;
 }
 
 function getOriginalImageSource(src) {
-  return originalImageSourcesByObjectUrl.get(src) || src;
+  return src;
 }
 
-function preloadImage(src, fetchPriority, retainForDisplay = false) {
+function preloadImage(src, fetchPriority) {
   const imageKey = canonicalImageUrl(src);
   const existingLoad = publicImageLoads.get(imageKey);
   if (existingLoad) return existingLoad;
 
-  const load = retainForDisplay
-    ? (async () => {
-        let objectUrl;
-        try {
-          const response = await fetch(src, { cache: "force-cache", priority: fetchPriority });
-          if (!response.ok) {
-            throw new Error(`Could not preload public image (${response.status}): ${src}`);
-          }
-
-          const blob = await response.blob();
-          if (!blob.size) throw new Error(`Public image is empty: ${src}`);
-
-          objectUrl = URL.createObjectURL(blob);
-          const image = new Image();
-          image.decoding = "async";
-          image.src = objectUrl;
-          await image.decode();
-          if (!image.naturalWidth) throw new Error(`Public image could not be decoded: ${src}`);
-
-          preloadedDisplayImageUrls.set(imageKey, objectUrl);
-          originalImageSourcesByObjectUrl.set(objectUrl, src);
-        } catch (error) {
-          if (objectUrl) URL.revokeObjectURL(objectUrl);
-          throw error;
-        }
-      })()
-    : new Promise((resolve, reject) => {
+  const load = new Promise((resolve, reject) => {
         const image = new Image();
         let settled = false;
 
@@ -317,7 +289,7 @@ function preloadPublicImages(sources = []) {
       nextIndex += 1;
       // Reuse native image URLs/cache; a retained blob would re-fetch and
       // decode the background under a second identity after first paint.
-      await preloadImage(src, "low", false);
+      await preloadImage(src, "low");
     }
   };
 
@@ -326,13 +298,17 @@ function preloadPublicImages(sources = []) {
   );
 }
 
-function cacheDisplayedPublicImage(event) {
-  const image = event.currentTarget;
-  const source = image.dataset.originalSrc || image.currentSrc || image.src;
-  const originalSource = getOriginalImageSource(source);
-  if (!originalSource || getPreloadedDisplayImageUrl(originalSource) !== originalSource) return;
+// Shared queue warms the exact native URLs used by the three information pages.
+// Intent gets priority; the homepage starts its optional work only after load.
+const infoPageImageWarmup = createInfoPageImageWarmup({
+  baseUrl: import.meta.env.BASE_URL,
+  faqBackgroundImage,
+  loadImage: (src) => preloadImage(src, "low"),
+});
 
-  void preloadImage(originalSource, "low", true).catch(() => {});
+function prefetchPublicPage(page) {
+  void prefetchRouteChunks(page);
+  void infoPageImageWarmup.warmRoute(page);
 }
 
 function retryVialImage(event) {
@@ -3733,7 +3709,7 @@ export default function App() {
   const [researcherEntryAccepted, setResearcherEntryAccepted] = useState(
     hasResearcherEntryAcceptance
   );
-  const [publicImagesState, setPublicImagesState] = useState("loading");
+  const [publicImagesState, setPublicImagesState] = useState("ready");
   const [publicImageRetry, setPublicImageRetry] = useState(0);
   const researcherEntryGateActive =
     !researcherEntryAccepted && page !== "terms" && page !== "privacy";
@@ -3747,7 +3723,7 @@ export default function App() {
       if (!link) return;
       const prefetchPage = link.getAttribute("data-prefetch-page");
       if (prefetchPage) {
-        prefetchRouteChunks(prefetchPage);
+        prefetchPublicPage(prefetchPage);
         return;
       }
       if (!(link instanceof HTMLAnchorElement)) return;
@@ -3764,7 +3740,7 @@ export default function App() {
       }
 
       const pathSlug = routePath.replace(/^\/+|\/+$/g, "").toLowerCase();
-      prefetchRouteChunks(publicPathToPage[pathSlug]);
+      prefetchPublicPage(publicPathToPage[pathSlug]);
     };
 
     document.addEventListener("pointerover", prefetchFromIntent, { passive: true });
@@ -3777,8 +3753,17 @@ export default function App() {
     };
   }, [researcherEntryGateActive]);
 
-  // Route chunks warm on pointer/focus intent above. Do not download and
-  // parse every policy/affiliate page while a customer is browsing products.
+  useEffect(() => {
+    if (researcherEntryGateActive || page !== "home") return undefined;
+    const stopWarmup = scheduleInfoPageWarmup({
+      view: window,
+      onWarm: () => infoPageImageWarmup.warmAll(),
+    });
+    return () => {
+      stopWarmup();
+      infoPageImageWarmup.cancelBackground();
+    };
+  }, [page, researcherEntryGateActive]);
 
   // Keep every public section on a stable, crawlable URL.
   useEffect(() => {
@@ -3793,7 +3778,7 @@ export default function App() {
 
   const handlePublicPageLink = (event, nextPage) => {
     event.preventDefault();
-    prefetchRouteChunks(nextPage);
+    prefetchPublicPage(nextPage);
     setAccountPromoCodeInput("");
     setPage(nextPage);
   };
@@ -3814,7 +3799,6 @@ export default function App() {
     announcementBarRef.current,
     stickyHeaderRef.current,
   ), [page]);
-  const [isScrolled, setIsScrolled] = useState(false);
   const [showCookieBanner, setShowCookieBanner] = useState(false);
   useEffect(() => {
     if (localStorage.getItem("cookieAccepted")) return;
@@ -3823,23 +3807,6 @@ export default function App() {
       .then((r) => r.json())
       .then((d) => { if (EU.has(d.country_code)) setShowCookieBanner(true); })
       .catch(() => {});
-  }, []);
-  useEffect(() => {
-    const mobileViewport = window.matchMedia("(max-width: 767px)");
-    let lastScrolledState = null;
-    const onScroll = () => {
-      const nextScrolledState = mobileViewport.matches && window.scrollY > 0;
-      if (nextScrolledState === lastScrolledState) return;
-      lastScrolledState = nextScrolledState;
-      setIsScrolled(nextScrolledState);
-    };
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-    };
   }, []);
   const [oosOverrides, setOosOverrides] = useState(() => {
     try {
@@ -4212,11 +4179,6 @@ export default function App() {
   const [fadingOutAddedId, setFadingOutAddedId] = useState("");
   const [shopPrimed, setShopPrimed] = useState(false);
   const [cartHighlight, setCartHighlight] = useState(false);
-  const [openFaqs, setOpenFaqs] = useState({
-    shipping: -1,
-    orders: -1,
-    product: -1,
-  });
   const [checkoutForm, setCheckoutForm] = useState({
     email: "",
     firstName: "",
@@ -4429,7 +4391,6 @@ export default function App() {
     if (researcherEntryGateActive) return undefined;
 
     let active = true;
-    setPublicImagesState("loading");
     const base = import.meta.env.BASE_URL;
     // Warm the currently rendered background through the native image cache;
     // other pages and the unused hero breakpoint load only when needed.
@@ -12845,33 +12806,6 @@ export default function App() {
       : benefit;
   }
 
-  function getFaqParagraphs(text) {
-    if (!text) return [];
-
-    if (text.includes("\n\n")) {
-      return text
-        .split("\n\n")
-        .map((part) => part.trim())
-        .filter(Boolean);
-    }
-
-    if (text.length > 120) {
-      const parts = text.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g);
-      if (parts && parts.length > 1) {
-        return parts.map((part) => part.trim()).filter(Boolean);
-      }
-    }
-
-    return [text];
-  }
-
-  function toggleFaq(sectionKey, index) {
-    setOpenFaqs((current) => ({
-      ...current,
-      [sectionKey]: current[sectionKey] === index ? -1 : index,
-    }));
-  }
-
   // 1. Умная функция, которая раздает картинки и текст
   function getProductVisual(product) {
     const name = publicProductName(product?.name || "").replace(/\s*\/\s*GLP-\d+/i, "").trim();
@@ -13101,6 +13035,7 @@ export default function App() {
 
   const showAccountLoginBackdrop =
     page === "account" && (!currentUser || authMode === "reset");
+  const usesInfoPageBackdrop = page === "affiliate" || page === "faq";
   const accountDashboardBackdrop =
     page === "account" && Boolean(currentUser) && authMode !== "reset";
   const currentAccountAvatar = getAccountAvatar(currentUser?.avatarId);
@@ -13534,16 +13469,14 @@ export default function App() {
         </div>
       )}
       <div
-        className={`tbv-app-shell min-h-screen ${page === "admin" ? "bg-[#0a0c10]" : "bg-[#8f8f8f]"} text-white ${page === "home" ? "tbv-app-shell--home" : ""} ${usesCatalogBackground ? "tbv-app-shell--catalog-background" : ""} ${pageBackdropImage ? "tbv-app-shell--photo-backdrop" : ""}`}
+        className={`tbv-app-shell min-h-screen ${page === "admin" ? "bg-[#0a0c10]" : "bg-[#8f8f8f]"} text-white ${page === "home" ? "tbv-app-shell--home" : ""} ${usesCatalogBackground ? "tbv-app-shell--catalog-background" : ""} ${pageBackdropImage ? "tbv-app-shell--photo-backdrop" : ""} ${usesInfoPageBackdrop ? "tbv-app-shell--info-background" : ""}`}
         data-affiliate-backdrop={page === "affiliate" ? "true" : undefined}
         style={
-          page === "affiliate"
+          usesInfoPageBackdrop
             ? {
-                backgroundImage: `linear-gradient(180deg, rgba(9, 13, 18, .32), rgba(9, 13, 18, .55)), url("${getPreloadedDisplayImageUrl(`${import.meta.env.BASE_URL}images/affiliate-lab-background.webp`)}")`,
-                backgroundSize: "cover",
-                backgroundPosition: "center top",
-                backgroundRepeat: "no-repeat",
-                backgroundAttachment: "fixed",
+                "--tbv-info-background-image": page === "affiliate"
+                  ? `linear-gradient(180deg, rgba(9, 13, 18, .32), rgba(9, 13, 18, .55)), url("${import.meta.env.BASE_URL}images/affiliate-lab-background.webp")`
+                  : `linear-gradient(rgba(76, 80, 86, 0.66), rgba(55, 59, 66, 0.72)), url("${pageBackdropImage}")`,
               }
             : pageBackdropImage
             ? {
@@ -13586,11 +13519,7 @@ export default function App() {
                 event.preventDefault();
                 handleLogoClick();
               }}
-              className={`flex items-center gap-1 active:scale-95 ${
-                isScrolled
-                  ? "md:pointer-events-none md:invisible md:w-0 md:overflow-hidden md:opacity-0"
-                  : ""
-              }`}
+              className="flex items-center gap-1 active:scale-95"
             >
               <img
                 ref={logoImgRef}
@@ -13607,7 +13536,7 @@ export default function App() {
             </a>
 
             {/* Desktop nav */}
-            <nav className={`ml-auto hidden flex-1 items-center justify-end gap-1 ${isScrolled ? "-translate-x-16" : ""} 2xl:flex`}>
+            <nav className="ml-auto hidden flex-1 items-center justify-end gap-1 2xl:flex">
               {showScrollTop && page === "shop" && (
                 <button
                   onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
@@ -14763,9 +14692,6 @@ export default function App() {
               page={page}
               language={language}
               tx={tx}
-              openFaqs={openFaqs}
-              toggleFaq={toggleFaq}
-              getFaqParagraphs={getFaqParagraphs}
               getPreloadedDisplayImageUrl={getPreloadedDisplayImageUrl}
               aboutBottleWiggle={aboutBottleWiggle}
               setAboutBottleWiggle={setAboutBottleWiggle}
@@ -14779,7 +14705,6 @@ export default function App() {
             <ShippingPricesPage
               tx={tx}
               getPublicImageUrl={getPreloadedDisplayImageUrl}
-              onVialImageLoad={cacheDisplayedPublicImage}
             />
           </ErrorBoundary>
         )}
@@ -14799,7 +14724,6 @@ export default function App() {
             onCopyEmail={copySupportEmail}
             onContact={() => setPage("contact")}
             getPublicImageUrl={getPreloadedDisplayImageUrl}
-            onVialImageLoad={cacheDisplayedPublicImage}
             onVialImageError={retryVialImage}
           />
           </Suspense>

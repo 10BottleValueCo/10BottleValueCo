@@ -32,3 +32,24 @@
     }
   }
 }
+
+/* Match the catalog's fixed backdrop layering on the two information routes.
+   The photograph stays fixed while the content can scroll independently. */
+.tbv-app-shell--info-background {
+  position: relative;
+  isolation: isolate;
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+.tbv-app-shell--info-background::before {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  background-image: var(--tbv-info-background-image);
+  background-position: center top;
+  background-repeat: no-repeat;
+  background-size: cover;
+}

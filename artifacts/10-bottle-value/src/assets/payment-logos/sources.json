@@ -39,9 +39,11 @@
     ],
     "pathCount": 5,
     "unchangedGlyphPaths": true,
-    "sha256": "ac380d4708c011c43f8e6676dcea0826e0a8bb36d451154fe9567959bbb1718f",
+    "sha256": "f33ec20a413281ed9c6aa25d5c87be5fda293e9e94bcc908fe67b9dee085a2da",
     "source": "https://www.gstatic.com/instantbuy/svg/light_gpay.svg",
-    "artwork": "Official wordmark glyph paths and colors preserved; removed non-painted bounds path and tightly cropped viewBox. Transparent background."
+    "artwork": "Owner-requested neutral contrast adjustment: Google Pay letter path changed from #5F6368 to #000 to match Apple Pay and Card on white. Official glyph paths and colored G fills preserved; removed non-painted bounds path and tightly cropped viewBox. Transparent background.",
+    "letterFill": "#000",
+    "originalLetterFill": "#5F6368"
   },
   "google-pay-dark.svg": {
     "viewBox": "0.251 0.252 40.752 16.177",
