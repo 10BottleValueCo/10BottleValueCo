@@ -50,7 +50,6 @@ export default function CashAppPaymentGuide({ tx, loading, disabled, amount, onC
           <div className="mb-5 flex items-start justify-between gap-4">
             <div>
               <h2 id="cashapp-guide-title" className="text-[22px] font-semibold leading-7 tracking-[-0.03em]">{tx("Pay with Cash App", "Оплата через Cash App", "Оплата через Cash App", "Mit Cash App zahlen", "Pagar con Cash App")}</h2>
-              <p className="mt-1 text-[12px] text-black/50">{tx("via Bitcoin Lightning", "через Bitcoin Lightning", "через Bitcoin Lightning", "über Bitcoin Lightning", "a través de Bitcoin Lightning")}</p>
             </div>
             <button type="button" onClick={() => setOpen(false)} aria-label={tx("Close", "Закрыть", "Закрити", "Schließen", "Cerrar")}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/5 text-[22px] leading-none hover:bg-black/10">×</button>

@@ -85,6 +85,7 @@ export default async function handler(req, res) {
 
     let promoDiscount = 0;
     let verifiedPromoFreeShipping = false;
+    let discountRule = null;
     let promoUsageRequired = false;
     if (String(promoCode || "").trim()) {
       const verifiedPromo = await verifyPromoCode({
@@ -92,10 +93,11 @@ export default async function handler(req, res) {
         email: finalEmail,
         sbUrl: SB_URL,
         sbKey: SB_KEY,
-        requireEmailMatch: true,
+        subtotalCents: Math.round(subtotal * 100),
       });
       if (!verifiedPromo) return res.status(400).json({ code: "PAYLIO_PROMO_UNAVAILABLE", error: "This promo code is unavailable for this checkout." });
       if (verifiedPromo) {
+        discountRule = verifiedPromo.rule;
         promoDiscount = Math.round(subtotal * verifiedPromo.rate * 100) / 100;
         verifiedPromoFreeShipping = !!verifiedPromo.freeShipping;
         promoUsageRequired = verifiedPromo.source === "personal";
@@ -176,7 +178,7 @@ export default async function handler(req, res) {
       .map(key => [key, String(source[key] || "").slice(0, 2000)]));
     const quote = {
       ...address, orderId: finalOrderId, email: finalEmail, total: Number(safeAmount),
-      subtotal, shipping, automaticDiscount: finalAutomaticDiscount, promoDiscount,
+      subtotal, shipping, automaticDiscount: finalAutomaticDiscount, promoDiscount, discountRule,
       promoCode: promoDiscount > 0 ? String(promoCode).trim().toUpperCase() : "", promoUsageRequired,
       affiliateDiscount: finalAffiliateDiscount, affiliateCode: finalAffiliateCode,
       affiliateAttributionCode,
@@ -210,6 +212,7 @@ export default async function handler(req, res) {
     const bound = await bindPaylio(reservation.attempt, data);
     return res.status(200).json({ ...bound, payment_url: paylioCustomerUrl(bound.payment_url, finalEmail, provider) });
   } catch (error) {
+    if (error?.code === "PROMO_LOOKUP_UNAVAILABLE") return res.status(503).json({ code: error.code, error: error.message });
     return res.status(error instanceof PaylioError ? error.status : 503).json({
       code: error instanceof PaylioError ? error.code : "PAYLIO_CREATION_UNAVAILABLE",
       error: "Payment setup is pending. Please contact support before trying another payment.",

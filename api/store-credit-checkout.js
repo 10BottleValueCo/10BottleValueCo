@@ -4,16 +4,9 @@ import {
   getShippingPrice,
   validateAndPriceItems,
 } from "./_catalog.js";
+import { verifyPromoCode, PromoLookupError } from "./_promo.js";
 import { requireVerifiedCustomer } from "./_require-customer.js";
 
-const STATIC_PROMOS = {
-  REVIEW10: { rate: 0.1, freeShipping: false },
-  OWNERFREESHIP: {
-    rate: 0,
-    freeShipping: true,
-    emailLock: "support@10bottlevalue.co",
-  },
-};
 const EXPRESS_COUNTRIES = new Set([
   "United States",
   "Puerto Rico",
@@ -296,20 +289,17 @@ function getMetadata(value) {
   return null;
 }
 
-async function verifyPromo({ code, email }) {
+async function verifyPromo({ code, email, subtotal }) {
   if (!code) return { rate: 0, freeShipping: false, userPromoId: null };
-
-  const fixed = STATIC_PROMOS[code];
-  if (fixed) {
-    if (fixed.emailLock && normalizeEmail(email) !== fixed.emailLock) {
-      throw new CheckoutError(400, "That promo code is not valid.");
-    }
-    return { ...fixed, userPromoId: null };
+  const { url, key } = getSupabaseConfig();
+  try {
+    const promo = await verifyPromoCode({ code, email, sbUrl: url, sbKey: key, subtotalCents: Math.round(subtotal * 100) });
+    if (!promo) throw new CheckoutError(409, "This promo code is unavailable for this checkout. Review or remove it before paying.");
+    return promo;
+  } catch (error) {
+    if (error instanceof PromoLookupError) throw new CheckoutError(503, error.message);
+    throw error;
   }
-
-  // Dynamic promotion and affiliate records still have legacy public writers.
-  // Do not let them price a newly enabled credit-funded order.
-  throw new CheckoutError(409, "This promo code needs verification before Store Credit checkout. Remove the code or contact support.");
 }
 
 async function verifyAffiliate({ code }) {
@@ -413,7 +403,7 @@ async function handler(req, res) {
     const { pricedItems, subtotal, regularSubtotal } = priced;
     const promo = await verifyPromo({
       code: input.promoCode,
-      email: customer.email,
+      email: customer.email, subtotal,
     });
     const affiliate = await verifyAffiliate({
       code: input.affiliateCode,
@@ -498,6 +488,7 @@ async function handler(req, res) {
       automaticDiscount,
       promoDiscount,
       promoCode: input.promoCode,
+      ...(promo.rule ? { discountRule: promo.rule } : {}),
       promoFreeShipping: Boolean(promo.freeShipping),
       affiliateDiscount,
       cryptoDiscount,

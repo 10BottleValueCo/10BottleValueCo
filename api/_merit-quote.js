@@ -1,13 +1,8 @@
 import { createHash } from "node:crypto";
 import { findCatalogProduct, getAutomaticDiscountRate, getShippingPrice, validateAndPriceItems } from "./_catalog.js";
 
-// Uses the existing catalog, shipping and static discount rules. Dynamic promo
-// and affiliate tables remain publicly writable, so Merit cannot trust them as
-// financial authority. This helper quotes only; it never reserves or charges.
-const STATIC_PROMOS = {
-  REVIEW10: { rate: 0.1, freeShipping: false },
-  OWNERFREESHIP: { rate: 0, freeShipping: true, emailLock: "support@10bottlevalue.co" },
-};
+import { verifyPromoCode, PromoLookupError } from "./_promo.js";
+
 const ADMIN_EMAIL = "support@10bottlevalue.co";
 const EXPRESS_COUNTRIES = new Set(["United States", "Puerto Rico", "Australia", "Colombia"]);
 const record = value => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -139,16 +134,6 @@ function normalizeInput(body, verifiedEmail) {
   };
 }
 
-function verifyPromo(code, email) {
-  if (!code) return { rate: 0, freeShipping: false, userPromoId: null };
-  if (Object.hasOwn(STATIC_PROMOS, code)) {
-    const promo = STATIC_PROMOS[code];
-    if (promo.emailLock && promo.emailLock !== email) throw new MeritQuoteError(400, "That promo code is not valid.");
-    return { ...promo, userPromoId: null };
-  }
-  throw new MeritQuoteError(409, "This promo code is not available for card checkout yet. Remove it or contact support before paying.", "MERIT_PROMO_UNVERIFIED");
-}
-
 /**
  * Caller must authenticate verifiedEmail before calling. body uses the existing
  * full-credit checkout shape (checkoutForm, items, shippingType, attestations).
@@ -160,11 +145,6 @@ function verifyPromo(code, email) {
  */
 export async function buildMeritQuote(body, verifiedEmail, options = {}) {
   const input = normalizeInput(body, verifiedEmail);
-  // Fail before querying legacy public-write tables. Never silently remove an
-  // advertised benefit: the buyer must explicitly remove the code or ask support.
-  if (input.promoCode && !Object.hasOwn(STATIC_PROMOS, input.promoCode)) {
-    throw new MeritQuoteError(409, "This promo code is not available for card checkout yet. Remove it or contact support before paying.", "MERIT_PROMO_UNVERIFIED");
-  }
   if (input.affiliateCode) {
     throw new MeritQuoteError(409, "Affiliate codes are not available for card checkout yet. Remove the code or contact support before paying.", "MERIT_AFFILIATE_UNVERIFIED");
   }
@@ -183,8 +163,19 @@ export async function buildMeritQuote(body, verifiedEmail, options = {}) {
   let priced;
   try { priced = validateAndPriceItems(input.items); }
   catch (error) { throw new MeritQuoteError(400, error.message); }
-  const promo = verifyPromo(input.promoCode, input.email);
   const subtotalCents = moneyCents(priced.subtotal);
+  let promo = { rate: 0, freeShipping: false, userPromoId: null };
+  if (input.promoCode) {
+    try {
+      promo = await verifyPromoCode({ code: input.promoCode, email: input.email,
+        sbUrl: options.supabaseUrl, sbKey: options.serviceRoleKey,
+        fetcher: options.fetcher, now: options.now, subtotalCents });
+    } catch (error) {
+      if (!(error instanceof PromoLookupError)) throw error;
+      throw new MeritQuoteError(503, "Promo code validation is temporarily unavailable. Please try again.", "MERIT_PROMO_UNAVAILABLE");
+    }
+    if (!promo) throw new MeritQuoteError(409, "This promo code is no longer available for this checkout. Remove it or contact support before paying.", "MERIT_PROMO_UNVERIFIED");
+  }
   const automaticRate = getAutomaticDiscountRate(priced.subtotal);
   const automaticDiscountCents = promo.rate === 0 ? Math.round(subtotalCents * automaticRate) : 0;
   const affiliateDiscountCents = 0;
@@ -202,6 +193,7 @@ export async function buildMeritQuote(body, verifiedEmail, options = {}) {
     shippingType: input.shippingType, items: priced.pricedItems,
     subtotal: subtotalCents / 100, shipping: shippingCents / 100,
     automaticDiscount: automaticDiscountCents / 100, promoDiscount: promoDiscountCents / 100,
+    ...(promo.rule ? { discountRule: promo.rule } : {}),
     promoCode: input.promoCode, promoFreeShipping: Boolean(promo.freeShipping),
     ownerFreeShipping: input.ownerFreeShipping, affiliateDiscount: affiliateDiscountCents / 100,
     affiliateDiscountDisabled: input.affiliateDiscountDisabled,

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
+import OperationsDiscounts from "./components/OperationsDiscounts.jsx";
 import OperationsPortalStudio from "./components/OperationsPortalStudio.jsx";
 import { boundedAuth, checkOperationsAccess, operationsGithubSignInUrl, sessionIdentity, signInOperations } from "./operations-auth.js";
 import "./operations-shell.css";
@@ -37,6 +38,7 @@ const words = {
 
 export function OperationsApp() {
   const [language, setLanguage] = useState("en");
+  const [workspaceTab, setWorkspaceTab] = useState("overview");
   const [auth, setAuth] = useState({ loading: configured, session: null });
   const [access, setAccess] = useState({ key: "", status: "checking" });
   const [retry, setRetry] = useState(0);
@@ -128,7 +130,11 @@ export function OperationsApp() {
       <div className="operations-language" role="group" aria-label={t.language}>{["en", "ru"].map(code => <button type="button" key={code} aria-pressed={language === code} onClick={() => setLanguage(code)}>{code.toUpperCase()}</button>)}</div>
       {key && <button type="button" className="operations-logout" disabled={form.busy} onClick={signOut}>{form.busy ? t.busy : t.logout}</button>}
     </div></nav>
-    {checked ? <><div className="operations-account">{t.account}: {access.user.email}</div><OperationsPortalStudio key={key} supabase={supabase} expectedEmail={access.user.email} language={language} onLanguageChange={setLanguage} /></> : <main className="operations-entry">
+    {checked ? <><div className="operations-account">{t.account}: {access.user.email}</div><nav className="operations-workspace-tabs" aria-label={language === "ru" ? "Разделы Operations" : "Operations sections"}>
+        <button type="button" aria-pressed={workspaceTab === "overview"} onClick={() => setWorkspaceTab("overview")}>{language === "ru" ? "Обзор" : "Overview"}</button>
+        <button type="button" aria-pressed={workspaceTab === "discounts"} onClick={() => setWorkspaceTab("discounts")}>{language === "ru" ? "Промокоды и скидки" : "Promo codes & discounts"}</button>
+      </nav>
+      {workspaceTab === "discounts" ? <OperationsDiscounts key={key} supabase={supabase} expectedEmail={access.user.email} language={language} /> : <OperationsPortalStudio key={key} supabase={supabase} expectedEmail={access.user.email} language={language} onLanguageChange={setLanguage} />}</> : <main className="operations-entry">
       <div className="operations-intro"><span>{t.private}</span><h1>{t.title}</h1><p>{t.subtitle}</p></div>
       <section className="operations-login">
         {!configured ? <p role="alert">{t.config}</p> : auth.loading ? <p role="status">{t.busy}</p> : key ? <>

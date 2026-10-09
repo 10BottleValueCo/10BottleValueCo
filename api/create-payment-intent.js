@@ -59,9 +59,12 @@ export default async function handler(req, res) {
 
     let promoDiscount = 0;
     let verifiedPromoFreeShipping = false;
+    let discountRule = null;
     if (String(promoCode || "").trim()) {
-      const verifiedPromo = await verifyPromoCode({ code: promoCode, email, sbUrl: SB_URL, sbKey: SB_KEY });
+      const verifiedPromo = await verifyPromoCode({ code: promoCode, email, sbUrl: SB_URL, sbKey: SB_KEY, subtotalCents: Math.round(subtotal * 100) });
+      if (!verifiedPromo) return res.status(400).json({ code: "PROMO_UNAVAILABLE", error: "This promo code is unavailable for this checkout. Review or remove it before paying." });
       if (verifiedPromo) {
+        discountRule = verifiedPromo.rule;
         promoDiscount = Math.round(subtotal * verifiedPromo.rate * 100) / 100;
         verifiedPromoFreeShipping = !!verifiedPromo.freeShipping;
       }
@@ -104,6 +107,7 @@ export default async function handler(req, res) {
       cardProcessingFee: String(Number(stripeFee).toFixed(2)),
       automaticDiscount: String(Number(finalAutomaticDiscount).toFixed(2)),
       promoDiscount: String(Number(promoDiscount).toFixed(2)),
+      discountRule: JSON.stringify(discountRule),
       affiliateDiscount: String(Number(finalAffiliateDiscount).toFixed(2)),
       storeCreditUsed: String(Number(safeStoreCreditUsed).toFixed(2)),
     };
@@ -122,6 +126,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ clientSecret: intent.client_secret, verifiedAmount: amount });
   } catch (err) {
+    if (err?.code === "PROMO_LOOKUP_UNAVAILABLE") return res.status(503).json({ code: err.code, error: err.message });
     console.error("create-payment-intent error:", err.message);
     return res.status(500).json({ error: err.message || "Failed to create payment intent" });
   }

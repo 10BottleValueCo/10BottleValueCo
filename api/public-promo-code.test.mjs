@@ -59,8 +59,8 @@ test("public lookup returns only the requested code and rate", async (t) => {
       {
         code: "SPRING-10",
         rate: 0.1,
-        email: "private@example.org",
-        id: 123,
+        email: "__PUBLIC__",
+        id: "33333333-3333-4333-8333-333333333333", used: false,
       },
     ]);
   });
@@ -71,9 +71,9 @@ test("public lookup returns only the requested code and rate", async (t) => {
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.body, {
     ok: true,
-    promo: { code: "SPRING-10", rate: 0.1 },
+    promo: { code: "SPRING-10", rate: 0.1, minimumSubtotal: 0, startsAt: null, endsAt: null },
   });
-  assert.equal(requestedUrl.searchParams.get("select"), "code,rate");
+  assert.equal(requestedUrl.searchParams.get("select"), "*");
   assert.equal(requestedUrl.searchParams.get("email"), "eq.__PUBLIC__");
   assert.equal(requestedUrl.searchParams.get("code"), "eq.SPRING-10");
   assert.equal(requestedUrl.searchParams.get("used"), "eq.false");
@@ -116,7 +116,7 @@ test("ambiguous duplicate codes require support review", async (t) => {
   );
   const res = mockRes();
   await handler(makeRequest({ query: { code: "DUPLICATE" } }), res);
-  assert.equal(res.statusCode, 409);
+  assert.equal(res.statusCode, 503);
 });
 
 test("non-GET requests are rejected", async (t) => {

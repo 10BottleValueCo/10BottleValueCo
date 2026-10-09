@@ -6,6 +6,7 @@ import vm from 'node:vm';
 import { test } from 'node:test';
 import { buildMeritCheckoutPayload, estimateMeritCreditSplit, meritCheckoutBusinessError, meritPayloadDigest, saveMeritAttempt, readMeritAttempt } from '../artifacts/10-bottle-value/src/merit-checkout-client.js';
 
+import {createLegacyAttemptManager} from '../artifacts/10-bottle-value/src/legacy-checkout-attempt.js';
 import { readPaymentReturn, legacyCheckoutHeaders } from '../artifacts/10-bottle-value/src/legacy-payment-return.js';
 
 // Exercise the actual App event handlers with isolated I/O. Parsing the source
@@ -63,11 +64,12 @@ function fixture() {
   const context = {
     Date, Math, Number, Object, JSON, URLSearchParams, Promise, AbortController, console, setTimeout: () => 0,
     legacyCheckoutHeaders, supabase: { auth: { getSession: async () => ({ data: { session: { access_token: 'synthetic-token', user: { id: 'buyer-fixture', email: 'buyer@example.test' } } } }) } },
-    saveAccountCheckoutDetails: async () => false, checkoutBuyerRef: { current: undefined },
+    saveAccountCheckoutDetails: async () => false, checkoutBuyerRef: { current: 'buyer-fixture' },
     rememberValidCheckoutDetails: value => calls.push(['setCheckoutForm', value]),
-    currentUser: { email: 'buyer@example.test' }, researchAccepted: true, qualifiedAccepted: true, termsAccepted: true,
+    currentUser: { id: 'buyer-fixture', email: 'buyer@example.test' }, researchAccepted: true, qualifiedAccepted: true, termsAccepted: true,
     cart: [{ name: 'BPC-157', dose: '5 mg', quantity: 1, price: 100 }],
     readCheckoutSnapshot: () => ({ ...form }), validateCheckoutForm: () => ({}),
+    legacyAttemptsRef: { current: createLegacyAttemptManager({cryptoApi:webcrypto}) }, legacyStartLockRef: { current:false },
     deferredLegacyOrderRef: { current: null }, meritAttemptRef: { current: null },
     meritCreateBusyRef: { current: false }, meritVerificationAbortRef: { current: null }, meritInputsRef: { current: '' },
     meritSelectionRef: { current: { method: 'stripe', step: 'payment' } },
@@ -91,6 +93,7 @@ function fixture() {
   for (const name of ['setPendingCheckoutAfterAuth', 'setAuthMode', 'setAccountMessage', 'setCheckoutMessage', 'setPage', 'setCheckoutForm', 'setCountrySearch', 'setCheckoutErrors', 'setCheckboxHighlight', 'setOrderNumber', 'setCurrentUser', 'setRegisteredUsers', 'setPaymentTimer', 'setNowPaymentData', 'setNowPaymentStatus', 'setNowPaymentError', 'setPaypalPaymentError', 'setCheckoutStep', 'setStripeLoading', 'setStripeError', 'setMeritSession', 'setPaymentMethodState']) context[name] = value => calls.push([name, value]);
   context.meritPayload = buildMeritCheckoutPayload({ items: context.cart, checkoutForm: form, shippingType: 'standard', purchaserAttestation: { over21AndResearchUseOnly: true, qualifiedResearcherOrLicensedProfessional: true, noHumanOrAnimalUse: true, policiesAccepted: true } });
   context.meritInputsRef.current = JSON.stringify({ payload: context.meritPayload, email: context.currentUser.email, surchargeBps: 300 });
+  context.prepareLegacyPaymentAttempt = handler("prepareLegacyPaymentAttempt", context);
   return { context, calls, form };
 }
 
@@ -132,7 +135,7 @@ test('Lightning to Card to Lightning keeps the original legacy order and follows
   const requests = [], navigations = [];
   Object.assign(context, {
     paymentMethod: 'cashapp', catalystPayLoading: false, orderNumber: 'INV-LIGHTNING1', meritSession: null,
-    deferredLegacyOrderRef: { current: { id: 'INV-LIGHTNING1' } },
+    deferredLegacyOrderRef: { current: { id: 'INV-LIGHTNING1', email:'buyer@example.test' } },
     setPaymentMethodState: value => { context.paymentMethod = value; },
     setOrderNumber: value => { context.orderNumber = value; },
     setCatalystPayLoading: value => { context.catalystPayLoading = value; },
@@ -148,10 +151,11 @@ test('Lightning to Card to Lightning keeps the original legacy order and follows
   context.window.location = { assign: url => navigations.push(url) };
   context.persistOrderToServer = handler('persistOrderToServer', context);
   const select = handler('setPaymentMethod', context), pay = handler('createCatalystPayment', context);
-  await pay(); select('stripe'); select('cashapp'); await pay();
-  assert.equal(context.orderNumber, 'INV-LIGHTNING1');
-  assert.deepEqual(requests.map(request => request.url), ['/api/order-checkout', '/api/create-catalystpay-session', '/api/order-checkout', '/api/create-catalystpay-session']);
-  for (const request of requests) assert.equal(request.body.order?.id || request.body.order_id, 'INV-LIGHTNING1');
+  context.legacyAttemptsRef.current.begin('INV-LIGHTNING1','buyer-fixture');
+  await pay(); const firstId=context.orderNumber; select('stripe'); select('cashapp'); await pay();
+  assert.equal(context.orderNumber, firstId); assert.match(firstId,/^INV-[0-9A-F]{32}$/);
+  assert.deepEqual(requests.map(request => request.url), ['/api/order-checkout', '/api/create-catalystpay-session']);
+  for (const request of requests) assert.equal(request.body.order?.id || request.body.order_id, firstId);
   assert.deepEqual(navigations, ['https://checkout.example.test/original-invoice', 'https://checkout.example.test/original-invoice']);
   assert.equal(calls.some(([name, value]) => name === 'lightningError' && value), false);
 });
@@ -663,4 +667,22 @@ test('validated details save before payment and late account-save responses cann
   context.checkoutBuyerRef.current = 'account-b';
   finish(true); await Promise.resolve();
   assert.equal(calls.some(call => call[0] === 'setCurrentUser'), false);
+});
+
+test('actual checkout preparation isolates provider changes and preserves the original attestation',async()=>{
+ const {context}=fixture();await handler('handleCheckout',context)();
+ const prepare=handler('prepareLegacyPaymentAttempt',context);
+ const lightning=await prepare('catalystpay','lightning',context.readCheckoutSnapshot());
+ assert.equal(context.deferredLegacyOrderRef.current.purchaserAttestation.policiesAccepted,true);
+ context.cryptoDiscountAmount=3.5;context.finalTotal=136.49;
+ const crypto=await prepare('nowpayments','usdtrx',context.readCheckoutSnapshot());
+ assert.notEqual(crypto.orderId,lightning.orderId);assert.equal(context.deferredLegacyOrderRef.current.total,136.49);
+ context.cryptoDiscountAmount=0;context.finalTotal=139.99;
+ assert.equal((await prepare('catalystpay','lightning',context.readCheckoutSnapshot())).orderId,lightning.orderId);
+ context.checkoutBuyerRef.current='other';await assert.rejects(prepare('catalystpay','lightning',context.readCheckoutSnapshot()),/Sign in/);
+});
+
+test('payment selection waits for the in-flight hosted invoice request',()=>{
+ const {context,calls}=fixture();context.legacyStartLockRef.current=true;
+ handler('setPaymentMethod',context)('cashapp');assert.deepEqual(calls,[]);
 });

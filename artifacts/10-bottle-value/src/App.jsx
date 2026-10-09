@@ -16,6 +16,7 @@ import { readPaymentReturn, checkLegacyPaymentReturn, legacyCheckoutHeaders, syn
 import { startVisiblePolling } from "./visible-poll.js";
 import { observeAnnouncementHeight } from "./announcement-height.js";
 import { createInfoPageImageWarmup, scheduleInfoPageWarmup } from "./preloadInfoPageImages.js";
+import { createLegacyAttemptManager } from "./legacy-checkout-attempt.js";
 import { buildMeritCheckoutPayload, estimateMeritCreditSplit, meritCheckoutBusinessError, meritCartMatchesOrder, meritOrderCardSurcharge, createMeritApiClient, meritPayloadDigest, readMeritAttempt, saveMeritAttempt, verifyMeritCheckoutBuyer, MERIT_ATTEMPT_STORAGE_KEY } from "./merit-checkout-client.js";
 import { ACCOUNT_AVATARS, getAccountAvatar } from "./account-avatars.js";
 import { track, trackPageView } from "./analytics.js";
@@ -4194,6 +4195,13 @@ export default function App() {
   const [countryDropdownRect, setCountryDropdownRect] = useState(null);
   const [checkoutStep, setCheckoutStep] = useState("details");
   const deferredLegacyOrderRef = useRef(null);
+  const legacyAttemptsRef = useRef(null);
+  const legacyStartLockRef = useRef(false);
+  if (!legacyAttemptsRef.current) legacyAttemptsRef.current = createLegacyAttemptManager();
+  useEffect(() => {
+    legacyAttemptsRef.current.clear();
+    deferredLegacyOrderRef.current = null;
+  }, [currentUser?.id]);
   const [isBonusExpanded, setIsBonusExpanded] = useState(false);
   const [shippingHighlight, setShippingHighlight] = useState(false);
   const [checkboxHighlight, setCheckboxHighlight] = useState(false);
@@ -5661,7 +5669,13 @@ export default function App() {
         .select("*")
         .eq("email", String(email).trim().toLowerCase());
       if (!error && Array.isArray(data)) {
-        const activePromos = data.filter((p) => !p.used);
+        const { data: authData } = await supabase.auth.getSession();
+        if (authData?.session?.user?.id !== checkoutBuyerRef.current
+          || authData?.session?.user?.email?.trim().toLowerCase() !== email.trim().toLowerCase()) return;
+        const activePromos = data.filter((p) => p.used === false && p.active !== false
+          && (!p.starts_at || Date.parse(p.starts_at) <= Date.now())
+          && (!p.ends_at || Date.parse(p.ends_at) > Date.now())
+          && Number(p.minimum_subtotal_cents || 0) <= Math.round(subtotal * 100));
         setUserPromos(activePromos);
         if (activePromos.length > 0 && !currentAppliedPromo) {
           const first = activePromos[0];
@@ -7975,7 +7989,7 @@ export default function App() {
   }, [page, checkoutStep]);
   const [paymentMethod, setPaymentMethodState] = useState("stripe");
   function setPaymentMethod(next) {
-    if (next === paymentMethod) return;
+    if (next === paymentMethod || legacyStartLockRef.current) return;
     if (meritAttemptRef.current?.submitted || (meritAttemptRef.current?.createRequested && next !== "stripe")) { showMeritReservedAttempt(); return; }
     if (next === "stripe" && meritSession) setOrderNumber(meritSession.orderId);
     else if (deferredLegacyOrderRef.current?.id) setOrderNumber(deferredLegacyOrderRef.current.id);
@@ -8371,7 +8385,7 @@ export default function App() {
     if (!normalizedCode) return null;
 
     const response = await fetch(
-      `/api/public-promo-code?code=${encodeURIComponent(normalizedCode)}`
+      `/api/public-promo-code?code=${encodeURIComponent(normalizedCode)}&subtotal=${encodeURIComponent(subtotal.toFixed(2))}`
     );
     const result = await response.json().catch(() => ({}));
     if (!response.ok || result?.ok !== true) {
@@ -10109,8 +10123,34 @@ export default function App() {
     return `$${num.toFixed(2)}`;
   }
 
+  async function prepareLegacyPaymentAttempt(provider, selection, syncedCF) {
+    const owner = currentUser?.id;
+    const snapshot = {
+      email: currentUser?.email?.trim().toLowerCase(),
+      ...Object.fromEntries(["firstName", "lastName", "country", "address", "address2", "city", "state", "postalCode", "phone", "taxId"].map(key => [key, syncedCF[key] || ""])),
+      orderNotes: getCheckoutOrderNotes(syncedCF), shippingType: effectiveShippingType,
+      subtotal: Number(subtotal.toFixed(2)), shipping: Number(shipping.toFixed(2)),
+      automaticDiscount: Number(automaticDiscount.toFixed(2)), promoDiscount: Number(promoDiscount.toFixed(2)),
+      promoCode: appliedPromo?.code || "", affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
+      affiliateCode: affiliateTrackingCode, affiliateOwnerEmail: affiliateTrackingOwnerEmail,
+      affiliateCommission: Number(affiliateCommission.toFixed(2)), cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
+      storeCreditUsed: Number(storeCreditApplied.toFixed(2)), total: Number(finalTotal.toFixed(2)),
+      items: cart.map(item => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price,
+        ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}), ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+        ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}) })),
+    };
+    const attempt = await legacyAttemptsRef.current.prepare(provider, selection, snapshot, owner);
+    if (checkoutBuyerRef.current !== owner) throw new Error("Sign in again before continuing checkout.");
+    const original = deferredLegacyOrderRef.current;
+    if (!original || original.email !== snapshot.email) throw new Error("Review your checkout details before continuing.");
+    deferredLegacyOrderRef.current = { ...original, ...snapshot, id: attempt.orderId, status: "pending", paymentProvider: "pending" };
+    setOrderNumber(attempt.orderId);
+    return attempt;
+  }
+
   async function createNowPayment() {
-    if (nowPaymentLoading) return;
+    if (nowPaymentLoading || legacyStartLockRef.current) return;
+    legacyStartLockRef.current = true;
 
     setNowPaymentLoading(true);
     setNowPaymentError("");
@@ -10118,6 +10158,9 @@ export default function App() {
     try {
       const payCurrency = activeNetworkOption?.payCurrency || "usdtrx";
       const syncedCF = readCheckoutSnapshot();
+      const attempt = await prepareLegacyPaymentAttempt("nowpayments", payCurrency, syncedCF);
+      const orderNumber = attempt.orderId;
+      if (attempt.url) { window.location.assign(attempt.url); return; }
       const email = (syncedCF.email || currentUser?.email || "").trim().toLowerCase();
       const now = new Date().toISOString();
 
@@ -10232,7 +10275,7 @@ export default function App() {
           ? `${selectedCrypto} · ${selectedNetwork}`
           : selectedCrypto || "Crypto";
         try { localStorage.setItem(`tbv-pay-method-${orderNumber}`, cryptoLabel); } catch {}
-        window.location.assign(data.invoice_url);
+        window.location.assign(legacyAttemptsRef.current.remember(attempt, data.invoice_url));
         return;
       }
 
@@ -10242,16 +10285,23 @@ export default function App() {
         error?.message || "Failed to create NOWPayments payment."
       );
     } finally {
-      setNowPaymentLoading(false);
+      legacyStartLockRef.current = false; setNowPaymentLoading(false);
     }
   }
 
   async function createCatalystPayment() {
-    if (catalystPayLoading) return;
+    if (catalystPayLoading || legacyStartLockRef.current) return;
+    legacyStartLockRef.current = true;
     setCatalystPayLoading(true);
     setCatalystPayError("");
     const syncedCF = readCheckoutSnapshot();
     const email = (syncedCF.email || currentUser?.email || "").trim().toLowerCase();
+    let attempt;
+    try {
+      attempt = await prepareLegacyPaymentAttempt("catalystpay", "lightning", syncedCF);
+      if (attempt.url) { window.location.assign(attempt.url); legacyStartLockRef.current = false; setCatalystPayLoading(false); return; }
+    } catch (error) { setCatalystPayError(error.message); legacyStartLockRef.current = false; setCatalystPayLoading(false); return; }
+    const orderNumber = attempt.orderId;
     const now = new Date().toISOString();
 
     const meta = {
@@ -10334,21 +10384,28 @@ export default function App() {
       if (!res.ok) throw new Error(data?.error || data?.message || "Failed to create CatalystPay invoice.");
       if (!data?.checkoutLink) throw new Error("CatalystPay checkout link was not returned.");
 
-      window.location.assign(data.checkoutLink);
+      window.location.assign(legacyAttemptsRef.current.remember(attempt, data.checkoutLink));
     } catch (error) {
       setCatalystPayError(error?.message || "Failed to create Bitcoin Lightning payment.");
     } finally {
-      setCatalystPayLoading(false);
+      legacyStartLockRef.current = false; setCatalystPayLoading(false);
     }
   }
 
   async function createPaylioPayment(provider = "") {
-    if (paylioPaymentLoading) return;
+    if (paylioPaymentLoading || legacyStartLockRef.current) return;
+    legacyStartLockRef.current = true;
     setPaylioPaymentLoading(true);
     setPaylioPaymentError("");
     const syncedCF = readCheckoutSnapshot();
     const email = (syncedCF.email || currentUser?.email || "").trim().toLowerCase();
-    try { await markOrderCheckoutStartedById(orderNumber, provider || "Paylio"); } catch (e) { setPaylioPaymentError(e?.message || "Could not save this checkout."); setPaylioPaymentLoading(false); return; }
+    let attempt;
+    try {
+      attempt = await prepareLegacyPaymentAttempt("paylio", provider || "multi", syncedCF);
+      if (attempt.url) { window.location.assign(attempt.url); legacyStartLockRef.current = false; setPaylioPaymentLoading(false); return; }
+    } catch (error) { setPaylioPaymentError(error.message); legacyStartLockRef.current = false; setPaylioPaymentLoading(false); return; }
+    const orderNumber = attempt.orderId;
+    try { await markOrderCheckoutStartedById(orderNumber, provider || "Paylio"); } catch (e) { setPaylioPaymentError(e?.message || "Could not save this checkout."); legacyStartLockRef.current = false; setPaylioPaymentLoading(false); return; }
     try {
       const orderDescription = `10BottleValueCo ${orderNumber}`;
       const res = await fetch("/api/create-paylio-payment", {
@@ -10420,11 +10477,11 @@ export default function App() {
       const paymentUrl = data?.payment_url;
       if (!paymentUrl) throw new Error("Paylio payment link was not returned by the server.");
       try { localStorage.setItem(`tbv-pay-method-${orderNumber}`, "Card"); } catch {}
-      window.location.assign(paymentUrl);
+      window.location.assign(legacyAttemptsRef.current.remember(attempt, paymentUrl));
     } catch (error) {
       setPaylioPaymentError(error?.message || "Failed to create Paylio card payment.");
     } finally {
-      setPaylioPaymentLoading(false);
+      legacyStartLockRef.current = false; setPaylioPaymentLoading(false);
     }
   }
 
@@ -10768,7 +10825,7 @@ export default function App() {
       return;
     }
 
-    const promo = promoCatalog[normalizedCode];
+    const promo = Object.hasOwn(promoCatalog, normalizedCode) ? promoCatalog[normalizedCode] : null;
 
     if (appliedPromo && !(promo?.freeShipping)) {
       setPromoMessage(
@@ -10787,7 +10844,9 @@ export default function App() {
     );
 
     let matchedUserPromo = !promo && !matchedAffiliate
-      ? userPromos.find((p) => p.code === normalizedCode && (!p.used || p.email === "__PUBLIC__"))
+      ? userPromos.find((p) => p.code === normalizedCode && p.used === false && p.active !== false
+        && (!p.starts_at || Date.parse(p.starts_at) <= Date.now()) && (!p.ends_at || Date.parse(p.ends_at) > Date.now())
+        && Number(p.minimum_subtotal_cents || 0) <= Math.round(subtotal * 100))
       : null;
 
     if (!promo && !matchedAffiliate && !matchedUserPromo) {
@@ -10845,7 +10904,7 @@ export default function App() {
     }
 
     if (matchedUserPromo) {
-      if (usedPromoCodes.includes(normalizedCode)) {
+      if (matchedUserPromo.email !== "__PUBLIC__" && usedPromoCodes.includes(normalizedCode)) {
         setPromoMessage(
           tx(
             "This promo code has already been used.",
@@ -10861,7 +10920,7 @@ export default function App() {
       setAffiliateManuallyApplied(false);
       setActiveAffiliateCode("");
       try { localStorage.removeItem("tbv-active-affiliate"); } catch {}
-      setAppliedPromo({ code: normalizedCode, rate: matchedUserPromo.rate, label: `${+(matchedUserPromo.rate * 100).toFixed(2)}% personal discount`, type: "user_promo", id: matchedUserPromo.id });
+      setAppliedPromo({ code: normalizedCode, rate: matchedUserPromo.rate, label: `${+(matchedUserPromo.rate * 100).toFixed(2)}% discount`, type: "user_promo", id: matchedUserPromo.id });
       setPromoInput("");
       setPromoMessage(
         tx(
@@ -11500,6 +11559,7 @@ export default function App() {
     };
 
     deferredLegacyOrderRef.current = orderRecord;
+    legacyAttemptsRef.current.begin(orderRecord.id, currentUser.id);
 
     setPaymentTimer(59 * 60 + 45);
     setNowPaymentData(null);
@@ -12249,6 +12309,7 @@ export default function App() {
   }
 
   async function handleSignOut() {
+    legacyAttemptsRef.current.clear();
     if (currentUser?.email && cart.length > 0) {
       await supabase.auth.updateUser({ data: { savedCart: cart } });
     }

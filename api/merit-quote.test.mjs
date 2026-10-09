@@ -183,7 +183,7 @@ test("static promo supersedes automatic discount and owner shipping stays owner-
   assert.equal(review.promoDiscountCents, 40310);
   assert.equal(review.amountCents, 362790);
   assert.equal((await quote(fixture({ promoCode: "REVIEW10" }))).amountCents, 16509);
-  await assert.rejects(quote(fixture({ promoCode: "OWNERFREESHIP" })), isError(400));
+  await assert.rejects(quote(fixture({ promoCode: "OWNERFREESHIP" })), isError(409));
   await assert.rejects(quote(fixture({ ownerFreeShipping: true })), isError(400));
   const owner = await quote(fixture({ promoCode: "OWNERFREESHIP" }), "support@10bottlevalue.co");
   assert.equal(owner.shippingCents, 0);
@@ -191,11 +191,11 @@ test("static promo supersedes automatic discount and owner shipping stays owner-
   assert.equal((await quote(fixture({ ownerFreeShipping: true }), "support@10bottlevalue.co")).amountCents, 13900);
 });
 
-test("dynamic personal and public promo codes fail before legacy-table reads", async () => {
+test("malformed private promo rows are rejected without granting a discount", async () => {
   for (const promoCode of ["PERSONAL", "SALE", "toString", "constructor"]) {
     const db = service(() => [{ id: "forged", email: EMAIL, code: promoCode, rate: 1, used: false }]);
     await assert.rejects(quote(fixture({ promoCode }), EMAIL, db.options), isError(409, "MERIT_PROMO_UNVERIFIED"));
-    assert.equal(db.calls.length, 0);
+    assert.equal(db.calls.length, 1);
   }
 });
 
@@ -208,7 +208,7 @@ test("affiliate code cannot establish discount or commission through public-writ
 });
 
 test("rejected dynamic benefits are never silently dropped or replaced with an undiscounted quote", async () => {
-  await assert.rejects(quote(fixture({ promoCode: "PERSONAL" })), error => {
+  await assert.rejects(quote(fixture({ promoCode: "PERSONAL" }), EMAIL, service(() => []).options), error => {
     assert.match(error.message, /Remove it or contact support/);
     return isError(409, "MERIT_PROMO_UNVERIFIED")(error);
   });
@@ -250,4 +250,12 @@ test("credit opt-in never treats a browser amount as the available balance", asy
   assert.equal(split.total, 6.36);
   assert.equal(split.customerCardSurchargeBasis, "order_before_credit");
   for (const useStoreCredit of [1, "true", {}]) await assert.rejects(quote(fixture({ useStoreCredit })), isError(400));
+});
+
+for (const audience of ['__PUBLIC__', EMAIL]) test(`private ${audience==='__PUBLIC__'?'public':'personal'} promo prices card checkout and retains its rule`, async()=>{
+  const id='33333333-3333-4333-8333-333333333333';
+  const db=service(url => url.searchParams.get('email')===`eq.${audience}`?[{id,email:audience,code:'CARD5',rate:.05,used:false,active:true,revision:2}]:[]);
+  const result=await quote(fixture({promoCode:'CARD5',promoDiscount:999}),EMAIL,{...db.options,surchargeBps:300});
+  assert.equal(result.promoDiscountCents,695);assert.equal(result.amountCents,17720);assert.equal(result.snapshot.discountRule.revision,2);
+  assert.equal(result.userPromoId,audience==='__PUBLIC__'?null:id);
 });

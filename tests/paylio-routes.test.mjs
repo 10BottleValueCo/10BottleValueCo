@@ -9,7 +9,7 @@ const orderId='INV-PAYLIO123',customerId='11111111-1111-4111-8111-111111111111',
 const row={id:orderId,user_id:customerId,email,status:'checkout',total:110,metadata:{firstName:'Buyer',address:'Fixture address',storeCreditUsed:0},payment_provider:null};
 const res=()=>({statusCode:200,setHeader(){},status(code){this.statusCode=code;return this},json(body){this.body=body;return this}});
 const json=(body,status=200)=>new Response(JSON.stringify(body),{status});
-function fixture(t,{bindingFails=false,providerFails=false,providerUrlSuffix='',pending=false,terminal=false,effectsFailOnce=false,emptyEffectsAck=false,existingAffiliate='',affiliateResponse,affiliateLookupFails=false,priorPurchases=[],historyFails=false}={}){
+function fixture(t,{bindingFails=false,providerFails=false,providerUrlSuffix='',pending=false,terminal=false,effectsFailOnce=false,emptyEffectsAck=false,existingAffiliate='',affiliateResponse,affiliateLookupFails=false,priorPurchases=[],historyFails=false,promoRows=[]}={}){
  const calls=[];let attempt,effectsCalls=0;
  t.mock.method(globalThis,'fetch',async(input,options={})=>{
   const url=new URL(input),body=options.body?JSON.parse(options.body):null;
@@ -25,7 +25,7 @@ function fixture(t,{bindingFails=false,providerFails=false,providerUrlSuffix='',
   }
   if(url.pathname==='/rest/v1/affiliate_customers')return json(existingAffiliate?[{affiliate_code:existingAffiliate}]:[]);
   if(url.pathname==='/rest/v1/affiliates')return json(affiliateResponse===undefined?[{code:url.searchParams.get('code').slice(3),email:'affiliate@example.test',active:true}]:affiliateResponse,affiliateLookupFails?503:200);
-  if(url.pathname==='/rest/v1/user_promos')return json(url.searchParams.has('email')?[]:[{email:'another@example.test',rate:0.1,used:false}]);
+  if(url.pathname==='/rest/v1/user_promos')return json(promoRows.filter(row=>`eq.${row.email}`===url.searchParams.get('email')));
   if(url.pathname==='/rest/v1/paylio_payment_attempts')return json(attempt?[attempt]:[]);
   if(url.pathname==='/rest/v1/rpc/reserve_paylio_checkout'){
    if(attempt)return json({created:false,attempt});
@@ -153,7 +153,7 @@ test('affiliate deactivation after private binding does not reprice or block ver
 test('personal promo belonging to another email cannot reserve or initiate Paylio payment',async t=>{
  const f=fixture(t),response=res();await create({...request(),body:{...request().body,promoCode:'SOMEONEELSE'}},response);
  assert.equal(response.statusCode,400);assert.equal(response.body.code,'PAYLIO_PROMO_UNAVAILABLE');
- assert.equal(f.calls.filter(c=>c.url.pathname==='/rest/v1/user_promos').length,1);
+ assert.equal(f.calls.filter(c=>c.url.pathname==='/rest/v1/user_promos').length,2);
  assert.equal(f.calls.some(c=>c.url.pathname==='/api/v1/wallet'||c.url.pathname==='/rest/v1/rpc/reserve_paylio_checkout'),false);
 });
 test('failed database effects retry after paid acknowledgement without another receipt; empty acknowledgement is rejected',async t=>{
@@ -184,5 +184,13 @@ test('unpaid provider result or refused terminal-state transaction cannot cause 
  for(const options of [{pending:true},{terminal:true}]){
   const f=fixture(t,options);await create(request(),res());const response=res();await callback({method:'GET',url:`/api/paylio-callback?attempt=${f.attempt().id}`},response);
   assert.ok(response.statusCode>=400);assert.equal(f.calls.filter(c=>c.url.hostname==='api.resend.com').length,0);
+ }
+});
+
+test('CARD5 works with PayPal and Paylio and preserves the private rule version',async t=>{
+ for(const provider of ['paypal',undefined]){
+  const f=fixture(t,{promoRows:[{id:'33333333-3333-4333-8333-333333333333',email:'__PUBLIC__',code:'CARD5',rate:.05,used:false,revision:3}]}),response=res();
+  await create({...request(),body:{...request().body,provider,promoCode:'CARD5',promoDiscount:99}},response);
+  assert.equal(response.statusCode,200);assert.equal(response.body.verifiedAmount,105);assert.equal(f.attempt().quote.promoDiscount,5);assert.equal(f.attempt().quote.promoUsageRequired,false);assert.equal(f.attempt().quote.discountRule.revision,3);
  }
 });

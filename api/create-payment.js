@@ -81,14 +81,18 @@ export default async function handler(req, res) {
     // which can legitimately be up to 100%) and apply its verified rate.
     let promoDiscount = 0;
     let verifiedPromoFreeShipping = false;
+    let discountRule = null;
     if (String(promoCode || "").trim()) {
       const verifiedPromo = await verifyPromoCode({
         code: promoCode,
         email: customer_email,
         sbUrl: SB_URL,
         sbKey: SB_KEY,
+        subtotalCents: Math.round(subtotal * 100),
       });
+      if (!verifiedPromo) return res.status(400).json({ code: "PROMO_UNAVAILABLE", error: "This promo code is unavailable for this checkout. Review or remove it before paying." });
       if (verifiedPromo) {
+        discountRule = verifiedPromo.rule;
         promoDiscount = Math.round(subtotal * verifiedPromo.rate * 100) / 100;
         verifiedPromoFreeShipping = !!verifiedPromo.freeShipping;
       }
@@ -185,6 +189,7 @@ export default async function handler(req, res) {
         shipping: Number(shipping),
         automaticDiscount: Number(finalAutomaticDiscount),
         promoDiscount: Number(promoDiscount),
+        discountRule,
         promoCode: String(promoCode || ""),
         affiliateDiscount: Number(finalAffiliateDiscount),
         cryptoDiscount: Number(cryptoDiscount),
@@ -254,6 +259,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json(data);
   } catch (err) {
+    if (err?.code === "PROMO_LOOKUP_UNAVAILABLE") return res.status(503).json({ code: err.code, error: err.message });
     console.error("create-payment error:", err.message);
     return res.status(500).json({ error: err.message || "Payment creation failed" });
   }
