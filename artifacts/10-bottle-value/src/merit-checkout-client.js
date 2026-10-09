@@ -11,7 +11,7 @@ export function meritOrderCardSurcharge(order) {
 }
 
 export function meritCartMatchesOrder(cart, order) {
-  const normalize = items => JSON.stringify((items || []).map(item => [item.name, item.dose, item.noteLabel || "", item.fromWarehouse || "", Number(item.quantity ?? item.qty ?? 1)]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+  const normalize = items => JSON.stringify((items || []).map(item => [item.name, item.dose, item.noteLabel || "", item.fromWarehouse || "", Number(item.vials ?? 10), Number(item.quantity ?? item.qty ?? 1)]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
   return Array.isArray(cart) && cart.length > 0 && Array.isArray(order?.items) && normalize(cart) === normalize(order.items);
 }
 
@@ -20,7 +20,7 @@ export function buildMeritCheckoutPayload({ items, checkoutForm, shippingType, p
   for (const key of ["firstName", "lastName", "country", "address", "address2", "city", "state", "postalCode", "phone", "taxId"]) contact[key] = String(checkoutForm?.[key] || "");
   return {
     items: (items || []).map(item => ({ name: item.name, dose: item.dose, quantity: item.quantity ?? item.qty ?? 1,
-      ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}) })),
+      ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}), ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}) })),
     checkoutForm: contact, shippingType, promoCode: promoCode || "", affiliateCode: affiliateCode || "",
     affiliateDiscountDisabled: Boolean(affiliateDiscountDisabled), ownerFreeShipping: Boolean(ownerFreeShipping),
     useStoreCredit: useStoreCredit === true,

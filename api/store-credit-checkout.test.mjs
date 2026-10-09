@@ -173,6 +173,24 @@ test("unauthenticated checkout is rejected before touching Supabase data", async
   assert.equal(fetchCount, 0);
 });
 
+test("full-credit checkout rejects unsupported pack and warehouse selectors before any credit write", async (t) => {
+  withTestEnvironment(t, async (url, options = {}) => {
+    assert.equal(options.method ?? "GET", "GET", "invalid offer must not reach a financial write");
+    if (String(url).endsWith("/auth/v1/user")) return authResponse();
+    if (String(url).includes("/rest/v1/orders?")) return orderLookupResponse();
+    throw new Error(`Unexpected request: ${url}`);
+  });
+  for (const selector of [
+    { vials: 1 }, { vials: 5 }, { vials: "10" }, { vials: null }, { vials: false },
+    { fromWarehouse: false }, { fromWarehouse: 0 }, { fromWarehouse: null },
+    { name: "DSIP", dose: "10 mg" },
+  ]) {
+    const res = mockRes();
+    await handler(makeRequest(makeCheckout({ items: [{ ...makeCheckout().items[0], ...selector }] })), res);
+    assert.equal(res.statusCode, 400, JSON.stringify(selector));
+  }
+});
+
 test("server verifies identity, re-prices the cart, and sends only a paid order to the RPC", async (t) => {
   const calls = [];
   withTestEnvironment(t, async (url, options = {}) => {
@@ -225,7 +243,7 @@ test("server verifies identity, re-prices the cart, and sends only a paid order 
   );
 });
 
-test("retries return the completed order without debiting credit twice", async (t) => {
+test("retries with an explicit ten-vial pack retain the legacy fingerprint and do not debit twice", async (t) => {
   let completedOrder = null;
   let rpcCalls = 0;
   withTestEnvironment(t, async (url, options = {}) => {
@@ -269,12 +287,17 @@ test("retries return the completed order without debiting credit twice", async (
   assert.equal(firstResponse.body.replayed, false);
 
   const retryResponse = mockRes();
-  await handler(makeRequest(makeCheckout()), retryResponse);
+  await handler(makeRequest(makeCheckout({ items: [{ ...makeCheckout().items[0], vials: 10, fromWarehouse: "" }] })), retryResponse);
   assert.equal(retryResponse.statusCode, 200);
   assert.equal(retryResponse.body.replayed, true);
   assert.equal(retryResponse.body.order.id, ORDER_ID);
   assert.equal(retryResponse.body.balance, 21.01);
   assert.equal(rpcCalls, 2, "every replay must be acknowledged by the private ledger RPC");
+
+  const changedPackResponse = mockRes();
+  await handler(makeRequest(makeCheckout({ items: [{ ...makeCheckout().items[0], vials: 5 }] })), changedPackResponse);
+  assert.equal(changedPackResponse.statusCode, 409);
+  assert.equal(rpcCalls, 2, "a different pack must never replay the existing debit");
 });
 
 test("stale client totals are rejected without a credit mutation", async (t) => {

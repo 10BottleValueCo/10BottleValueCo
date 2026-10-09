@@ -25,6 +25,7 @@ import HomePage from "./components/HomePage.jsx";
 import PaymentReturnHeader from "./components/PaymentReturnHeader.jsx";
 import PaymentReturnReadStatus from "./components/PaymentReturnReadStatus.jsx";
 import ProductPackSelector from "./components/ProductPackSelector.jsx";
+import { productSelectionFromProduct, readProductSelection, productSelectionUrl, resolveSelectedProduct, toStorefrontOffer } from "./product-selection.js";
 import UsFlag from "./components/UsFlag.jsx";
 import ResearcherEntryGate, { hasResearcherEntryAcceptance } from "./components/ResearcherEntryGate.jsx";
 import PeptigrityMark from "./components/PeptigrityMark.jsx";
@@ -3721,18 +3722,9 @@ export default function App() {
     if (["success", "pending", "cancelled", "cancel", "failed"].includes(payment)) return "payment-return";
     const pathSlug = window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase().trim();
     if (publicPathToPage[pathSlug]) return publicPathToPage[pathSlug];
-    // Support both old ?product=slug and new /slug format
-    const productSlugFromQuery = (params.get("product") || "").toLowerCase().trim();
-    const productSlugFromPath = pathSlug;
-    const productSlug = productSlugFromPath || productSlugFromQuery;
-    const usWarehouseRoute = (params.get("warehouse") || "").toLowerCase() === "us";
-    if (productSlug) {
-      const hit = PRODUCTS_BASE.find(p =>
-        (productSlug === productSlugFor(p) || productSlug === productSlugFor(p, true)) &&
-        (!usWarehouseRoute || p.warehouse === "us")
-      );
-      if (hit) return "product";
-    }
+    // A known product remains on its page even when the requested warehouse
+    // has no exact offer. The selector explains that state without substitution.
+    if (readProductSelection(PRODUCTS_BASE, window.location)) return "product";
     return "home";
   });
   const [researcherEntryAccepted, setResearcherEntryAccepted] = useState(
@@ -3855,29 +3847,55 @@ export default function App() {
       window.removeEventListener("resize", onScroll);
     };
   }, []);
-  const [cart, setCart] = useState([]);
-  const [selectedProduct, setSelectedProduct] = useState(() => {
-    if (typeof window === "undefined") return null;
-    const params2 = new URLSearchParams(window.location.search || "");
-    const productSlugFromQuery2 = (params2.get("product") || "").toLowerCase().trim();
-    const productSlugFromPath2 = window.location.pathname.replace(/^\//, "").toLowerCase().trim();
-    const productSlug = productSlugFromPath2 || productSlugFromQuery2;
-    if (!productSlug) return null;
-    const usWarehouseRoute = (params2.get("warehouse") || "").toLowerCase() === "us";
-    const product = PRODUCTS_BASE.find(p =>
-      (productSlug === productSlugFor(p) || productSlug === productSlugFor(p, true)) &&
-      (!usWarehouseRoute || p.warehouse === "us")
-    );
-    if (!product) return null;
-    return usWarehouseRoute
-      ? {
-        ...product,
-        price: (product.usPriceBase ?? product.price) + 5,
-        originalPrice: (product.usPriceBase ?? product.price) + 5,
-        fromWarehouse: "us",
+  const [oosOverrides, setOosOverrides] = useState(() => {
+    try {
+      const overrides = JSON.parse(localStorage.getItem("tbv-oos") || "{}");
+      const migrationKey = "tbv-oos-10-gh-10-iu-available-v1";
+      if (localStorage.getItem(migrationKey) !== "done") {
+        delete overrides["10-GH|10 IU"];
+        localStorage.setItem("tbv-oos", JSON.stringify(overrides));
+        localStorage.setItem(migrationKey, "done");
       }
-      : product;
+      return overrides;
+    } catch {
+      return {};
+    }
   });
+
+  const products = useMemo(() =>
+    PRODUCTS_BASE.map(p => {
+      const key = p.name + "|" + p.dose + (p.noteLabel ? "|" + p.noteLabel : "");
+      if (key in oosOverrides) return { ...p, outOfStock: oosOverrides[key] };
+      return p;
+    }), [oosOverrides]);
+
+
+  const [cart, setCart] = useState([]);
+  const [productSelection, setProductSelection] = useState(() =>
+    typeof window === "undefined" ? null : readProductSelection(PRODUCTS_BASE, window.location)
+  );
+  const selectedProduct = useMemo(
+    () => resolveSelectedProduct(products, productSelection),
+    [products, productSelection]
+  );
+  useEffect(() => {
+    const restoreProductRoute = () => {
+      const next = readProductSelection(PRODUCTS_BASE, window.location);
+      if (next) {
+        setProductSelection(next);
+        setPage("product");
+        setCoaPage(0);
+        setCoaLightbox(false);
+      } else {
+        const path = window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase();
+        const publicPage = publicPathToPage[path];
+        if (publicPage) setPage(publicPage);
+        else if (!path && !new URLSearchParams(window.location.search).has("payment")) setPage("home");
+      }
+    };
+    window.addEventListener("popstate", restoreProductRoute);
+    return () => window.removeEventListener("popstate", restoreProductRoute);
+  }, []);
   // ── SEO: dynamic meta/title/JSON-LD per page (invisible to users) ────────
   useSEO({ page, product: selectedProduct });
 
@@ -4175,8 +4193,8 @@ export default function App() {
   const productOriginPage = useRef("shop");
   const productDetailOverlayClass =
     productOriginPage.current === "shop" ? "bg-black/60" : "bg-black/50";
-  const selectedProductIsUs =
-    selectedProduct?.fromWarehouse === "us" || selectedProduct?.warehouse === "us";
+  const selectedProductIsUs = productSelection?.warehouse === "us";
+  const selectedProductConfigurationMissing = selectedProduct?.unavailableReason === "configuration";
   const selectedProductUnavailable = Boolean(selectedProduct?.outOfStock);
   const selectedProductCartItem = selectedProduct
     ? cart.find((item) => getProductId(item) === getProductId(selectedProduct))
@@ -4516,20 +4534,6 @@ export default function App() {
   const [affPayEditorOpen, setAffPayEditorOpen] = useState({});
   const [adminSearch, setAdminSearch] = useState("");
   const [adminInboxSearch, setAdminInboxSearch] = useState("");
-  const [oosOverrides, setOosOverrides] = useState(() => {
-    try {
-      const overrides = JSON.parse(localStorage.getItem("tbv-oos") || "{}");
-      const migrationKey = "tbv-oos-10-gh-10-iu-available-v1";
-      if (localStorage.getItem(migrationKey) !== "done") {
-        delete overrides["10-GH|10 IU"];
-        localStorage.setItem("tbv-oos", JSON.stringify(overrides));
-        localStorage.setItem(migrationKey, "done");
-      }
-      return overrides;
-    } catch {
-      return {};
-    }
-  });
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [inventoryOosOnly, setInventoryOosOnly] = useState(false);
   const [adminInboxPage, setAdminInboxPage] = useState(1);
@@ -4730,26 +4734,13 @@ export default function App() {
       dose = String(dose).trim().replace(/(\d)\s*([a-zA-Z])/g, (_, n, u) => `${n} ${u.toLowerCase()}`);
     }
 
-    // Re-price from current PRODUCTS_BASE so stale saved prices are corrected.
-    const normD = (v) => String(v || "").trim().toLowerCase().replace(/(\d)\s+([a-z])/g, "$1$2");
-    const wantsUs = item.fromWarehouse === "us";
-    const catalogEntry = PRODUCTS_BASE.find((p) => {
-      const pn = p.name.toLowerCase();
-      const cn = name.toLowerCase();
-      const base = pn.split(" / ")[0].trim();
-      return (pn === cn || base === cn) &&
-        normD(p.dose) === normD(dose) &&
-        (p.warehouse === "us") === wantsUs;
-    });
-    if (catalogEntry && !(name === "BPC-157" && !wantsUs && [1, 5].includes(Number(rest.vials)))) {
-      let currentPrice;
-      if (wantsUs) {
-        const usOriginal = (catalogEntry.usPriceBase ?? catalogEntry.price) + 5;
-        currentPrice = usOriginal;
-      } else {
-        currentPrice = catalogEntry.price;
-      }
-      rest = { ...rest, price: currentPrice };
+    // Re-price only the exact saved selection. Never borrow another option,
+    // pack or warehouse; unavailable saved items are blocked by cart validation.
+    const resolved = resolveSelectedProduct(PRODUCTS_BASE, productSelectionFromProduct({ name, dose, ...rest }));
+    if (resolved?.unavailableReason !== "configuration" && Number.isFinite(resolved?.price)) {
+      rest = { ...rest, price: resolved.price };
+      if (resolved.fromWarehouse === "us") rest.fromWarehouse = "us";
+      else delete rest.fromWarehouse;
     }
 
     return { name, dose, ...rest };
@@ -8689,12 +8680,6 @@ export default function App() {
 
   const sharedVialImage = "https://i.ibb.co/HT1pMDQn/defaultbottle.png";
 
-  const products = useMemo(() =>
-    PRODUCTS_BASE.map(p => {
-      const key = p.name + "|" + p.dose + (p.noteLabel ? "|" + p.noteLabel : "");
-      if (key in oosOverrides) return { ...p, outOfStock: oosOverrides[key] };
-      return p;
-    }), [oosOverrides]);
 
 
   function toggleOOS(key, value) {
@@ -9852,7 +9837,7 @@ export default function App() {
     !appliedPromo &&
     !isSelfReferral;
   const hasOutOfStockInCart = cart.some((item) =>
-    products.some((p) => p.name === item.name && p.dose === item.dose && p.outOfStock && (p.warehouse !== "us" || item.fromWarehouse === "us"))
+    !isCartOfferAvailable(item)
   );
   const automaticDiscountRate =
     subtotal >= 4000 ? 0.2 : subtotal >= 2000 ? 0.15 : subtotal >= 1000 ? 0.1 : 0;
@@ -9984,11 +9969,17 @@ export default function App() {
     { key: "cart", label: `${t("cart")}${cartCount ? ` (${cartCount})` : ""}` },
   ];
 
+  function isCartOfferAvailable(item) {
+    if (!item || typeof item !== "object") return false;
+    const offer = resolveSelectedProduct(products, productSelectionFromProduct(item));
+    return Boolean(offer && !offer.outOfStock && Number.isFinite(offer.price));
+  }
+
   function getProductId(product) {
-    const packId = product.name === "BPC-157" && product.vials && product.vials !== 10
+    const packId = product.vials && Number(product.vials) !== 10
       ? `-${product.vials}v`
       : "";
-    return `${product.name}-${product.noteLabel ?? ""}-${product.dose}${packId}${product.fromWarehouse ? `-${product.fromWarehouse}` : ""}`;
+    return `${product.name}-${product.noteLabel ?? ""}-${product.dose}${packId}${(product.fromWarehouse || product.warehouse) === "us" ? "-us" : ""}`;
   }
 
   function getCatalogCardId(product, isUsWarehouse = false) {
@@ -9997,9 +9988,7 @@ export default function App() {
 
   function renderCatalogGroup(variants, isUsWarehouse = false, worldwideStyle = false) {
     const first = variants[0];
-    const normalized = variants.map((item) => isUsWarehouse
-      ? { ...item, price: (item.usPriceBase ?? item.price) + 5, originalPrice: (item.usPriceBase ?? item.price) + 5, fromWarehouse: "us" }
-      : item);
+    const normalized = variants.map(toStorefrontOffer);
     const byDose = Object.fromEntries(normalized.map((item) => [item.dose, item]));
     const pricesByDose = Object.fromEntries(normalized.map((item) => [item.dose, { 10: item.price }]));
     const selectedVariant = ({ dose, vials }) => vials === 10 ? byDose[dose] : null;
@@ -10115,16 +10104,17 @@ export default function App() {
   }
 
   function addToCart(product, source = "catalog") {
-    const addedId = getProductId(product);
-    const effectivePrice = product.price;
-    const productForCart = { ...product, price: effectivePrice };
+    if (!product || typeof product !== "object") return false;
+    const productForCart = resolveSelectedProduct(products, productSelectionFromProduct(product));
+    if (!productForCart || productForCart.outOfStock || !Number.isFinite(productForCart.price)) return false;
+    const addedId = getProductId(productForCart);
 
     setCart((current) => {
       const existing = current.find((item) => getProductId(item) === addedId);
       if (existing) {
         return current.map((item) =>
           getProductId(item) === addedId
-            ? { ...item, quantity: item.quantity + 1 }
+            ? { ...item, ...productForCart, quantity: item.quantity + 1 }
             : item
         );
       }
@@ -10143,8 +10133,9 @@ export default function App() {
       source,
       product_name: product.name,
       product_dose: product.dose,
-      product_price: product.price,
+      product_price: productForCart.price,
     });
+    return true;
   }
 
   function updateQuantity(id, change) {
@@ -10229,7 +10220,7 @@ export default function App() {
         phone: syncedCF.phone || "",
         taxId: syncedCF.taxId || "",
         orderNotes: getCheckoutOrderNotes(syncedCF),
-        items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
+        items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}), ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}) })),
       };
       await persistOrderToServer({
         id: orderNumber,
@@ -10274,7 +10265,7 @@ export default function App() {
             noteLabel: item.noteLabel || "",
             price: item.price,
             quantity: item.quantity,
-            ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+            ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}),
           })),
         }),
       });
@@ -10361,7 +10352,7 @@ export default function App() {
       phone: syncedCF.phone || "",
         taxId: syncedCF.taxId || "",
         orderNotes: getCheckoutOrderNotes(syncedCF),
-      items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
+      items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}), ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}) })),
     };
     try {
       await persistOrderToServer({
@@ -10402,7 +10393,7 @@ export default function App() {
             noteLabel: item.noteLabel || "",
             price: item.price,
             quantity: item.quantity,
-            ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+            ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}),
           })),
         }),
       });
@@ -10460,7 +10451,7 @@ export default function App() {
             noteLabel: item.noteLabel || "",
             price: item.price,
             quantity: item.quantity,
-            ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+            ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}),
           })),
           shippingType: effectiveShippingType,
           promoCode: appliedPromo?.code || "",
@@ -10693,7 +10684,7 @@ export default function App() {
         phone: syncedCF.phone || "",
         taxId: syncedCF.taxId || "",
         orderNotes: getCheckoutOrderNotes(syncedCF),
-        items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
+        items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}), ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}) })),
       };
       await persistOrderToServer({
         id: orderNumber,
@@ -10722,7 +10713,7 @@ export default function App() {
     const snap = paypalSnapshotRef.current;
     const checkoutSnapshot = snap?.checkout || readCheckoutSnapshot();
     const snapTotal = snap?.total ?? Number(finalTotal.toFixed(2));
-    const snapItems = snap?.items ?? cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) }));
+    const snapItems = snap?.items ?? cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}), ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}) }));
     const snapSubtotal = snap?.subtotal ?? Number(subtotal.toFixed(2));
     const snapShipping = snap?.shipping ?? Number(shipping.toFixed(2));
     const snapShippingType = snap?.shippingType ?? shippingType;
@@ -11578,7 +11569,7 @@ export default function App() {
         dose: item.dose,
         quantity: item.quantity,
         price: item.price,
-        ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+        ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}),
         ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}),
       })),
     };
@@ -11658,7 +11649,7 @@ export default function App() {
         name: item.name,
         dose: item.dose,
         quantity: item.quantity,
-        ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+        ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}),
         ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}),
       })),
       checkoutForm: {
@@ -11917,22 +11908,25 @@ export default function App() {
     return productSlugFor(p);
   }
 
+  function changeProductSelection(nextSelection, historyMode = "push") {
+    setProductSelection(nextSelection);
+    setCoaPage(0);
+    setCoaLightbox(false);
+    const query = new URLSearchParams(window.location.search);
+    if (currentAffiliateProfile?.code) query.set("c", currentAffiliateProfile.code.toLowerCase());
+    const path = productSelectionUrl(nextSelection, query.toString());
+    if (`${window.location.pathname}${window.location.search}` !== path) {
+      window.history[historyMode === "replace" ? "replaceState" : "pushState"]({}, "", path);
+    }
+  }
+
   function openProduct(product) {
     savedShopScrollY.current = window.scrollY;
     savedSidebarScrollTop.current = shopSidebarScrollRef.current?.scrollTop ?? 0;
     productOriginPage.current = page;
-    setSelectedProduct(product);
-    setCoaPage(0);
-    setCoaLightbox(false);
+    changeProductSelection(productSelectionFromProduct(product), "replace");
     setPage("product");
     window.scrollTo({ top: 0, behavior: "auto" });
-    const affCode = currentAffiliateProfile?.code;
-    const query = new URLSearchParams();
-    if (product.fromWarehouse === "us" || product.warehouse === "us") query.set("warehouse", "us");
-    if (affCode) query.set("c", affCode.toLowerCase());
-    const search = query.toString();
-    const newPath = `/${makeProductSlug(product)}${search ? `?${search}` : ""}`;
-    window.history.replaceState({}, "", newPath);
   }
 
   async function handleForgotSubmit(e) {
@@ -14372,6 +14366,35 @@ export default function App() {
                     </div>
                   );
                 })()}
+                <fieldset className="mt-4" aria-describedby={selectedProductUnavailable ? "warehouse-availability" : undefined}>
+                  <legend className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/60">
+                    {tx("Warehouse", "Склад", "Склад", "Lager", "Almacén")}
+                  </legend>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {[["worldwide", "WORLDWIDE"], ["us", "US"]].map(([warehouse, label]) => {
+                      const active = productSelection.warehouse === warehouse;
+                      const offer = resolveSelectedProduct(products, { ...productSelection, warehouse });
+                      const unavailable = !offer || offer.outOfStock;
+                      return (
+                        <button key={warehouse} type="button"
+                          onClick={() => { if (!active) changeProductSelection({ ...productSelection, warehouse }); }}
+                          aria-pressed={active}
+                          aria-label={`${label}${unavailable ? ` — ${tx("unavailable for this configuration", "эта комплектация недоступна", "ця комплектація недоступна", "diese Variante ist nicht verfügbar", "esta configuración no está disponible")}` : ""}`}
+                          className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-4 py-2 text-[12px] font-bold uppercase tracking-[0.12em] ${active ? "border-white bg-white text-black" : "border-white/20 bg-white/10 text-white hover:bg-white/20"}`}>
+                          <span>{label}</span>
+                          {unavailable && <span className="text-[9px] font-semibold tracking-normal opacity-60">{tx("Unavailable", "Недоступно", "Недоступно", "Nicht verfügbar", "No disponible")}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {selectedProductUnavailable && (
+                    <p id="warehouse-availability" role="status" className="mt-2 text-[12px] leading-5 text-white/80">
+                      {selectedProduct.dose} · {productSelection.vials} {tx("vials", "флаконов", "флаконів", "Fläschchen", "viales")} — {selectedProductConfigurationMissing
+                        ? tx("not available from this warehouse. Your strength and pack size have been kept.", "нет на этом складе. Дозировка и размер набора сохранены.", "немає на цьому складі. Дозування та розмір набору збережено.", "in diesem Lager nicht verfügbar. Stärke und Packungsgröße bleiben erhalten.", "no disponible en este almacén. Se mantienen la dosis y el tamaño del paquete.")
+                        : tx("out of stock at this warehouse.", "нет в наличии на этом складе.", "немає в наявності на цьому складі.", "in diesem Lager ausverkauft.", "agotado en este almacén.")}
+                    </p>
+                  )}
+                </fieldset>
                 {(() => {
                   const isUs = selectedProductIsUs;
                   const variants = products.filter(p =>
@@ -14379,6 +14402,7 @@ export default function App() {
                     (p.noteLabel ?? "") === (selectedProduct.noteLabel ?? "") &&
                     (isUs ? p.warehouse === "us" : !p.warehouse)
                   ).sort((a, b) => parseFloat(a.dose) - parseFloat(b.dose));
+                  if (!variants.some(v => v.dose === selectedProduct.dose)) variants.push(selectedProduct);
                   if (variants.length < 2) return null;
                   return (
                     <div className="mt-4 flex items-center gap-2 flex-wrap">
@@ -14389,7 +14413,7 @@ export default function App() {
                           <div key={`${v.dose}-${v.noteLabel ?? ""}-${v.warehouse ?? "ww"}`} className="flex items-center gap-1.5">
                             <button
                               type="button"
-                              onClick={() => { if (!isActive) { setSelectedProduct(isUs ? { ...v, fromWarehouse: "us" } : v); setCoaPage(0); setCoaLightbox(false); } }}
+                              onClick={() => { if (!isActive) changeProductSelection({ ...productSelectionFromProduct(v), warehouse: productSelection.warehouse, vials: productSelection.vials }); }}
                               aria-label={`${v.dose.toUpperCase()}${v.outOfStock ? ", OUT OF STOCK" : ""}`}
                               className={`rounded-full px-4 py-1.5 text-[12px] font-bold uppercase tracking-[0.14em] border transition-none ${
                                 isActive
@@ -14406,7 +14430,16 @@ export default function App() {
                   );
                 })()}
 
-                <ProductPackSelector language={language} price={selectedProduct.price} />
+                <ProductPackSelector
+                  language={language}
+                  price={selectedProduct.price}
+                  selectedVials={productSelection.vials}
+                  pricesByPack={Object.fromEntries([1, 5, 10].map(vials => {
+                    const offer = resolveSelectedProduct(products, { ...productSelection, vials });
+                    return [vials, offer?.unavailableReason === "configuration" ? null : offer?.price];
+                  }))}
+                  onSelectPack={vials => changeProductSelection({ ...productSelection, vials })}
+                />
 
                 <div className={`mt-5 rounded-2xl border-2 border-[rgba(255,255,255,0.2)] ${productDetailOverlayClass} shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_12px_26px_rgba(0,0,0,0.2)]`}>
                   <div className="relative grid w-full grid-cols-2 grid-rows-2 text-center text-white">
@@ -14443,7 +14476,7 @@ export default function App() {
                     <div className="min-w-0 flex flex-col justify-center px-3 py-4 md:px-4 md:py-5">
                       <div className="mb-1 text-xs font-extrabold uppercase tracking-[0.08em] text-white/90 md:text-sm">{t("kitTotal")}</div>
                       <div className="break-words text-base font-bold leading-snug md:text-lg">
-                        {selectedProduct.name === "TB-500 + BPC-157"
+                        {selectedProductConfigurationMissing ? "—" : selectedProduct.name === "TB-500 + BPC-157"
                           ? `${parseFloat(selectedProduct.dose) * 10} mg total`
                           : selectedProduct.total}
                       </div>
@@ -14453,7 +14486,7 @@ export default function App() {
                         {language === "EN" ? "Price/vial" : t("pricePerVial")}
                       </div>
                       <div className="break-words text-base font-bold leading-snug md:text-lg">
-                        {formatPricePrecise(selectedProduct.price / (selectedProduct.vials || 10))}
+                        {selectedProductConfigurationMissing ? "—" : formatPricePrecise(selectedProduct.price / (selectedProduct.vials || 10))}
                       </div>
                     </div>
                   </div>
@@ -14463,10 +14496,12 @@ export default function App() {
                   <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
                     <div className="flex items-baseline gap-3 flex-wrap">
                       <div className="text-[40px] font-bold leading-none tracking-[-0.06em] text-white md:text-[52px]">
-                          {selectedProduct.name === "BPC-157" ? formatPricePrecise(selectedProduct.price) : formatPrice(selectedProduct.price)}
+                          {selectedProductConfigurationMissing ? "—" : selectedProduct.name === "BPC-157" ? formatPricePrecise(selectedProduct.price) : formatPrice(selectedProduct.price)}
                         </div>
                       <div className="self-center text-[12px] font-semibold uppercase tracking-[0.18em] text-white/60">
-                        {selectedProductIsUs ? (
+                        {selectedProductConfigurationMissing ? (
+                          <span>{tx("Not available from this warehouse", "Недоступно на этом складе", "Недоступно на цьому складі", "In diesem Lager nicht verfügbar", "No disponible en este almacén")}</span>
+                        ) : selectedProductIsUs ? (
                           language === "RU" ? (
                             <>
                               <span>10 ФЛАКОНОВ ВКЛЮЧЕНО</span>
@@ -14534,7 +14569,9 @@ export default function App() {
                   <div className="mt-5 grid gap-3 sm:grid-cols-2">
                     {selectedProductUnavailable ? (
                       <div ref={productPrimaryActionRef} className="sm:col-span-2 inline-flex w-full justify-center rounded-full border border-white/20 px-7 py-4 text-[14px] font-black uppercase tracking-[0.22em] bg-white/10 text-white/50 cursor-not-allowed">
-                        Out of stock
+                        {selectedProductConfigurationMissing
+                          ? tx("Unavailable", "Недоступно", "Недоступно", "Nicht verfügbar", "No disponible")
+                          : tx("Out of stock", "Нет в наличии", "Немає в наявності", "Nicht auf Lager", "Agotado")}
                       </div>
                     ) : (
                       <>
@@ -14573,8 +14610,7 @@ export default function App() {
                         </div>
                         <button
                           onClick={() => {
-                            addToCart(selectedProduct, "product");
-                            setPage("cart");
+                            if (addToCart(selectedProduct, "product")) setPage("cart");
                           }}
                           className="inline-flex w-full justify-center rounded-full border border-white/30 bg-white px-7 py-4 text-[14px] font-black uppercase tracking-[0.22em] text-black shadow-[0_12px_30px_rgba(0,0,0,0.18)] transition hover:bg-white/90"
                         >
@@ -14670,7 +14706,7 @@ export default function App() {
                       {publicProductName(selectedProduct.name)} · {selectedProduct.dose?.replace(/ each$/i, "")}
                     </div>
                     <div ref={stickyProductPriceRef} className="shrink-0 whitespace-nowrap text-lg font-extrabold leading-none tracking-tight text-white">
-                      {selectedProduct.name === "BPC-157" ? formatPricePrecise(selectedProduct.price) : formatPrice(selectedProduct.price)}
+                      {selectedProductConfigurationMissing ? "—" : selectedProduct.name === "BPC-157" ? formatPricePrecise(selectedProduct.price) : formatPrice(selectedProduct.price)}
                     </div>
                   </div>
                   {selectedProductUnavailable ? (
@@ -14679,7 +14715,9 @@ export default function App() {
                       disabled
                       className="inline-flex h-10 min-w-[124px] shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-white/20 px-3 text-center text-[10px] font-black uppercase tracking-[0.07em] text-white/50 shadow-[0_8px_24px_rgba(0,0,0,0.2)] cursor-not-allowed transition-none"
                     >
-                      {tx("Out of stock", "Нет в наличии", "Немає в наявності", "Nicht auf Lager", "Agotado")}
+                      {selectedProductConfigurationMissing
+                        ? tx("Unavailable", "Недоступно", "Недоступно", "Nicht verfügbar", "No disponible")
+                        : tx("Out of stock", "Нет в наличии", "Немає в наявності", "Nicht auf Lager", "Agotado")}
                     </button>
                   ) : selectedProductCartQuantity > 0 ? (
                     <div className="flex h-10 w-[154px] shrink-0 overflow-hidden rounded-full border border-black shadow-[0_8px_24px_rgba(0,0,0,0.2)]">
@@ -20036,10 +20074,10 @@ export default function App() {
                     const renderItem = (item) => (
                       <div
                         key={getProductId(item)}
-                        className={`rounded-[1.2rem] border px-3 py-3 md:rounded-[1.6rem] md:p-5 ${products.some((p) => p.name === item.name && p.dose === item.dose && p.outOfStock && (p.warehouse !== "us" || item.fromWarehouse === "us")) ? "border-red-500/50 bg-red-500/10" : "border-white/20 bg-black/60"}`}
+                        className={`rounded-[1.2rem] border px-3 py-3 md:rounded-[1.6rem] md:p-5 ${!isCartOfferAvailable(item) ? "border-red-500/50 bg-red-500/10" : "border-white/20 bg-black/60"}`}
                       >
                         {(() => {
-                          const isOOS = products.some((p) => p.name === item.name && p.dose === item.dose && p.outOfStock && (p.warehouse !== "us" || item.fromWarehouse === "us"));
+                          const isOOS = !isCartOfferAvailable(item);
                           return (
                             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-4">
                               <div className="min-w-0">
@@ -21341,7 +21379,7 @@ export default function App() {
                                     affiliateCode: affiliateTrackingCode,
                                     affiliateOwnerEmail: affiliateTrackingOwnerEmail,
                                     affiliateCommission: Number(affiliateCommission.toFixed(2)),
-                                    items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}) })),
+                                    items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}), ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}) })),
                                   };
                                   await markPaypalCheckoutStarted(checkoutSnapshot);
                                   const res = await fetch("/api/paypal?action=create-order", {
@@ -21697,7 +21735,7 @@ export default function App() {
                           </div>
                           <div className="mt-4 space-y-3 text-sm text-black/70">
                             {checkoutInvoice.items.map((item) => {
-                              const isOOS = !meritActiveSession && products.some((p) => p.name === item.name && p.dose === item.dose && p.outOfStock && (p.warehouse !== "us" || item.fromWarehouse === "us"));
+                              const isOOS = !meritActiveSession && !isCartOfferAvailable(item);
                               return (
                               <div
                                 key={getProductId(item)}

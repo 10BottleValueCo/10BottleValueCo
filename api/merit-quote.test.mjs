@@ -120,6 +120,19 @@ test("US-only SKU cannot become worldwide by omitting or forging its warehouse",
   await assert.rejects(quote(actualUs), isError(400));
 });
 
+test("quote validation retains explicit pack and warehouse selectors without changing ten-vial fingerprints", async () => {
+  const original = await quote();
+  const explicitTen = await quote(fixture({ items: [{ ...fixture().items[0], vials: 10 }] }));
+  assert.deepEqual(explicitTen.snapshot, original.snapshot);
+  assert.equal(explicitTen.quoteFingerprint, original.quoteFingerprint);
+  for (const vials of [1, 5, null, false, "10", 0, -1, 1.5]) {
+    await assert.rejects(quote(fixture({ items: [{ ...fixture().items[0], vials }] })), isError(400));
+  }
+  for (const fromWarehouse of [false, 0, null, "worldwide", "backup"]) {
+    await assert.rejects(quote(fixture({ items: [{ ...fixture().items[0], fromWarehouse }] })), isError(400));
+  }
+});
+
 test("retains existing destination, contact and attestation validation", async () => {
   const canada = withForm({ country: "Canada" });
   assert.equal((await quote(canada)).amountCents, 17899);

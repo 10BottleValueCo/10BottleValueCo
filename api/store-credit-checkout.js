@@ -159,7 +159,8 @@ function readCheckoutInput(body, customerEmail) {
       name: cleanString(item.name, "product name", 160, true),
       dose: cleanString(item.dose, "product size", 80, true),
       quantity: item.quantity,
-      ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+      ...(item.fromWarehouse !== undefined ? { fromWarehouse: item.fromWarehouse } : {}),
+      ...(item.vials !== undefined ? { vials: item.vials } : {}),
       ...(item.noteLabel
         ? { noteLabel: cleanString(item.noteLabel, "product option", 80) }
         : {}),
@@ -231,7 +232,11 @@ function readCheckoutInput(body, customerEmail) {
 
   const fingerprintInput = {
     customerEmail,
-    items,
+    // Explicit ten-vial/empty-worldwide selectors mean the same legacy offer.
+    // Keep their prior fingerprint while retaining other values for rejection.
+    items: items.map(item => Object.fromEntries(Object.entries(item).filter(([key, value]) =>
+      !(key === "vials" && value === 10) && !(key === "fromWarehouse" && value === "")
+    ))),
     shippingType,
     paymentMethod,
     promoCode,

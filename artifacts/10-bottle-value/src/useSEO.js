@@ -226,16 +226,21 @@ export function useSEO({ page, product }) {
       const dose      = product.dose;
       const price     = product.price;
       const total     = product.total;
-      const inStock   = !product.outOfStock;
+      const hasOffer  = typeof price === "number" && Number.isFinite(price);
+      const inStock   = hasOffer && !product.outOfStock;
+      const packCount = product.vials ?? 10;
+      const warehouse = product.fromWarehouse === "us" || product.warehouse === "us" ? "US" : "Worldwide";
       const cls       = productClass(name);
       const prodImg   = productImage(name); // actual bottle shown for this product
 
       // Title: name + dose + kit indicator
-      const title = `${name} ${dose} Research Peptide — 10-Vial Kit | ${SITE_NAME}`;
+      const title = `${name} ${dose} Research Peptide — ${hasOffer ? `${packCount}-Vial Kit` : "Unavailable Selection"} | ${SITE_NAME}`;
 
       // Description: strictly factual — name, dose, kit size, price, shipping, disclaimer.
       // No health claims, no inferred effects.
-      const desc = `${name} ${dose} research peptide kit — 10 vials (${total}), from $${price}. Ships worldwide. For laboratory research use only. | ${SITE_NAME}`;
+      const desc = hasOffer
+        ? `${name} ${dose} research peptide kit — ${packCount} vials (${total}), $${price}. ${warehouse === "US" ? "Ships from the US warehouse to the United States." : "Ships worldwide."} For laboratory research use only. | ${SITE_NAME}`
+        : `${name} ${dose} — this configuration is unavailable from the selected warehouse. For laboratory research use only. | ${SITE_NAME}`;
 
       document.title = title;
       setCanonical(canonical);
@@ -258,13 +263,13 @@ export function useSEO({ page, product }) {
         "@context": "https://schema.org",
         "@type": "Product",
         "name": `${name} ${dose}`,
-        "description": `${name} ${dose} ${cls}. Kit of 10 vials (${total}). For laboratory and research use only. Not for human or animal consumption.`,
+        "description": hasOffer ? `${name} ${dose} ${cls}. Kit of ${packCount} vials (${total}). For laboratory and research use only. Not for human or animal consumption.` : desc,
         "sku": slug,
         "brand": { "@type": "Brand", "name": "10BottleValue" },
         "category": "Research Peptides",
         "url": canonical,
         "image": prodImg, // actual product bottle image, not site logo
-        "offers": {
+        ...(hasOffer ? { "offers": {
           "@type": "Offer",
           "price": price,
           "priceCurrency": "USD",
@@ -273,7 +278,7 @@ export function useSEO({ page, product }) {
             : "https://schema.org/OutOfStock",
           "url": canonical,
           "seller": { "@type": "Organization", "name": "10BottleValue.co" }
-        }
+        } } : {})
       });
 
       // BreadcrumbList — 2 levels only (no fake intermediate page)

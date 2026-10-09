@@ -100,7 +100,8 @@ function normalizeInput(body, verifiedEmail) {
       name: cleanString(item.name, "product name", 160, true),
       dose: cleanString(item.dose, "product size", 80, true),
       quantity: item.quantity,
-      ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
+      ...(item.fromWarehouse !== undefined ? { fromWarehouse: item.fromWarehouse } : {}),
+      ...(item.vials !== undefined ? { vials: item.vials } : {}),
       ...(item.noteLabel ? { noteLabel: cleanString(item.noteLabel, "product option", 80) } : {}),
     };
   });
@@ -171,9 +172,8 @@ export async function buildMeritQuote(body, verifiedEmail, options = {}) {
   if (!Number.isSafeInteger(surchargeBps) || surchargeBps < 0 || surchargeBps > 10000) {
     throw new MeritQuoteError(503, "Card surcharge configuration is unavailable.", "MERIT_QUOTE_UNAVAILABLE");
   }
-  // The shared legacy matcher falls back to a US-only row for a worldwide
-  // request. Merit must bind an actual warehouse SKU, not that fallback: an
-  // omitted/forged warehouse must never bypass US destination eligibility.
+  // Bind an actual warehouse offer before pricing. Keep this explicit check
+  // alongside shared validation so destination eligibility cannot be bypassed.
   for (const item of input.items) {
     const product = findCatalogProduct(item);
     if (!product || (product.warehouse === "us") !== (item.fromWarehouse === "us")) {
