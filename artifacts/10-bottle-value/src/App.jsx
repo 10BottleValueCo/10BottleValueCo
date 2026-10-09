@@ -8,7 +8,9 @@ import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, Search, Tag, UserRound, X }
 import { ErrorBoundary } from "./components/error-boundary.tsx";
 import ShippingPricesPage from "./components/ShippingPricesPage.jsx";
 import worldwideCatalogBackground from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791141018882.webp";
-import { supabase, userFromSupabase } from "./supabase.js";
+import { supabase, userFromSupabase, saveAccountCheckoutDetails } from "./supabase.js";
+import { useCheckoutDetails } from "./useCheckoutDetails.js";
+import { contactDetails } from "./checkout-details.js";
 import { adjustStoreCredit } from "./store-credit-admin-client.js";
 import { readPaymentReturn, checkLegacyPaymentReturn, legacyCheckoutHeaders, syncVerifiedLegacyOrder, isLegacyPaidStatus } from "./legacy-payment-return.js";
 import { startVisiblePolling } from "./visible-poll.js";
@@ -4182,21 +4184,9 @@ export default function App() {
   const [fadingOutAddedId, setFadingOutAddedId] = useState("");
   const [shopPrimed, setShopPrimed] = useState(false);
   const [cartHighlight, setCartHighlight] = useState(false);
-  const [checkoutForm, setCheckoutForm] = useState({
-    email: "",
-    firstName: "",
-    lastName: "",
-    country: "",
-    address: "",
-    address2: "",
-    city: "",
-    state: "",
-    postalCode: "",
-    phone: "",
-    taxId: "",
-    orderNotes: "",
-    carrierPreference: "",
-  });
+  const { form: checkoutForm, setForm: setCheckoutForm, remember: rememberCheckoutField } = useCheckoutDetails(currentUser);
+  const checkoutBuyerRef = useRef(currentUser?.id);
+  checkoutBuyerRef.current = currentUser?.id;
   const [checkoutMessage, setCheckoutMessage] = useState("");
   const [checkoutErrors, setCheckoutErrors] = useState({});
   const [countrySearch, setCountrySearch] = useState("");
@@ -8172,8 +8162,8 @@ export default function App() {
       state: String(readField("state")),
       postalCode: String(readField("postalCode")),
       phone: String(readField("phone")),
-      taxId: String(form.taxId ?? ""),
-      orderNotes: String(form.orderNotes ?? ""),
+      taxId: String(readField("taxId")),
+      orderNotes: String(readField("orderNotes")),
       carrierPreference: String(form.carrierPreference ?? ""),
     };
   }
@@ -9183,22 +9173,6 @@ export default function App() {
   }, [currentUser]);
 
   useEffect(() => {
-    if (!currentUser?.email) return;
-    setCheckoutForm((current) => ({
-      ...current,
-      email: current.email || currentUser.email || "",
-      firstName: current.firstName || currentUser.firstName || "",
-      lastName: current.lastName || currentUser.lastName || "",
-      country: current.country || currentUser.country || "",
-      address: current.address || currentUser.address || "",
-      city: current.city || currentUser.city || "",
-      state: current.state || currentUser.state || "",
-      postalCode: current.postalCode || currentUser.postalCode || "",
-      phone: current.phone || currentUser.phone || "",
-    }));
-  }, [currentUser]);
-
-  useEffect(() => {
     if (!currentUser) {
       setProfileForm({
         firstName: "",
@@ -9285,7 +9259,7 @@ export default function App() {
     if (hasUsWarehouseItems && checkoutForm.country !== "United States") {
       updateCheckoutField("country", "United States");
     }
-  }, [cart]);
+  }, [cart, checkoutForm.country]);
 
   useEffect(() => {
     if (checkoutStep !== "payment" || paymentMethod !== "crypto") {
@@ -10534,7 +10508,7 @@ export default function App() {
       setCheckoutMessage(tx("Review your contact details and checkout confirmations.", "Проверьте контактные данные и подтверждения при оформлении."));
       return;
     }
-    setCheckoutForm(syncedForm);
+    rememberValidCheckoutDetails(syncedForm);
     // Buffered fields must be committed before requesting the canonical quote.
     const payload = buildMeritCheckoutPayload({ ...meritPayload, checkoutForm: syncedForm, orderNotes: getCheckoutOrderNotes(syncedForm) });
     const requestedInputs = JSON.stringify({ payload, email: normalizeEmail(currentUser.email), surchargeBps: meritConfig.surchargeBps });
@@ -11345,6 +11319,18 @@ export default function App() {
     setAttestationModalOpen(true);
   }
 
+  function rememberValidCheckoutDetails(snapshot) {
+    const detailsOwner = currentUser?.id;
+    // The scoped draft is written immediately; account sync is independent of
+    // the payment result and must not block a purchase when the network fails.
+    setCheckoutForm(snapshot);
+    void saveAccountCheckoutDetails(currentUser, snapshot).then(saved => {
+      if (saved && checkoutBuyerRef.current === detailsOwner) {
+        setCurrentUser(user => user?.id === detailsOwner ? { ...user, ...contactDetails(snapshot) } : user);
+      }
+    });
+  }
+
   async function handleCheckout(attestationOverride = null) {
     if (meritAttemptRef.current?.submitted) { openMeritPending(); return; }
     const acceptedResearch = attestationOverride?.researchAccepted ?? researchAccepted;
@@ -11461,26 +11447,7 @@ export default function App() {
     setOrderNumber(generatedOrderNumber);
     setCheckoutMessage("");
 
-    if (currentUser?.email) {
-      const updatedUser = {
-        ...currentUser,
-        email: normalizedEmail,
-        firstName: syncedForm.firstName,
-        lastName: syncedForm.lastName,
-        country: syncedForm.country,
-        address: syncedForm.address,
-        city: syncedForm.city,
-        postalCode: syncedForm.postalCode,
-        phone: syncedForm.phone,
-      };
-
-      setCurrentUser(updatedUser);
-      setRegisteredUsers((current) =>
-        current.map((user) =>
-          user.email === currentUser.email ? { ...user, ...updatedUser } : user
-        )
-      );
-    }
+    rememberValidCheckoutDetails(syncedForm);
 
     const orderRecord = {
       id: generatedOrderNumber,
@@ -11601,6 +11568,8 @@ export default function App() {
       );
       return;
     }
+
+    rememberValidCheckoutDetails(syncedForm);
 
     const checkoutPayload = {
       items: cart.map((item) => ({
@@ -11784,16 +11753,8 @@ export default function App() {
     }
   }
 
-  function clearCheckoutFieldError(field) {
-    setCheckoutErrors((previous) => {
-      if (!previous[field]) return previous;
-      const next = { ...previous };
-      delete next[field];
-      return next;
-    });
-  }
-
   function updateCheckoutField(field, value) {
+    rememberCheckoutField(field, value);
     setCheckoutForm((current) => ({
       ...current,
       [field]: value,
@@ -20542,7 +20503,7 @@ export default function App() {
                           </button>
                         </div>
                       )}
-                      <div className="mt-4 grid gap-3" key={currentUser?.email || "guest"}>
+                      <div className="mt-4 grid gap-3" key={currentUser?.id || currentUser?.email || "guest"}>
                         <div className="relative">
                           <input
                             ref={(el) => (checkoutInputRefs.current.email = el)}
@@ -20566,13 +20527,14 @@ export default function App() {
                         </div>
 
                         <div className="grid gap-3 sm:grid-cols-2">
-                          <input
+                          <BufferedInput
                             ref={(el) =>
                               (checkoutInputRefs.current.firstName = el)
                             }
                             type="text"
-                            defaultValue={checkoutForm.firstName}
-                            onChange={() => clearCheckoutFieldError("firstName")}
+                            value={checkoutForm.firstName}
+                            onImmediateInput={(value) => rememberCheckoutField("firstName", value)}
+                            onValueChange={(value) => updateCheckoutField("firstName", value)}
                             placeholder={tx(
                               "First name *",
                               "Имя *",
@@ -20586,13 +20548,14 @@ export default function App() {
                                 : "border-white/20 bg-black/10"
                             }`}
                           />
-                          <input
+                          <BufferedInput
                             ref={(el) =>
                               (checkoutInputRefs.current.lastName = el)
                             }
                             type="text"
-                            defaultValue={checkoutForm.lastName}
-                            onChange={() => clearCheckoutFieldError("lastName")}
+                            value={checkoutForm.lastName}
+                            onImmediateInput={(value) => rememberCheckoutField("lastName", value)}
+                            onValueChange={(value) => updateCheckoutField("lastName", value)}
                             placeholder={tx(
                               "Last name *",
                               "Фамилия *",
@@ -20717,7 +20680,9 @@ export default function App() {
                         {checkoutForm.country === "Mexico" && (
                           <BufferedInput
                             type="text"
+                            ref={(el) => (checkoutInputRefs.current.taxId = el)}
                             value={checkoutForm.taxId}
+                            onImmediateInput={(value) => rememberCheckoutField("taxId", value)}
                             onValueChange={(value) => updateCheckoutField("taxId", value)}
                             placeholder={
                               language === "ES"
@@ -20728,11 +20693,12 @@ export default function App() {
                           />
                         )}
 
-                        <input
+                        <BufferedInput
                           ref={(el) => (checkoutInputRefs.current.address = el)}
                           type="text"
-                          defaultValue={checkoutForm.address}
-                          onChange={() => clearCheckoutFieldError("address")}
+                          value={checkoutForm.address}
+                          onImmediateInput={(value) => rememberCheckoutField("address", value)}
+                          onValueChange={(value) => updateCheckoutField("address", value)}
                           placeholder={tx(
                             "Street address *",
                             "Адрес улицы *",
@@ -20749,7 +20715,9 @@ export default function App() {
 
                         <BufferedInput
                           type="text"
+                          ref={(el) => (checkoutInputRefs.current.address2 = el)}
                           value={checkoutForm.address2}
+                          onImmediateInput={(value) => rememberCheckoutField("address2", value)}
                           onValueChange={(value) => updateCheckoutField("address2", value)}
                           placeholder={tx(
                             "Apt/Suite (Optional)",
@@ -20762,11 +20730,12 @@ export default function App() {
                         />
 
                         <div className="grid gap-3 sm:grid-cols-2">
-                          <input
+                          <BufferedInput
                             ref={(el) => (checkoutInputRefs.current.city = el)}
                             type="text"
-                            defaultValue={checkoutForm.city}
-                            onChange={() => clearCheckoutFieldError("city")}
+                            value={checkoutForm.city}
+                            onImmediateInput={(value) => rememberCheckoutField("city", value)}
+                            onValueChange={(value) => updateCheckoutField("city", value)}
                             placeholder={tx(
                               "City *",
                               "Город *",
@@ -20780,13 +20749,14 @@ export default function App() {
                                 : "border-white/20 bg-black/10"
                             }`}
                           />
-                          <input
+                          <BufferedInput
                             ref={(el) =>
                               (checkoutInputRefs.current.postalCode = el)
                             }
                             type="text"
-                            defaultValue={checkoutForm.postalCode}
-                            onChange={() => clearCheckoutFieldError("postalCode")}
+                            value={checkoutForm.postalCode}
+                            onImmediateInput={(value) => rememberCheckoutField("postalCode", value)}
+                            onValueChange={(value) => updateCheckoutField("postalCode", value)}
                             placeholder={tx(
                               "Postal code *",
                               "Почтовый индекс *",
@@ -20804,7 +20774,9 @@ export default function App() {
 
                         <BufferedInput
                           type="text"
+                          ref={(el) => (checkoutInputRefs.current.state = el)}
                           value={checkoutForm.state}
+                          onImmediateInput={(value) => rememberCheckoutField("state", value)}
                           onValueChange={(value) => updateCheckoutField("state", value)}
                           placeholder={tx("State / Province (if applicable)", "Штат / Провинция (если применимо)", "Штат / Провінція (якщо застосовно)", "Bundesland / Provinz (falls zutreffend)", "Estado / Provincia (si aplica)")}
                           className="rounded-2xl border border-white/20 bg-black/10 px-4 py-3 text-sm text-white placeholder:text-white outline-none transition"
@@ -20813,6 +20785,7 @@ export default function App() {
                           ref={(el) => (checkoutInputRefs.current.phone = el)}
                           type="tel"
                           value={checkoutForm.phone}
+                          onImmediateInput={(value) => rememberCheckoutField("phone", value)}
                           onValueChange={(value) => updateCheckoutField("phone", value)}
                           placeholder={t("phoneNumber")}
                           className={`rounded-2xl border px-4 py-3 text-sm text-white placeholder:text-white outline-none transition ${
@@ -20862,6 +20835,7 @@ export default function App() {
 
                     <div className="mt-4">
                       <BufferedTextarea
+                        ref={(el) => (checkoutInputRefs.current.orderNotes = el)}
                         value={checkoutForm.orderNotes}
                         onValueChange={(value) => updateCheckoutField("orderNotes", value.slice(0, 500))}
                         placeholder={tx(

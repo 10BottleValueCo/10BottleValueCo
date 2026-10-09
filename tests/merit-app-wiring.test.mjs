@@ -63,6 +63,8 @@ function fixture() {
   const context = {
     Date, Math, Number, Object, JSON, URLSearchParams, Promise, AbortController, console, setTimeout: () => 0,
     legacyCheckoutHeaders, supabase: { auth: { getSession: async () => ({ data: { session: { access_token: 'synthetic-token', user: { id: 'buyer-fixture', email: 'buyer@example.test' } } } }) } },
+    saveAccountCheckoutDetails: async () => false, checkoutBuyerRef: { current: undefined },
+    rememberValidCheckoutDetails: value => calls.push(['setCheckoutForm', value]),
     currentUser: { email: 'buyer@example.test' }, researchAccepted: true, qualifiedAccepted: true, termsAccepted: true,
     cart: [{ name: 'BPC-157', dose: '5 mg', quantity: 1, price: 100 }],
     readCheckoutSnapshot: () => ({ ...form }), validateCheckoutForm: () => ({}),
@@ -645,4 +647,20 @@ test('PayPal approval cannot copy a later Merit credit selection into the saved 
   });
   await handler('onPaypalApprove',context)({orderID:'paypal-test'});
   assert.equal(saved.length,1); assert.equal(saved[0].total,60); assert.equal(saved[0].metadata.storeCreditUsed,0);
+});
+
+// Exercise the real persistence boundary independently of provider acceptance.
+test('validated details save before payment and late account-save responses cannot overwrite another user', async () => {
+  const { context, calls, form } = fixture();
+  context.currentUser = { id: 'account-a', email: form.email };
+  context.checkoutBuyerRef.current = 'account-a';
+  context.contactDetails = value => ({ firstName: value.firstName, address: value.address });
+  let finish;
+  context.saveAccountCheckoutDetails = (user, snapshot) => { calls.push(['saveProfile', user.id, snapshot]); return new Promise(resolve => { finish = resolve; }); };
+  handler('rememberValidCheckoutDetails', context)(form);
+  assert.equal(calls[0][0], 'setCheckoutForm');
+  assert.equal(calls[1][0], 'saveProfile');
+  context.checkoutBuyerRef.current = 'account-b';
+  finish(true); await Promise.resolve();
+  assert.equal(calls.some(call => call[0] === 'setCurrentUser'), false);
 });

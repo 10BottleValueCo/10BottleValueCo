@@ -57,17 +57,17 @@ export default function CashAppPaymentGuide({ tx, loading, disabled, amount, onC
           </div>
           <p id="cashapp-guide-instructions" className="text-[16px] leading-6">
             {tx(
-              "On the next page, tap “Open Wallet” to open Cash App. If your phone asks which app to use, choose Cash App.",
-              "На следующей странице нажмите «Open Wallet», чтобы открыть Cash App. Если телефон предложит выбрать приложение, выберите Cash App.",
-              "На наступній сторінці натисніть «Open Wallet», щоб відкрити Cash App. Якщо телефон запропонує вибрати застосунок, виберіть Cash App.",
-              "Tippen Sie auf der nächsten Seite auf „Open Wallet“, um Cash App zu öffnen. Falls Ihr Telefon nach einer App fragt, wählen Sie Cash App.",
-              "En la siguiente página, pulsa «Open Wallet» para abrir Cash App. Si tu teléfono pregunta qué aplicación usar, elige Cash App."
+              "On your phone? On the next page, tap “Open Wallet” to open Cash App. If your phone asks which app to use, choose Cash App.",
+              "Вы на телефоне? На следующей странице нажмите «Open Wallet», чтобы открыть Cash App. Если телефон предложит выбрать приложение, выберите Cash App.",
+              "Ви на телефоні? На наступній сторінці натисніть «Open Wallet», щоб відкрити Cash App. Якщо телефон запропонує вибрати застосунок, виберіть Cash App.",
+              "Am Telefon? Tippen Sie auf der nächsten Seite auf „Open Wallet“, um Cash App zu öffnen. Falls Ihr Telefon nach einer App fragt, wählen Sie Cash App.",
+              "¿Estás en tu teléfono? En la siguiente página, pulsa «Open Wallet» para abrir Cash App. Si tu teléfono pregunta qué aplicación usar, elige Cash App."
             )}
           </p>
           <div className="my-5 rounded-2xl bg-[#1c2056] px-5 py-5 text-center" aria-hidden="true">
             <span className="inline-flex rounded-full border border-white/70 px-6 py-3 text-[15px] font-semibold text-white">Open Wallet <span className="ml-3">↗</span></span>
           </div>
-          <p id="cashapp-guide-computer" className="mb-5 rounded-xl bg-black/[0.04] px-4 py-3 text-[13px] leading-5 text-black/70">
+          <p id="cashapp-guide-computer" className="mb-5 text-[16px] leading-6">
             {tx(
               "On a computer? Scan the QR code on the next page with Cash App on your phone.",
               "Вы на компьютере? Отсканируйте QR-код на следующей странице через Cash App на телефоне.",
