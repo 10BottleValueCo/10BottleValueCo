@@ -1,5 +1,6 @@
 import { requireOrderIdentity, ownsOrder } from "./_order-access.js";
 import { paylioResumeMatchesOrder } from "./_paylio-binding.js";
+import { catalystResumeMatchesOrder } from "./_catalystpay-resume.js";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 const ACCESS_COOKIE = "tbv_checkout_access";
@@ -304,6 +305,14 @@ async function saveOrder(req, res) {
     }
     if (bindings.length) {
       if (!paylioResumeMatchesOrder(bindings[0], identity, order)) {
+        throw new CheckoutError(409, "This payment has already started. Restore its original checkout or contact support.");
+      }
+      setAccessCookie(res, order.id, access.token);
+      res.status(200).json({ ok: true, id: existing.id, status: existing.status, locked: true, saved: false });
+      return;
+    }
+    if (existing.metadata?.catalystpay_invoice_id) {
+      if (!catalystResumeMatchesOrder(existing, order)) {
         throw new CheckoutError(409, "This payment has already started. Restore its original checkout or contact support.");
       }
       setAccessCookie(res, order.id, access.token);

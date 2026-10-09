@@ -26,7 +26,8 @@ const initialState = (name, context) => {
   const decl = appBody.filter(node => node.type === 'VariableDeclaration').flatMap(node => node.declarations)
     .find(node => node.id.type === 'ArrayPattern' && node.id.elements[0]?.name === name);
   const init = decl.init.arguments[0];
-  return vm.runInNewContext(`(${source.slice(init.start, init.end)})()`, context);
+  const value = vm.runInNewContext(`(${source.slice(init.start, init.end)})`, context);
+  return typeof value === 'function' ? value() : value;
 };
 const initializer = (name, context) => {
   const decl = appBody.filter(node => node.type === 'VariableDeclaration').flatMap(node => node.declarations)
@@ -109,6 +110,49 @@ function checkoutEntryFixture(overrides = {}) {
   }
   return result;
 }
+
+test('Card is the initial selection and checkout entry selects Card without starting payment', () => {
+  assert.equal(initialState('paymentMethod', {}), 'stripe');
+  const effect = appBody.find(node => node.type === 'ExpressionStatement'
+    && node.expression.callee?.name === 'useEffect'
+    && source.slice(node.start, node.end).includes('finalTotalRef.current > 0'))?.expression;
+  assert.ok(effect);
+  const calls = [];
+  const run = (step, total) => vm.runInNewContext(`(${source.slice(effect.arguments[0].start, effect.arguments[0].end)})()`, {
+    checkoutStep: step, finalTotalRef: { current: total }, setPaymentMethod: method => calls.push(method),
+  });
+  run('details', 100); run('payment', 0); assert.deepEqual(calls, []);
+  run('payment', 100); assert.deepEqual(calls, ['stripe']);
+});
+
+test('Lightning to Card to Lightning keeps the original legacy order and follows its resumed invoice', async () => {
+  const { context, calls } = fixture();
+  const requests = [], navigations = [];
+  Object.assign(context, {
+    paymentMethod: 'cashapp', catalystPayLoading: false, orderNumber: 'INV-LIGHTNING1', meritSession: null,
+    deferredLegacyOrderRef: { current: { id: 'INV-LIGHTNING1' } },
+    setPaymentMethodState: value => { context.paymentMethod = value; },
+    setOrderNumber: value => { context.orderNumber = value; },
+    setCatalystPayLoading: value => { context.catalystPayLoading = value; },
+    setCatalystPayError: value => calls.push(['lightningError', value]),
+    getStoredOrders: () => [], saveStoredOrders: () => {}, setAllOrders: () => {}, setUserOrders: () => {}, getPaidOrdersForEmail: () => [],
+    fetch: async (url, options) => {
+      const body = JSON.parse(options.body); requests.push({ url, body });
+      if (url === '/api/order-checkout') return { ok: true, json: async () => ({ ok: true, id: body.order.id, locked: true, saved: false }) };
+      assert.equal(url, '/api/create-catalystpay-session');
+      return { ok: true, json: async () => ({ checkoutLink: 'https://checkout.example.test/original-invoice', invoice_id: 'original-invoice' }) };
+    },
+  });
+  context.window.location = { assign: url => navigations.push(url) };
+  context.persistOrderToServer = handler('persistOrderToServer', context);
+  const select = handler('setPaymentMethod', context), pay = handler('createCatalystPayment', context);
+  await pay(); select('stripe'); select('cashapp'); await pay();
+  assert.equal(context.orderNumber, 'INV-LIGHTNING1');
+  assert.deepEqual(requests.map(request => request.url), ['/api/order-checkout', '/api/create-catalystpay-session', '/api/order-checkout', '/api/create-catalystpay-session']);
+  for (const request of requests) assert.equal(request.body.order?.id || request.body.order_id, 'INV-LIGHTNING1');
+  assert.deepEqual(navigations, ['https://checkout.example.test/original-invoice', 'https://checkout.example.test/original-invoice']);
+  assert.equal(calls.some(([name, value]) => name === 'lightningError' && value), false);
+});
 
 test('App unmount disposes the code-field adapter through its signal', () => {
   const effect = appBody.find(node => node.type === 'ExpressionStatement'

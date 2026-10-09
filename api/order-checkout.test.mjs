@@ -320,3 +320,53 @@ test("owned frozen Paylio checkout resumes without changing its order or amount"
   assert.equal(refunded.statusCode, 409);
   assert.equal(sb.rows[0].status, 'refunded');
 });
+
+test("Lightning switch-back resumes its frozen checkout without writing or replacing the invoice", async t => {
+  const sb = createSupabaseMock(); withTestEnvironment(t, sb.fetchMock);
+  const metadata = {
+    paymentProvider: "CatalystPay BTC", total: 129.5,
+    items: [{ name: "Example product", dose: "5 mg", quantity: 1, price: 129.5 }],
+    subtotal: 129.5, shipping: 0, automaticDiscount: 0, promoDiscount: 0,
+    affiliateDiscount: 0, cryptoDiscount: 0, storeCreditUsed: 0, shippingType: "standard",
+    firstName: "Test", address: "Fixture address", country: "US", orderNotes: "Fixture note",
+  };
+  const created = makeRes();
+  await handler(makeRequest({ body: { order: checkoutOrder({ metadata }) } }), created);
+  const cookie = created.headers['Set-Cookie'].split(';')[0];
+  sb.rows[0].status = 'checkout (clicked pay)';
+  sb.rows[0].metadata.catalystpay_invoice_id = 'original_invoice';
+  const before = structuredClone(sb.rows[0]);
+  const resume = async (change = {}, capability = cookie) => {
+    const response = makeRes();
+    await handler(makeRequest({ cookie: capability, body: { order: checkoutOrder({ status: 'checkout', metadata, ...change }) } }), response);
+    return response;
+  };
+  for (let retry = 0; retry < 2; retry++) {
+    const response = await resume();
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.body, { ok: true, id: ORDER_ID, status: 'checkout (clicked pay)', locked: true, saved: false });
+    assert.deepEqual(sb.rows[0], before);
+  }
+  const changedMetadata = [
+    ...['subtotal', 'shipping', 'automaticDiscount', 'promoDiscount', 'affiliateDiscount', 'cryptoDiscount', 'storeCreditUsed'].map(field => ({ ...metadata, [field]: 2 })),
+    ...['shippingType', 'promoCode', 'affiliateCode', 'affiliateOwnerEmail', 'firstName', 'lastName', 'country', 'address', 'address2', 'city', 'state', 'postalCode', 'phone', 'taxId', 'orderNotes', 'paymentProvider'].map(field => ({ ...metadata, [field]: 'changed' })),
+    ...[{ quantity: 2 }, { price: 1 }, { dose: '10 mg' }, { fromWarehouse: 'us' }, { vials: 5 }].map(change => ({ ...metadata, items: [{ ...metadata.items[0], ...change }] })),
+  ];
+  for (const change of [{ total: 1 }, ...changedMetadata.map(metadata => ({ metadata }))]) {
+    assert.equal((await resume(change)).statusCode, 409, JSON.stringify(change));
+    assert.deepEqual(sb.rows[0], before);
+  }
+  assert.equal((await resume({}, '')).statusCode, 403);
+  sb.rows[0].user_id = '22222222-2222-4222-8222-222222222222';
+  assert.equal((await resume()).statusCode, 403);
+  sb.rows[0].user_id = USER_ID;
+  for (const status of ['paid', 'done', 'refunded', 'cancelled']) {
+    sb.rows[0].status = status;
+    assert.equal((await resume()).statusCode, 409);
+  }
+  sb.rows[0].status = 'checkout (clicked pay)';
+  delete sb.rows[0].metadata.catalystpay_invoice_id;
+  assert.equal((await resume()).statusCode, 409);
+  assert.equal(sb.calls.filter(call => call.method === 'PATCH').length, 0);
+  assert.equal(sb.calls.filter(call => call.method === 'POST').length, 1); // Initial draft only.
+});
