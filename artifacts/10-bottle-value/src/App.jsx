@@ -10,6 +10,10 @@ import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, Search, Tag, UserRound, X }
 import { ErrorBoundary } from "./components/error-boundary.tsx";
 import { getAdminInvoiceLabel, getAdminOrderStatusLabel, getAdminPaymentProviderLabel } from "./admin-order-display.js";
 import ShippingPricesPage from "./components/ShippingPricesPage.jsx";
+import AccountDashboard from "./components/AccountDashboard.jsx";
+import AccountMessages from "./components/AccountMessages.jsx";
+import AffiliateProgramPage from "./components/AffiliateProgramPage.jsx";
+import PublicInfoPages from "./components/PublicInfoPages.jsx";
 import worldwideCatalogBackground from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791141018882.webp";
 import { supabase, userFromSupabase, saveAccountCheckoutDetails } from "./supabase.js";
 import { useCheckoutDetails } from "./useCheckoutDetails.js";
@@ -51,10 +55,7 @@ import faqBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_34_
 import laboratoryBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791041778846.webp";
 import legalPolicyBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791210990340.webp";
 
-const importAccountDashboard = () => import("./components/AccountDashboard.jsx");
-const importAccountMessages = () => import("./components/AccountMessages.jsx");
-const importAffiliateProgramPage = () => import("./components/AffiliateProgramPage.jsx");
-const importPublicInfoPages = () => import("./components/PublicInfoPages.jsx");
+
 const importShippingRefundPolicyPages = () => import("./components/ShippingRefundPolicyPages.jsx");
 const importPrivacyPolicyPage = () => import("./components/PrivacyPolicyPage.jsx");
 const importTermsConditionsPage = () => import("./components/TermsConditionsPage.jsx");
@@ -80,10 +81,6 @@ function ShippingPricesLoadFallback() {
   );
 }
 
-const AccountDashboard = lazy(importAccountDashboard);
-const AccountMessages = lazy(importAccountMessages);
-const AffiliateProgramPage = lazy(importAffiliateProgramPage);
-const PublicInfoPages = lazy(importPublicInfoPages);
 const ShippingRefundPolicyPages = lazy(importShippingRefundPolicyPages);
 const PrivacyPolicyPage = lazy(importPrivacyPolicyPage);
 const TermsConditionsPage = lazy(importTermsConditionsPage);
@@ -134,16 +131,11 @@ const publicPageToPath = {
 };
 
 const routeChunkLoaders = {
-  account: () => Promise.all([importAccountDashboard(), importAccountMessages()]),
-  affiliate: importAffiliateProgramPage,
-  shipping: importShippingRefundPolicyPages,
-  refund: importShippingRefundPolicyPages,
-  privacy: importPrivacyPolicyPage,
-  terms: importTermsConditionsPage,
-  faq: importPublicInfoPages,
-  about: importPublicInfoPages,
-  attestation: importPublicInfoPages,
-};
+    shipping: importShippingRefundPolicyPages,
+    refund: importShippingRefundPolicyPages,
+    privacy: importPrivacyPolicyPage,
+    terms: importTermsConditionsPage,
+    };
 const prefetchedRouteChunks = new Set();
 const pendingRouteChunkPrefetches = new Map();
 
@@ -14659,14 +14651,6 @@ export default function App() {
         )}
 
         {(["faq", "about", "attestation"].includes(page)) && (
-          <Suspense
-            fallback={
-              <div className="mx-auto min-h-[38vh] max-w-[1400px] px-4 pt-8" aria-busy="true">
-                <div className="h-9 w-48 animate-pulse rounded bg-white/10" />
-                <div className="mt-5 h-56 animate-pulse rounded-2xl bg-white/[0.04]" />
-              </div>
-            }
-          >
             <PublicInfoPages
               page={page}
               language={language}
@@ -14676,7 +14660,6 @@ export default function App() {
               setAboutBottleWiggle={setAboutBottleWiggle}
               handlePublicPageLink={handlePublicPageLink}
             />
-          </Suspense>
         )}
 
         {page === "bonuses" && (
@@ -14689,14 +14672,6 @@ export default function App() {
         )}
 
         {page === "affiliate" && (
-          <Suspense
-            fallback={
-              <div className="mx-auto min-h-[38vh] max-w-[1400px] px-4 pt-8" aria-busy="true">
-                <div className="h-9 w-48 animate-pulse rounded bg-white/10" />
-                <div className="mt-5 h-56 animate-pulse rounded-2xl bg-white/[0.04]" />
-              </div>
-            }
-          >
           <AffiliateProgramPage
             tx={tx}
             copiedEmail={copiedEmail}
@@ -14705,7 +14680,6 @@ export default function App() {
             getPublicImageUrl={getPreloadedDisplayImageUrl}
             onVialImageError={retryVialImage}
           />
-          </Suspense>
         )}
         {page === "contact" ? (
           <ContactPage
@@ -17798,14 +17772,6 @@ export default function App() {
               }
             >
               {currentUser && authMode !== "reset" ? (
-                <Suspense
-                  fallback={
-                    <div className="min-h-[320px]" aria-busy="true">
-                      <div className="h-8 w-48 animate-pulse rounded bg-white/10" />
-                      <div className="mt-5 h-56 animate-pulse rounded-2xl bg-white/[0.04]" />
-                    </div>
-                  }
-                >
                 <AccountDashboard
                   user={currentUser}
                   orders={userOrders}
@@ -17898,7 +17864,6 @@ export default function App() {
                   }
                 >
                   {activeAccountSection === "messages" ? (
-                    <Suspense fallback={<div className="min-h-[190px]" aria-busy="true" />}>
                     <AccountMessages
                       timeline={buildSupportTimeline(userInboxMessages)}
                       tx={tx}
@@ -17922,7 +17887,6 @@ export default function App() {
                       messageDomId={chatMsgDomId}
                       highlightedMsgKey={highlightedMsgKey}
                     />
-                    </Suspense>
                   ) : (
                   <div className="lab-account-workspace">
                     <div className="lab-account-details__body">
@@ -18992,7 +18956,6 @@ export default function App() {
                   </div>
                   )}
                 </AccountDashboard>
-                </Suspense>
               ) : (
                 <>
                   <div className={authMode === "verify" ? "mt-2 w-full" : "relative mt-3 inline-block"}>
