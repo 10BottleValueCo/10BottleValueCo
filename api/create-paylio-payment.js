@@ -1,4 +1,5 @@
 import { discountAmount, addAmounts } from "../shared/checkout-money.js";
+import { formatInvoiceLabel } from "../shared/invoice-display.js";
 import { assertExpectedTotal } from "./_legacy-checkout-quote.js";
 import { PaylioError, reservePaylio, bindPaylio, paylioCustomerUrl, paylioStorage } from "./_paylio-binding.js";
 import { requireLegacyOrderAccess } from "./_order-access.js";
@@ -41,7 +42,6 @@ export default async function handler(req, res) {
       currency = "USD",
       order_id,
       orderId,
-      note,
       provider = "",
       customer_email,
       email,
@@ -208,7 +208,7 @@ export default async function handler(req, res) {
         callback: `${baseUrl}/api/paylio-callback?attempt=${encodeURIComponent(reservation.attempt.id)}`,
         return_url: `${baseUrl}/?payment=pending&provider=paylio&order=${encodeURIComponent(finalOrderId)}`,
         amount: safeAmount, currency: "USD", passFeeToCustomer: false,
-        email: finalEmail, note: finalOrderId,
+        email: finalEmail, note: formatInvoiceLabel(finalOrderId),
         ...(provider ? { provider } : {}),
       }),
     });

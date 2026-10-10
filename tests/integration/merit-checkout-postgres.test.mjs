@@ -1506,4 +1506,48 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
     evidence.referralIdentity = { literalCode: true, mixedPaddedCompleted: true, paidAt: true, changedEmail: true, unrelatedEmailExcluded: true, paddedAttribution: true };
   });
 
+  await t.test('atomic Paylio exclusion preserves a legacy invoice after stale preflight and serializes cross-provider races', async () => {
+    const signature = 'public.reserve_paylio_checkout(uuid,text,uuid,text,text,text,text,bigint,jsonb)';
+    const functionMetadata = () => scalar(`SELECT jsonb_build_object('owner',proowner,'acl',proacl,'securityDefiner',prosecdef,'settings',proconfig,'volatility',provolatile) FROM pg_proc WHERE oid=${q(signature)}::regprocedure;`);
+    const createDraft = async id => sql(`INSERT INTO orders(id,user_id,email,status,total,metadata,items) VALUES(${q(id)},${q(customerId)},'buyer@example.test','pending',100,'{}'::jsonb,'[]'::jsonb);`);
+    const claimLegacy = id => rest('service_role', `/orders?${new URLSearchParams({id:'eq.'+id,status:'eq.pending',payment_id:'is.null',payment_provider:'is.null','metadata->>legacyInvoiceAttempt':'is.null'})}`, {
+      method:'PATCH', headers:{Prefer:'return=representation'}, body:{status:'checkout (clicked pay)',metadata:{legacyInvoiceAttempt:{id:randomUUID(),provider:'nowpayments',state:'reserved'},subtotal:100,storeCreditUsed:0}},
+    });
+    const claimPaylio = id => rpc('reserve_paylio_checkout',{...paylioRequest,p_id:randomUUID(),p_order_id:id});
+    const pre='INV-PAYLIO-PRE-GUARD'; await createDraft(pre);
+    assert.equal((await claimLegacy(pre)).data.length,1);
+    assert.equal((await claimPaylio(pre)).status,200,'Baseline reproduces stale Paylio preflight overwriting an existing legacy invoice');
+    const beforeMetadata=await functionMetadata();
+    const migration=await readFile(new URL('../../supabase/migrations/20261010113000_paylio_legacy_invoice_exclusion.sql',import.meta.url),'utf8');
+    await sql(migration); assert.deepEqual(await functionMetadata(),beforeMetadata);
+    const definition=await sql(`SELECT pg_get_functiondef(${q(signature)}::regprocedure);`);
+    await sql(migration); assert.equal(await sql(`SELECT pg_get_functiondef(${q(signature)}::regprocedure);`),definition,'Migration replay is a no-op');
+    const post='INV-PAYLIO-POST-GUARD'; await createDraft(post); assert.equal((await claimLegacy(post)).data.length,1);
+    const beforeOrder=await order(post),rejected=await claimPaylio(post);
+    assert.equal(rejected.status,400); assert.match(rejected.data.message,/PAYLIO_ORDER_NOT_PAYABLE/);
+    assert.deepEqual(await order(post),beforeOrder);
+    assert.equal(await scalar(`SELECT count(*) FROM paylio_payment_attempts WHERE order_id=${q(post)};`),0);
+    const historical='INV-PAYLIO-HISTORICAL-CATALYST'; await createDraft(historical);
+    await sql(`UPDATE orders SET metadata='{"catalystpay_invoice_id":"historical-invoice"}'::jsonb WHERE id=${q(historical)};`);
+    const beforeHistorical=await order(historical),historicalRejected=await claimPaylio(historical);
+    assert.equal(historicalRejected.status,400); assert.match(historicalRejected.data.message,/PAYLIO_ORDER_NOT_PAYABLE/);
+    assert.deepEqual(await order(historical),beforeHistorical);
+    assert.equal(await scalar(`SELECT count(*) FROM paylio_payment_attempts WHERE order_id=${q(historical)};`),0);
+    const paylioFirst='INV-PAYLIO-FIRST-GUARD'; await createDraft(paylioFirst);
+    assert.equal((await claimPaylio(paylioFirst)).data.created,true);
+    const beforePaylioFirst=await order(paylioFirst),legacyRejected=await claimLegacy(paylioFirst);
+    assert.equal(legacyRejected.status,200); assert.equal(legacyRejected.data.length,0);
+    assert.deepEqual(await order(paylioFirst),beforePaylioFirst);
+    for(let i=0;i<4;i++) {
+      const id=`INV-PAYLIO-LEGACY-RACE-${i}`;await createDraft(id);
+      const replies=await simultaneous(`Paylio vs legacy invoice ${i}`,`SELECT id FROM orders WHERE id=${q(id)} FOR UPDATE`,[()=>claimLegacy(id),()=>claimPaylio(id)]);
+      const legacyWon=replies[0].status===200&&replies[0].data.length===1;
+      const paylioWon=replies[1].status===200&&replies[1].data.created===true;
+      assert.equal(Number(legacyWon)+Number(paylioWon),1,JSON.stringify(replies));
+      const saved=await order(id);assert.equal(Boolean(saved.metadata?.legacyInvoiceAttempt),legacyWon);
+      assert.equal(await scalar(`SELECT count(*) FROM paylio_payment_attempts WHERE order_id=${q(id)};`),Number(paylioWon));
+    }
+    evidence.paylioLegacyExclusion={baselineReproduced:true,stalePreflightBlocked:true,historicalCatalystBlocked:true,paylioFirstBlocksLegacy:true,ownerGrantsPreserved:true,idempotent:true,concurrentRaces:4,oneWinnerPerOrder:true};
+  });
+
 });

@@ -10,14 +10,14 @@ const orderId='INV-PAYLIO123',customerId='11111111-1111-4111-8111-111111111111',
 const row={id:orderId,user_id:customerId,email,status:'checkout',total:110,metadata:{firstName:'Buyer',address:'Fixture address',storeCreditUsed:0},payment_provider:null};
 const res=()=>({statusCode:200,setHeader(){},status(code){this.statusCode=code;return this},json(body){this.body=body;return this}});
 const json=(body,status=200)=>new Response(JSON.stringify(body),{status});
-function fixture(t,{bindingFails=false,providerFails=false,providerFailureBody,providerUrlSuffix='',pending=false,terminal=false,effectsFailOnce=false,emptyEffectsAck=false,existingAffiliate='',affiliateResponse,affiliateLookupFails=false,priorPurchases=[],historyFails=false,promoRows=[]}={}){
+function fixture(t,{checkoutOrderId=orderId,bindingFails=false,providerFails=false,providerFailureBody,providerUrlSuffix='',pending=false,terminal=false,effectsFailOnce=false,emptyEffectsAck=false,existingAffiliate='',affiliateResponse,affiliateLookupFails=false,priorPurchases=[],historyFails=false,promoRows=[]}={}){
  const calls=[];let attempt,effectsCalls=0;
  t.mock.method(globalThis,'fetch',async(input,options={})=>{
   const url=new URL(input),body=options.body?JSON.parse(options.body):null;
   calls.push({url,options,body});
   if(url.pathname==='/auth/v1/user')return json({id:customerId,email,email_confirmed_at:'2026-10-08T00:00:00Z'});
   if(url.pathname==='/rest/v1/orders'){
-   if(!url.searchParams.get('select')?.includes('paid_at'))return json([row]);
+   if(!url.searchParams.get('select')?.includes('paid_at'))return json([{...row,id:checkoutOrderId}]);
    if(historyFails==='network')throw new Error('fixture history unavailable');
    if(historyFails)return json({},503);
    if(!Array.isArray(priorPurchases))return json(priorPurchases);
@@ -29,7 +29,7 @@ function fixture(t,{bindingFails=false,providerFails=false,providerFailureBody,p
   if(url.pathname==='/rest/v1/paylio_payment_attempts')return json(attempt?[attempt]:[]);
   if(url.pathname==='/rest/v1/rpc/reserve_paylio_checkout'){
    if(attempt)return json({created:false,attempt});
-   attempt={id:body.p_id,order_id:orderId,customer_id:customerId,email,fingerprint:body.p_fingerprint,account_fingerprint:body.p_account_fingerprint,payout_address:body.p_payout_address,amount_cents:body.p_amount_cents,currency:'USD',state:'reserved',quote:body.p_quote,created_at:new Date().toISOString()};
+   attempt={id:body.p_id,order_id:checkoutOrderId,customer_id:customerId,email,fingerprint:body.p_fingerprint,account_fingerprint:body.p_account_fingerprint,payout_address:body.p_payout_address,amount_cents:body.p_amount_cents,currency:'USD',state:'reserved',quote:body.p_quote,created_at:new Date().toISOString()};
    return json({created:true,attempt});
   }
   if(url.pathname==='/api/v1/wallet'){
@@ -211,4 +211,18 @@ test('CARD5 works with PayPal and Paylio and preserves the private rule version'
   await create({...request(),body:{...request().body,provider,promoCode:'CARD5',promoDiscount:99,expectedTotal:105}},response);
   assert.equal(response.statusCode,200);assert.equal(response.body.verifiedAmount,105);assert.equal(f.attempt().quote.promoDiscount,5);assert.equal(f.attempt().quote.promoUsageRequired,false);assert.equal(f.attempt().quote.discountRule.revision,3);
  }
+});
+
+// Provider notes are display labels; all authoritative identities stay intact.
+test('Paylio note matches the short storefront invoice while binding retains the full order identity', async t=>{
+ const canonical='INV-0123456789ABCDEF0123456789ABCDEF',f=fixture(t,{checkoutOrderId:canonical});
+ const req={...request(),body:{...request().body,order_id:canonical,note:'FORGED-NOTE'}},response=res();
+ await create(req,response);assert.equal(response.statusCode,200);
+ const provider=f.calls.find(c=>c.url.pathname==='/api/v1/wallet');
+ assert.equal(provider.body.note,'INV-01234567');
+ assert.equal(new URL(provider.body.return_url).searchParams.get('order'),canonical);
+ assert.equal(f.attempt().order_id,canonical);assert.equal(f.attempt().quote.orderId,canonical);
+ assert.equal(f.calls.find(c=>c.url.pathname==='/rest/v1/rpc/reserve_paylio_checkout').body.p_order_id,canonical);
+ const again=res();await create(req,again);assert.equal(again.statusCode,200);
+ assert.equal(f.calls.filter(c=>c.url.pathname==='/api/v1/wallet').length,1);
 });
