@@ -1,3 +1,4 @@
+import { sendPaymentConfirmationEmail } from "./_payment-confirmation-email.js";
 import { acknowledgeLegacyPaid, inspectLegacyTransition, legacyTransitionError } from "./_legacy-paid-transition.js";
 import { debitLegacyOrderCredit } from "./_legacy-store-credit.js";
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
@@ -171,10 +172,7 @@ export async function processNowPaymentsStatus(data, { providerVerified = false 
   const finalShippingType = String(sbMeta.shippingType || metadata.shippingType || "standard");
 
   if (!alreadyEmailSent) {
-    const emailResponse = await fetch(`${baseUrl}/api/send-payment-confirmed-email`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const emailResponse = await sendPaymentConfirmationEmail({
         email, orderId,
         total: finalTotal, subtotal: finalSubtotal, shipping: finalShipping,
         automaticDiscount: finalAutoDiscount, promoDiscount: finalPromoDiscount,
@@ -185,8 +183,7 @@ export async function processNowPaymentsStatus(data, { providerVerified = false 
         paymentId: data.payment_id || data.invoice_id || orderId,
         items,
         firstName, lastName, address, address2, city, state, postalCode, phone, country,
-      }),
-    }).catch(() => {});
+      }, { escapeValues: true }).catch(() => null);
 
     // Persist that the email was sent so a later duplicate status update (e.g. the
     // real IPN webhook arriving after our own fallback already handled it, or vice

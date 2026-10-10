@@ -1,3 +1,4 @@
+process.env.RESEND_API_KEY = 'synthetic-mail-key';
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -63,7 +64,7 @@ function fixture(t, { patchMode = 'ok', changed = null } = {}) {
       return json({ id: 'invoice_fixture', invoice_url: 'https://nowpayments.io/payment/fixture' });
     }
     if (url.pathname === '/rest/v1/affiliate_customers') return json([]);
-    if (url.pathname === '/api/send-payment-confirmed-email') return json({ success: true });
+    if (url.pathname === '/emails') return json({ success: true });
     assert.fail(`Unexpected fixture request ${method} ${url.href}`);
   });
   return { row, calls };

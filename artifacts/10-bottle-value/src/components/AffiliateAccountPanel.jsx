@@ -45,7 +45,7 @@ function money(formatPrice, value) {
 }
 
 function isPaidOrder(order) {
-  return ["paid", "done"].includes(String(order?.status || "").toLowerCase());
+  return ["paid", "done", "processing", "shipped", "delivered"].includes(String(order?.status || "").toLowerCase());
 }
 
 export default function AffiliateAccountPanel({

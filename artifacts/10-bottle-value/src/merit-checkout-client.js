@@ -242,7 +242,12 @@ export function meritCheckoutBusinessError(error, language = "en") {
     ? "Кредит магазина покрывает заказ целиком. Вернитесь к оформлению и выберите оплату кредитом магазина."
     : "Your store credit covers the entire order. Return to checkout and choose Pay with store credit.";
   if (error?.code === "MERIT_PROMO_UNVERIFIED") return messages.promoUnverified;
-  if (error?.code === "MERIT_AFFILIATE_UNVERIFIED") return messages.affiliateUnverified;
+  if (["MERIT_AFFILIATE_UNVERIFIED", "MERIT_AFFILIATE_UNAVAILABLE"].includes(error?.code)) return String(language).toLowerCase() === "ru"
+    ? "Этот партнёрский код недоступен. Вернитесь в корзину и удалите или замените код. Оплата не начата."
+    : "This referral code is unavailable. Return to your cart and remove or replace it. Payment has not started.";
+  if (["MERIT_AFFILIATE_RULES_UNAVAILABLE", "MERIT_AFFILIATE_LOOKUP_UNAVAILABLE"].includes(error?.code)) return String(language).toLowerCase() === "ru"
+    ? "Проверка партнёрского кода временно недоступна. Оплата не начата. Повторите позже или обратитесь в поддержку."
+    : "Referral verification is temporarily unavailable. Payment has not started. Retry later or contact support.";
   return "";
 }
 

@@ -1,3 +1,4 @@
+process.env.RESEND_API_KEY = 'synthetic-mail-key';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 process.env.SUPABASE_URL = 'https://db.example.test';
@@ -35,7 +36,7 @@ function fixture(t, { provider = invoice, providerStatus = 200, patchStatus = 20
       if (patchRows) return json(patchRows, patchStatus);
       Object.assign(row, body); return json([row], patchStatus);
     }
-    if (url.pathname === '/api/send-payment-confirmed-email') return json({ ok: true });
+    if (url.pathname === '/emails') return json({ ok: true });
     return json([]);
   });
   return { calls, row, invoke: async (body = { type: 'InvoiceSettled', invoiceId: invoice.id }) => {
@@ -48,9 +49,9 @@ test('unsigned Catalyst callback is only a hint; verified provider settlement an
   assert.equal(result.statusCode, 200); assert.equal(f.row.status, 'paid');
   const provider = f.calls.findIndex(c => c.url.hostname === 'api.paidlyinteractive.com');
   const paid = f.calls.findIndex(c => c.body?.status === 'paid');
-  const receipt = f.calls.findIndex(c => c.url.pathname === '/api/send-payment-confirmed-email');
+  const receipt = f.calls.findIndex(c => c.url.pathname === '/emails');
   assert.ok(provider >= 0 && paid > provider && receipt > paid);
-  assert.equal(f.calls[receipt].body.email, 'buyer@example.test'); assert.equal(f.calls[receipt].body.total, 100);
+  assert.equal(f.calls[receipt].url.hostname, 'api.resend.com'); assert.equal(f.calls[receipt].body.to, 'buyer@example.test'); assert.match(f.calls[receipt].body.html, /100\.00/);
 });
 
 test('unsigned Catalyst callback cannot settle unknown, foreign, unpaid, partial or manually marked invoices', async t => {
@@ -69,7 +70,7 @@ test('unsigned Catalyst callback cannot settle unknown, foreign, unpaid, partial
 test('unacknowledged Catalyst paid write cannot send receipt and exact paid replay has no effects', async t => {
   for (const opts of [{ patchRows: [] }, { patchStatus: 500 }, { patchRows: [{ id: 'INV-OTHER' }] }]) {
     const f = fixture(t, opts), result = await f.invoke(); assert.ok(result.statusCode >= 400);
-    assert.equal(f.calls.some(c => c.url.pathname === '/api/send-payment-confirmed-email'), false);
+    assert.equal(f.calls.some(c => c.url.pathname === '/emails'), false);
   }
   const f = fixture(t, { orderStatus: 'paid' }), result = await f.invoke();
   assert.equal(result.statusCode, 200); assert.equal(result.body.alreadyPaidInDb, true); assert.equal(f.calls.some(c => c.method !== 'GET'), false);

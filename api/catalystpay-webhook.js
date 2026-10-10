@@ -1,3 +1,4 @@
+import { sendPaymentConfirmationEmail } from "./_payment-confirmation-email.js";
 import { acknowledgeLegacyPaid, inspectLegacyTransition } from "./_legacy-paid-transition.js";
 import { debitLegacyOrderCredit } from "./_legacy-store-credit.js";
 import crypto from "crypto";
@@ -180,10 +181,7 @@ export default async function handler(req, res) {
   const dbMarkedPaid = true, dbWriteError = null;
 
   if (!alreadyEmailSent) {
-    const emailResponse = await fetch(`${BASE_URL}/api/send-payment-confirmed-email`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const emailResponse = await sendPaymentConfirmationEmail({
         email,
         orderId,
         total: finalTotal,
@@ -209,8 +207,7 @@ export default async function handler(req, res) {
         postalCode: String(sbMeta.postalCode || ""),
         phone: String(sbMeta.phone || ""),
         country: String(sbMeta.country || ""),
-      }),
-    }).catch((e) => console.error("CatalystPay: send-payment-confirmed-email failed:", e.message));
+      }, { escapeValues: true }).catch(() => null);
 
     if (emailResponse?.ok && SB_URL && SB_KEY) {
       await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(orderId)}&status=eq.paid`, {

@@ -221,11 +221,14 @@ export default async function handler(req, res) {
     // Diagnose the boundary without logging tokens, URLs, customer details,
     // order numbers, provider bodies or amounts. Never retry uncertain creation.
     console.error("Paylio setup failed", { phase, providerStatus,
+      failureKind: ["TimeoutError", "AbortError", "TypeError"].includes(error?.name) ? error.name : "validation_or_storage",
+      reason: ["payment_id", "callback_token", "status", "amount", "currency", "fee_mode", "original_amount"].includes(error?.reason) ? error.reason : undefined,
       code: error instanceof PaylioError ? error.code : error?.code === "PROMO_LOOKUP_UNAVAILABLE" ? error.code : "PAYLIO_CREATION_UNAVAILABLE" });
     if (error?.code === "PROMO_LOOKUP_UNAVAILABLE") return res.status(503).json({ code: error.code, error: error.message });
     return res.status(error instanceof PaylioError ? error.status : 503).json({
       code: error instanceof PaylioError ? error.code : "PAYLIO_CREATION_UNAVAILABLE",
-      error: "Payment setup is pending. Please contact support before trying another payment.",
+      error: phase === "quote" ? "Payment has not started. Review your checkout details and retry, or contact support."
+        : "Payment setup is pending. Please contact support before trying another payment.",
     });
   }
 }

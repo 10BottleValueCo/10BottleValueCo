@@ -3985,60 +3985,48 @@ export default function App() {
   const [affiliateDataCode, setAffiliateDataCode] = useState("");
   const affiliateLoadRequestRef = useRef(0);
   const [affiliatePaidOut, setAffiliatePaidOut] = useState(0);
-  const [activeAffiliateCode, setActiveAffiliateCode] = useState(() => {
-    if (typeof window === "undefined") return "";
-
-    try {
-      const url = new URL(window.location.href);
-      const urlCode = (
-        (() => { try { const v = url.searchParams.get("s"); return v ? atob(v) : ""; } catch { return ""; } })() ||
-        url.searchParams.get("c") ||
-        url.searchParams.get("via") ||
-        url.searchParams.get("ref") ||
-        url.searchParams.get("affiliate") ||
-        ""
-      )
-        .trim()
-        .toUpperCase();
-
-      if (urlCode) {
-        const existingCode = (localStorage.getItem("tbv-active-affiliate") || "").trim().toUpperCase();
-        if (!existingCode) {
-          // First visit with an affiliate link — lock it
-          localStorage.setItem("tbv-active-affiliate", urlCode);
-        }
-        // Always return the locked-in code (ignore new URL code if one already exists)
-        return existingCode || urlCode;
-      }
-
-      return (localStorage.getItem("tbv-active-affiliate") || "")
-        .trim()
-        .toUpperCase();
-    } catch {
-      return "";
-    }
+  const [activeAffiliateCode, setActiveAffiliateCode] = useState("");
+  const [affiliateCodeRemoved, setAffiliateCodeRemoved] = useState(() => {
+    try { return sessionStorage.getItem("tbv-affiliate-removed") === "true"; } catch { return false; }
   });
+  const affiliateSelectionVersionRef = useRef(0);
 
   function readAffiliateCodeFromBrowser() {
     if (typeof window === "undefined") return "";
-
     try {
       const params = new URLSearchParams(window.location.search || "");
-      const urlCode = (params.get("ref") || params.get("affiliate") || "")
-        .trim()
-        .toUpperCase();
-      const storedCode = (localStorage.getItem("tbv-active-affiliate") || "")
-        .trim()
-        .toUpperCase();
+      let encoded = "";
+      try { encoded = params.get("s") ? atob(params.get("s")) : ""; } catch {}
+      const candidate = String(localStorage.getItem("tbv-active-affiliate") || encoded || params.get("c")
+        || params.get("via") || params.get("ref") || params.get("affiliate") || "").trim().toUpperCase();
+      return /^[A-Z0-9_-]{1,64}$/.test(candidate) ? candidate : "";
+    } catch { return ""; }
+  }
 
-      return urlCode || storedCode || "";
-    } catch {
-      return "";
-    }
+  function selectAffiliateCode(code) {
+    affiliateSelectionVersionRef.current += 1;
+    setAffiliateCodeRemoved(false);
+    setActiveAffiliateCode(code);
+    try {
+      sessionStorage.removeItem("tbv-affiliate-removed");
+      localStorage.setItem("tbv-active-affiliate", code);
+    } catch {}
+  }
+
+  function clearSelectedAffiliateCode() {
+    affiliateSelectionVersionRef.current += 1;
+    setAffiliateCodeRemoved(true);
+    setAffiliateDiscountDisabled(true);
+    setAffiliateManuallyApplied(false);
+    setActiveAffiliateCode("");
+    try {
+      sessionStorage.setItem("tbv-affiliate-removed", "true");
+      localStorage.removeItem("tbv-active-affiliate");
+    } catch {}
   }
 
   function getResolvedAffiliateCode() {
-    return readAffiliateCodeFromBrowser() || activeAffiliateCode || "";
+    return affiliateCodeRemoved ? "" : activeAffiliateCode;
   }
   const [affiliateMessage, setAffiliateMessage] = useState("");
   const [affiliateMessagePulse, setAffiliateMessagePulse] = useState(0);
@@ -6658,9 +6646,11 @@ export default function App() {
     if (hasServerWebhookEmail) return;
 
     try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error || !session?.access_token) throw new Error("Admin sign-in required");
       const res = await fetch("/api/send-payment-confirmed-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({
           orderId: order.id,
           email: order.email,
@@ -8565,7 +8555,7 @@ export default function App() {
         const status = String(order.status || metadata.status || (ledger ? "paid" : "pending"))
           .trim()
           .toLowerCase();
-        const commissionEligible = status === "paid" || status === "done";
+        const commissionEligible = ["paid", "done", "processing", "shipped", "delivered"].includes(status);
         const shippingType = String(
           metadata.shippingType || order.shippingType || ledger?.shipping_type || "standard"
         ).toLowerCase();
@@ -9084,9 +9074,7 @@ export default function App() {
   useEffect(() => {
     try {
       const savedAffiliates = JSON.parse(localStorage.getItem("tbv-affiliates") || "[]");
-      const savedAffiliateAttribution = (localStorage.getItem("tbv-active-affiliate") || "").trim().toUpperCase();
       if (Array.isArray(savedAffiliates)) setAffiliateProfiles(normalizeAffiliateRows(savedAffiliates));
-      if (savedAffiliateAttribution) setActiveAffiliateCode(savedAffiliateAttribution);
       const savedOrders = JSON.parse(localStorage.getItem("tbv-orders") || "[]");
       if (Array.isArray(savedOrders)) setAllOrders(savedOrders);
     } catch (error) {
@@ -9277,27 +9265,29 @@ export default function App() {
   }, [page, selectedUsWhName]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const browserCode = readAffiliateCodeFromBrowser();
-    if (!browserCode) return;
-
-    const existingStored = (localStorage.getItem("tbv-active-affiliate") || "").trim().toUpperCase();
-    if (!existingStored) {
-      // No affiliate locked yet — store this one
-      localStorage.setItem("tbv-active-affiliate", browserCode);
-      setActiveAffiliateCode(browserCode);
-    } else if (existingStored !== activeAffiliateCode) {
-      // Restore the locked affiliate if state drifted
-      setActiveAffiliateCode(existingStored);
-    }
-
-    const matchedAffiliate = affiliateProfiles.find(
-      (profile) => profile.code === browserCode
-    );
-
-    setPromoMessage("");
-  }, [affiliateProfiles, activeAffiliateCode, page]);
+    if (affiliateCodeRemoved) return;
+    const code = readAffiliateCodeFromBrowser() || String(currentUser?.affiliateCode || "").trim().toUpperCase();
+    if (!/^[A-Z0-9_-]{1,64}$/.test(code)) return;
+    const version = affiliateSelectionVersionRef.current;
+    let cancelled = false;
+    lookupPublicAffiliateCode(code).then(profile => {
+      if (cancelled || version !== affiliateSelectionVersionRef.current) return;
+      if (profile?.active !== false && profile?.code === code) selectAffiliateCode(code);
+      else {
+        setActiveAffiliateCode("");
+        try { localStorage.removeItem("tbv-active-affiliate"); } catch {}
+      }
+    }).catch(() => {
+      if (!cancelled && version === affiliateSelectionVersionRef.current) setPromoMessage(tx(
+        "Could not verify the referral code. Enter it again to retry.",
+        "Не удалось проверить партнёрский код. Введите его снова.",
+        "Не вдалося перевірити партнерський код. Введіть його знову.",
+        "Der Empfehlungscode konnte nicht geprüft werden. Bitte erneut eingeben.",
+        "No pudimos verificar el código de referido. Introdúcelo de nuevo."
+      ));
+    });
+    return () => { cancelled = true; };
+  }, [page, currentUser?.id, currentUser?.affiliateCode, affiliateCodeRemoved]);
 
   useEffect(() => {
     setCountrySearch(checkoutForm.country || "");
@@ -9775,12 +9765,7 @@ export default function App() {
     }
   }, [subtotal, checkoutForm.country]);
 
-  const browserAffiliateCode = useMemo(
-    () => readAffiliateCodeFromBrowser(),
-    []
-  );
-  const resolvedAffiliateCode =
-    activeAffiliateCode || browserAffiliateCode || currentUser?.affiliateCode || "";
+  const resolvedAffiliateCode = getResolvedAffiliateCode();
   const activeAffiliateProfile =
     affiliateProfiles.find(
       (profile) => profile.code === resolvedAffiliateCode && profile.active !== false
@@ -10651,7 +10636,7 @@ export default function App() {
       setOrderNumber(result.session.orderId);
       setMeritSession({ ...result.session, order: { ...result.order.metadata, ...result.order }, inputsKey: requestedInputs });
     } catch (error) {
-      if (["MERIT_PROMO_UNVERIFIED", "MERIT_AFFILIATE_UNVERIFIED", "MERIT_FULL_CREDIT_AVAILABLE", "MERIT_CREDIT_PENDING", "MERIT_CREDIT_BALANCE_UNAVAILABLE"].includes(error?.code) && !meritAttemptRef.current?.orderId) {
+      if (["MERIT_PROMO_UNVERIFIED", "MERIT_AFFILIATE_UNVERIFIED", "MERIT_AFFILIATE_UNAVAILABLE", "MERIT_AFFILIATE_RULES_UNAVAILABLE", "MERIT_AFFILIATE_LOOKUP_UNAVAILABLE", "MERIT_FULL_CREDIT_AVAILABLE", "MERIT_CREDIT_PENDING", "MERIT_CREDIT_BALANCE_UNAVAILABLE"].includes(error?.code) && !meritAttemptRef.current?.orderId) {
         meritAttemptRef.current.createRequested = false;
         saveMeritAttempt(window.sessionStorage, meritAttemptRef.current);
       }
@@ -10950,10 +10935,7 @@ export default function App() {
         );
         return;
       }
-      setAffiliateDiscountDisabled(true);
-      setAffiliateManuallyApplied(false);
-      setActiveAffiliateCode("");
-      try { localStorage.removeItem("tbv-active-affiliate"); } catch {}
+      clearSelectedAffiliateCode();
       setAppliedPromo({ code: normalizedCode, rate: matchedUserPromo.rate, label: `${+(matchedUserPromo.rate * 100).toFixed(2)}% discount`, type: "user_promo", id: matchedUserPromo.id });
       setPromoInput("");
       setPromoMessage(
@@ -11001,10 +10983,7 @@ export default function App() {
       setAppliedPromo(null);
       setAffiliateDiscountDisabled(false);
       setAffiliateManuallyApplied(true);
-      setActiveAffiliateCode(matchedAffiliate.code);
-      try {
-        localStorage.setItem("tbv-active-affiliate", matchedAffiliate.code);
-      } catch {}
+      selectAffiliateCode(matchedAffiliate.code);
       setPromoInput("");
       setPromoMessage(
         tx(
@@ -11055,12 +11034,7 @@ export default function App() {
       );
       return;
     }
-    setAffiliateDiscountDisabled(true);
-    setAffiliateManuallyApplied(false);
-    setActiveAffiliateCode("");
-    try {
-      localStorage.removeItem("tbv-active-affiliate");
-    } catch {}
+    clearSelectedAffiliateCode();
     setAppliedPromo(promo);
     setPromoInput("");
     setPromoMessage(
@@ -11110,12 +11084,7 @@ export default function App() {
 
     if (resolvedAffiliateCode) {
       const removedCode = resolvedAffiliateCode;
-      setAffiliateDiscountDisabled(true);
-      setAffiliateManuallyApplied(false);
-      setActiveAffiliateCode("");
-      try {
-        localStorage.removeItem("tbv-active-affiliate");
-      } catch {}
+      clearSelectedAffiliateCode();
       setPromoInput(removedCode);
       setPromoMessage(
         tx(
@@ -12114,8 +12083,8 @@ export default function App() {
           password,
           options: {
             data: {
-              affiliateCode: (activeAffiliateCode || browserAffiliateCode || registrationPromoCode || "").trim().toUpperCase(),
-              promoLockedAt: (activeAffiliateCode || browserAffiliateCode || registrationPromoCode) ? new Date().toISOString() : "",
+              affiliateCode: (getResolvedAffiliateCode() || registrationPromoCode || "").trim().toUpperCase(),
+              promoLockedAt: (getResolvedAffiliateCode() || registrationPromoCode) ? new Date().toISOString() : "",
             },
           },
         }));
@@ -12212,7 +12181,6 @@ export default function App() {
     loadStoreCredit(loggedInUser.email);
     setAccountForm({ email: loggedInUser.email, password: "", confirmPassword: "" });
     setAccountPromoCodeInput("");
-    if (loggedInUser.affiliateCode) setActiveAffiliateCode(loggedInUser.affiliateCode);
     setAccountMessage("");
     if (pendingCheckoutAfterAuth && cart.length > 0) {
       setPendingCheckoutAfterAuth(false);
@@ -12271,9 +12239,6 @@ export default function App() {
       }
 
       const newUser = userFromSupabase(verifiedUser);
-      const affiliateCode = String(
-        pendingRegistrationPromoCode || newUser?.affiliateCode || ""
-      ).trim().toUpperCase();
       setCurrentUser(newUser);
       setAccountForm({ email: newUser.email, password: "", confirmPassword: "" });
       setAccountPromoCodeInput("");
@@ -12284,13 +12249,7 @@ export default function App() {
       syncUserPaidOrders(newUser.email);
       fetchUserPromos(newUser.email, appliedPromo);
       loadStoreCredit(newUser.email);
-      if (affiliateCode) {
-        setActiveAffiliateCode(affiliateCode);
-        try { localStorage.setItem("tbv-active-affiliate", affiliateCode); } catch {}
-      } else {
-        setActiveAffiliateCode("");
-        try { localStorage.removeItem("tbv-active-affiliate"); } catch {}
-      }
+      // The account-change effect validates signup attribution before selection.
       setAccountMessage("");
       if (pendingCheckoutAfterAuth && cart.length > 0) {
         setPendingCheckoutAfterAuth(false);

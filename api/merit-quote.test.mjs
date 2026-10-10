@@ -202,7 +202,7 @@ test("malformed private promo rows are rejected without granting a discount", as
 test("affiliate code cannot establish discount or commission through public-write rows", async () => {
   for (const overrides of [{}, { affiliateDiscountDisabled: true }, { promoCode: "REVIEW10" }]) {
     const db = service(() => [{ code: "PARTNER", email: "claimed-owner@example.org", active: true }]);
-    await assert.rejects(quote(fixture({ ...overrides, affiliateCode: "PARTNER" }), EMAIL, db.options), isError(409, "MERIT_AFFILIATE_UNVERIFIED"));
+    await assert.rejects(quote(fixture({ ...overrides, affiliateCode: "PARTNER" }), EMAIL, db.options), isError(503, "MERIT_AFFILIATE_RULES_UNAVAILABLE"));
     assert.equal(db.calls.length, 0);
   }
 });
@@ -213,8 +213,8 @@ test("rejected dynamic benefits are never silently dropped or replaced with an u
     return isError(409, "MERIT_PROMO_UNVERIFIED")(error);
   });
   await assert.rejects(quote(fixture({ affiliateCode: "PARTNER" })), error => {
-    assert.match(error.message, /Remove the code or contact support/);
-    return isError(409, "MERIT_AFFILIATE_UNVERIFIED")(error);
+    assert.match(error.message, /temporarily unavailable/);
+    return isError(503, "MERIT_AFFILIATE_RULES_UNAVAILABLE")(error);
   });
   const plain = await quote();
   assert.equal(plain.affiliateDiscountCents, 0);
@@ -262,9 +262,9 @@ for (const audience of ['__PUBLIC__', EMAIL]) test(`private ${audience==='__PUBL
 
 const affiliateRules = { version: 'fixture-referral-v1', source: 'fixture existing referral terms', status: 'operator_report',
   unit: 'basis_points', currency: 'USD', approvedCodes: ['PARTNER', 'ORIGINAL'], effectiveFrom: '2026-01-01T00:00:00Z', firstOrderDiscountBps: 500, commissionBps: 1000 };
-function affiliateDb({ affiliate = { code: 'PARTNER', email: 'partner@example.org', active: true }, purchases = [], attribution = [] } = {}) {
+function affiliateDb({ affiliate = { code: 'PARTNER', email: 'partner@example.org', active: true }, original = { code: 'ORIGINAL', email: 'original@example.org', active: true }, purchases = [], attribution = [] } = {}) {
   const db = service(url => {
-    if (url.pathname.endsWith('/affiliates')) return affiliate ? [affiliate] : [];
+    if (url.pathname.endsWith('/affiliates')) { const row = url.searchParams.get('code') === 'eq.ORIGINAL' ? original : affiliate; return row ? [row] : []; }
     if (url.pathname.endsWith('/affiliate_customers')) return attribution;
     if (url.pathname.endsWith('/orders')) return purchases;
     throw new Error('Unexpected table');
@@ -300,4 +300,24 @@ test('referral rejects inactive, missing, self-referral and unavailable purchase
   const db = affiliateDb(); db.options.fetcher = async () => { throw new Error('offline'); };
   await assert.rejects(quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL, db.options), isError(503));
   await assert.rejects(quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL, affiliateDb({ purchases: [{ bad: true }] }).options), isError(503));
+});
+
+
+test('private referral roster and approved terms fail closed before database access', async () => {
+  for (const overrides of [{ approvedCodes: ['OTHER'] }, { status: 'draft' }, { effectiveUntil: '2020-01-01T00:00:00Z' }, { commissionBps: 9000 }]) {
+    const db = affiliateDb(); db.options.affiliateRules = { ...affiliateRules, ...overrides };
+    await assert.rejects(quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL, db.options), isError(overrides.approvedCodes ? 409 : 503));
+    assert.equal(db.calls.length, 0);
+  }
+  await assert.rejects(quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL,
+    affiliateDb({ affiliate: { code: 'PARTNER', email: 'partner@example.org', active: null } }).options), isError(409));
+});
+test('historical attribution must resolve to an approved active non-self owner', async () => {
+  for (const original of [null, { code: 'ORIGINAL', email: EMAIL, active: true }, { code: 'ORIGINAL', email: 'original@example.org', active: false }]) {
+    for (const history of [{ attribution: [{ affiliate_code: 'ORIGINAL' }] }, { purchases: [{ id: 'prior', metadata: { affiliateCode: 'ORIGINAL' } }] }]) {
+      await assert.rejects(quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL, affiliateDb({ original, ...history }).options), isError(409));
+    }
+  }
+  await assert.rejects(quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL,
+    affiliateDb({ attribution: [{ affiliate_code: 'UNLISTED' }] }).options), isError(409));
 });

@@ -372,10 +372,11 @@ test('unverified promo and affiliate errors provide matching English and Russian
       ru: 'Этот промокод не удаётся проверить для оплаты картой. Удалите его или обратитесь в поддержку.',
     },
     MERIT_AFFILIATE_UNVERIFIED: {
-      en: 'This affiliate code cannot be verified for card payment. Choose another payment method or contact support.',
-      ru: 'Этот партнёрский код не удаётся проверить для оплаты картой. Выберите другой способ оплаты или обратитесь в поддержку.',
+      en: 'This referral code is unavailable. Return to your cart and remove or replace it. Payment has not started.',
+      ru: 'Этот партнёрский код недоступен. Вернитесь в корзину и удалите или замените код. Оплата не начата.',
     },
   };
+  expected.MERIT_AFFILIATE_UNAVAILABLE = expected.MERIT_AFFILIATE_UNVERIFIED;
   for (const [code, messages] of Object.entries(expected)) {
     let requests = 0;
     const api = createMeritApiClient({ getAccessToken: async () => 'token', fetchImpl: async () => {

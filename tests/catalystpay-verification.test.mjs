@@ -1,3 +1,4 @@
+process.env.RESEND_API_KEY = 'synthetic-mail-key';
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { assertCatalystVerificationReady, readCatalystInvoice, verifyCatalystSettlement } from '../api/_catalystpay-provider.js';
@@ -81,7 +82,7 @@ function fixture(t, { providerPatch = {}, creationPatch = {}, creationStatus = 2
       currentOrder = updated;
       return json([updated]);
     }
-    if (url.pathname === '/api/send-payment-confirmed-email') return json({ ok: true });
+    if (url.pathname === '/emails') return json({ ok: true });
     if (url.pathname.startsWith('/rest/v1/')) return method === 'GET' ? json([]) : json({ ok: true });
     assert.fail(`Unexpected request ${url.pathname}`);
   });

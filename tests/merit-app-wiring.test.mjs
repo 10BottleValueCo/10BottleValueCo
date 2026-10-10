@@ -355,7 +355,7 @@ test('paid create replay reconciles immediately and never mounts another confirm
 });
 
 test('unverified codes show the specific error without dropping attribution, auto-retrying, or generating a replacement key', async () => {
-  for (const [code, field, value] of [['MERIT_PROMO_UNVERIFIED', 'promoCode', 'DYNAMIC'], ['MERIT_AFFILIATE_UNVERIFIED', 'affiliateCode', 'PARTNER']]) {
+  for (const [code, field, value] of [['MERIT_PROMO_UNVERIFIED', 'promoCode', 'DYNAMIC'], ['MERIT_AFFILIATE_UNVERIFIED', 'affiliateCode', 'PARTNER'], ['MERIT_AFFILIATE_UNAVAILABLE', 'affiliateCode', 'PARTNER'], ['MERIT_AFFILIATE_RULES_UNAVAILABLE', 'affiliateCode', 'PARTNER'], ['MERIT_AFFILIATE_LOOKUP_UNAVAILABLE', 'affiliateCode', 'PARTNER']]) {
     for (const language of ['EN', 'RU']) {
       const { context, calls } = fixture();
       context.language = language;
