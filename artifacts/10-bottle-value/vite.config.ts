@@ -23,6 +23,14 @@ if (!basePath && !isBuild) {
   throw new Error('BASE_PATH environment variable is required but was not provided.');
 }
 
+// Opt in when Preview sends /api to Vite rather than the separate Express app.
+// Keep existing platform routing unchanged unless an API port is configured.
+const apiProxyPort = process.env.API_PROXY_PORT;
+if (apiProxyPort && (!/^\d{1,5}$/.test(apiProxyPort) || Number(apiProxyPort) < 1 || Number(apiProxyPort) > 65535 || Number(apiProxyPort) === port)) {
+  throw new Error('API_PROXY_PORT must be a valid local port different from PORT.');
+}
+const apiProxy = apiProxyPort ? { '/api': { target: `http://127.0.0.1:${apiProxyPort}`, changeOrigin: false } } : undefined;
+
 function darkenInlineNeutralColors() {
   return {
     name: 'darken-inline-neutral-colors',
@@ -102,6 +110,7 @@ export default defineConfig({
     strictPort: true,
     host: '0.0.0.0',
     allowedHosts: true,
+    proxy: apiProxy,
     fs: {
       strict: true,
     },
@@ -110,5 +119,6 @@ export default defineConfig({
     port,
     host: '0.0.0.0',
     allowedHosts: true,
+    proxy: apiProxy,
   },
 });

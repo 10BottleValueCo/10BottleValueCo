@@ -66,7 +66,7 @@ export function createMeritCheckoutHandler({ env = process.env, provider = creat
         return res.status(200).json(publicMeritConfig(config));
       }
       if (req.method !== "POST") { res.setHeader("Allow", "GET, POST"); return res.status(405).json({ ok: false, error: "Method not allowed." }); }
-      assertCheckoutOrigin(req);
+      assertCheckoutOrigin(req, env);
       if (!record(req.body) || Buffer.byteLength(JSON.stringify(req.body)) > 65536) throw new MeritError(400, "Checkout details are invalid.", "MERIT_INVALID_REQUEST");
       const customer = await authenticate(req, res, { purpose: "card checkout" });
       if (!customer) return;

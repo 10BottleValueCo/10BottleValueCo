@@ -86,3 +86,24 @@ test("unrelated browser origins are rejected", () => {
   assert.doesNotThrow(() => assertCheckoutOrigin({ headers: {} }));
   for (const origin of ["https://10bottlevalue.co.attacker.example", "null", "http://10bottlevalue.co"]) assert.throws(() => assertCheckoutOrigin({ headers: { origin } }));
 });
+
+test("additional checkout origins require explicit exact HTTPS configuration", () => {
+  const preview = "https://merchant-preview.replit.dev";
+  const env = { MERIT_ALLOWED_ORIGINS: ` ${preview},https://merchant.example:8443 ` };
+  assert.throws(() => assertCheckoutOrigin({ headers: { origin: preview } }, {}), { code: "MERIT_ORIGIN_REJECTED" });
+  for (const origin of [preview, "https://merchant.example:8443", "https://10bottlevalue.co", "https://www.10bottlevalue.co"]) {
+    assert.doesNotThrow(() => assertCheckoutOrigin({ headers: { origin } }, env));
+  }
+  for (const origin of ["https://other.replit.dev", `${preview}.attacker.example`, "http://merchant-preview.replit.dev", "null"]) {
+    assert.throws(() => assertCheckoutOrigin({ headers: { origin, host: "merchant-preview.replit.dev", "x-forwarded-host": "merchant-preview.replit.dev" } }, env), { code: "MERIT_ORIGIN_REJECTED" });
+  }
+});
+
+test("malformed additional origins never widen the checkout allowlist", () => {
+  const origin = "https://merchant-preview.replit.dev";
+  for (const value of [`${origin}/`, `${origin}/checkout`, `${origin}?x=1`, `${origin}#x`, "https://user:password@merchant-preview.replit.dev", "https://*.replit.dev", "http://merchant-preview.replit.dev", "null", `${origin},`.repeat(11), " ".repeat(2049) + origin]) {
+    const env = { MERIT_ALLOWED_ORIGINS: value };
+    assert.throws(() => assertCheckoutOrigin({ headers: { origin } }, env), { code: "MERIT_ORIGIN_REJECTED" }, value);
+    assert.doesNotThrow(() => assertCheckoutOrigin({ headers: { origin: "https://10bottlevalue.co" } }, env));
+  }
+});
