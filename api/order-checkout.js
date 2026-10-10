@@ -1,4 +1,6 @@
-import { requireOrderIdentity, ownsOrder } from "./_order-access.js";
+import { checkoutTiming } from "./_checkout-timing.js";
+import { legacyCreditStartError } from "./_legacy-store-credit.js";
+import { requireOrderIdentity, withVerifiedOrderIdentity, ownsOrder } from "./_order-access.js";
 import { paylioResumeMatchesOrder } from "./_paylio-binding.js";
 import { catalystResumeMatchesOrder, nowpaymentsResumeMatchesOrder } from "./_catalystpay-resume.js";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -321,22 +323,19 @@ async function saveOrder(req, res) {
         throw new CheckoutError(409, "This payment has already started. Restore its original checkout or contact support.");
       }
       setAccessCookie(res, order.id, access.token);
-      res.status(200).json({ ok: true, id: existing.id, status: existing.status, locked: true, saved: false });
-      return;
+      return { ok: true, id: existing.id, status: existing.status, locked: true, saved: false };
     }
     if (existing.metadata?.catalystpay_invoice_id) {
       if (!catalystResumeMatchesOrder(existing, order)) {
         throw new CheckoutError(409, "This payment has already started. Restore its original checkout or contact support.");
       }
       setAccessCookie(res, order.id, access.token);
-      res.status(200).json({ ok: true, id: existing.id, status: existing.status, locked: true, saved: false });
-      return;
+      return { ok: true, id: existing.id, status: existing.status, locked: true, saved: false };
     }
     if (existing.metadata?.legacyInvoiceAttempt) {
       if (nowpaymentsResumeMatchesOrder(existing, order)) {
         setAccessCookie(res, order.id, access.token);
-        res.status(200).json({ ok: true, id: existing.id, status: existing.status, locked: true, saved: false });
-        return;
+        return { ok: true, id: existing.id, status: existing.status, locked: true, saved: false };
       }
       throw new CheckoutError(409, "Payment has already started. Return to the original payment or contact support.");
     }
@@ -402,7 +401,46 @@ async function saveOrder(req, res) {
   }
 
   setAccessCookie(res, order.id, token);
-  res.status(200).json({ ok: true, id: order.id, status: order.status });
+  return { ok: true, id: order.id, status: order.status };
+}
+
+// The browser posts one save-and-start request to the existing cookie path.
+// Provider routes remain available for older storefront bundles.
+async function saveAndStartPayment(req, res) {
+  const markTiming = checkoutTiming(res);
+  return withVerifiedOrderIdentity(req, res, async identity => {
+    const payment = req.body?.payment;
+    const body = payment?.body;
+    if (!payment || typeof payment !== "object" || Array.isArray(payment)
+      || !["paylio", "catalystpay"].includes(payment.kind)
+      || !body || typeof body !== "object" || Array.isArray(body))
+      throw new CheckoutError(400, "Invalid payment request.");
+    const order = validateOrder(req.body);
+    const ids = [body.order_id, body.orderId].filter(id => id !== undefined);
+    if (!ids.length || ids.some(id => id !== order.id))
+      throw new CheckoutError(400, "Payment must match this checkout order.");
+    for (const email of [order.email, body.email, body.customer_email, body.metadata?.email]) {
+      if (email != null && email !== "" && (typeof email !== "string" || email.trim().toLowerCase() !== identity.email))
+        throw new CheckoutError(403, "Checkout email must match your signed-in account.");
+    }
+    const creditError = legacyCreditStartError(body);
+    if (creditError) {
+      const { status, ...error } = creditError;
+      res.status(status).json(error);
+      return;
+    }
+    const saved = await saveOrder(req, res);
+    if (!saved) return;
+    res.setHeader("X-Checkout-Saved", "1");
+    markTiming("save");
+    const provider = payment.kind === "paylio"
+      ? (await import("./create-paylio-payment.js")).default
+      : (await import("./create-catalystpay-session.js")).default;
+    const original = req.body;
+    req.body = body;
+    try { await provider(req, res); }
+    finally { req.body = original; }
+  });
 }
 
 export default async function handler(req, res) {
@@ -413,7 +451,9 @@ export default async function handler(req, res) {
       return;
     }
     if (req.method === "POST") {
-      await saveOrder(req, res);
+      if (req.body?.payment !== undefined) return await saveAndStartPayment(req, res);
+      const saved = await saveOrder(req, res);
+      if (saved) res.status(200).json(saved);
       return;
     }
     res.setHeader("Allow", "GET, POST");

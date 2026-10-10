@@ -243,5 +243,7 @@ export default async function handler(req, res) {
       error: phase === "quote" ? "Payment has not started. Review your checkout details and retry, or contact support."
         : "Payment setup is pending. Please contact support before trying another payment.",
     });
+  } finally {
+    markTiming.report("paylio");
   }
 }

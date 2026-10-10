@@ -180,5 +180,7 @@ export default async function handler(req, res) {
     const known = typeof err?.code === 'string' && /^PAYMENT_[A-Z_]+$/.test(err.code);
     console.error("create-catalystpay-session error:", known ? err.code : "PAYMENT_CREATION_UNAVAILABLE");
     return res.status(known ? err.status || 503 : 503).json({ code: known ? err.code : "PAYMENT_CREATION_UNAVAILABLE", error: known ? err.message : "Payment setup is pending. Please contact support before trying another payment." });
+  } finally {
+    markTiming.report("catalystpay");
   }
 }

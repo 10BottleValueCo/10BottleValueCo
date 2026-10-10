@@ -16,9 +16,22 @@ export function ownsOrder(order, identity) {
     ? order.user_id.toLowerCase() === identity.id
     : order.user_id === null && typeof order.email === "string" && order.email.trim().toLowerCase() === identity.email);
 }
+const verifiedRequestIdentities = new WeakMap();
+
+// Reuse only a server-verified identity during one in-process checkout action.
+// No identity is accepted from the browser, or cached across HTTP requests.
+export async function withVerifiedOrderIdentity(req, res, action) {
+  const identity = await requireOrderIdentity(req, res);
+  if (!identity) return;
+  verifiedRequestIdentities.set(req, identity);
+  try { return await action(identity); }
+  finally { verifiedRequestIdentities.delete(req); }
+}
+
 export async function requireOrderIdentity(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
   res.setHeader("Vary", "Authorization");
+  if (verifiedRequestIdentities.has(req)) return verifiedRequestIdentities.get(req);
   const user = await requireUser(req, res);
   if (!user) return null;
   const identity = orderIdentity(user);

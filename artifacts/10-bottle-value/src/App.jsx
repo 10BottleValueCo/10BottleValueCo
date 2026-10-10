@@ -6704,7 +6704,7 @@ export default function App() {
     }
   }
 
-  async function persistOrderToServer(order) {
+  async function persistOrderToServer(order, payment = null) {
     const deferred = deferredLegacyOrderRef.current?.id === order.id ? deferredLegacyOrderRef.current : null;
     if (deferred) order = { ...order, metadata: { ...deferred, ...order.metadata } };
     const response = await fetch("/api/order-checkout", {
@@ -6712,18 +6712,21 @@ export default function App() {
       credentials: "same-origin",
       cache: "no-store",
       headers: await legacyCheckoutHeaders(supabase, order.email),
-      body: JSON.stringify({ order }),
+      body: JSON.stringify({ order, ...(payment ? { payment } : {}) }),
     });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok || result?.ok !== true) {
-      throw new Error(result?.error || "Could not save this checkout.");
-    }
-    if (deferred) {
+    if (result?.code === "CHECKOUT_QUOTE_CHANGED") setAffiliateEligibilityRefresh(value => value + 1);
+    const saved = response.ok && (payment || result?.ok === true)
+      || (payment && response.headers?.get("X-Checkout-Saved") === "1");
+    if (deferred && saved) {
       const localOrder = { ...order.metadata, id: order.id, email: order.email, status: order.status, total: order.total };
       const next = [localOrder, ...getStoredOrders().filter(saved => saved.id !== order.id)];
       saveStoredOrders(next);
       setAllOrders(next);
       if (currentUser?.email) setUserOrders(getPaidOrdersForEmail(currentUser.email, next));
+    }
+    if (!response.ok || (!payment && result?.ok !== true)) {
+      throw new Error(result?.error || "Could not save this checkout.");
     }
     return result;
   }
@@ -10383,17 +10386,13 @@ export default function App() {
       items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}), ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}) })),
     };
     try {
-      await persistOrderToServer({
+      const data = await persistOrderToServer({
         id: orderNumber,
         email,
         status: "checkout",
         total: Number(finalTotal.toFixed(2)),
         metadata: meta,
-      });
-      const res = await fetch("/api/create-catalystpay-session", {
-        method: "POST",
-        headers: await legacyCheckoutHeaders(supabase, email),
-        body: JSON.stringify({
+      }, { kind: "catalystpay", body: {
           expectedTotal: Number(finalTotal.toFixed(2)),
           affiliateDiscountDisabled,
           order_id: orderNumber,
@@ -10425,12 +10424,8 @@ export default function App() {
             quantity: item.quantity,
             ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}),
           })),
-        }),
+        },
       });
-
-      const data = await res.json().catch(() => ({}));
-      if (data?.code === "CHECKOUT_QUOTE_CHANGED") setAffiliateEligibilityRefresh(value => value + 1);
-      if (!res.ok) throw new Error(data?.error || data?.message || "Failed to create CatalystPay invoice.");
       if (Math.round(Number(data.amount) * 100) !== Math.round(finalTotal * 100)) throw new Error("Payment total does not match this checkout. Contact support before continuing.");
       if (!data?.checkoutLink) throw new Error("CatalystPay checkout link was not returned.");
 
@@ -10455,13 +10450,15 @@ export default function App() {
       if (attempt.url) { window.location.assign(attempt.url); legacyStartLockRef.current = false; setPaylioPaymentLoading(false); return; }
     } catch (error) { setPaylioPaymentError(error.message); legacyStartLockRef.current = false; setPaylioPaymentLoading(false); return; }
     const orderNumber = attempt.orderId;
-    try { await markOrderCheckoutStartedById(orderNumber, provider || "Paylio"); } catch (e) { setPaylioPaymentError(e?.message || "Could not save this checkout."); legacyStartLockRef.current = false; setPaylioPaymentLoading(false); return; }
     try {
       const orderDescription = `10BottleValueCo ${orderNumber}`;
-      const res = await fetch("/api/create-paylio-payment", {
-        method: "POST",
-        headers: await legacyCheckoutHeaders(supabase, email),
-        body: JSON.stringify({
+      const savedOrder = getStoredOrders().find(order => order.id === orderNumber) || deferredLegacyOrderRef.current;
+      const data = await persistOrderToServer({
+        id: orderNumber, email, status: "checkout", total: Number(finalTotal.toFixed(2)),
+        metadata: { ...deferredLegacyOrderRef.current, status: "checkout",
+          paymentProvider: savedOrder?.paymentProvider && savedOrder.paymentProvider !== "pending" ? savedOrder.paymentProvider : provider || "Paylio",
+          checkoutStartedAt: savedOrder?.checkoutStartedAt || new Date().toISOString() },
+      }, { kind: "paylio", body: {
           expectedTotal: Number(finalTotal.toFixed(2)),
           affiliateDiscountDisabled,
           amount: Number(finalTotal.toFixed(2)),
@@ -10522,11 +10519,8 @@ export default function App() {
             taxId: syncedCF.taxId || "",
             orderNotes: getCheckoutOrderNotes(syncedCF),
           },
-        }),
+        },
       });
-      const data = await res.json();
-      if (data?.code === "CHECKOUT_QUOTE_CHANGED") setAffiliateEligibilityRefresh(value => value + 1);
-      if (!res.ok) throw new Error(data?.message || data?.error || "Failed to create Paylio payment link.");
       if (Math.round(Number(data.verifiedAmount) * 100) !== Math.round(finalTotal * 100)) throw new Error("Payment total does not match this checkout. Contact support before continuing.");
       const paymentUrl = data?.payment_url;
       if (!paymentUrl) throw new Error("Paylio payment link was not returned by the server.");

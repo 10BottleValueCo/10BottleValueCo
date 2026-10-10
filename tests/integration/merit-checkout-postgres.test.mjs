@@ -1550,4 +1550,54 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
     evidence.paylioLegacyExclusion={baselineReproduced:true,stalePreflightBlocked:true,historicalCatalystBlocked:true,paylioFirstBlocksLegacy:true,ownerGrantsPreserved:true,idempotent:true,concurrentRaces:4,oneWinnerPerOrder:true};
   });
 
+  for (const kind of ['paylio', 'catalystpay']) {
+    await t.test(`single-request ${kind} checkout saves and binds through native PostgREST with one authentication`, async () => {
+      const handler = (await import('../../api/order-checkout.js')).default;
+      const id = `INV-NATIVEONE${kind.toUpperCase()}`, uid = randomUUID(), email = `single-${kind}@example.test`;
+      await sql(`INSERT INTO auth.users VALUES(${q(uid)},${q(email)},now());`);
+      const env = { SUPABASE_URL: origin, VITE_SUPABASE_URL: origin, SUPABASE_SERVICE_ROLE_KEY: token('service_role'),
+        PAYLIO_API_KEY: 'synthetic-native-key', PAYLIO_PAYOUT_ADDRESS: '0x' + '1'.repeat(40),
+        CATALYSTPAY_MERCHANT_ID: 'native-store', CATALYSTPAY_API_TOKEN: 'synthetic-native-token',
+        CATALYSTPAY_WEBHOOK_SECRET: 'synthetic-native-webhook', CATALYSTPAY_ENV: 'production' };
+      const before = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]])); Object.assign(process.env, env);
+      const originalFetch = globalThis.fetch; let authReads = 0, providerCreates = 0, invoice;
+      const response = () => ({ statusCode: 200, headers: {}, setHeader(k,v) { this.headers[k]=v; }, status(n) { this.statusCode=n; return this; }, json(body) { this.body=body; return this; } });
+      const item = { name:'BPC-157', dose:'5 mg', quantity:1, price:79 };
+      const body = { order: { id,email,status:'checkout',total:138.99,metadata:{items:[item],subtotal:79,shipping:59.99,shippingType:'standard',automaticDiscount:0,promoDiscount:0,affiliateDiscount:0,cryptoDiscount:0,storeCreditUsed:0,total:138.99,firstName:'Native',paymentProvider:kind==='paylio'?'Paylio':'CatalystPay BTC',purchaserAttestation:{policiesAccepted:true}} },
+        payment: {kind,body:{order_id:id,email,customer_email:email,items:[item],expectedTotal:138.99,shippingType:'standard',storeCreditUsed:0,firstName:'Native'}} };
+      const request = cookie => ({method:'POST',headers:{authorization:'Bearer synthetic-session','content-type':'application/json',cookie:cookie||''},body:structuredClone(body)});
+      globalThis.fetch = async (input, init={}) => {
+        const url = new URL(input);
+        if (url.origin===origin && url.pathname==='/auth/v1/user') { authReads++; return new Response(JSON.stringify({id:uid,email,email_confirmed_at:'2026-10-10T00:00:00Z'})); }
+        if (url.origin===origin && url.pathname.startsWith('/rest/v1/')) return originalFetch(`${origin}${url.pathname.slice('/rest/v1'.length)}${url.search}`,init);
+        if (url.origin==='https://paylio.org' && url.pathname==='/api/v1/wallet') {
+          providerCreates++; const payload=JSON.parse(init.body);
+          return new Response(JSON.stringify({payment_id:'native_single_paylio',ipn_token:'synthetic-native-ipn-token',checkout_url:'https://paylio.org/pay/native_single_paylio',amount:payload.amount,status:'unpaid'}));
+        }
+        if (url.origin==='https://api.paidlyinteractive.com' && url.pathname==='/api/v1/stores/native-store/invoices' && init.method==='POST') {
+          providerCreates++; const payload=JSON.parse(init.body);
+          invoice={id:'native_single_catalyst',storeId:'native-store',amount:payload.amount,currency:'USD',status:'New',additionalStatus:'None',metadata:payload.metadata,checkoutLink:'https://checkout.example.test/native_single_catalyst'};
+          return new Response(JSON.stringify(invoice));
+        }
+        if (url.origin==='https://api.paidlyinteractive.com' && url.pathname==='/api/v1/stores/native-store/invoices/native_single_catalyst') return new Response(JSON.stringify(invoice));
+        assert.fail(`Unexpected native checkout network destination ${url.origin}${url.pathname}`);
+      };
+      try {
+        const first=response(); await handler(request(),first);
+        assert.equal(first.statusCode,200,JSON.stringify(first.body)); assert.equal(authReads,1);assert.equal(providerCreates,1);
+        assert.match(first.headers['Set-Cookie'],/Path=\/api\/order-checkout;/); assert.match(first.headers['Server-Timing'],/^save;dur=/);
+        const saved=await order(id); assert.equal(saved.user_id,uid); assert.equal(Number(saved.total),138.99);assert.equal(saved.status,'checkout (clicked pay)');
+        if (kind==='paylio') assert.equal(await scalar(`SELECT to_jsonb(state) FROM paylio_payment_attempts WHERE order_id=${q(id)};`),'ready');
+        else assert.equal(saved.metadata.legacyInvoiceAttempt.state,'ready');
+        const second=response(); await handler(request(first.headers['Set-Cookie'].split(';')[0]),second);
+        assert.equal(second.statusCode,200,JSON.stringify(second.body)); assert.deepEqual(second.body,first.body);assert.equal(authReads,2);assert.equal(providerCreates,1);
+        assert.deepEqual(await order(id),saved);
+        evidence.singleRequestCheckout ??= {}; evidence.singleRequestCheckout[kind]={oneAuthentication:true,nativeSaveAndBinding:true,originalCookieScope:true,resumeWithoutSecondCreate:true,noRealProviderCall:true};
+      } finally {
+        globalThis.fetch=originalFetch;
+        for(const [key,value] of Object.entries(before)){if(value===undefined)delete process.env[key];else process.env[key]=value;}
+      }
+    });
+  }
+
 });
