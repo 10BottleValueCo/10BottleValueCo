@@ -6,6 +6,8 @@ Source guide, 2026-10-10. This describes the code in this revision, not provider
 
 ## Start here / С чего начать
 
+For Replit Preview, use [the runtime setup](../replit.md). Express explicitly mounts the shared Merit checkout handler; root Vercel functions do not become Express routes merely because their files were imported. Preview still requires its own approved private configuration and exact browser origin. / Для Replit Preview используйте [настройку среды](../replit.md): общий обработчик Merit явно подключён к Express. Одного импорта файлов Vercel недостаточно; Preview также нужны разрешённые приватные настройки и точный Origin браузера.
+
 | Responsibility / Задача | Source / Исходник |
 |---|---|
 | Actual storefront and payment handlers / Рабочий интерфейс и обработчики | `artifacts/10-bottle-value/src/App.jsx` (`handleStripePayment`, `createPaylioPayment`, `createCatalystPayment`, `persistOrderToServer`) |

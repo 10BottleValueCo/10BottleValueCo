@@ -66,6 +66,23 @@ test('enabled config requires both provider and storage readiness and exposes on
     assert.deepEqual((await run(broken.handler, undefined, 'GET')).body, { ok: true, enabled: false });
   }
 });
+
+test('configured preview origin uses handler environment and preserves checkout verification', async () => {
+  const origin = 'https://merchant-preview.replit.dev';
+  const fixture = checkoutFixture({ env: { ...env, MERIT_ALLOWED_ORIGINS: origin } });
+  const rejected = await run(fixture.handler, { ...createBody, otpToken: undefined }, 'POST', { origin });
+  assert.equal(rejected.statusCode, 403);
+  assert.equal(rejected.body.code, 'MERIT_ATTESTATION_REQUIRED');
+  assert.equal(fixture.calls.some(call => call[0] === 'create'), false);
+  const result = await run(fixture.handler, createBody, 'POST', { origin });
+  assert.equal(result.statusCode, 200);
+  assert.equal(fixture.calls.filter(call => call[0] === 'create').length, 1);
+  const unlisted = checkoutFixture();
+  const denied = await run(unlisted.handler, createBody, 'POST', { origin });
+  assert.equal(denied.statusCode, 403);
+  assert.equal(denied.body.code, 'MERIT_ORIGIN_REJECTED');
+  assert.deepEqual(unlisted.calls, []);
+});
 test('new checkout derives amount, order and account from canonical server state', async () => {
   const fixture = checkoutFixture();
   const result = await run(fixture.handler, createBody);
