@@ -28,3 +28,10 @@ test('historical mutable orders cannot turn a fake subtotal into commission; pro
  assert.equal(reads,0);
  assert.deepEqual(await settlementAffiliate({affiliateCode:'PARTNER'},email,100,orderId,'checkout (clicked pay)'),{code:'PARTNER',ownerEmail:'owner@example.test',commission:10});
 });
+
+test('failed signed snapshots never fall back to a different live affiliate owner',async t=>{
+ t.mock.method(console,'error',()=>{});
+ t.mock.method(globalThis,'fetch',()=>assert.fail('Invalid signed snapshot must stay under review'));
+ const signed={...metadata,affiliateQuoteProof:signSettlementAffiliate(metadata,email,subtotal,orderId)};
+ assert.deepEqual(await settlementAffiliate({...signed,affiliateQuoteProof:'0'.repeat(64)},email,subtotal,orderId,'checkout (clicked pay)'),{code:'',ownerEmail:'',commission:0});
+});

@@ -27,6 +27,10 @@ export async function settlementAffiliate(metadata, email, subtotal, orderId, pr
     console.error('Affiliate settlement snapshot needs review');
     return none;
   }
+  if (metadata.affiliateQuoteVersion || metadata.affiliateQuoteProof) {
+    console.error('Affiliate settlement snapshot needs review');
+    return none;
+  }
   if (String(priorStatus || '').trim().toLowerCase() !== 'checkout (clicked pay)') {
     console.error('Historical affiliate commission needs protected-quote review');
     return none;

@@ -1488,14 +1488,15 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
       const url = new URL(input); assert.equal(url.origin, origin); assert.ok(url.pathname.startsWith('/rest/v1/'));
       return fetch(`${origin}${url.pathname.slice('/rest/v1'.length)}${url.search}`, init);
     };
-    for (const mode of ['mixed-padded-completed', 'paid-at-only', 'old-email-same-user', 'partial-other-email', 'no-purchase']) {
+    for (const mode of ['mixed-padded-completed', 'paid-at-only', 'old-email-same-user', 'null-email-same-user', 'partial-other-email', 'no-purchase']) {
       const uid = randomUUID(), email = `${mode}@example.test`, id = `INV-NATIVE-REFERRAL-${mode}`;
       await sql(`INSERT INTO auth.users VALUES(${q(uid)},${q(email)},now());`);
       if (mode !== 'no-purchase') {
         const storedEmail = mode === 'mixed-padded-completed' ? ` ${email.toUpperCase()} ` : mode === 'old-email-same-user' ? 'previous@example.test' : mode === 'partial-other-email' ? `other${email}` : email;
         const status = mode === 'mixed-padded-completed' ? ' COMPLETED ' : mode === 'paid-at-only' ? 'pending' : 'paid';
-        await sql(`INSERT INTO orders(id,email,user_id,status,total,metadata,paid_at) VALUES(${q(id)},${q(storedEmail)},${mode === 'partial-other-email' ? 'NULL' : q(uid)},${q(status)},100,'{}'::jsonb,${mode === 'paid-at-only' ? 'now()' : 'NULL'});`);
+        await sql(`INSERT INTO orders(id,email,user_id,status,total,metadata,paid_at) VALUES(${q(id)},${mode === 'null-email-same-user' ? 'NULL' : q(storedEmail)},${mode === 'partial-other-email' ? 'NULL' : q(uid)},${q(status)},100,'{}'::jsonb,${mode === 'paid-at-only' ? 'now()' : 'NULL'});`);
       }
+      if (mode === 'partial-other-email') await sql(`INSERT INTO orders(id,email,status,total,metadata) SELECT 'INV-DECOY-' || n, 'prefix' || n || ${q(email)}, 'paid', 100, '{}'::jsonb FROM generate_series(1,1001) n;`);
       if (mode === 'no-purchase') await sql(`INSERT INTO affiliate_customers(email,affiliate_code) VALUES(${q(` ${email.toUpperCase()} `)},'10bottle_native');`);
       const result = await verifyAffiliateQuote({ code: '10BOTTLE_NATIVE', email, customerId: uid, rules,
         supabaseUrl: origin, serviceRoleKey: token('service_role'), fetcher });

@@ -46,17 +46,17 @@ export async function verifyAffiliateQuote({ code, email, customerId, disabled =
   // Legacy rows can use mixed-case/padded email and completed/paid_at states.
   // Broad database candidates are bounded and rechecked against exact identity
   // here; no candidate belonging to a different email/user can grant a benefit.
-  const emailPattern = affiliateEmailFilter(email).slice(6);
+  const emailPattern = affiliateEmailFilter(email).slice(7);
   const identityFilter = /^[0-9a-f-]{36}$/i.test(customerId || '')
-    ? { or: `(user_id.eq.${customerId},email.ilike."${emailPattern.replace(/[\\"]/g, value => `\\${value}`)}")` }
-    : { email: `ilike.${emailPattern}` };
+    ? { or: `(user_id.eq.${customerId},email.imatch."${emailPattern.replace(/[\\"]/g, value => `\\${value}`)}")` }
+    : { email: `imatch.${emailPattern}` };
   const paidStates = new Set(['paid', 'done', 'completed', 'processing', 'shipped', 'delivered', 'refunded']);
   const isOwner = row => String(row?.email || '').trim().toLowerCase() === email
     || (customerId && String(row?.user_id || '').toLowerCase() === customerId.toLowerCase());
   async function previousPurchase() {
     for (let offset = 0; offset < 1000; offset += 100) {
       const batch = await rows('orders', { ...identityFilter, select: 'id,email,user_id,status,paid_at,metadata', order: 'created_at.asc,id.asc', limit: '100', offset: String(offset) });
-      if (batch.some(row => !row || typeof row.id !== 'string' || typeof row.email !== 'string' || typeof row.status !== 'string')) throw new AffiliateQuoteError();
+      if (batch.some(row => !row || typeof row.id !== 'string' || (row.email !== null && typeof row.email !== 'string') || typeof row.status !== 'string')) throw new AffiliateQuoteError();
       const paid = batch.find(row => isOwner(row) && (paidStates.has(row.status.trim().toLowerCase()) || (row.paid_at && Number.isFinite(Date.parse(row.paid_at)))));
       if (paid) return [paid];
       if (batch.length < 100) return [];
@@ -64,7 +64,7 @@ export async function verifyAffiliateQuote({ code, email, customerId, disabled =
     throw new AffiliateQuoteError();
   }
   async function previousAttribution() {
-    const batch = await rows('affiliate_customers', { email: `ilike.${emailPattern}`, select: 'email,affiliate_code', limit: '100' });
+    const batch = await rows('affiliate_customers', { email: `imatch.${emailPattern}`, select: 'email,affiliate_code', limit: '100' });
     if (batch.length >= 100 || batch.some(row => !row || typeof row.email !== 'string')) throw new AffiliateQuoteError();
     return batch.filter(row => row.email.trim().toLowerCase() === email);
   }
@@ -98,7 +98,9 @@ export function affiliateCodeFilter(code) {
   return `ilike.${String(code).replace(/_/g, '\\_')}`;
 }
 
-// SQL candidates include legacy padding; callers must exact-match normalized email.
+// Match only the exact email plus legacy whitespace padding. A substring
+// pattern would let unrelated addresses exhaust the bounded candidate window.
 export function affiliateEmailFilter(email) {
-  return `ilike.*${String(email).trim().toLowerCase().replace(/[\\%_*]/g, value => `\\${value}`)}*`;
+  const literal = String(email).trim().toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return `imatch.^[[:space:]]*${literal}[[:space:]]*$`;
 }
