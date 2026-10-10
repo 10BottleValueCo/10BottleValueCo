@@ -1254,7 +1254,7 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
       ('contain-own','buyer@example.test','OWN',0.1,false),
       ('contain-delete','buyer@example.test','DELETE',0.1,false),
       ('contain-other','other@example.test','OTHER',0.2,false),
-      ('contain-public','__PUBLIC__','PUBLIC_NATIVE',0.15,false),
+      ('d0000000-0000-4000-8000-000000000001','__PUBLIC__','PUBLIC_NATIVE',0.15,false),
       ('contain-null','buyer@example.test','NULL_STATE',0.1,NULL);
     INSERT INTO affiliates(email,code) VALUES('buyer@example.test','PARTNER_NATIVE'),('other@example.test','OTHER_NATIVE');
     INSERT INTO orders(id,user_id,email,status,total,affiliate_code,metadata) VALUES
@@ -1462,7 +1462,9 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
       const ownedView = affiliate.body.codeColumnOrders.find(row => row.id === 'CONTAIN-AFF-ORDER'); assert.ok(ownedView);
       assert.equal(ownedView.metadata.email, undefined); assert.equal(ownedView.metadata.address, undefined); assert.equal(ownedView.metadata.items[0].address, undefined);
       const publicPromo = response(); await publicPromoHandler({ method: 'GET', query: { code: 'PUBLIC_NATIVE' }, headers: {} }, publicPromo);
-      assert.equal(publicPromo.statusCode, 200); assert.deepEqual(publicPromo.body, { ok: true, promo: { code: 'PUBLIC_NATIVE', rate: 0.15 } });
+      assert.equal(publicPromo.statusCode, 200); assert.deepEqual(publicPromo.body, { ok: true, promo: {
+        code: 'PUBLIC_NATIVE', rate: 0.15, minimumSubtotal: 0, startsAt: null, endsAt: null,
+      } });
       authUser = { id: supportId, email: 'support@10bottlevalue.co', email_confirmed_at: '2026-01-01T00:00:00Z' };
       const payout = response(); await payoutHandler({ method: 'POST', headers: { authorization: 'Bearer synthetic-session' }, body: { affiliate_code: 'PARTNER_NATIVE', amount: 1.25 } }, payout);
       assert.equal(payout.statusCode, 201, JSON.stringify(payout.body));
