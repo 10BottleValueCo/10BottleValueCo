@@ -686,3 +686,29 @@ test('payment selection waits for the in-flight hosted invoice request',()=>{
  const {context,calls}=fixture();context.legacyStartLockRef.current=true;
  handler('setPaymentMethod',context)('cashapp');assert.deepEqual(calls,[]);
 });
+
+test('a changed or mismatched Lightning amount never navigates away from the reviewed checkout', async () => {
+ for (const changed of [true,false]) {
+  const {context,calls}=fixture();const navigations=[],requests=[];
+  Object.assign(context,{ affiliateDiscountDisabled:false,catalystPayLoading:false,
+   prepareLegacyPaymentAttempt:async()=>({orderId:'INV-PRICECHECK',url:null}),
+   persistOrderToServer:async()=>{},setCatalystPayLoading:()=>{},setCatalystPayError:value=>calls.push(['error',value]),
+   setAffiliateEligibilityRefresh:()=>calls.push(['refresh']),
+   fetch:async(url,options)=>{requests.push(JSON.parse(options.body));return {ok:!changed,json:async()=>changed
+    ? {code:'CHECKOUT_QUOTE_CHANGED',error:'Review the changed total.'}
+    : {amount:200,checkoutLink:'https://checkout.example.test/wrong-price'}};},
+  });context.window.location={assign:url=>navigations.push(url)};
+  await handler('createCatalystPayment',context)();
+  assert.equal(requests[0].expectedTotal,139.99);assert.deepEqual(navigations,[]);
+  assert.ok(calls.some(([name,message])=>name==='error'&&message));
+  assert.equal(calls.some(([name])=>name==='refresh'),changed);
+ }
+});
+
+test('first-order preview requires server eligibility for the current account and code',()=>{
+ const context={affiliateEligibilityKey:'buyer:CODE',affiliateEligibility:null,userOrders:[]};
+ assert.equal(initializer('isFirstTimeAffiliateBuyer',context),false);
+ for(const affiliateEligibility of [{key:'buyer:CODE',status:'loading',discountBps:500},{key:'other:CODE',status:'ready',discountBps:500},{key:'buyer:CODE',status:'ready',discountBps:0}])
+  assert.equal(initializer('isFirstTimeAffiliateBuyer',{...context,affiliateEligibility}),false);
+ assert.equal(initializer('isFirstTimeAffiliateBuyer',{...context,affiliateEligibility:{key:'buyer:CODE',status:'ready',discountBps:500}}),true);
+});
