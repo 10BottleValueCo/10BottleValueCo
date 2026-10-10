@@ -21019,12 +21019,7 @@ export default function App() {
                         <div className="mt-1 break-all text-[18px] font-semibold tracking-[-0.03em] md:text-[28px] md:tracking-[-0.04em]">
                           <span title={orderNumber}>{formatInvoiceLabel(orderNumber)}</span>
                         </div>
-                        {formatInvoiceLabel(orderNumber) !== orderNumber && (
-                          <details className="mt-1 text-xs text-black/60">
-                            <summary className="cursor-pointer">{tx("Full order reference", "Полный номер заказа", "Повний номер замовлення", "Vollständige Bestellnummer", "Referencia completa del pedido")}</summary>
-                            <span className="mt-1 block break-all select-all">{orderNumber}</span>
-                          </details>
-                        )}
+
                       </div>
                       <button
                         type="button"
