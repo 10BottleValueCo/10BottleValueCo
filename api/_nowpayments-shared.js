@@ -183,7 +183,7 @@ export async function processNowPaymentsStatus(data, { providerVerified = false 
         paymentId: data.payment_id || data.invoice_id || orderId,
         items,
         firstName, lastName, address, address2, city, state, postalCode, phone, country,
-      }, { escapeValues: true }).catch(() => null);
+      }, { escapeValues: true }).catch(() => { console.error("NOWPayments payment receipt delivery failed"); });
 
     // Persist that the email was sent so a later duplicate status update (e.g. the
     // real IPN webhook arriving after our own fallback already handled it, or vice

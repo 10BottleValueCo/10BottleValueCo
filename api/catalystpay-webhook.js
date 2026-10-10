@@ -207,7 +207,7 @@ export default async function handler(req, res) {
         postalCode: String(sbMeta.postalCode || ""),
         phone: String(sbMeta.phone || ""),
         country: String(sbMeta.country || ""),
-      }, { escapeValues: true }).catch(() => null);
+      }, { escapeValues: true }).catch(() => { console.error("CatalystPay payment receipt delivery failed"); });
 
     if (emailResponse?.ok && SB_URL && SB_KEY) {
       await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(orderId)}&status=eq.paid`, {

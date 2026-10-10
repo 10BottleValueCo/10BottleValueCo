@@ -10935,7 +10935,6 @@ export default function App() {
         );
         return;
       }
-      clearSelectedAffiliateCode();
       setAppliedPromo({ code: normalizedCode, rate: matchedUserPromo.rate, label: `${+(matchedUserPromo.rate * 100).toFixed(2)}% discount`, type: "user_promo", id: matchedUserPromo.id });
       setPromoInput("");
       setPromoMessage(
@@ -11034,7 +11033,6 @@ export default function App() {
       );
       return;
     }
-    clearSelectedAffiliateCode();
     setAppliedPromo(promo);
     setPromoInput("");
     setPromoMessage(
@@ -12047,7 +12045,7 @@ export default function App() {
       if (registrationPromoCode && !matchedRegistrationAffiliate) {
         try {
           const publicAffiliate = await lookupPublicAffiliateCode(registrationPromoCode);
-          if (publicAffiliate?.active !== false) matchedRegistrationAffiliate = publicAffiliate;
+          if (publicAffiliate?.code === registrationPromoCode && publicAffiliate?.active === true) matchedRegistrationAffiliate = publicAffiliate;
         } catch {
           setAccountMessage(tx(
             "Could not verify the affiliate code right now. Please try again.",

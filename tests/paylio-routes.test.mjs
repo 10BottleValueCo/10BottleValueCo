@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {paylioAccount} from '../api/_paylio-binding.js';
 Object.assign(process.env,{SUPABASE_URL:'https://fixture.test',SUPABASE_SERVICE_ROLE_KEY:'fixture-service',PAYLIO_API_KEY:'fixture-provider-key',PAYLIO_PAYOUT_ADDRESS:'0x'+'1'.repeat(40),RESEND_API_KEY:'fixture-receipt'});
 mock.module('../api/_catalog.js',{namedExports:{validateAndPriceItems:()=>({pricedItems:[{name:'Fixture',dose:'1 mg',quantity:1,price:100}],subtotal:100,regularSubtotal:100}),getShippingPrice:()=>10,getAutomaticDiscountRate:()=>0}});
+process.env.MERIT_AFFILIATE_RULES_JSON=JSON.stringify({version:'fixture-v1',source:'existing affiliate terms',status:'operator_report',currency:'USD',unit:'basis_points',effectiveFrom:'2026-01-01',firstOrderDiscountBps:500,commissionBps:1000,approvedCodes:['VALIDCODE','ORIGINAL','NEWCODE']});
 const create=(await import('../api/create-paylio-payment.js')).default;
 const callback=(await import('../api/paylio-callback.js')).default;
 const orderId='INV-PAYLIO123',customerId='11111111-1111-4111-8111-111111111111',email='buyer@example.test';
@@ -87,7 +88,7 @@ test('unknown provider URL query remains contained without exposing a link or cr
 test('known customer referral is frozen separately from browser discount code',async t=>{
  const f=fixture(t,{existingAffiliate:'ORIGINAL'}),response=res();await create({...request(),body:{...request().body,affiliateCode:'NEWCODE'}},response);
  assert.equal(response.statusCode,200);assert.equal(f.attempt().quote.affiliateAttributionCode,'ORIGINAL');assert.equal(f.attempt().quote.affiliateCode,'NEWCODE');
- assert.equal(f.calls.some(c=>c.url.pathname==='/rest/v1/affiliates'),false);
+ assert.equal(f.calls.filter(c=>c.url.pathname==='/rest/v1/affiliates').length,2);
 });
 test('enabled referral preserves the first-purchase cap, lower requested discount and frozen retry',async t=>{
  for(const [discount,expected] of [[5,105],[999,105],[2,108]]){
@@ -100,7 +101,7 @@ test('enabled referral preserves the first-purchase cap, lower requested discoun
  }
 });
 test('unknown, inactive and self-referral codes cannot reserve a discount or a new referral',async t=>{
- for(const affiliateResponse of [[],[{code:'VALIDCODE',email:'affiliate@example.test',active:false}],[{code:'VALIDCODE',email:' BUYER@EXAMPLE.TEST ',active:true}]]){
+ for(const affiliateResponse of [[],[{code:'VALIDCODE',email:'affiliate@example.test',active:null}],[{code:'VALIDCODE',email:'',active:true}],[{code:'OTHER',email:'affiliate@example.test',active:true}],[{code:'VALIDCODE',email:'affiliate@example.test',active:false}],[{code:'VALIDCODE',email:' BUYER@EXAMPLE.TEST ',active:true}]]){
   for(const affiliateDiscount of [0,5]){
    const f=fixture(t,{affiliateResponse}),response=res();await create(referralRequest({affiliateDiscount}),response);
    assert.equal(response.statusCode,400);assert.equal(response.body.code,'PAYLIO_AFFILIATE_UNAVAILABLE');noReservation(f);
@@ -111,7 +112,7 @@ test('unknown, inactive and self-referral codes cannot reserve a discount or a n
 });
 test('ambiguous, malformed or failed affiliate lookups cannot initiate Paylio',async t=>{
  const valid={code:'VALIDCODE',email:'affiliate@example.test',active:true};
- for(const options of [{affiliateLookupFails:true},...[[valid,valid],{error:'bad'},[null],[{...valid,code:'OTHER'}],[{...valid,email:''}],[{...valid,active:'true'}]].map(affiliateResponse=>({affiliateResponse}))]){
+ for(const options of [{affiliateLookupFails:true},...[[valid,valid],{error:'bad'},[null]].map(affiliateResponse=>({affiliateResponse}))]){
   const f=fixture(t,options),response=res();await create(referralRequest(),response);assert.equal(response.statusCode,503);noReservation(f);
  }
 });
@@ -121,27 +122,34 @@ test('failed or malformed purchase history never grants a first-purchase discoun
  }
 });
 test('paid and fulfilled purchases exclude the first-purchase discount; pending orders do not',async t=>{
- for(const status of ['paid','done','processing','shipped','delivered','pending']){
+ for(const status of ['paid','done','processing','shipped','delivered','refunded','pending']){
   const f=fixture(t,{priorPurchases:[{id:'INV-EARLIER',status}]}),response=res();await create(referralRequest(),response);
   assert.equal(response.statusCode,200);assert.equal(response.body.verifiedAmount,status==='pending'?105:110);
   assert.equal(f.attempt().quote.affiliateAttributionCode,'VALIDCODE');assert.equal(f.attempt().quote.affiliateCommission,10);
  }
 });
-test('ordinary checkout and promo precedence avoid irrelevant affiliate eligibility lookups',async t=>{
+test('ordinary checkout skips referral verification; promos preserve verified inherited attribution',async t=>{
  const ordinary=fixture(t,{historyFails:true,affiliateLookupFails:true}),response=res();await create(request(),response);assert.equal(response.statusCode,200);
  assert.equal(ordinary.calls.some(c=>c.url.pathname==='/rest/v1/affiliates'||c.url.searchParams.has('status')),false);
- const promo=fixture(t,{existingAffiliate:'ORIGINAL',historyFails:true,affiliateLookupFails:true}),discounted=res();await create(referralRequest({promoCode:'REVIEW10'}),discounted);
+ const promo=fixture(t,{existingAffiliate:'ORIGINAL'}),discounted=res();await create(referralRequest({promoCode:'REVIEW10'}),discounted);
  assert.equal(discounted.statusCode,200);assert.equal(discounted.body.verifiedAmount,100);assert.equal(promo.attempt().quote.promoDiscount,10);assert.equal(promo.attempt().quote.affiliateDiscount,0);
- assert.equal(promo.attempt().quote.affiliateAttributionCode,'ORIGINAL');assert.equal(promo.calls.some(c=>c.url.pathname==='/rest/v1/affiliates'||c.url.searchParams.has('status')),false);
+ assert.equal(promo.attempt().quote.affiliateAttributionCode,'ORIGINAL');assert.equal(promo.calls.filter(c=>c.url.pathname==='/rest/v1/affiliates').length,2);
 });
-test('nullable active matches existing affiliate convention without changing saved attribution',async t=>{
- const f=fixture(t,{existingAffiliate:'ORIGINAL',affiliateResponse:[{code:'VALIDCODE',email:'affiliate@example.test',active:null}]}),response=res();await create(referralRequest(),response);
- assert.equal(response.statusCode,200);assert.equal(response.body.verifiedAmount,105);assert.equal(f.attempt().quote.affiliateAttributionCode,'ORIGINAL');
+test('invalid inherited owners and unapproved codes cannot reserve or initiate Paylio',async t=>{
+ for(const entered of ['', 'VALIDCODE']) for(const affiliateResponse of [[],[{code:'ORIGINAL',email,active:true}],[{code:'ORIGINAL',email:'affiliate@example.test',active:false}],[{code:'ORIGINAL',email:'affiliate@example.test',active:null}]]){
+  const f=fixture(t,{existingAffiliate:'ORIGINAL',affiliateResponse}),response=res();await create(referralRequest({affiliateCode:entered}),response);
+  assert.equal(response.statusCode,400);assert.equal(response.body.code,'PAYLIO_AFFILIATE_UNAVAILABLE');noReservation(f);
+ }
+ for(const inherited of ['', 'UNAPPROVED']){
+  const f=fixture(t,{existingAffiliate:inherited}),response=res();await create(referralRequest({affiliateCode:inherited?'':'UNAPPROVED'}),response);assert.equal(response.statusCode,400);noReservation(f);
+ }
 });
-test('promo checkout validates a new attribution without checking first-purchase discount eligibility',async t=>{
- const f=fixture(t,{historyFails:true}),response=res();await create(referralRequest({promoCode:'REVIEW10'}),response);
- assert.equal(response.statusCode,200);assert.equal(response.body.verifiedAmount,100);assert.equal(f.attempt().quote.affiliateAttributionCode,'VALIDCODE');
- assert.equal(f.calls.filter(c=>c.url.pathname==='/rest/v1/affiliates').length,1);assert.equal(f.calls.some(c=>c.url.searchParams.has('status')),false);
+test('approved inherited owner retains commission without an entered discount; invalid private rules fail closed',async t=>{
+ const f=fixture(t,{existingAffiliate:'ORIGINAL'}),response=res();await create(request(),response);assert.equal(response.statusCode,200);
+ assert.equal(response.body.verifiedAmount,110);assert.equal(f.attempt().quote.affiliateAttributionCode,'ORIGINAL');assert.equal(f.attempt().quote.affiliateCommission,10);
+ const rules=process.env.MERIT_AFFILIATE_RULES_JSON;delete process.env.MERIT_AFFILIATE_RULES_JSON;
+ try { const broken=fixture(t),blocked=res();await create(referralRequest(),blocked);assert.equal(blocked.statusCode,503);noReservation(broken); }
+ finally { process.env.MERIT_AFFILIATE_RULES_JSON=rules; }
 });
 test('affiliate deactivation after private binding does not reprice or block verified settlement',async t=>{
  const affiliateResponse=[{code:'VALIDCODE',email:'affiliate@example.test',active:true}],f=fixture(t,{affiliateResponse}),response=res();await create(referralRequest(),response);

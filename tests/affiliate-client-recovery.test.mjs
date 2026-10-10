@@ -98,3 +98,11 @@ test('a referral URL is validated before selection and stale validation cannot u
   context.clearSelectedAffiliateCode();finish({code:'UNVERIFIED',active:true});await new Promise(r=>setImmediate(r));
   assert.equal(calls.some(([name,value])=>name==='setActiveAffiliateCode'&&value==='UNVERIFIED'),false);
 });
+
+test('applying a normal promo preserves the selected referral for attribution', async () => {
+ const {context,calls}=promoFixture();Object.assign(context,{promoInput:'REVIEW10',activeAffiliateCode:'PARTNER',
+ lookupPublicPromoCode:async()=>({code:'REVIEW10',rate:0.1,email:'__PUBLIC__'}),lookupPublicAffiliateCode:async()=>null});
+ await handler('applyPromoCode',context)();
+ assert.ok(calls.some(([name,value])=>name==='setAppliedPromo'&&value?.code==='REVIEW10'));
+ assert.equal(calls.some(([name])=>name==='setAffiliateCodeRemoved'||name==='setActiveAffiliateCode'),false);
+});

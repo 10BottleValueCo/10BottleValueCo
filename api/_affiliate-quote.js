@@ -46,7 +46,7 @@ export async function verifyAffiliateQuote({ code, email, disabled = false, supa
       select: 'id,metadata', order: 'created_at.asc', limit: '1' }),
   ]);
   function verifyOwner(records, selectedCode) {
-    if (records.length > 1) throw new AffiliateQuoteError();
+    if (records.length > 1 || records.some(row => !row || typeof row !== 'object')) throw new AffiliateQuoteError();
     const selected = records[0];
     if (!selected || selected.code !== selectedCode || selected.active !== true
       || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(selected.email || '')

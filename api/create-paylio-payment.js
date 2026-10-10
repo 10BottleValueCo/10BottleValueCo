@@ -7,6 +7,7 @@ import {
   getAutomaticDiscountRate,
 } from "./_catalog.js";
 import { verifyPromoCode } from "./_promo.js";
+import { AffiliateQuoteError, verifyAffiliateQuote } from "./_affiliate-quote.js";
 
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
@@ -83,7 +84,6 @@ export default async function handler(req, res) {
     const automaticDiscountRate = getAutomaticDiscountRate(subtotal);
     const automaticDiscount = Math.round(subtotal * automaticDiscountRate * 100) / 100;
 
-    const MAX_AFFILIATE_RATE = 0.05;
 
     let promoDiscount = 0;
     let verifiedPromoFreeShipping = false;
@@ -110,44 +110,40 @@ export default async function handler(req, res) {
     const finalAffiliateCode = String(affiliateCode || affiliate_code || "").trim().toUpperCase();
     const affiliateRows = await paylioStorage(`affiliate_customers?${new URLSearchParams({email: `eq.${finalEmail}`, select: "affiliate_code", limit: "2"})}`);
     if (!Array.isArray(affiliateRows) || affiliateRows.length > 1) throw new PaylioError("PAYLIO_ATTRIBUTION_UNAVAILABLE");
-    const affiliateAttributionCode = affiliateRows.length
-      ? String(affiliateRows[0].affiliate_code || "").trim().toUpperCase() : finalAffiliateCode;
-    if (affiliateRows.length && !affiliateAttributionCode) throw new PaylioError("PAYLIO_ATTRIBUTION_UNAVAILABLE");
+    const inheritedCode = affiliateRows.length
+      ? String(affiliateRows[0].affiliate_code || "").trim().toUpperCase() : "";
+    if (affiliateRows.length && !inheritedCode) throw new PaylioError("PAYLIO_ATTRIBUTION_UNAVAILABLE");
+    let affiliateAttributionCode = "";
+    let affiliateRuleVersion = null;
+    let commissionRate = 0;
     const wantsAffiliateDiscount = !promoDiscount && finalAffiliateCode && Number(clientAffiliateDiscount) > 0;
-    // A new referral or discount must name an enabled affiliate other than the
-    // buyer. Existing attribution remains frozen, even if its account changes.
-    if (finalAffiliateCode && (!affiliateRows.length || wantsAffiliateDiscount)) {
-      if (!/^[A-Z0-9_-]{1,64}$/.test(finalAffiliateCode))
-        return res.status(400).json({ code: "PAYLIO_AFFILIATE_UNAVAILABLE", error: "This referral code is unavailable for this checkout." });
-      const affiliates = await paylioStorage(`affiliates?${new URLSearchParams({ code: `eq.${finalAffiliateCode}`, select: "code,email,active", limit: "2" })}`);
-      if (!Array.isArray(affiliates) || affiliates.length > 1
-        || (affiliates.length && (affiliates[0]?.code !== finalAffiliateCode
-          || typeof affiliates[0]?.email !== "string" || !affiliates[0].email.trim()
-          || ![true, false, null].includes(affiliates[0]?.active))))
-        throw new PaylioError("PAYLIO_ELIGIBILITY_UNAVAILABLE");
-      // Preserve the existing nullable-active convention used by the account UI.
-      if (!affiliates.length || affiliates[0].active === false || affiliates[0].email.trim().toLowerCase() === finalEmail)
-        return res.status(400).json({ code: "PAYLIO_AFFILIATE_UNAVAILABLE", error: "This referral code is unavailable for this checkout." });
-    }
-    if (wantsAffiliateDiscount) {
-      // A failed lookup is not evidence of a first purchase. Fulfilled orders
-      // still count after their status has advanced beyond paid.
-      const purchases = await paylioStorage(`orders?${new URLSearchParams({
-        email: `eq.${finalEmail}`, status: "in.(paid,done,processing,shipped,delivered)", select: "id", limit: "1",
-      })}`);
-      if (!Array.isArray(purchases) || purchases.length > 1
-        || purchases.some(purchase => typeof purchase?.id !== "string" || !purchase.id))
-        throw new PaylioError("PAYLIO_ELIGIBILITY_UNAVAILABLE");
-      if (purchases.length === 0) {
-        const impliedRate = Number(clientAffiliateDiscount) / (subtotal || 1);
-        affiliateDiscount = impliedRate <= MAX_AFFILIATE_RATE
-          ? Math.min(Number(clientAffiliateDiscount), subtotal)
-          : Math.round(subtotal * MAX_AFFILIATE_RATE * 100) / 100;
+    // Validate both entered and inherited owners before reserving a new payment.
+    // A saved attribution row cannot authorize inactive, unknown or self commission.
+    if (finalAffiliateCode || inheritedCode) {
+      let verified;
+      try {
+        verified = await verifyAffiliateQuote({ code: finalAffiliateCode || inheritedCode, email: finalEmail,
+          disabled: !wantsAffiliateDiscount, supabaseUrl: SB_URL,
+          serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+          rules: process.env.MERIT_AFFILIATE_RULES_JSON });
+      } catch (error) {
+        if (!(error instanceof AffiliateQuoteError)) throw error;
+        return res.status(error.status === 409 ? 400 : 503).json({
+          code: error.status === 409 ? "PAYLIO_AFFILIATE_UNAVAILABLE" : "PAYLIO_ELIGIBILITY_UNAVAILABLE",
+          error: error.status === 409
+            ? "Payment has not started. This referral is unavailable. Remove the entered code; if the problem remains, contact support or choose Card."
+            : "Payment has not started. Referral verification is temporarily unavailable. Please try again.",
+        });
       }
+      affiliateAttributionCode = verified.code;
+      affiliateRuleVersion = verified.rule.version;
+      commissionRate = verified.commissionBps / 10000;
+      affiliateDiscount = verified.discountBps
+        ? Math.min(Number(clientAffiliateDiscount), Math.round(subtotal * verified.discountBps / 10000 * 100) / 100) : 0;
     }
 
-    const finalAutomaticDiscount = promoDiscount > 0 || affiliateDiscount > 0 ? 0 : automaticDiscount;
-    const finalAffiliateDiscount = promoDiscount > 0 ? 0 : affiliateDiscount;
+    const finalAutomaticDiscount = promoDiscount > 0 || affiliateDiscount > automaticDiscount ? 0 : automaticDiscount;
+    const finalAffiliateDiscount = promoDiscount > 0 || automaticDiscount >= affiliateDiscount ? 0 : affiliateDiscount;
 
     const shipping =
       pricedItems.length === 0
@@ -184,7 +180,7 @@ export default async function handler(req, res) {
       promoCode: promoDiscount > 0 ? String(promoCode).trim().toUpperCase() : "", promoUsageRequired,
       affiliateDiscount: finalAffiliateDiscount, affiliateCode: finalAffiliateCode,
       affiliateAttributionCode,
-      affiliateCommission: Number((subtotal * 0.1).toFixed(2)),
+      affiliateCommission: Number((subtotal * commissionRate).toFixed(2)), affiliateRuleVersion,
       shippingType: shippingType === "express" ? "express" : "standard",
       storeCreditUsed: 0, paymentProvider: "Paylio Card", items: pricedItems,
     };
