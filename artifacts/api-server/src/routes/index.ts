@@ -5,6 +5,7 @@ import storeCreditCheckoutRouter from "./store-credit-checkout";
 import trackingEmailRouter from "./tracking-email";
 import supportAttachmentsRouter from "./support-attachments";
 import orderCheckoutRouter from "./order-checkout";
+import meritCheckoutRouter from "./merit-checkout";
 import publicPromoCodeRouter from "./public-promo-code";
 
 const router: IRouter = Router();
@@ -15,6 +16,7 @@ router.use(storeCreditCheckoutRouter);
 router.use(trackingEmailRouter);
 router.use(supportAttachmentsRouter);
 router.use(orderCheckoutRouter);
+router.use(meritCheckoutRouter);
 router.use(publicPromoCodeRouter);
 
 export default router;
