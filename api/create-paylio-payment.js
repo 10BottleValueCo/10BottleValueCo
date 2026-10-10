@@ -29,6 +29,8 @@ export default async function handler(req, res) {
   }
 
   req.body = { ...req.body, email: access.identity.email, customer_email: access.identity.email };
+  let phase = "quote";
+  let providerStatus = null;
   try {
     const {
       currency = "USD",
@@ -186,6 +188,7 @@ export default async function handler(req, res) {
       shippingType: shippingType === "express" ? "express" : "standard",
       storeCreditUsed: 0, paymentProvider: "Paylio Card", items: pricedItems,
     };
+    phase = "reserve";
     const reservation = await reservePaylio(access, quote, provider);
     if (!reservation.created) {
       if (reservation.attempt.state !== "ready") throw new PaylioError("PAYLIO_CREATE_RECONCILIATION_REQUIRED", 409);
@@ -193,6 +196,7 @@ export default async function handler(req, res) {
     }
     // There is no documented idempotent create contract. An uncertain provider
     // response leaves the reservation locked for reconciliation, never auto-retried.
+    phase = "provider_create";
     const response = await fetch("https://paylio.org/api/v1/wallet", {
       method: "POST", redirect: "error", signal: AbortSignal.timeout(8000),
       headers: { Authorization: `Bearer ${reservation.account.key}`, "Content-Type": "application/json" },
@@ -205,13 +209,19 @@ export default async function handler(req, res) {
         ...(provider ? { provider } : {}),
       }),
     });
+    providerStatus = response.status;
     const raw = await response.text();
     if (!response.ok || Buffer.byteLength(raw) > 50000) throw new PaylioError("PAYLIO_CREATION_UNAVAILABLE");
     let data; try { data = JSON.parse(raw); } catch { throw new PaylioError("PAYLIO_CREATION_UNAVAILABLE"); }
     // The binding is durably acknowledged before the customer receives a URL.
+    phase = "bind";
     const bound = await bindPaylio(reservation.attempt, data);
     return res.status(200).json({ ...bound, payment_url: paylioCustomerUrl(bound.payment_url, finalEmail, provider) });
   } catch (error) {
+    // Diagnose the boundary without logging tokens, URLs, customer details,
+    // order numbers, provider bodies or amounts. Never retry uncertain creation.
+    console.error("Paylio setup failed", { phase, providerStatus,
+      code: error instanceof PaylioError ? error.code : error?.code === "PROMO_LOOKUP_UNAVAILABLE" ? error.code : "PAYLIO_CREATION_UNAVAILABLE" });
     if (error?.code === "PROMO_LOOKUP_UNAVAILABLE") return res.status(503).json({ code: error.code, error: error.message });
     return res.status(error instanceof PaylioError ? error.status : 503).json({
       code: error instanceof PaylioError ? error.code : "PAYLIO_CREATION_UNAVAILABLE",

@@ -240,7 +240,7 @@ export default async function handler(req, res) {
     }
   }
 
-  const customer = await requireVerifiedCustomer(req, res);
+  const customer = await requireVerifiedCustomer(req, res, { purpose: "your affiliate account" });
   if (!customer) return;
 
   try {

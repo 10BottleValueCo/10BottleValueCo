@@ -57,6 +57,9 @@ export default function AccountDashboard({
   onChooseAvatar = () => {},
   onSignOut,
   affiliateProfile = null,
+  affiliateProfileLoading = false,
+  affiliateProfileError = "",
+  onRetryAffiliateProfile,
   affiliateOrders = [],
   affiliatePaidOut = 0,
   affiliateLoading = false,
@@ -105,9 +108,7 @@ export default function AccountDashboard({
     { id: "shipping", label: tx("Shipping Details", "Доставка", "Доставка", "Versanddaten", "Datos de envío"), icon: "truck" },
     { id: "security", label: tx("Security", "Безопасность", "Безпека", "Sicherheit", "Seguridad"), icon: "lock" },
     { id: "avatars", label: tx("Avatars", "Аватары", "Аватари", "Avatare", "Avatares"), icon: "avatars" },
-    ...(affiliateProfile?.code
-      ? [{ id: "affiliate", label: tx("Affiliate", "Партнёрка", "Партнерка", "Affiliate", "Afiliados"), icon: "affiliate" }]
-      : []),
+    { id: "affiliate", label: tx("Affiliate", "Партнёрка", "Партнерка", "Affiliate", "Afiliados"), icon: "affiliate" },
   ];
 
   return (
@@ -568,6 +569,21 @@ export default function AccountDashboard({
             </section>
           )}
 
+          {activeSection === "affiliate" && !affiliateProfile?.code && (
+            <section className="lab-panel" aria-busy={affiliateProfileLoading}>
+              <h1>{tx("Affiliate dashboard", "Партнёрская панель", "Партнерська панель", "Affiliate-Dashboard", "Panel de afiliados")}</h1>
+              <p role={affiliateProfileError ? "alert" : "status"}>
+                {affiliateProfileLoading
+                  ? tx("Loading your affiliate account…", "Загружаем партнёрский аккаунт…", "Завантажуємо партнерський акаунт…", "Affiliate-Konto wird geladen…", "Cargando tu cuenta de afiliado…")
+                  : affiliateProfileError
+                    ? tx("We could not load your affiliate account. Please retry. This does not mean your membership was removed.", "Не удалось загрузить партнёрский аккаунт. Повторите попытку. Это не означает, что вас исключили из программы.", "Не вдалося завантажити партнерський акаунт. Повторіть спробу. Це не означає видалення з програми.", "Ihr Affiliate-Konto konnte nicht geladen werden. Bitte erneut versuchen. Ihre Mitgliedschaft wurde dadurch nicht entfernt.", "No pudimos cargar tu cuenta de afiliado. Inténtalo de nuevo. Esto no significa que se haya eliminado tu afiliación.")
+                    : tx("No active affiliate profile is linked to this email. If you already have a code, contact support to check the account email.", "К этой почте не привязан активный партнёрский профиль. Если у вас уже есть код, попросите поддержку проверить почту аккаунта.", "До цієї пошти не прив’язано активний партнерський профіль. Якщо маєте код, зверніться до підтримки для перевірки пошти.", "Dieser E-Mail ist kein aktives Affiliate-Profil zugeordnet. Wenn Sie einen Code haben, lassen Sie die Konto-E-Mail vom Support prüfen.", "No hay un perfil de afiliado activo vinculado a este correo. Si ya tienes un código, pide a soporte que compruebe el correo de la cuenta.")}
+              </p>
+              <button type="button" className="lab-outline-button" disabled={affiliateProfileLoading} onClick={onRetryAffiliateProfile}>
+                {tx("Retry", "Повторить", "Повторити", "Erneut versuchen", "Reintentar")}
+              </button>
+            </section>
+          )}
           {activeSection === "affiliate" && affiliateProfile?.code && (
             <AffiliateAccountPanel
               profile={affiliateProfile}

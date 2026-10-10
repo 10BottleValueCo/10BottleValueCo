@@ -260,7 +260,11 @@ test("Merit SQL transaction and privilege acceptance", { skip: !modulePath }, as
     assert.equal(first.order.paymentRules, undefined);
     assert.equal(first.order.costSnapshot, undefined);
     assert.equal(first.order.affiliateOwnerEmail, undefined);
+    assert.equal(first.order.affiliateCode, mainQuote.snapshot.affiliateCode);
+    assert.equal(first.order.affiliateCommission, mainQuote.snapshot.affiliateCommission);
     const original = await row(ready.order_id);
+    assert.equal(original.metadata.affiliateCode, "PARTNER");
+    assert.equal(original.metadata.affiliateCommission, 10);
     const replay = await service(tx => finalize(ready, tx));
     assert.equal(replay.alreadyPaid, true);
     assert.deepEqual(await row(ready.order_id), original);

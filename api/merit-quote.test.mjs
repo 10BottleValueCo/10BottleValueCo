@@ -259,3 +259,45 @@ for (const audience of ['__PUBLIC__', EMAIL]) test(`private ${audience==='__PUBL
   assert.equal(result.promoDiscountCents,695);assert.equal(result.amountCents,17720);assert.equal(result.snapshot.discountRule.revision,2);
   assert.equal(result.userPromoId,audience==='__PUBLIC__'?null:id);
 });
+
+const affiliateRules = { version: 'fixture-referral-v1', source: 'fixture existing referral terms', status: 'operator_report',
+  unit: 'basis_points', currency: 'USD', approvedCodes: ['PARTNER', 'ORIGINAL'], effectiveFrom: '2026-01-01T00:00:00Z', firstOrderDiscountBps: 500, commissionBps: 1000 };
+function affiliateDb({ affiliate = { code: 'PARTNER', email: 'partner@example.org', active: true }, purchases = [], attribution = [] } = {}) {
+  const db = service(url => {
+    if (url.pathname.endsWith('/affiliates')) return affiliate ? [affiliate] : [];
+    if (url.pathname.endsWith('/affiliate_customers')) return attribution;
+    if (url.pathname.endsWith('/orders')) return purchases;
+    throw new Error('Unexpected table');
+  });
+  db.options.affiliateRules = affiliateRules;
+  return db;
+}
+test('verified referral calculates first-order discount and frozen commission from private rules', async () => {
+  const db = affiliateDb();
+  const result = await quote(fixture({ affiliateCode: 'PARTNER', affiliateCommission: 9999, affiliateDiscount: 9999 }), EMAIL, db.options);
+  assert.equal(result.affiliateDiscountCents, 695);
+  assert.equal(result.snapshot.affiliateCommission, 13.9);
+  assert.equal(result.snapshot.affiliateCode, 'PARTNER');
+  assert.equal(result.affiliateRule.version, affiliateRules.version);
+  assert.equal(result.snapshot.affiliateRule, undefined);
+  assert.equal(result.amountCents, 17204);
+});
+test('referral keeps larger volume discount, and never gives repeat buyers a first-order discount', async () => {
+  const large = await quote({ ...withQuantity(10), affiliateCode: 'PARTNER' }, EMAIL, affiliateDb().options);
+  assert.equal(large.affiliateDiscountCents, 0); assert.equal(large.automaticDiscountCents, 13900);
+  for (const row of [{ id: 'prior', metadata: {} }, { id: 'prior', metadata: { affiliateCode: 'ORIGINAL' } }]) {
+    const result = await quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL, affiliateDb({ purchases: [row] }).options);
+    assert.equal(result.affiliateDiscountCents, 0);
+    assert.equal(result.snapshot.affiliateCode, row.metadata.affiliateCode || 'PARTNER');
+  }
+  const disabled = await quote(fixture({ affiliateCode: 'PARTNER', affiliateDiscountDisabled: true }), EMAIL, affiliateDb().options);
+  assert.equal(disabled.affiliateDiscountCents, 0);
+});
+test('referral rejects inactive, missing, self-referral and unavailable purchase history', async () => {
+  for (const affiliate of [null, { code: 'PARTNER', email: EMAIL, active: true }, { code: 'PARTNER', email: 'partner@example.org', active: false }]) {
+    await assert.rejects(quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL, affiliateDb({ affiliate }).options), isError(409));
+  }
+  const db = affiliateDb(); db.options.fetcher = async () => { throw new Error('offline'); };
+  await assert.rejects(quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL, db.options), isError(503));
+  await assert.rejects(quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL, affiliateDb({ purchases: [{ bad: true }] }).options), isError(503));
+});

@@ -1,8 +1,8 @@
 // @ts-nocheck
 // cache-bust
 // @ts-nocheck
+import { formatInvoiceLabel } from "./invoice-display.js";
 import { publicPaymentMethod } from "../../../shared/payment-method-label.js";
-import { customerSignup } from "@workspace/api-client-react";
 import { Fragment, lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, Search, Tag, UserRound, X } from "lucide-react";
@@ -3926,6 +3926,7 @@ export default function App() {
     return () => window.clearTimeout(timeoutId);
   }, [profileSaveFeedback]);
   const [promoInput, setPromoInput] = useState("");
+  const promoApplyRequestRef = useRef(0);
   const [promoMessage, setPromoMessage] = useState("");
   const [storeCredit, setStoreCredit] = useState(0);
   const [creditPayAnimating, setCreditPayAnimating] = useState(false);
@@ -3973,6 +3974,10 @@ export default function App() {
 
   const [affiliateProfiles, setAffiliateProfiles] = useState([]);
   const [affiliateProfilesLoaded, setAffiliateProfilesLoaded] = useState(false);
+  const [affiliateProfileError, setAffiliateProfileError] = useState("");
+  const affiliateProfileRequestRef = useRef(0);
+  const affiliateProfileIdentityRef = useRef("");
+  affiliateProfileIdentityRef.current = normalizeEmail(currentUser?.email);
   const [affiliateCommissionOrders, setAffiliateCommissionOrders] = useState([]);
   const [affiliateCommissionLoading, setAffiliateCommissionLoading] = useState(false);
   const [affiliateOrdersError, setAffiliateOrdersError] = useState(false);
@@ -8333,8 +8338,13 @@ export default function App() {
   }
 
   async function loadAffiliateProfilesFromSupabase() {
+    const requestId = ++affiliateProfileRequestRef.current;
+    const userEmail = normalizeEmail(currentUser?.email);
+    const isCurrent = () => requestId === affiliateProfileRequestRef.current
+      && userEmail === affiliateProfileIdentityRef.current;
     setAffiliateProfiles([]);
     setAffiliateProfilesLoaded(false);
+    setAffiliateProfileError("");
     try {
       let rows = [];
       if (isAdminUser()) {
@@ -8351,6 +8361,7 @@ export default function App() {
 
         const response = await fetch("/api/affiliate-account", {
           headers: { Authorization: `Bearer ${session.access_token}` },
+          signal: AbortSignal.timeout(15000),
         });
         const result = await response.json().catch(() => ({}));
         if (!response.ok || result?.ok !== true) {
@@ -8358,11 +8369,11 @@ export default function App() {
         }
         rows = result.affiliate ? [result.affiliate] : [];
       }
+      if (!isCurrent()) return;
       const normalized = normalizeAffiliateRows(rows);
       setAffiliateProfiles(normalized);
       setAffiliateProfilesLoaded(true);
 
-      const userEmail = normalizeEmail(currentUser?.email);
       const ownAffiliate = normalized.find(
         (profile) => normalizeEmail(profile.ownerEmail) === userEmail && profile.active !== false
       );
@@ -8383,7 +8394,9 @@ export default function App() {
         );
       }
     } catch (error) {
+      if (!isCurrent()) return;
       console.error("Failed to load Supabase affiliates", error);
+      setAffiliateProfileError("unavailable");
       setAffiliateProfilesLoaded(true);
     }
   }
@@ -9175,7 +9188,8 @@ export default function App() {
 
   useEffect(() => {
     loadAffiliateProfilesFromSupabase();
-  }, [currentUser?.email]);
+    return () => { affiliateProfileRequestRef.current += 1; };
+  }, [currentUser?.id, currentUser?.email]);
 
   useEffect(() => {
     if (activeAffiliateCode) {
@@ -10831,6 +10845,7 @@ export default function App() {
   }
 
   async function applyPromoCode() {
+    const requestId = ++promoApplyRequestRef.current;
     const normalizedCode = promoInput.trim().toUpperCase();
 
     if (!normalizedCode) {
@@ -10871,29 +10886,27 @@ export default function App() {
       : null;
 
     if (!promo && !matchedAffiliate && !matchedUserPromo) {
+      let lookupFailed = false;
       try {
         const publicPromo = await lookupPublicPromoCode(normalizedCode);
-        if (publicPromo) {
-          matchedUserPromo = {
-            ...publicPromo,
-            id: null,
-            email: "__PUBLIC__",
-            used: false,
-          };
-        } else {
+        if (publicPromo) matchedUserPromo = { ...publicPromo, id: null, email: "__PUBLIC__", used: false };
+      } catch { lookupFailed = true; }
+      if (requestId !== promoApplyRequestRef.current) return;
+      if (!matchedUserPromo) {
+        try {
           const publicAffiliate = await lookupPublicAffiliateCode(normalizedCode);
-          if (publicAffiliate?.active !== false) matchedAffiliate = publicAffiliate;
-        }
-      } catch {
-        setPromoMessage(
-          tx(
-            "Could not verify this code right now. Please try again.",
-            "Не удалось проверить код. Попробуйте ещё раз.",
-            "Не вдалося перевірити код. Спробуйте ще раз.",
-            "Der Code konnte gerade nicht geprüft werden. Bitte versuchen Sie es erneut.",
-            "No se pudo verificar el código. Inténtalo de nuevo."
-          )
-        );
+          if (publicAffiliate?.code === normalizedCode && publicAffiliate.active !== false) matchedAffiliate = publicAffiliate;
+        } catch { lookupFailed = true; }
+      }
+      if (requestId !== promoApplyRequestRef.current) return;
+      if (!matchedAffiliate && !matchedUserPromo && lookupFailed) {
+        setPromoMessage(tx(
+          "Could not verify this code right now. Please try again.",
+          "Не удалось проверить код. Попробуйте ещё раз.",
+          "Не вдалося перевірити код. Спробуйте ще раз.",
+          "Der Code konnte gerade nicht geprüft werden. Bitte versuchen Sie es erneut.",
+          "No se pudo verificar el código. Inténtalo de nuevo."
+        ));
         return;
       }
     }
@@ -11062,6 +11075,7 @@ export default function App() {
   }
 
   function removePromoCode() {
+    promoApplyRequestRef.current += 1;
     if (ownerFreeShippingActive) {
       setOwnerFreeShippingActive(false);
       setPromoInput("OWNERFREESHIP");
@@ -12091,78 +12105,62 @@ export default function App() {
       }
 
       setAccountMessage(tx("Creating account…", "Создаём аккаунт…", "Створюємо акаунт…", "Konto wird erstellt…", "Creando cuenta…"));
-      requireSignupVerificationRef.current = false;
-      const affiliateCode = (activeAffiliateCode || browserAffiliateCode || registrationPromoCode || "").trim().toUpperCase();
+      requireSignupVerificationRef.current = true;
+      let signUpData;
+      let signUpError;
       try {
-        const signupResult = await customerSignup({ email, password, affiliateCode });
-        if (signupResult?.ok !== true) throw new Error("signup_failed");
+        ({ data: signUpData, error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              affiliateCode: (activeAffiliateCode || browserAffiliateCode || registrationPromoCode || "").trim().toUpperCase(),
+              promoLockedAt: (activeAffiliateCode || browserAffiliateCode || registrationPromoCode) ? new Date().toISOString() : "",
+            },
+          },
+        }));
       } catch (error) {
-        setAccountMessage(error?.status === 429
-          ? tx(
-              "Too many attempts. Please wait and try again.",
-              "Слишком много попыток. Подождите и попробуйте снова.",
-              "Забагато спроб. Зачекайте й спробуйте знову.",
-              "Zu viele Versuche. Bitte warten Sie und versuchen Sie es erneut.",
-              "Demasiados intentos. Espera e inténtalo de nuevo."
-            )
-          : tx(
-              "Could not create the account. Please try again or sign in.",
-              "Не удалось создать аккаунт. Попробуйте ещё раз или войдите.",
-              "Не вдалося створити акаунт. Спробуйте ще раз або увійдіть.",
-              "Das Konto konnte nicht erstellt werden. Bitte versuchen Sie es erneut oder melden Sie sich an.",
-              "No se pudo crear la cuenta. Inténtalo de nuevo o inicia sesión."
-            ));
-        return;
-      }
-
-      sessionStorage.removeItem("tbv-pw-recovery");
-      sessionStorage.removeItem("tbv-recovery-at");
-      sessionStorage.removeItem("tbv-recovery-rt");
-      let signInData;
-      let signInError;
-      try {
-        ({ data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password }));
-      } catch {
-        signInError = new Error("automatic_signin_failed");
-      }
-
-      if (signInError || !signInData?.session?.user) {
-        setAuthMode("signin");
-        setAccountForm({ email, password: "", confirmPassword: "" });
-        setAccountMessage(tx(
-          "Account created. Please sign in to continue.",
-          "Аккаунт создан. Войдите, чтобы продолжить.",
-          "Акаунт створено. Увійдіть, щоб продовжити.",
-          "Konto erstellt. Bitte melden Sie sich an, um fortzufahren.",
-          "Cuenta creada. Inicia sesión para continuar."
+        requireSignupVerificationRef.current = false;
+        setAccountMessage(error?.message || tx(
+          "Could not create the account. Please try again.",
+          "Не удалось создать аккаунт. Попробуйте ещё раз.",
+          "Не вдалося створити акаунт. Спробуйте ще раз.",
+          "Das Konto konnte nicht erstellt werden. Bitte versuchen Sie es erneut.",
+          "No se pudo crear la cuenta. Inténtalo de nuevo."
         ));
         return;
       }
 
-      const newUser = userFromSupabase(signInData.session.user);
-      const confirmedAffiliateCode = String(newUser?.affiliateCode || affiliateCode).trim().toUpperCase();
-      setCurrentUser(newUser);
-      syncUserPaidOrders(newUser.email);
-      fetchUserPromos(newUser.email, appliedPromo);
-      loadStoreCredit(newUser.email);
-      setAccountForm({ email: newUser.email, password: "", confirmPassword: "" });
-      setAccountPromoCodeInput("");
-      setSignupVerificationEmail("");
+      if (signUpError) {
+        requireSignupVerificationRef.current = false;
+        setAccountMessage(signUpError.message);
+        return;
+      }
+
+      if (signUpData?.session) {
+        await supabase.auth.signOut();
+        setAccountMessage(tx(
+          "Email confirmation is not enabled for this site. Please contact support before signing in.",
+          "Подтверждение email не включено на этом сайте. Перед входом обратитесь в поддержку.",
+          "Підтвердження email не ввімкнено на цьому сайті. Перед входом зверніться до служби підтримки.",
+          "Die E-Mail-Bestätigung ist auf dieser Website nicht aktiviert. Bitte wenden Sie sich vor der Anmeldung an den Support.",
+          "La confirmación por email no está activada en este sitio. Contacta con soporte antes de iniciar sesión."
+        ));
+        return;
+      }
+
+      setSignupVerificationEmail(email);
       setSignupVerificationCode("");
-      setPendingRegistrationPromoCode("");
-      setAuthMode("signin");
-      if (confirmedAffiliateCode) {
-        setActiveAffiliateCode(confirmedAffiliateCode);
-        try { localStorage.setItem("tbv-active-affiliate", confirmedAffiliateCode); } catch {}
-      } else {
-        setActiveAffiliateCode("");
-        try { localStorage.removeItem("tbv-active-affiliate"); } catch {}
-      }
-      setAccountMessage("");
-      if (pendingCheckoutAfterAuth && cart.length > 0) {
-        setPendingCheckoutAfterAuth(false);
-        setPage("cart");
-      }
+      setPendingRegistrationPromoCode(registrationPromoCode);
+      setAccountForm({ email, password: "", confirmPassword: "" });
+      setAuthMode("verify");
+      setAccountMessage(tx(
+        "A six-digit code was sent. Check your inbox and spam folder.",
+        "Отправили код из шести цифр. Проверьте входящие и папку со спамом.",
+        "Надіслали код із шести цифр. Перевірте вхідні та папку зі спамом.",
+        "Ein sechsstelliger Code wurde gesendet. Prüfen Sie Ihren Posteingang und Spam-Ordner.",
+        "Enviamos un código de seis dígitos. Revisa tu bandeja de entrada y correo no deseado."
+      ));
       return;
     }
 
@@ -13140,6 +13138,7 @@ export default function App() {
 
   const navigateAccountSection = (section) => {
     setActiveAccountSection(section);
+    if (section === "affiliate") loadAffiliateProfilesFromSupabase();
     if (section === "messages") {
       setContactModalOpen(false);
       setReplyPreview(null);
@@ -17938,6 +17937,9 @@ export default function App() {
                   onChooseAvatar={handleAvatarSelection}
                   onSignOut={handleSignOut}
                   affiliateProfile={currentAffiliateProfile}
+                  affiliateProfileLoading={!affiliateProfilesLoaded}
+                  affiliateProfileError={affiliateProfileError}
+                  onRetryAffiliateProfile={loadAffiliateProfilesFromSupabase}
                   affiliateOrders={
                     affiliateDataCode ===
                     String(currentAffiliateProfile?.code || "").trim().toUpperCase()
@@ -20363,8 +20365,8 @@ export default function App() {
 
                   {/* Promo code */}
                   <div className="border-t border-white/10 pt-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex max-w-[220px] flex-1 gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex min-w-[180px] flex-1 gap-2">
                         <BufferedInput
                           value={promoInput}
                           onValueChange={(value) => {
@@ -20382,8 +20384,14 @@ export default function App() {
                           {t("apply")}
                         </button>
                       </div>
+                      {(ownerFreeShippingActive || appliedPromo || (resolvedAffiliateCode && !affiliateDiscountDisabled)) && (
+                        <button type="button" onClick={removePromoCode}
+                          className="shrink-0 rounded-full border border-white/30 px-3 py-2 text-xs text-white hover:bg-white/10">
+                          {tx("Remove code", "Убрать код", "Прибрати код", "Code entfernen", "Quitar código")}
+                        </button>
+                      )}
                       {promoMessage && (
-                        <div className="shrink-0 text-right text-xs text-white/80">
+                        <div role="status" className="w-full text-xs text-white/80">
                           {promoMessage}
                         </div>
                       )}
@@ -21052,8 +21060,14 @@ export default function App() {
                           Invoice
                         </div>
                         <div className="mt-1 break-all text-[18px] font-semibold tracking-[-0.03em] md:text-[28px] md:tracking-[-0.04em]">
-                          {orderNumber}
+                          <span title={orderNumber}>{formatInvoiceLabel(orderNumber)}</span>
                         </div>
+                        {formatInvoiceLabel(orderNumber) !== orderNumber && (
+                          <details className="mt-1 text-xs text-black/60">
+                            <summary className="cursor-pointer">{tx("Full order reference", "Полный номер заказа", "Повний номер замовлення", "Vollständige Bestellnummer", "Referencia completa del pedido")}</summary>
+                            <span className="mt-1 block break-all select-all">{orderNumber}</span>
+                          </details>
+                        )}
                       </div>
                       <button
                         type="button"
@@ -21320,11 +21334,11 @@ export default function App() {
                               </button>
                               <div className="mt-3 text-center text-[12px] leading-5 text-black/40">
                                 {tx(
-                                  `Order ${orderNumber} — secure card checkout.`,
-                                  `Заказ ${orderNumber} — безопасная оплата картой.`,
-                                  `Замовлення ${orderNumber} — безпечна оплата карткою.`,
-                                  `Bestellung ${orderNumber} — sichere Kartenzahlung.`,
-                                  `Pedido ${orderNumber} — pago seguro con tarjeta.`
+                                  `Order ${formatInvoiceLabel(orderNumber)} — secure card checkout.`,
+                                  `Заказ ${formatInvoiceLabel(orderNumber)} — безопасная оплата картой.`,
+                                  `Замовлення ${formatInvoiceLabel(orderNumber)} — безпечна оплата карткою.`,
+                                  `Bestellung ${formatInvoiceLabel(orderNumber)} — sichere Kartenzahlung.`,
+                                  `Pedido ${formatInvoiceLabel(orderNumber)} — pago seguro con tarjeta.`
                                 )}
                               </div>
                             </div>
@@ -21342,11 +21356,11 @@ export default function App() {
                               </div>
                               <div className="mt-3 text-[13px] leading-6 text-black/50 md:text-sm md:leading-7">
                                 {tx(
-                                  `Order ${orderNumber} — secure PayPal checkout.`,
-                                  `Заказ ${orderNumber} — безопасная оплата через PayPal.`,
-                                  `Замовлення ${orderNumber} — безпечна оплата через PayPal.`,
-                                  `Bestellung ${orderNumber} — sicherer PayPal-Checkout.`,
-                                  `Pedido ${orderNumber} — pago seguro con PayPal.`
+                                  `Order ${formatInvoiceLabel(orderNumber)} — secure PayPal checkout.`,
+                                  `Заказ ${formatInvoiceLabel(orderNumber)} — безопасная оплата через PayPal.`,
+                                  `Замовлення ${formatInvoiceLabel(orderNumber)} — безпечна оплата через PayPal.`,
+                                  `Bestellung ${formatInvoiceLabel(orderNumber)} — sicherer PayPal-Checkout.`,
+                                  `Pedido ${formatInvoiceLabel(orderNumber)} — pago seguro con PayPal.`
                                 )}
                               </div>
                             </div>
@@ -21714,7 +21728,7 @@ export default function App() {
                                 ✓ {tx("Email copied!","Почта скопирована!","Пошту скопійовано!","E-Mail kopiert!","¡Correo copiado!")}
                               </div>
                               <div className="mt-4 text-[12px] text-black/40">
-                                {`Order ${orderNumber}`}
+                                {`Order ${formatInvoiceLabel(orderNumber)}`}
                               </div>
                             </div>
                           </div>

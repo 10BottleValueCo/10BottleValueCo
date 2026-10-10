@@ -1,3 +1,4 @@
+import { verifyAffiliateQuote, AffiliateQuoteError } from "./_affiliate-quote.js";
 import { createHash } from "node:crypto";
 import { findCatalogProduct, getAutomaticDiscountRate, getShippingPrice, validateAndPriceItems } from "./_catalog.js";
 
@@ -145,8 +146,17 @@ function normalizeInput(body, verifiedEmail) {
  */
 export async function buildMeritQuote(body, verifiedEmail, options = {}) {
   const input = normalizeInput(body, verifiedEmail);
+  let affiliate = null;
   if (input.affiliateCode) {
-    throw new MeritQuoteError(409, "Affiliate codes are not available for card checkout yet. Remove the code or contact support before paying.", "MERIT_AFFILIATE_UNVERIFIED");
+    try {
+      affiliate = await verifyAffiliateQuote({ code: input.affiliateCode, email: input.email,
+        disabled: input.affiliateDiscountDisabled || Boolean(input.promoCode),
+        supabaseUrl: options.supabaseUrl, serviceRoleKey: options.serviceRoleKey,
+        rules: options.affiliateRules, fetcher: options.fetcher });
+    } catch (error) {
+      if (!(error instanceof AffiliateQuoteError)) throw error;
+      throw new MeritQuoteError(error.status, error.message, error.code);
+    }
   }
   const surchargeBps = options.surchargeBps ?? 0;
   if (!Number.isSafeInteger(surchargeBps) || surchargeBps < 0 || surchargeBps > 10000) {
@@ -177,8 +187,10 @@ export async function buildMeritQuote(body, verifiedEmail, options = {}) {
     if (!promo) throw new MeritQuoteError(409, "This promo code is no longer available for this checkout. Remove it or contact support before paying.", "MERIT_PROMO_UNVERIFIED");
   }
   const automaticRate = getAutomaticDiscountRate(priced.subtotal);
-  const automaticDiscountCents = promo.rate === 0 ? Math.round(subtotalCents * automaticRate) : 0;
-  const affiliateDiscountCents = 0;
+  const affiliateRate = (affiliate?.discountBps || 0) / 10000;
+  const affiliateWins = promo.rate === 0 && affiliateRate > automaticRate;
+  const automaticDiscountCents = promo.rate === 0 && !affiliateWins ? Math.round(subtotalCents * automaticRate) : 0;
+  const affiliateDiscountCents = affiliateWins ? Math.round(subtotalCents * affiliateRate) : 0;
   const promoDiscountCents = Math.round(subtotalCents * promo.rate);
   const shippingCents = promo.freeShipping || input.ownerFreeShipping || priced.regularSubtotal === 0
     ? 0 : moneyCents(getShippingPrice(priced.regularSubtotal, input.shippingType));
@@ -197,7 +209,8 @@ export async function buildMeritQuote(body, verifiedEmail, options = {}) {
     promoCode: input.promoCode, promoFreeShipping: Boolean(promo.freeShipping),
     ownerFreeShipping: input.ownerFreeShipping, affiliateDiscount: affiliateDiscountCents / 100,
     affiliateDiscountDisabled: input.affiliateDiscountDisabled,
-    affiliateCode: "", affiliateOwnerEmail: "", affiliateCommission: 0,
+    affiliateCode: affiliate?.code || "", affiliateOwnerEmail: "",
+    affiliateCommission: affiliate ? Math.round(subtotalCents * affiliate.commissionBps / 10000) / 100 : 0,
     customerCardSurcharge: surchargeCents / 100, customerCardSurchargeBps: surchargeBps, customerCardSurchargeBasis: "order_before_credit",
     cryptoDiscount: 0, storeCreditUsed: 0, total: amountCents / 100,
   };
@@ -206,6 +219,7 @@ export async function buildMeritQuote(body, verifiedEmail, options = {}) {
     currency: "usd", amountCents, subtotalCents, shippingCents, automaticDiscountCents,
     promoDiscountCents, affiliateDiscountCents, preSurchargeTotalCents, surchargeBps, surchargeCents,
     userPromoId: promo.userPromoId, snapshot, quoteFingerprint, useStoreCredit: input.useStoreCredit,
+    affiliateRule: affiliate?.rule || null,
   };
 }
 
