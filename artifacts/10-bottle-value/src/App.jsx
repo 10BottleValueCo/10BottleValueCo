@@ -1,8 +1,9 @@
+import { sumLineAmounts, discountAmount, addAmounts } from "../../../shared/checkout-money.js";
 // @ts-nocheck
 // cache-bust
 // @ts-nocheck
+import { formatInvoiceLabel } from "./invoice-display.js";
 import { publicPaymentMethod } from "../../../shared/payment-method-label.js";
-import { customerSignup } from "@workspace/api-client-react";
 import { Fragment, lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, Search, Tag, UserRound, X } from "lucide-react";
@@ -19,7 +20,7 @@ import { startVisiblePolling } from "./visible-poll.js";
 import { observeAnnouncementHeight } from "./announcement-height.js";
 import { createInfoPageImageWarmup, scheduleInfoPageWarmup } from "./preloadInfoPageImages.js";
 import { createLegacyAttemptManager } from "./legacy-checkout-attempt.js";
-import { buildMeritCheckoutPayload, estimateMeritCreditSplit, meritCheckoutBusinessError, meritCartMatchesOrder, meritOrderCardSurcharge, createMeritApiClient, meritPayloadDigest, meritOrderIdFromCheckoutKey, readMeritAttempt, saveMeritAttempt, verifyMeritCheckoutBuyer, MERIT_ATTEMPT_STORAGE_KEY } from "./merit-checkout-client.js";
+import { buildMeritCheckoutPayload, estimateMeritCreditSplit, meritCheckoutBusinessError, meritCartMatchesOrder, meritOrderCardSurcharge, createMeritApiClient, meritPayloadDigest, readMeritAttempt, saveMeritAttempt, verifyMeritCheckoutBuyer, MERIT_ATTEMPT_STORAGE_KEY } from "./merit-checkout-client.js";
 import { ACCOUNT_AVATARS, getAccountAvatar } from "./account-avatars.js";
 import { track, trackPageView } from "./analytics.js";
 import { useSEO } from "./useSEO.js";
@@ -32,6 +33,7 @@ import HomePage from "./components/HomePage.jsx";
 import PaymentReturnHeader from "./components/PaymentReturnHeader.jsx";
 import PaymentReturnReadStatus from "./components/PaymentReturnReadStatus.jsx";
 import CashAppPaymentGuide from "./components/CashAppPaymentGuide.jsx";
+import PaymentOpeningDialog from "./components/PaymentOpeningDialog.jsx";
 import ProductPackSelector from "./components/ProductPackSelector.jsx";
 import { productSelectionFromProduct, readProductSelection, productSelectionUrl, resolveSelectedProduct, toStorefrontOffer } from "./product-selection.js";
 import UsFlag from "./components/UsFlag.jsx";
@@ -3926,6 +3928,7 @@ export default function App() {
     return () => window.clearTimeout(timeoutId);
   }, [profileSaveFeedback]);
   const [promoInput, setPromoInput] = useState("");
+  const promoApplyRequestRef = useRef(0);
   const [promoMessage, setPromoMessage] = useState("");
   const [storeCredit, setStoreCredit] = useState(0);
   const [creditPayAnimating, setCreditPayAnimating] = useState(false);
@@ -3948,6 +3951,8 @@ export default function App() {
   });
   const [ownerFreeShippingActive, setOwnerFreeShippingActive] = useState(false);
   const [affiliateDiscountDisabled, setAffiliateDiscountDisabled] = useState(false);
+  const [affiliateEligibility, setAffiliateEligibility] = useState(null);
+  const [affiliateEligibilityRefresh, setAffiliateEligibilityRefresh] = useState(0);
   const [affiliateManuallyApplied, setAffiliateManuallyApplied] = useState(false);
 
   // Persist applied promo across sessions and redeployments
@@ -3973,6 +3978,10 @@ export default function App() {
 
   const [affiliateProfiles, setAffiliateProfiles] = useState([]);
   const [affiliateProfilesLoaded, setAffiliateProfilesLoaded] = useState(false);
+  const [affiliateProfileError, setAffiliateProfileError] = useState("");
+  const affiliateProfileRequestRef = useRef(0);
+  const affiliateProfileIdentityRef = useRef("");
+  affiliateProfileIdentityRef.current = normalizeEmail(currentUser?.email);
   const [affiliateCommissionOrders, setAffiliateCommissionOrders] = useState([]);
   const [affiliateCommissionLoading, setAffiliateCommissionLoading] = useState(false);
   const [affiliateOrdersError, setAffiliateOrdersError] = useState(false);
@@ -3980,60 +3989,49 @@ export default function App() {
   const [affiliateDataCode, setAffiliateDataCode] = useState("");
   const affiliateLoadRequestRef = useRef(0);
   const [affiliatePaidOut, setAffiliatePaidOut] = useState(0);
-  const [activeAffiliateCode, setActiveAffiliateCode] = useState(() => {
-    if (typeof window === "undefined") return "";
-
-    try {
-      const url = new URL(window.location.href);
-      const urlCode = (
-        (() => { try { const v = url.searchParams.get("s"); return v ? atob(v) : ""; } catch { return ""; } })() ||
-        url.searchParams.get("c") ||
-        url.searchParams.get("via") ||
-        url.searchParams.get("ref") ||
-        url.searchParams.get("affiliate") ||
-        ""
-      )
-        .trim()
-        .toUpperCase();
-
-      if (urlCode) {
-        const existingCode = (localStorage.getItem("tbv-active-affiliate") || "").trim().toUpperCase();
-        if (!existingCode) {
-          // First visit with an affiliate link — lock it
-          localStorage.setItem("tbv-active-affiliate", urlCode);
-        }
-        // Always return the locked-in code (ignore new URL code if one already exists)
-        return existingCode || urlCode;
-      }
-
-      return (localStorage.getItem("tbv-active-affiliate") || "")
-        .trim()
-        .toUpperCase();
-    } catch {
-      return "";
-    }
+  const [activeAffiliateCode, setActiveAffiliateCode] = useState("");
+  const [affiliateCodeRemoved, setAffiliateCodeRemoved] = useState(() => {
+    try { return sessionStorage.getItem("tbv-affiliate-removed") === "true"; } catch { return false; }
   });
+  const affiliateSelectionVersionRef = useRef(0);
 
   function readAffiliateCodeFromBrowser() {
     if (typeof window === "undefined") return "";
-
     try {
       const params = new URLSearchParams(window.location.search || "");
-      const urlCode = (params.get("ref") || params.get("affiliate") || "")
-        .trim()
-        .toUpperCase();
-      const storedCode = (localStorage.getItem("tbv-active-affiliate") || "")
-        .trim()
-        .toUpperCase();
+      let encoded = "";
+      try { encoded = params.get("s") ? atob(params.get("s")) : ""; } catch {}
+      const candidate = String(localStorage.getItem("tbv-active-affiliate") || encoded || params.get("c")
+        || params.get("via") || params.get("ref") || params.get("affiliate") || "").trim().toUpperCase();
+      return /^[A-Z0-9_-]{1,64}$/.test(candidate) ? candidate : "";
+    } catch { return ""; }
+  }
 
-      return urlCode || storedCode || "";
-    } catch {
-      return "";
-    }
+  function selectAffiliateCode(code) {
+    affiliateSelectionVersionRef.current += 1;
+    setAffiliateCodeRemoved(false);
+    setActiveAffiliateCode(code);
+    setAffiliateEligibilityRefresh(value => value + 1);
+    try {
+      sessionStorage.removeItem("tbv-affiliate-removed");
+      localStorage.setItem("tbv-active-affiliate", code);
+    } catch {}
+  }
+
+  function clearSelectedAffiliateCode() {
+    affiliateSelectionVersionRef.current += 1;
+    setAffiliateCodeRemoved(true);
+    setAffiliateDiscountDisabled(true);
+    setAffiliateManuallyApplied(false);
+    setActiveAffiliateCode("");
+    try {
+      sessionStorage.setItem("tbv-affiliate-removed", "true");
+      localStorage.removeItem("tbv-active-affiliate");
+    } catch {}
   }
 
   function getResolvedAffiliateCode() {
-    return readAffiliateCodeFromBrowser() || activeAffiliateCode || "";
+    return affiliateCodeRemoved ? "" : activeAffiliateCode;
   }
   const [affiliateMessage, setAffiliateMessage] = useState("");
   const [affiliateMessagePulse, setAffiliateMessagePulse] = useState(0);
@@ -6653,9 +6651,11 @@ export default function App() {
     if (hasServerWebhookEmail) return;
 
     try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error || !session?.access_token) throw new Error("Admin sign-in required");
       const res = await fetch("/api/send-payment-confirmed-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({
           orderId: order.id,
           email: order.email,
@@ -6704,7 +6704,7 @@ export default function App() {
     }
   }
 
-  async function persistOrderToServer(order) {
+  async function persistOrderToServer(order, payment = null) {
     const deferred = deferredLegacyOrderRef.current?.id === order.id ? deferredLegacyOrderRef.current : null;
     if (deferred) order = { ...order, metadata: { ...deferred, ...order.metadata } };
     const response = await fetch("/api/order-checkout", {
@@ -6712,61 +6712,50 @@ export default function App() {
       credentials: "same-origin",
       cache: "no-store",
       headers: await legacyCheckoutHeaders(supabase, order.email),
-      body: JSON.stringify({ order }),
+      body: JSON.stringify({ order, ...(payment ? { payment } : {}) }),
     });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok || result?.ok !== true) {
-      throw new Error(result?.error || "Could not save this checkout.");
-    }
-    if (deferred) {
+    if (result?.code === "CHECKOUT_QUOTE_CHANGED") setAffiliateEligibilityRefresh(value => value + 1);
+    const saved = response.ok && (payment || result?.ok === true)
+      || (payment && response.headers?.get("X-Checkout-Saved") === "1");
+    if (deferred && saved) {
       const localOrder = { ...order.metadata, id: order.id, email: order.email, status: order.status, total: order.total };
       const next = [localOrder, ...getStoredOrders().filter(saved => saved.id !== order.id)];
       saveStoredOrders(next);
       setAllOrders(next);
       if (currentUser?.email) setUserOrders(getPaidOrdersForEmail(currentUser.email, next));
     }
+    if (!response.ok || (!payment && result?.ok !== true)) {
+      throw new Error(result?.error || "Could not save this checkout.");
+    }
     return result;
   }
 
   async function markOrderCheckoutStartedById(orderId, paymentProvider = "Paylio") {
-    if (!orderId) return;
-    const deferred = deferredLegacyOrderRef.current;
-    if (deferred?.id === orderId && !getStoredOrders().some(order => order.id === orderId)) {
-      await persistOrderToServer({ id: deferred.id, email: deferred.email, status: "pending", total: deferred.total, metadata: deferred });
-    }
+    if (!orderId) throw new Error("Could not find this checkout. Refresh before continuing.");
     const orders = getStoredOrders();
-    let updatedOrder = null;
-    const nextOrders = orders.map((savedOrder) => {
-      if (savedOrder.id !== orderId) return savedOrder;
-      const currentStatus = String(savedOrder.status || "").toLowerCase();
-      if (currentStatus === "paid" || currentStatus === "done" || currentStatus === "refunded") {
-        return savedOrder;
-      }
-      const next = {
-        ...savedOrder,
-        status: "checkout",
-        paymentProvider: savedOrder.paymentProvider && savedOrder.paymentProvider !== "pending" ? savedOrder.paymentProvider : paymentProvider,
-        checkoutStartedAt: savedOrder.checkoutStartedAt || new Date().toISOString(),
-      };
-      updatedOrder = next;
-      return next;
+    const deferred = deferredLegacyOrderRef.current;
+    const savedOrder = orders.find(order => order.id === orderId)
+      || (deferred?.id === orderId ? deferred : null);
+    if (!savedOrder) throw new Error("Could not find this checkout. Refresh before continuing.");
+    const currentStatus = String(savedOrder.status || "").toLowerCase();
+    if (["paid", "done", "refunded"].includes(currentStatus)) return;
+    const updatedOrder = {
+      ...savedOrder,
+      status: "checkout",
+      paymentProvider: savedOrder.paymentProvider && savedOrder.paymentProvider !== "pending" ? savedOrder.paymentProvider : paymentProvider,
+      checkoutStartedAt: savedOrder.checkoutStartedAt || new Date().toISOString(),
+    };
+    // A new draft can be inserted directly as checkout. One acknowledged save
+    // preserves all details and attestations before any provider request starts.
+    await persistOrderToServer({
+      id: updatedOrder.id, email: updatedOrder.email, status: "checkout",
+      total: updatedOrder.total ?? 0, metadata: updatedOrder,
     });
+    const nextOrders = [updatedOrder, ...getStoredOrders().filter(order => order.id !== orderId)];
     saveStoredOrders(nextOrders);
     setAllOrders(nextOrders);
-    if (updatedOrder) {
-      try {
-        await persistOrderToServer({
-          id: updatedOrder.id,
-          email: updatedOrder.email,
-          status: "checkout",
-          total: updatedOrder.total ?? 0,
-          metadata: { ...updatedOrder, status: "checkout" },
-        });
-      } catch (e) {
-        console.error("Checkout order save failed:", e);
-        throw e;
-      }
-    }
+    if (currentUser?.email) setUserOrders(getPaidOrdersForEmail(currentUser.email, nextOrders));
   }
 
   function markOrderPaidById(orderId, paymentProvider = "NOWPayments", paymentId = "") {
@@ -8333,8 +8322,13 @@ export default function App() {
   }
 
   async function loadAffiliateProfilesFromSupabase() {
+    const requestId = ++affiliateProfileRequestRef.current;
+    const userEmail = normalizeEmail(currentUser?.email);
+    const isCurrent = () => requestId === affiliateProfileRequestRef.current
+      && userEmail === affiliateProfileIdentityRef.current;
     setAffiliateProfiles([]);
     setAffiliateProfilesLoaded(false);
+    setAffiliateProfileError("");
     try {
       let rows = [];
       if (isAdminUser()) {
@@ -8351,6 +8345,7 @@ export default function App() {
 
         const response = await fetch("/api/affiliate-account", {
           headers: { Authorization: `Bearer ${session.access_token}` },
+          signal: AbortSignal.timeout(15000),
         });
         const result = await response.json().catch(() => ({}));
         if (!response.ok || result?.ok !== true) {
@@ -8358,11 +8353,11 @@ export default function App() {
         }
         rows = result.affiliate ? [result.affiliate] : [];
       }
+      if (!isCurrent()) return;
       const normalized = normalizeAffiliateRows(rows);
       setAffiliateProfiles(normalized);
       setAffiliateProfilesLoaded(true);
 
-      const userEmail = normalizeEmail(currentUser?.email);
       const ownAffiliate = normalized.find(
         (profile) => normalizeEmail(profile.ownerEmail) === userEmail && profile.active !== false
       );
@@ -8383,7 +8378,9 @@ export default function App() {
         );
       }
     } catch (error) {
+      if (!isCurrent()) return;
       console.error("Failed to load Supabase affiliates", error);
+      setAffiliateProfileError("unavailable");
       setAffiliateProfilesLoaded(true);
     }
   }
@@ -8552,7 +8549,7 @@ export default function App() {
         const status = String(order.status || metadata.status || (ledger ? "paid" : "pending"))
           .trim()
           .toLowerCase();
-        const commissionEligible = status === "paid" || status === "done";
+        const commissionEligible = ["paid", "done", "processing", "shipped", "delivered"].includes(status);
         const shippingType = String(
           metadata.shippingType || order.shippingType || ledger?.shipping_type || "standard"
         ).toLowerCase();
@@ -9071,9 +9068,7 @@ export default function App() {
   useEffect(() => {
     try {
       const savedAffiliates = JSON.parse(localStorage.getItem("tbv-affiliates") || "[]");
-      const savedAffiliateAttribution = (localStorage.getItem("tbv-active-affiliate") || "").trim().toUpperCase();
       if (Array.isArray(savedAffiliates)) setAffiliateProfiles(normalizeAffiliateRows(savedAffiliates));
-      if (savedAffiliateAttribution) setActiveAffiliateCode(savedAffiliateAttribution);
       const savedOrders = JSON.parse(localStorage.getItem("tbv-orders") || "[]");
       if (Array.isArray(savedOrders)) setAllOrders(savedOrders);
     } catch (error) {
@@ -9175,7 +9170,8 @@ export default function App() {
 
   useEffect(() => {
     loadAffiliateProfilesFromSupabase();
-  }, [currentUser?.email]);
+    return () => { affiliateProfileRequestRef.current += 1; };
+  }, [currentUser?.id, currentUser?.email]);
 
   useEffect(() => {
     if (activeAffiliateCode) {
@@ -9263,27 +9259,29 @@ export default function App() {
   }, [page, selectedUsWhName]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const browserCode = readAffiliateCodeFromBrowser();
-    if (!browserCode) return;
-
-    const existingStored = (localStorage.getItem("tbv-active-affiliate") || "").trim().toUpperCase();
-    if (!existingStored) {
-      // No affiliate locked yet — store this one
-      localStorage.setItem("tbv-active-affiliate", browserCode);
-      setActiveAffiliateCode(browserCode);
-    } else if (existingStored !== activeAffiliateCode) {
-      // Restore the locked affiliate if state drifted
-      setActiveAffiliateCode(existingStored);
-    }
-
-    const matchedAffiliate = affiliateProfiles.find(
-      (profile) => profile.code === browserCode
-    );
-
-    setPromoMessage("");
-  }, [affiliateProfiles, activeAffiliateCode, page]);
+    if (affiliateCodeRemoved) return;
+    const code = readAffiliateCodeFromBrowser() || String(currentUser?.affiliateCode || "").trim().toUpperCase();
+    if (!/^[A-Z0-9_-]{1,64}$/.test(code)) return;
+    const version = affiliateSelectionVersionRef.current;
+    let cancelled = false;
+    lookupPublicAffiliateCode(code).then(profile => {
+      if (cancelled || version !== affiliateSelectionVersionRef.current) return;
+      if (profile?.active !== false && profile?.code === code) selectAffiliateCode(code);
+      else {
+        setActiveAffiliateCode("");
+        try { localStorage.removeItem("tbv-active-affiliate"); } catch {}
+      }
+    }).catch(() => {
+      if (!cancelled && version === affiliateSelectionVersionRef.current) setPromoMessage(tx(
+        "Could not verify the referral code. Enter it again to retry.",
+        "Не удалось проверить партнёрский код. Введите его снова.",
+        "Не вдалося перевірити партнерський код. Введіть його знову.",
+        "Der Empfehlungscode konnte nicht geprüft werden. Bitte erneut eingeben.",
+        "No pudimos verificar el código de referido. Introdúcelo de nuevo."
+      ));
+    });
+    return () => { cancelled = true; };
+  }, [page, currentUser?.id, currentUser?.affiliateCode, affiliateCodeRemoved]);
 
   useEffect(() => {
     setCountrySearch(checkoutForm.country || "");
@@ -9745,7 +9743,7 @@ export default function App() {
     [cart]
   );
   const subtotal = useMemo(
-    () => cart.reduce((sum, item) => sum + Number(item.price || 0) * (item.quantity ?? item.qty ?? 1), 0),
+    () => sumLineAmounts(cart),
     [cart]
   );
 
@@ -9761,12 +9759,35 @@ export default function App() {
     }
   }, [subtotal, checkoutForm.country]);
 
-  const browserAffiliateCode = useMemo(
-    () => readAffiliateCodeFromBrowser(),
-    []
-  );
-  const resolvedAffiliateCode =
-    activeAffiliateCode || browserAffiliateCode || currentUser?.affiliateCode || "";
+  const resolvedAffiliateCode = getResolvedAffiliateCode();
+  const affiliateEligibilityKey = `${normalizeEmail(currentUser?.email)}:${resolvedAffiliateCode}`;
+  useEffect(() => {
+    if (!resolvedAffiliateCode) { setAffiliateEligibility(null); return; }
+    if (!currentUser?.email) {
+      setAffiliateEligibility({ key: affiliateEligibilityKey, status: "signed_out", discountBps: 0 });
+      return;
+    }
+    let cancelled = false;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    setAffiliateEligibility({ key: affiliateEligibilityKey, status: "loading", discountBps: 0 });
+    (async () => {
+      try {
+        const headers = await legacyCheckoutHeaders(supabase, currentUser.email);
+        const response = await fetch("/api/affiliate-eligibility", {
+          method: "POST", headers, body: JSON.stringify({ code: resolvedAffiliateCode }), signal: controller.signal,
+        });
+        const result = await response.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!response.ok || result?.ok !== true || result.code !== resolvedAffiliateCode
+          || ![0, 500].includes(result.discountBps)) throw new Error("Referral eligibility unavailable");
+        setAffiliateEligibility({ key: affiliateEligibilityKey, status: "ready", discountBps: result.discountBps });
+      } catch {
+        if (!cancelled) setAffiliateEligibility({ key: affiliateEligibilityKey, status: "unavailable", discountBps: 0 });
+      } finally { clearTimeout(timer); }
+    })();
+    return () => { cancelled = true; controller.abort(); clearTimeout(timer); };
+  }, [affiliateEligibilityKey, affiliateEligibilityRefresh, currentUser?.id, page]);
   const activeAffiliateProfile =
     affiliateProfiles.find(
       (profile) => profile.code === resolvedAffiliateCode && profile.active !== false
@@ -9810,8 +9831,9 @@ export default function App() {
   const automaticDiscountRate =
     subtotal >= 4000 ? 0.2 : subtotal >= 2000 ? 0.15 : subtotal >= 1000 ? 0.1 : 0;
   const promoDiscountRate = appliedPromo?.rate || 0;
-  const promoDiscount = subtotal * promoDiscountRate;
-  const isFirstTimeAffiliateBuyer = currentUser ? userOrders.length === 0 : true;
+  const promoDiscount = discountAmount(subtotal, promoDiscountRate);
+  const isFirstTimeAffiliateBuyer = affiliateEligibility?.key === affiliateEligibilityKey
+    && affiliateEligibility.status === "ready" && affiliateEligibility.discountBps > 0;
   const affiliateDiscountRate = hasActiveAffiliateDiscount && isFirstTimeAffiliateBuyer ? 0.05 : 0;
   // Only one discount (automatic vs affiliate) applies at a time — no stacking.
   // Highest rate always wins.
@@ -9824,8 +9846,8 @@ export default function App() {
         ? automaticDiscountRate > affiliateDiscountRate
         : automaticDiscountRate >= affiliateDiscountRate));
   const affiliateWins = hasActiveAffiliateDiscount && !autoWins;
-  const automaticDiscount = autoWins ? subtotal * automaticDiscountRate : 0;
-  const affiliateDiscount = affiliateWins ? subtotal * affiliateDiscountRate : 0;
+  const automaticDiscount = autoWins ? discountAmount(subtotal, automaticDiscountRate) : 0;
+  const affiliateDiscount = affiliateWins ? discountAmount(subtotal, affiliateDiscountRate) : 0;
   const getShippingPrice = (subtotal, type) => {
     if (type === "express") {
       if (subtotal >= 550) return 0;
@@ -9838,15 +9860,15 @@ export default function App() {
     return 59.99;
   };
 
-  const usSubtotal = cart.filter(i => i.fromWarehouse === "us").reduce((sum, i) => sum + Number(i.price || 0) * (i.quantity ?? i.qty ?? 1), 0);
-  const regularSubtotal = subtotal - usSubtotal;
+  const usSubtotal = sumLineAmounts(cart.filter(i => i.fromWarehouse === "us"));
+  const regularSubtotal = addAmounts(subtotal, -usSubtotal);
 
   const shipping =
     cart.length === 0 ? 0 : (appliedPromo?.freeShipping || ownerFreeShippingActive ? 0 : (regularSubtotal === 0 ? 0 : getShippingPrice(regularSubtotal, shippingType)));
-  const baseTotal = subtotal - automaticDiscount - promoDiscount - affiliateDiscount + shipping;
+  const baseTotal = addAmounts(subtotal, -automaticDiscount, -promoDiscount, -affiliateDiscount, shipping);
   // 2.5% discount for crypto payments
   const cryptoDiscountAmount = (paymentMethod === "crypto" && checkoutStep === "payment")
-    ? Math.round(baseTotal * 0.025 * 100) / 100
+    ? discountAmount(baseTotal, 0.025)
     : 0;
   const meritPayload = buildMeritCheckoutPayload({
     items: cart, checkoutForm, shippingType: effectiveShippingType,
@@ -10162,6 +10184,8 @@ export default function App() {
     };
     const attempt = await legacyAttemptsRef.current.prepare(provider, selection, snapshot, owner);
     if (checkoutBuyerRef.current !== owner) throw new Error("Sign in again before continuing checkout.");
+    if (!attempt.url && affiliateTrackingCode && (affiliateEligibility?.key !== affiliateEligibilityKey || affiliateEligibility.status !== "ready"))
+      throw new Error(tx("Wait for referral verification, or remove the code before paying.", "Дождитесь проверки партнёрского кода или удалите его перед оплатой."));
     const original = deferredLegacyOrderRef.current;
     if (!original || original.email !== snapshot.email) throw new Error("Review your checkout details before continuing.");
     deferredLegacyOrderRef.current = { ...original, ...snapshot, id: attempt.orderId, status: "pending", paymentProvider: "pending" };
@@ -10230,6 +10254,8 @@ export default function App() {
         method: "POST",
         headers: await legacyCheckoutHeaders(supabase, email),
         body: JSON.stringify({
+          expectedTotal: Number(finalTotal.toFixed(2)),
+          affiliateDiscountDisabled,
           pay_currency: payCurrency,
           order_id: orderNumber,
           success_url: `${window.location.origin}/?provider=nowpayments&payment=pending&order=${encodeURIComponent(orderNumber)}`,
@@ -10278,6 +10304,7 @@ export default function App() {
         );
       }
 
+      if (data?.code === "CHECKOUT_QUOTE_CHANGED") setAffiliateEligibilityRefresh(value => value + 1);
       if (!res.ok) {
         throw new Error(
           data?.message ||
@@ -10292,6 +10319,7 @@ export default function App() {
       setPaymentTimer(59 * 60 + 45);
 
       if (data?.invoice_url) {
+        if (Math.round(Number(data.price_amount) * 100) !== Math.round(finalTotal * 100)) throw new Error("Payment total does not match this checkout. Contact support before continuing.");
         const cryptoLabel = selectedNetwork
           ? `${selectedCrypto} · ${selectedNetwork}`
           : selectedCrypto || "Crypto";
@@ -10358,17 +10386,15 @@ export default function App() {
       items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}), ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}) })),
     };
     try {
-      await persistOrderToServer({
+      const data = await persistOrderToServer({
         id: orderNumber,
         email,
         status: "checkout",
         total: Number(finalTotal.toFixed(2)),
         metadata: meta,
-      });
-      const res = await fetch("/api/create-catalystpay-session", {
-        method: "POST",
-        headers: await legacyCheckoutHeaders(supabase, email),
-        body: JSON.stringify({
+      }, { kind: "catalystpay", body: {
+          expectedTotal: Number(finalTotal.toFixed(2)),
+          affiliateDiscountDisabled,
           order_id: orderNumber,
           customer_email: email || "",
           promoCode: appliedPromo?.code || "",
@@ -10398,11 +10424,9 @@ export default function App() {
             quantity: item.quantity,
             ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}),
           })),
-        }),
+        },
       });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || data?.message || "Failed to create CatalystPay invoice.");
+      if (Math.round(Number(data.amount) * 100) !== Math.round(finalTotal * 100)) throw new Error("Payment total does not match this checkout. Contact support before continuing.");
       if (!data?.checkoutLink) throw new Error("CatalystPay checkout link was not returned.");
 
       window.location.assign(legacyAttemptsRef.current.remember(attempt, data.checkoutLink));
@@ -10426,13 +10450,17 @@ export default function App() {
       if (attempt.url) { window.location.assign(attempt.url); legacyStartLockRef.current = false; setPaylioPaymentLoading(false); return; }
     } catch (error) { setPaylioPaymentError(error.message); legacyStartLockRef.current = false; setPaylioPaymentLoading(false); return; }
     const orderNumber = attempt.orderId;
-    try { await markOrderCheckoutStartedById(orderNumber, provider || "Paylio"); } catch (e) { setPaylioPaymentError(e?.message || "Could not save this checkout."); legacyStartLockRef.current = false; setPaylioPaymentLoading(false); return; }
     try {
       const orderDescription = `10BottleValueCo ${orderNumber}`;
-      const res = await fetch("/api/create-paylio-payment", {
-        method: "POST",
-        headers: await legacyCheckoutHeaders(supabase, email),
-        body: JSON.stringify({
+      const savedOrder = getStoredOrders().find(order => order.id === orderNumber) || deferredLegacyOrderRef.current;
+      const data = await persistOrderToServer({
+        id: orderNumber, email, status: "checkout", total: Number(finalTotal.toFixed(2)),
+        metadata: { ...deferredLegacyOrderRef.current, status: "checkout",
+          paymentProvider: savedOrder?.paymentProvider && savedOrder.paymentProvider !== "pending" ? savedOrder.paymentProvider : provider || "Paylio",
+          checkoutStartedAt: savedOrder?.checkoutStartedAt || new Date().toISOString() },
+      }, { kind: "paylio", body: {
+          expectedTotal: Number(finalTotal.toFixed(2)),
+          affiliateDiscountDisabled,
           amount: Number(finalTotal.toFixed(2)),
           currency: "USD",
           orderId: orderNumber,
@@ -10491,10 +10519,9 @@ export default function App() {
             taxId: syncedCF.taxId || "",
             orderNotes: getCheckoutOrderNotes(syncedCF),
           },
-        }),
+        },
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.message || data?.error || "Failed to create Paylio payment link.");
+      if (Math.round(Number(data.verifiedAmount) * 100) !== Math.round(finalTotal * 100)) throw new Error("Payment total does not match this checkout. Contact support before continuing.");
       const paymentUrl = data?.payment_url;
       if (!paymentUrl) throw new Error("Paylio payment link was not returned by the server.");
       try { localStorage.setItem(`tbv-pay-method-${orderNumber}`, "Card"); } catch {}
@@ -10597,49 +10624,8 @@ export default function App() {
       const previous = meritAttemptRef.current;
       if (previous?.createRequested && previous.digest !== digest) { showMeritReservedAttempt(); return; }
       const attempt = previous?.digest === digest ? previous : { key: window.crypto.randomUUID(), digest, orderId: "", submitted: false };
-      const canonicalOrderId = meritOrderIdFromCheckoutKey(attempt.key);
-      if (attempt.orderId && attempt.orderId !== canonicalOrderId) throw new Error("merit_order_id_mismatch");
-      attempt.orderId = canonicalOrderId;
-      attempt.checkoutStartedAt = attempt.checkoutStartedAt || new Date().toISOString();
       meritAttemptRef.current = attempt;
       saveMeritAttempt(window.sessionStorage, attempt);
-      const checkoutClickOrder = {
-        id: attempt.orderId,
-        invoiceId: getAdminInvoiceLabel({ id: attempt.orderId, paymentProvider: "Merit" }),
-        email: normalizeEmail(currentUser.email),
-        status: "checkout",
-        paymentProvider: "Merit",
-        checkoutStartedAt: attempt.checkoutStartedAt,
-        verificationPending: true,
-        total: Number(finalTotal.toFixed(2)),
-        subtotal: Number(subtotal.toFixed(2)),
-        shipping: Number(shipping.toFixed(2)),
-        shippingType: effectiveShippingType,
-        automaticDiscount: Number(automaticDiscount.toFixed(2)),
-        promoDiscount: Number(promoDiscount.toFixed(2)),
-        promoCode: appliedPromo?.code || "",
-        affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-        affiliateCode: affiliateTrackingCode,
-        items: cart.map(item => ({
-          name: item.name,
-          dose: item.dose,
-          quantity: item.quantity ?? item.qty ?? 1,
-          price: Number.isFinite(Number(item.price)) ? Number(item.price) : 0,
-          ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}),
-          ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}),
-          ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}),
-        })),
-      };
-      await persistOrderToServer({
-        id: checkoutClickOrder.id,
-        email: checkoutClickOrder.email,
-        status: checkoutClickOrder.status,
-        total: checkoutClickOrder.total,
-        metadata: checkoutClickOrder,
-      });
-      if (meritInputsRef.current !== requestedInputs || meritSelectionRef.current.method !== "stripe" || meritSelectionRef.current.step !== "payment") {
-        throw new Error("checkout_changed");
-      }
       const verificationAbort = new AbortController();
       meritVerificationAbortRef.current = verificationAbort;
       const proof = await verifyMeritCheckoutBuyer(currentUser.email, undefined, { signal: verificationAbort.signal });
@@ -10650,7 +10636,7 @@ export default function App() {
       attempt.createRequested = payload.useStoreCredit === true;
       saveMeritAttempt(window.sessionStorage, attempt);
       const result = await meritApi.create({ checkoutKey: attempt.key, payload, proof });
-      if (result.session.orderId !== attempt.orderId) throw new Error("merit_order_id_mismatch");
+      attempt.orderId = result.session.orderId;
       if (result.session.storeCreditUsedCents === 0) attempt.createRequested = false;
       if (result.paid === true) {
         // A recovered create response may describe an already-paid attempt.
@@ -10673,29 +10659,12 @@ export default function App() {
         }
         return;
       }
-      const meritOrder = {
-        ...result.order,
-        id: result.session.orderId,
-        invoiceId: getAdminInvoiceLabel({ ...result.order, id: result.session.orderId, paymentProvider: "Merit" }),
-        email: normalizeEmail(currentUser.email),
-        status: "checkout",
-        paymentProvider: "Merit",
-        checkoutStartedAt: attempt.checkoutStartedAt,
-        verificationPending: false,
-      };
-      await persistOrderToServer({
-        id: meritOrder.id,
-        email: meritOrder.email,
-        status: meritOrder.status,
-        total: meritOrder.total,
-        metadata: meritOrder,
-      });
       saveMeritAttempt(window.sessionStorage, attempt);
       if (meritInputsRef.current !== requestedInputs || meritSelectionRef.current.method !== "stripe" || meritSelectionRef.current.step !== "payment") throw new Error("checkout_changed");
       setOrderNumber(result.session.orderId);
       setMeritSession({ ...result.session, order: { ...result.order.metadata, ...result.order }, inputsKey: requestedInputs });
     } catch (error) {
-      if (["MERIT_PROMO_UNVERIFIED", "MERIT_AFFILIATE_UNVERIFIED", "MERIT_FULL_CREDIT_AVAILABLE", "MERIT_CREDIT_PENDING", "MERIT_CREDIT_BALANCE_UNAVAILABLE"].includes(error?.code) && !meritAttemptRef.current?.orderId) {
+      if (["MERIT_PROMO_UNVERIFIED", "MERIT_AFFILIATE_UNVERIFIED", "MERIT_AFFILIATE_UNAVAILABLE", "MERIT_AFFILIATE_RULES_UNAVAILABLE", "MERIT_AFFILIATE_LOOKUP_UNAVAILABLE", "MERIT_FULL_CREDIT_AVAILABLE", "MERIT_CREDIT_PENDING", "MERIT_CREDIT_BALANCE_UNAVAILABLE"].includes(error?.code) && !meritAttemptRef.current?.orderId) {
         meritAttemptRef.current.createRequested = false;
         saveMeritAttempt(window.sessionStorage, meritAttemptRef.current);
       }
@@ -10711,66 +10680,6 @@ export default function App() {
       meritVerificationAbortRef.current = null;
       meritCreateBusyRef.current = false;
       setStripeLoading(false);
-    }
-  }
-
-  async function handleWireConfirm() {
-    if (wireLoading || wireConfirmed) return;
-    setWireLoading(true);
-    setWireError("");
-    try {
-      const syncedCF = readCheckoutSnapshot();
-      const email = (syncedCF.email || currentUser?.email || "").trim().toLowerCase();
-      const now = new Date().toISOString();
-      const meta = {
-        id: orderNumber,
-        email,
-        status: "wire_pending",
-        paymentProvider: "Wire Transfer (SWIFT)",
-        wireConfirmedAt: now,
-        total: Number(finalTotal.toFixed(2)),
-        subtotal: Number(subtotal.toFixed(2)),
-        shipping: Number(shipping.toFixed(2)),
-        shippingType: effectiveShippingType,
-        automaticDiscount: Number(automaticDiscount.toFixed(2)),
-        promoDiscount: Number(promoDiscount.toFixed(2)),
-        promoCode: appliedPromo?.code || "",
-        affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-         cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-        affiliateCode: affiliateTrackingCode,
-        affiliateOwnerEmail: affiliateTrackingOwnerEmail,
-        affiliateCommission: Number(affiliateCommission.toFixed(2)),
-        storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-        firstName: syncedCF.firstName || "",
-        lastName: syncedCF.lastName || "",
-        country: syncedCF.country || "",
-        address: syncedCF.address || "",
-        address2: syncedCF.address2 || "",
-        city: syncedCF.city || "",
-        state: syncedCF.state || "",
-        postalCode: syncedCF.postalCode || "",
-        phone: syncedCF.phone || "",
-        taxId: syncedCF.taxId || "",
-        orderNotes: getCheckoutOrderNotes(syncedCF),
-        items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}), ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}) })),
-      };
-      await persistOrderToServer({
-        id: orderNumber,
-        email,
-        status: "wire_pending",
-        total: Number(finalTotal.toFixed(2)),
-        metadata: meta,
-      });
-      await fetch("/api/send-wire-confirmation", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderNumber, email, total: Number(finalTotal.toFixed(2)), firstName: syncedCF.firstName || "", lastName: syncedCF.lastName || "" }),
-      }).catch(() => {});
-      setWireConfirmed(true);
-    } catch (e) {
-      setWireError("Something went wrong. Please email us with your order number.");
-    } finally {
-      setWireLoading(false);
     }
   }
 
@@ -10889,6 +10798,7 @@ export default function App() {
   }
 
   async function applyPromoCode() {
+    const requestId = ++promoApplyRequestRef.current;
     const normalizedCode = promoInput.trim().toUpperCase();
 
     if (!normalizedCode) {
@@ -10918,9 +10828,8 @@ export default function App() {
       );
       return;
     }
-    let matchedAffiliate = affiliateProfiles.find(
-      (profile) => profile.code === normalizedCode && profile.active !== false
-    );
+    // A cached admin/affiliate list is display data, never current eligibility.
+    let matchedAffiliate = null;
 
     let matchedUserPromo = !promo && !matchedAffiliate
       ? userPromos.find((p) => p.code === normalizedCode && p.used === false && p.active !== false
@@ -10929,29 +10838,27 @@ export default function App() {
       : null;
 
     if (!promo && !matchedAffiliate && !matchedUserPromo) {
+      let lookupFailed = false;
       try {
         const publicPromo = await lookupPublicPromoCode(normalizedCode);
-        if (publicPromo) {
-          matchedUserPromo = {
-            ...publicPromo,
-            id: null,
-            email: "__PUBLIC__",
-            used: false,
-          };
-        } else {
+        if (publicPromo) matchedUserPromo = { ...publicPromo, id: null, email: "__PUBLIC__", used: false };
+      } catch { lookupFailed = true; }
+      if (requestId !== promoApplyRequestRef.current) return;
+      if (!matchedUserPromo) {
+        try {
           const publicAffiliate = await lookupPublicAffiliateCode(normalizedCode);
-          if (publicAffiliate?.active !== false) matchedAffiliate = publicAffiliate;
-        }
-      } catch {
-        setPromoMessage(
-          tx(
-            "Could not verify this code right now. Please try again.",
-            "Не удалось проверить код. Попробуйте ещё раз.",
-            "Не вдалося перевірити код. Спробуйте ще раз.",
-            "Der Code konnte gerade nicht geprüft werden. Bitte versuchen Sie es erneut.",
-            "No se pudo verificar el código. Inténtalo de nuevo."
-          )
-        );
+          if (publicAffiliate?.code === normalizedCode && publicAffiliate.active !== false) matchedAffiliate = publicAffiliate;
+        } catch { lookupFailed = true; }
+      }
+      if (requestId !== promoApplyRequestRef.current) return;
+      if (!matchedAffiliate && !matchedUserPromo && lookupFailed) {
+        setPromoMessage(tx(
+          "Could not verify this code right now. Please try again.",
+          "Не удалось проверить код. Попробуйте ещё раз.",
+          "Не вдалося перевірити код. Спробуйте ще раз.",
+          "Der Code konnte gerade nicht geprüft werden. Bitte versuchen Sie es erneut.",
+          "No se pudo verificar el código. Inténtalo de nuevo."
+        ));
         return;
       }
     }
@@ -10995,10 +10902,6 @@ export default function App() {
         );
         return;
       }
-      setAffiliateDiscountDisabled(true);
-      setAffiliateManuallyApplied(false);
-      setActiveAffiliateCode("");
-      try { localStorage.removeItem("tbv-active-affiliate"); } catch {}
       setAppliedPromo({ code: normalizedCode, rate: matchedUserPromo.rate, label: `${+(matchedUserPromo.rate * 100).toFixed(2)}% discount`, type: "user_promo", id: matchedUserPromo.id });
       setPromoInput("");
       setPromoMessage(
@@ -11046,28 +10949,15 @@ export default function App() {
       setAppliedPromo(null);
       setAffiliateDiscountDisabled(false);
       setAffiliateManuallyApplied(true);
-      setActiveAffiliateCode(matchedAffiliate.code);
-      try {
-        localStorage.setItem("tbv-active-affiliate", matchedAffiliate.code);
-      } catch {}
+      selectAffiliateCode(matchedAffiliate.code);
       setPromoInput("");
       setPromoMessage(
         tx(
-          isFirstTimeAffiliateBuyer
-            ? `${matchedAffiliate.code} applied successfully. 5% off your first order applied.`
-            : `${matchedAffiliate.code} applied successfully. Referral code active.`,
-          isFirstTimeAffiliateBuyer
-            ? `${matchedAffiliate.code} успешно применён. Скидка 5% на первый заказ активна.`
-            : `${matchedAffiliate.code} успешно применён. Реферальный код активен.`,
-          isFirstTimeAffiliateBuyer
-            ? `${matchedAffiliate.code} успішно застосовано. Знижка 5% на перше замовлення активна.`
-            : `${matchedAffiliate.code} успішно застосовано. Реферальний код активний.`,
-          isFirstTimeAffiliateBuyer
-            ? `${matchedAffiliate.code} erfolgreich angewendet. 5% Rabatt auf Ihre erste Bestellung.`
-            : `${matchedAffiliate.code} erfolgreich angewendet. Empfehlungscode aktiv.`,
-          isFirstTimeAffiliateBuyer
-            ? `${matchedAffiliate.code} aplicado. 5% de descuento en tu primer pedido.`
-            : `${matchedAffiliate.code} aplicado. Código de referido activo.`
+          `${matchedAffiliate.code} saved.`,
+          `${matchedAffiliate.code} сохранён.`,
+          `${matchedAffiliate.code} збережено.`,
+          `${matchedAffiliate.code} gespeichert.`,
+          `${matchedAffiliate.code} guardado.`
         )
       );
       return;
@@ -11100,12 +10990,6 @@ export default function App() {
       );
       return;
     }
-    setAffiliateDiscountDisabled(true);
-    setAffiliateManuallyApplied(false);
-    setActiveAffiliateCode("");
-    try {
-      localStorage.removeItem("tbv-active-affiliate");
-    } catch {}
     setAppliedPromo(promo);
     setPromoInput("");
     setPromoMessage(
@@ -11120,6 +11004,7 @@ export default function App() {
   }
 
   function removePromoCode() {
+    promoApplyRequestRef.current += 1;
     if (ownerFreeShippingActive) {
       setOwnerFreeShippingActive(false);
       setPromoInput("OWNERFREESHIP");
@@ -11154,12 +11039,7 @@ export default function App() {
 
     if (resolvedAffiliateCode) {
       const removedCode = resolvedAffiliateCode;
-      setAffiliateDiscountDisabled(true);
-      setAffiliateManuallyApplied(false);
-      setActiveAffiliateCode("");
-      try {
-        localStorage.removeItem("tbv-active-affiliate");
-      } catch {}
+      clearSelectedAffiliateCode();
       setPromoInput(removedCode);
       setPromoMessage(
         tx(
@@ -12122,7 +12002,7 @@ export default function App() {
       if (registrationPromoCode && !matchedRegistrationAffiliate) {
         try {
           const publicAffiliate = await lookupPublicAffiliateCode(registrationPromoCode);
-          if (publicAffiliate?.active !== false) matchedRegistrationAffiliate = publicAffiliate;
+          if (publicAffiliate?.code === registrationPromoCode && publicAffiliate?.active === true) matchedRegistrationAffiliate = publicAffiliate;
         } catch {
           setAccountMessage(tx(
             "Could not verify the affiliate code right now. Please try again.",
@@ -12149,78 +12029,62 @@ export default function App() {
       }
 
       setAccountMessage(tx("Creating account…", "Создаём аккаунт…", "Створюємо акаунт…", "Konto wird erstellt…", "Creando cuenta…"));
-      requireSignupVerificationRef.current = false;
-      const affiliateCode = (activeAffiliateCode || browserAffiliateCode || registrationPromoCode || "").trim().toUpperCase();
+      requireSignupVerificationRef.current = true;
+      let signUpData;
+      let signUpError;
       try {
-        const signupResult = await customerSignup({ email, password, affiliateCode });
-        if (signupResult?.ok !== true) throw new Error("signup_failed");
+        ({ data: signUpData, error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              affiliateCode: (getResolvedAffiliateCode() || registrationPromoCode || "").trim().toUpperCase(),
+              promoLockedAt: (getResolvedAffiliateCode() || registrationPromoCode) ? new Date().toISOString() : "",
+            },
+          },
+        }));
       } catch (error) {
-        setAccountMessage(error?.status === 429
-          ? tx(
-              "Too many attempts. Please wait and try again.",
-              "Слишком много попыток. Подождите и попробуйте снова.",
-              "Забагато спроб. Зачекайте й спробуйте знову.",
-              "Zu viele Versuche. Bitte warten Sie und versuchen Sie es erneut.",
-              "Demasiados intentos. Espera e inténtalo de nuevo."
-            )
-          : tx(
-              "Could not create the account. Please try again or sign in.",
-              "Не удалось создать аккаунт. Попробуйте ещё раз или войдите.",
-              "Не вдалося створити акаунт. Спробуйте ще раз або увійдіть.",
-              "Das Konto konnte nicht erstellt werden. Bitte versuchen Sie es erneut oder melden Sie sich an.",
-              "No se pudo crear la cuenta. Inténtalo de nuevo o inicia sesión."
-            ));
-        return;
-      }
-
-      sessionStorage.removeItem("tbv-pw-recovery");
-      sessionStorage.removeItem("tbv-recovery-at");
-      sessionStorage.removeItem("tbv-recovery-rt");
-      let signInData;
-      let signInError;
-      try {
-        ({ data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password }));
-      } catch {
-        signInError = new Error("automatic_signin_failed");
-      }
-
-      if (signInError || !signInData?.session?.user) {
-        setAuthMode("signin");
-        setAccountForm({ email, password: "", confirmPassword: "" });
-        setAccountMessage(tx(
-          "Account created. Please sign in to continue.",
-          "Аккаунт создан. Войдите, чтобы продолжить.",
-          "Акаунт створено. Увійдіть, щоб продовжити.",
-          "Konto erstellt. Bitte melden Sie sich an, um fortzufahren.",
-          "Cuenta creada. Inicia sesión para continuar."
+        requireSignupVerificationRef.current = false;
+        setAccountMessage(error?.message || tx(
+          "Could not create the account. Please try again.",
+          "Не удалось создать аккаунт. Попробуйте ещё раз.",
+          "Не вдалося створити акаунт. Спробуйте ще раз.",
+          "Das Konto konnte nicht erstellt werden. Bitte versuchen Sie es erneut.",
+          "No se pudo crear la cuenta. Inténtalo de nuevo."
         ));
         return;
       }
 
-      const newUser = userFromSupabase(signInData.session.user);
-      const confirmedAffiliateCode = String(newUser?.affiliateCode || affiliateCode).trim().toUpperCase();
-      setCurrentUser(newUser);
-      syncUserPaidOrders(newUser.email);
-      fetchUserPromos(newUser.email, appliedPromo);
-      loadStoreCredit(newUser.email);
-      setAccountForm({ email: newUser.email, password: "", confirmPassword: "" });
-      setAccountPromoCodeInput("");
-      setSignupVerificationEmail("");
+      if (signUpError) {
+        requireSignupVerificationRef.current = false;
+        setAccountMessage(signUpError.message);
+        return;
+      }
+
+      if (signUpData?.session) {
+        await supabase.auth.signOut();
+        setAccountMessage(tx(
+          "Email confirmation is not enabled for this site. Please contact support before signing in.",
+          "Подтверждение email не включено на этом сайте. Перед входом обратитесь в поддержку.",
+          "Підтвердження email не ввімкнено на цьому сайті. Перед входом зверніться до служби підтримки.",
+          "Die E-Mail-Bestätigung ist auf dieser Website nicht aktiviert. Bitte wenden Sie sich vor der Anmeldung an den Support.",
+          "La confirmación por email no está activada en este sitio. Contacta con soporte antes de iniciar sesión."
+        ));
+        return;
+      }
+
+      setSignupVerificationEmail(email);
       setSignupVerificationCode("");
-      setPendingRegistrationPromoCode("");
-      setAuthMode("signin");
-      if (confirmedAffiliateCode) {
-        setActiveAffiliateCode(confirmedAffiliateCode);
-        try { localStorage.setItem("tbv-active-affiliate", confirmedAffiliateCode); } catch {}
-      } else {
-        setActiveAffiliateCode("");
-        try { localStorage.removeItem("tbv-active-affiliate"); } catch {}
-      }
-      setAccountMessage("");
-      if (pendingCheckoutAfterAuth && cart.length > 0) {
-        setPendingCheckoutAfterAuth(false);
-        setPage("cart");
-      }
+      setPendingRegistrationPromoCode(registrationPromoCode);
+      setAccountForm({ email, password: "", confirmPassword: "" });
+      setAuthMode("verify");
+      setAccountMessage(tx(
+        "A six-digit code was sent. Check your inbox and spam folder.",
+        "Отправили код из шести цифр. Проверьте входящие и папку со спамом.",
+        "Надіслали код із шести цифр. Перевірте вхідні та папку зі спамом.",
+        "Ein sechsstelliger Code wurde gesendet. Prüfen Sie Ihren Posteingang und Spam-Ordner.",
+        "Enviamos un código de seis dígitos. Revisa tu bandeja de entrada y correo no deseado."
+      ));
       return;
     }
 
@@ -12272,7 +12136,6 @@ export default function App() {
     loadStoreCredit(loggedInUser.email);
     setAccountForm({ email: loggedInUser.email, password: "", confirmPassword: "" });
     setAccountPromoCodeInput("");
-    if (loggedInUser.affiliateCode) setActiveAffiliateCode(loggedInUser.affiliateCode);
     setAccountMessage("");
     if (pendingCheckoutAfterAuth && cart.length > 0) {
       setPendingCheckoutAfterAuth(false);
@@ -12331,9 +12194,6 @@ export default function App() {
       }
 
       const newUser = userFromSupabase(verifiedUser);
-      const affiliateCode = String(
-        pendingRegistrationPromoCode || newUser?.affiliateCode || ""
-      ).trim().toUpperCase();
       setCurrentUser(newUser);
       setAccountForm({ email: newUser.email, password: "", confirmPassword: "" });
       setAccountPromoCodeInput("");
@@ -12344,13 +12204,7 @@ export default function App() {
       syncUserPaidOrders(newUser.email);
       fetchUserPromos(newUser.email, appliedPromo);
       loadStoreCredit(newUser.email);
-      if (affiliateCode) {
-        setActiveAffiliateCode(affiliateCode);
-        try { localStorage.setItem("tbv-active-affiliate", affiliateCode); } catch {}
-      } else {
-        setActiveAffiliateCode("");
-        try { localStorage.removeItem("tbv-active-affiliate"); } catch {}
-      }
+      // The account-change effect validates signup attribution before selection.
       setAccountMessage("");
       if (pendingCheckoutAfterAuth && cart.length > 0) {
         setPendingCheckoutAfterAuth(false);
@@ -13198,6 +13052,7 @@ export default function App() {
 
   const navigateAccountSection = (section) => {
     setActiveAccountSection(section);
+    if (section === "affiliate") loadAffiliateProfilesFromSupabase();
     if (section === "messages") {
       setContactModalOpen(false);
       setReplyPreview(null);
@@ -17996,6 +17851,9 @@ export default function App() {
                   onChooseAvatar={handleAvatarSelection}
                   onSignOut={handleSignOut}
                   affiliateProfile={currentAffiliateProfile}
+                  affiliateProfileLoading={!affiliateProfilesLoaded}
+                  affiliateProfileError={affiliateProfileError}
+                  onRetryAffiliateProfile={loadAffiliateProfilesFromSupabase}
                   affiliateOrders={
                     affiliateDataCode ===
                     String(currentAffiliateProfile?.code || "").trim().toUpperCase()
@@ -20421,8 +20279,8 @@ export default function App() {
 
                   {/* Promo code */}
                   <div className="border-t border-white/10 pt-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex max-w-[220px] flex-1 gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex min-w-[180px] flex-1 gap-2">
                         <BufferedInput
                           value={promoInput}
                           onValueChange={(value) => {
@@ -20440,9 +20298,28 @@ export default function App() {
                           {t("apply")}
                         </button>
                       </div>
+                      {(ownerFreeShippingActive || appliedPromo || (resolvedAffiliateCode && !affiliateDiscountDisabled)) && (
+                        <button type="button" onClick={removePromoCode}
+                          className="shrink-0 rounded-full border border-white/30 px-3 py-2 text-xs text-white hover:bg-white/10">
+                          {tx("Remove code", "Убрать код", "Прибрати код", "Code entfernen", "Quitar código")}
+                        </button>
+                      )}
                       {promoMessage && (
-                        <div className="shrink-0 text-right text-xs text-white/80">
+                        <div role="status" className="w-full text-xs text-white/80">
                           {promoMessage}
+                        </div>
+                      )}
+                      {resolvedAffiliateCode && !appliedPromo && !affiliateDiscountDisabled && (
+                        <div role="status" className="w-full text-xs leading-5 text-white/80">
+                          {!currentUser?.email
+                            ? tx("Sign in to confirm your first-order discount.", "Войдите, чтобы подтвердить скидку на первый заказ.", "Увійдіть, щоб підтвердити знижку на перше замовлення.", "Melden Sie sich an, um Ihren Erstbestellungsrabatt zu bestätigen.", "Inicia sesión para confirmar tu descuento del primer pedido.")
+                            : affiliateEligibility?.key !== affiliateEligibilityKey || affiliateEligibility.status === "loading"
+                              ? tx("Checking your referral discount…", "Проверяем партнёрскую скидку…", "Перевіряємо партнерську знижку…", "Empfehlungsrabatt wird geprüft…", "Comprobando tu descuento…")
+                              : affiliateEligibility.status === "unavailable"
+                                ? <>{tx("We could not confirm this referral. Retry or remove the code before paying.", "Не удалось подтвердить партнёрский код. Повторите проверку или уберите код перед оплатой.", "Не вдалося підтвердити партнерський код. Повторіть перевірку або приберіть код перед оплатою.", "Der Empfehlungscode konnte nicht bestätigt werden. Erneut prüfen oder vor der Zahlung entfernen.", "No pudimos confirmar el código. Reintenta o quítalo antes de pagar.")} <button type="button" className="underline" onClick={() => setAffiliateEligibilityRefresh(value => value + 1)}>{tx("Retry", "Повторить", "Повторити", "Erneut versuchen", "Reintentar")}</button></>
+                                : isFirstTimeAffiliateBuyer
+                                  ? tx("Your 5% first-order discount is confirmed. The largest eligible discount applies.", "Скидка 5% на первый заказ подтверждена. Применяется наибольшая доступная скидка.", "Знижку 5% на перше замовлення підтверджено. Застосовується найбільша доступна знижка.", "Ihr Erstbestellungsrabatt von 5% ist bestätigt. Es gilt der höchste verfügbare Rabatt.", "Tu descuento del 5% está confirmado. Se aplica el mayor descuento disponible.")
+                                  : tx("Referral code active. The 5% discount applies to your first paid order only.", "Партнёрский код активен. Скидка 5% действует только на первый оплаченный заказ.", "Партнерський код активний. Знижка 5% діє лише на перше оплачене замовлення.", "Empfehlungscode aktiv. Der Rabatt von 5% gilt nur für Ihre erste bezahlte Bestellung.", "Código activo. El descuento del 5% solo se aplica al primer pedido pagado.")}
                         </div>
                       )}
                     </div>
@@ -21110,8 +20987,9 @@ export default function App() {
                           Invoice
                         </div>
                         <div className="mt-1 break-all text-[18px] font-semibold tracking-[-0.03em] md:text-[28px] md:tracking-[-0.04em]">
-                          {orderNumber}
+                          <span title={orderNumber}>{formatInvoiceLabel(orderNumber)}</span>
                         </div>
+
                       </div>
                       <button
                         type="button"
@@ -21378,11 +21256,11 @@ export default function App() {
                               </button>
                               <div className="mt-3 text-center text-[12px] leading-5 text-black/40">
                                 {tx(
-                                  `Order ${orderNumber} — secure card checkout.`,
-                                  `Заказ ${orderNumber} — безопасная оплата картой.`,
-                                  `Замовлення ${orderNumber} — безпечна оплата карткою.`,
-                                  `Bestellung ${orderNumber} — sichere Kartenzahlung.`,
-                                  `Pedido ${orderNumber} — pago seguro con tarjeta.`
+                                  `Order ${formatInvoiceLabel(orderNumber)} — secure card checkout.`,
+                                  `Заказ ${formatInvoiceLabel(orderNumber)} — безопасная оплата картой.`,
+                                  `Замовлення ${formatInvoiceLabel(orderNumber)} — безпечна оплата карткою.`,
+                                  `Bestellung ${formatInvoiceLabel(orderNumber)} — sichere Kartenzahlung.`,
+                                  `Pedido ${formatInvoiceLabel(orderNumber)} — pago seguro con tarjeta.`
                                 )}
                               </div>
                             </div>
@@ -21400,11 +21278,11 @@ export default function App() {
                               </div>
                               <div className="mt-3 text-[13px] leading-6 text-black/50 md:text-sm md:leading-7">
                                 {tx(
-                                  `Order ${orderNumber} — secure PayPal checkout.`,
-                                  `Заказ ${orderNumber} — безопасная оплата через PayPal.`,
-                                  `Замовлення ${orderNumber} — безпечна оплата через PayPal.`,
-                                  `Bestellung ${orderNumber} — sicherer PayPal-Checkout.`,
-                                  `Pedido ${orderNumber} — pago seguro con PayPal.`
+                                  `Order ${formatInvoiceLabel(orderNumber)} — secure PayPal checkout.`,
+                                  `Заказ ${formatInvoiceLabel(orderNumber)} — безопасная оплата через PayPal.`,
+                                  `Замовлення ${formatInvoiceLabel(orderNumber)} — безпечна оплата через PayPal.`,
+                                  `Bestellung ${formatInvoiceLabel(orderNumber)} — sicherer PayPal-Checkout.`,
+                                  `Pedido ${formatInvoiceLabel(orderNumber)} — pago seguro con PayPal.`
                                 )}
                               </div>
                             </div>
@@ -21772,7 +21650,7 @@ export default function App() {
                                 ✓ {tx("Email copied!","Почта скопирована!","Пошту скопійовано!","E-Mail kopiert!","¡Correo copiado!")}
                               </div>
                               <div className="mt-4 text-[12px] text-black/40">
-                                {`Order ${orderNumber}`}
+                                {`Order ${formatInvoiceLabel(orderNumber)}`}
                               </div>
                             </div>
                           </div>
@@ -22490,6 +22368,8 @@ export default function App() {
           </main>
         )}
       </div>
+
+      <PaymentOpeningDialog open={paylioPaymentLoading || catalystPayLoading} tx={tx} />
 
       {showProviderWarning && (
         <div

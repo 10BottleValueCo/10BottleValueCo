@@ -1,3 +1,5 @@
+import { settlementAffiliate } from "./_settlement-affiliate.js";
+import { sendPaymentConfirmationEmail } from "./_payment-confirmation-email.js";
 import { acknowledgeLegacyPaid, inspectLegacyTransition } from "./_legacy-paid-transition.js";
 import { debitLegacyOrderCredit } from "./_legacy-store-credit.js";
 import crypto from "crypto";
@@ -161,10 +163,11 @@ export default async function handler(req, res) {
   const finalAutoDiscount = Number(sbMeta.automaticDiscount ?? 0);
   const finalPromoDiscount = Number(sbMeta.promoDiscount ?? 0);
   const finalAffiliateDiscount = Number(sbMeta.affiliateDiscount ?? 0);
-  const finalAffiliateOwnerEmail = String(sbMeta.affiliateOwnerEmail || "");
+  const verifiedAffiliate = await settlementAffiliate(sbMeta, email, finalSubtotal, orderId, savedOrder.status);
+  const finalAffiliateOwnerEmail = verifiedAffiliate.ownerEmail;
   const finalStoreCreditUsed = Number(sbMeta.storeCreditUsed ?? 0);
-  const finalAffiliateCode = String(sbMeta.affiliateCode || "").trim().toUpperCase();
-  const finalAffiliateCommission = Number(finalSubtotal || finalTotal) * 0.1;
+  const finalAffiliateCode = verifiedAffiliate.code;
+  const finalAffiliateCommission = verifiedAffiliate.commission;
   const finalShippingType = String(sbMeta.shippingType || "standard");
 
   const expectedPaid = { id: orderId, email, status: "paid", payment_provider: "CatalystPay BTC",
@@ -180,10 +183,7 @@ export default async function handler(req, res) {
   const dbMarkedPaid = true, dbWriteError = null;
 
   if (!alreadyEmailSent) {
-    const emailResponse = await fetch(`${BASE_URL}/api/send-payment-confirmed-email`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const emailResponse = await sendPaymentConfirmationEmail({
         email,
         orderId,
         total: finalTotal,
@@ -209,8 +209,7 @@ export default async function handler(req, res) {
         postalCode: String(sbMeta.postalCode || ""),
         phone: String(sbMeta.phone || ""),
         country: String(sbMeta.country || ""),
-      }),
-    }).catch((e) => console.error("CatalystPay: send-payment-confirmed-email failed:", e.message));
+      }, { escapeValues: true }).catch(() => { console.error("CatalystPay payment receipt delivery failed"); });
 
     if (emailResponse?.ok && SB_URL && SB_KEY) {
       await fetch(`${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(orderId)}&status=eq.paid`, {

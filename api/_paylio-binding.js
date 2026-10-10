@@ -64,10 +64,16 @@ export function paylioCustomerUrl(value,email,provider=''){
 }
 export async function bindPaylio(attempt,data,deps={}){
   const url=paylioCheckoutUrl(data?.checkout_url||data?.short_url);
-  if(!object(data)||!ID.test(data.payment_id||'')||typeof data.ipn_token!=='string'||data.ipn_token.length<8||data.ipn_token.length>512
-    ||data.status!=='unpaid'||paylioCents(data.amount)!==attempt.amount_cents
-    ||(data.currency!==undefined&&String(data.currency).toUpperCase()!=='USD')
-    ||(data.pass_fee_to_customer!==undefined&&data.pass_fee_to_customer!==false)||(data.original_amount!=null&&paylioCents(data.original_amount)!==attempt.amount_cents))throw new PaylioError('PAYLIO_CREATION_MISMATCH');
+  const checks=[
+    ['payment_id',object(data)&&ID.test(data.payment_id||'')],
+    ['callback_token',typeof data?.ipn_token==='string'&&data.ipn_token.length>=8&&data.ipn_token.length<=512],
+    ['status',data?.status==='unpaid'],['amount',paylioCents(data?.amount)===attempt.amount_cents],
+    ['currency',data?.currency===undefined||String(data.currency).toUpperCase()==='USD'],
+    ['fee_mode',data?.pass_fee_to_customer===undefined||data.pass_fee_to_customer===false],
+    ['original_amount',data?.original_amount==null||paylioCents(data.original_amount)===attempt.amount_cents],
+  ];
+  const failed=checks.find(([,valid])=>!valid);
+  if(failed){const error=new PaylioError('PAYLIO_CREATION_MISMATCH');error.reason=failed[0];throw error;}
   const bound=await paylioStorage('rpc/bind_paylio_checkout',{method:'POST',body:{p_id:attempt.id,p_payment_id:data.payment_id,p_ipn_token:data.ipn_token,p_checkout_url:url,p_amount_cents:attempt.amount_cents}},deps);
   if(bound?.id!==attempt.id||bound.state!=='ready'||bound.payment_id!==data.payment_id||bound.checkout_url!==url||bound.amount_cents!==attempt.amount_cents||bound.account_fingerprint!==attempt.account_fingerprint)throw new PaylioError('PAYLIO_BINDING_UNACKNOWLEDGED');
   return {payment_url:url,verifiedAmount:attempt.amount_cents/100};

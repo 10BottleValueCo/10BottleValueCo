@@ -1,3 +1,4 @@
+import { formatInvoiceLabel } from "../invoice-display.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Elements, ExpressCheckoutElement, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
@@ -53,7 +54,7 @@ function MeritPaymentForm({ session, onReconcile, onPaid, onState, language }) {
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h3 className="text-lg font-semibold">{messages.heading}</h3>
-          <p className="mt-1 break-all text-xs text-black/50">{messages.order} {session.orderId}</p>
+          <p className="mt-1 break-all text-xs text-black/50">{messages.order} <span title={session.orderId}>{formatInvoiceLabel(session.orderId)}</span></p>
         </div>
         <div className="shrink-0 text-right">
           <p className="text-xs text-black/50">{messages.amount}</p>

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { addAmounts, discountAmount, sumLineAmounts } from '../shared/checkout-money.js';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { webcrypto } from 'node:crypto';
@@ -62,7 +63,7 @@ function fixture() {
   const calls = [];
   const form = { email: 'buyer@example.test', firstName: 'Test', lastName: 'Buyer', address: 'One Road', country: 'United States', city: 'City', state: 'CA', postalCode: '90210', phone: '+15555555555' };
   const context = {
-    Date, Math, Number, Object, JSON, URLSearchParams, Promise, AbortController, console, setTimeout: () => 0,
+    Date, Math, Number, Object, JSON, URLSearchParams, Promise, AbortController, console, addAmounts, discountAmount, sumLineAmounts, setTimeout: () => 0,
     legacyCheckoutHeaders, supabase: { auth: { getSession: async () => ({ data: { session: { access_token: 'synthetic-token', user: { id: 'buyer-fixture', email: 'buyer@example.test' } } } }) } },
     saveAccountCheckoutDetails: async () => false, checkoutBuyerRef: { current: 'buyer-fixture' },
     rememberValidCheckoutDetails: value => calls.push(['setCheckoutForm', value]),
@@ -75,7 +76,7 @@ function fixture() {
     meritSelectionRef: { current: { method: 'stripe', step: 'payment' } },
     checkoutInputRefs: { current: {} }, formSectionRef: { current: null }, termsSectionRef: { current: null },
     effectiveShippingType: 'standard', subtotal: 100, shipping: 39.99, automaticDiscount: 0, promoDiscount: 0,
-    appliedPromo: null, affiliateDiscount: 0, cryptoDiscountAmount: 0, storeCreditApplied: 0, finalTotal: 139.99,
+    ownerFreeShippingActive: false, appliedPromo: null, affiliateDiscount: 0, cryptoDiscountAmount: 0, storeCreditApplied: 0, finalTotal: 139.99,
     affiliateTrackingCode: '', affiliateTrackingOwnerEmail: '', affiliateCommission: 0, paymentMethod: 'stripe', checkoutStep: 'payment',
     normalizeEmail: value => String(value || '').trim().toLowerCase(), getCheckoutOrderNotes: () => '',
     tx: value => value, t: value => value, requestAnimationFrame: () => 0,
@@ -134,7 +135,7 @@ test('Lightning to Card to Lightning keeps the original legacy order and follows
   const { context, calls } = fixture();
   const requests = [], navigations = [];
   Object.assign(context, {
-    paymentMethod: 'cashapp', catalystPayLoading: false, orderNumber: 'INV-LIGHTNING1', meritSession: null,
+    affiliateDiscountDisabled: false, paymentMethod: 'cashapp', catalystPayLoading: false, orderNumber: 'INV-LIGHTNING1', meritSession: null,
     deferredLegacyOrderRef: { current: { id: 'INV-LIGHTNING1', email:'buyer@example.test' } },
     setPaymentMethodState: value => { context.paymentMethod = value; },
     setOrderNumber: value => { context.orderNumber = value; },
@@ -143,9 +144,10 @@ test('Lightning to Card to Lightning keeps the original legacy order and follows
     getStoredOrders: () => [], saveStoredOrders: () => {}, setAllOrders: () => {}, setUserOrders: () => {}, getPaidOrdersForEmail: () => [],
     fetch: async (url, options) => {
       const body = JSON.parse(options.body); requests.push({ url, body });
-      if (url === '/api/order-checkout') return { ok: true, json: async () => ({ ok: true, id: body.order.id, locked: true, saved: false }) };
-      assert.equal(url, '/api/create-catalystpay-session');
-      return { ok: true, json: async () => ({ checkoutLink: 'https://checkout.example.test/original-invoice', invoice_id: 'original-invoice' }) };
+      assert.equal(url, '/api/order-checkout');
+      assert.equal(body.payment.kind, 'catalystpay');
+      assert.equal(body.payment.body.order_id, body.order.id);
+      return { ok: true, json: async () => ({ checkoutLink: 'https://checkout.example.test/original-invoice', invoice_id: 'original-invoice', amount: context.finalTotal }) };
     },
   });
   context.window.location = { assign: url => navigations.push(url) };
@@ -154,7 +156,7 @@ test('Lightning to Card to Lightning keeps the original legacy order and follows
   context.legacyAttemptsRef.current.begin('INV-LIGHTNING1','buyer-fixture');
   await pay(); const firstId=context.orderNumber; select('stripe'); select('cashapp'); await pay();
   assert.equal(context.orderNumber, firstId); assert.match(firstId,/^INV-[0-9A-F]{32}$/);
-  assert.deepEqual(requests.map(request => request.url), ['/api/order-checkout', '/api/create-catalystpay-session']);
+  assert.deepEqual(requests.map(request => request.url), ['/api/order-checkout']);
   for (const request of requests) assert.equal(request.body.order?.id || request.body.order_id, firstId);
   assert.deepEqual(navigations, ['https://checkout.example.test/original-invoice', 'https://checkout.example.test/original-invoice']);
   assert.equal(calls.some(([name, value]) => name === 'lightningError' && value), false);
@@ -260,9 +262,10 @@ test('a real legacy payment start materializes the deferred draft with its attes
   context.getPaidOrdersForEmail = () => [];
   context.persistOrderToServer = handler('persistOrderToServer', context);
   await handler('markOrderCheckoutStartedById', context)(draft.id, 'PayPal');
-  assert.equal(requests.length, 2);
+  assert.equal(requests.length, 1);
   assert.equal(requests[0].url, '/api/order-checkout');
-  assert.equal(requests[1].body.order.metadata.purchaserAttestation.policiesAccepted, true);
+  assert.equal(requests[0].body.order.status, 'checkout');
+  assert.equal(requests[0].body.order.metadata.purchaserAttestation.policiesAccepted, true);
   assert.equal(orders[0].paymentProvider, 'PayPal');
   assert.equal(orders[0].status, 'checkout');
 });
@@ -355,7 +358,7 @@ test('paid create replay reconciles immediately and never mounts another confirm
 });
 
 test('unverified codes show the specific error without dropping attribution, auto-retrying, or generating a replacement key', async () => {
-  for (const [code, field, value] of [['MERIT_PROMO_UNVERIFIED', 'promoCode', 'DYNAMIC'], ['MERIT_AFFILIATE_UNVERIFIED', 'affiliateCode', 'PARTNER']]) {
+  for (const [code, field, value] of [['MERIT_PROMO_UNVERIFIED', 'promoCode', 'DYNAMIC'], ['MERIT_AFFILIATE_UNVERIFIED', 'affiliateCode', 'PARTNER'], ['MERIT_AFFILIATE_UNAVAILABLE', 'affiliateCode', 'PARTNER'], ['MERIT_AFFILIATE_RULES_UNAVAILABLE', 'affiliateCode', 'PARTNER'], ['MERIT_AFFILIATE_LOOKUP_UNAVAILABLE', 'affiliateCode', 'PARTNER']]) {
     for (const language of ['EN', 'RU']) {
       const { context, calls } = fixture();
       context.language = language;
@@ -685,4 +688,133 @@ test('actual checkout preparation isolates provider changes and preserves the or
 test('payment selection waits for the in-flight hosted invoice request',()=>{
  const {context,calls}=fixture();context.legacyStartLockRef.current=true;
  handler('setPaymentMethod',context)('cashapp');assert.deepEqual(calls,[]);
+});
+
+test('a changed or mismatched Lightning amount never navigates away from the reviewed checkout', async () => {
+ for (const changed of [true,false]) {
+  const {context,calls}=fixture();const navigations=[],requests=[];
+  Object.assign(context,{ affiliateDiscountDisabled:false,catalystPayLoading:false,
+   prepareLegacyPaymentAttempt:async()=>({orderId:'INV-PRICECHECK',url:null}),
+   getStoredOrders:()=>[],saveStoredOrders:()=>{},setAllOrders:()=>{},setUserOrders:()=>{},getPaidOrdersForEmail:()=>[],setCatalystPayLoading:()=>{},setCatalystPayError:value=>calls.push(['error',value]),
+   setAffiliateEligibilityRefresh:()=>calls.push(['refresh']),
+   fetch:async(url,options)=>{requests.push(JSON.parse(options.body));return {ok:!changed,json:async()=>changed
+    ? {code:'CHECKOUT_QUOTE_CHANGED',error:'Review the changed total.'}
+    : {amount:200,checkoutLink:'https://checkout.example.test/wrong-price'}};},
+  });context.window.location={assign:url=>navigations.push(url)};
+  context.persistOrderToServer=handler('persistOrderToServer',context);
+  await handler('createCatalystPayment',context)();
+  assert.equal(requests[0].payment.body.expectedTotal,139.99);assert.deepEqual(navigations,[]);
+  assert.ok(calls.some(([name,message])=>name==='error'&&message));
+  assert.equal(calls.some(([name])=>name==='refresh'),changed);
+ }
+});
+
+test('first-order preview requires server eligibility for the current account and code',()=>{
+ const context={affiliateEligibilityKey:'buyer:CODE',affiliateEligibility:null,userOrders:[]};
+ assert.equal(initializer('isFirstTimeAffiliateBuyer',context),false);
+ for(const affiliateEligibility of [{key:'buyer:CODE',status:'loading',discountBps:500},{key:'other:CODE',status:'ready',discountBps:500},{key:'buyer:CODE',status:'ready',discountBps:0}])
+  assert.equal(initializer('isFirstTimeAffiliateBuyer',{...context,affiliateEligibility}),false);
+ assert.equal(initializer('isFirstTimeAffiliateBuyer',{...context,affiliateEligibility:{key:'buyer:CODE',status:'ready',discountBps:500}}),true);
+});
+
+test('Paylio starts progress immediately, saves once, blocks double clicks and resumes the same invoice', async () => {
+  const { context, calls } = fixture();
+  let orders = [], releaseSave;
+  const saveGate = new Promise(resolve => { releaseSave = resolve; });
+  const requests = [], navigations = [];
+  Object.assign(context, {
+    affiliateDiscountDisabled: false, ownerFreeShippingActive: false, paymentMethod: 'paylio', paylioPaymentLoading: false,
+    setPaylioPaymentLoading: value => { context.paylioPaymentLoading = value; calls.push(['progress', value]); },
+    setPaylioPaymentError: value => calls.push(['paylioError', value]),
+    setOrderNumber: value => { context.orderNumber = value; },
+    getStoredOrders: () => orders, saveStoredOrders: next => { orders = next; },
+    setAllOrders: () => {}, setUserOrders: () => {}, getPaidOrdersForEmail: () => [],
+    fetch: async (url, options) => {
+      const body = JSON.parse(options.body); requests.push({ url, body });
+      assert.equal(url, '/api/order-checkout');
+      assert.equal(body.payment.kind, 'paylio');
+      assert.equal(body.order.id, body.payment.body.orderId);
+      await saveGate;
+      return { ok: true, json: async () => ({ payment_url: 'https://paylio.org/pay?payment_id=synthetic-latency-fixture', verifiedAmount: context.finalTotal }) };
+    },
+  });
+  context.window.location = { origin: 'https://shop.example.test', assign: url => navigations.push(url) };
+  context.persistOrderToServer = handler('persistOrderToServer', context);
+  context.markOrderCheckoutStartedById = handler('markOrderCheckoutStartedById', context);
+  await handler('handleCheckout', context)();
+  const pay = handler('createPaylioPayment', context);
+  const pending = pay('paypal');
+  assert.equal(context.paylioPaymentLoading, true);
+  assert.equal(context.legacyStartLockRef.current, true);
+  await pay('paypal'); // Cannot create or navigate while the first save is pending.
+  for (let tries = 0; !requests.length && tries < 100; tries++) await new Promise(resolve => setTimeout(resolve, 1));
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].body.order.status, 'checkout');
+  assert.equal(requests[0].body.order.metadata.purchaserAttestation.policiesAccepted, true);
+  assert.equal(orders.length, 0);
+  assert.deepEqual(navigations, []);
+  releaseSave(); await pending;
+  assert.deepEqual(requests.map(x => x.url), ['/api/order-checkout']);
+  assert.equal(context.paylioPaymentLoading, false);
+  await pay('paypal');
+  assert.equal(requests.length, 1);
+  assert.deepEqual(navigations, ['https://paylio.org/pay?payment_id=synthetic-latency-fixture', 'https://paylio.org/pay?payment_id=synthetic-latency-fixture']);
+  assert.equal(calls.some(([name, value]) => name === 'paylioError' && value), false);
+});
+
+test('failed Paylio save leaves no local checkout, no provider request and clears progress', async () => {
+  const { context, calls } = fixture();
+  const requests = [];
+  let localWrites = 0;
+  Object.assign(context, {
+    affiliateDiscountDisabled: false, paylioPaymentLoading: false,
+    setPaylioPaymentLoading: value => { context.paylioPaymentLoading = value; },
+    setPaylioPaymentError: value => calls.push(['error', value]),
+    getStoredOrders: () => [], saveStoredOrders: () => { localWrites++; }, setAllOrders: () => {},
+    setUserOrders: () => {}, getPaidOrdersForEmail: () => [],
+    fetch: async url => { requests.push(url); return { ok: false, json: async () => ({ error: 'Save unavailable' }) }; },
+  });
+  context.window.location = { assign: () => assert.fail('must not navigate') };
+  context.persistOrderToServer = handler('persistOrderToServer', context);
+  context.markOrderCheckoutStartedById = handler('markOrderCheckoutStartedById', context);
+  await handler('handleCheckout', context)();
+  await handler('createPaylioPayment', context)('paypal');
+  assert.deepEqual(requests, ['/api/order-checkout']);
+  assert.equal(localWrites, 0);
+  assert.equal(context.paylioPaymentLoading, false);
+  assert.equal(context.legacyStartLockRef.current, false);
+  assert.ok(calls.some(([name, value]) => name === 'error' && value === 'Save unavailable'));
+});
+
+test('provider failure retains the acknowledged unpaid checkout and its original start time on retry', async () => {
+  const { context, calls } = fixture();
+  let orders = [];
+  const requests = [];
+  Object.assign(context, {
+    affiliateDiscountDisabled: false, paylioPaymentLoading: false,
+    setPaylioPaymentLoading: value => { context.paylioPaymentLoading = value; },
+    setPaylioPaymentError: value => calls.push(['error', value]),
+    getStoredOrders: () => orders, saveStoredOrders: next => { orders = next; },
+    setAllOrders: () => {}, setUserOrders: () => {}, getPaidOrdersForEmail: () => [],
+    fetch: async (url, options) => {
+      requests.push(JSON.parse(options.body));
+      return { ok: false, headers: new Headers({ 'X-Checkout-Saved': '1' }), json: async () => ({ error: 'Provider unavailable' }) };
+    },
+  });
+  context.window.location = { assign: () => assert.fail('must not navigate') };
+  context.persistOrderToServer = handler('persistOrderToServer', context);
+  await handler('handleCheckout', context)();
+  const pay = handler('createPaylioPayment', context);
+  await pay('paypal');
+  assert.equal(orders.length, 1);
+  assert.equal(orders[0].status, 'checkout');
+  assert.equal(orders[0].purchaserAttestation.policiesAccepted, true);
+  orders[0].checkoutStartedAt = '2026-10-10T01:00:00.000Z';
+  await pay('paypal');
+  assert.equal(requests[1].order.id, requests[0].order.id);
+  assert.equal(requests[1].order.metadata.checkoutStartedAt, '2026-10-10T01:00:00.000Z');
+  assert.equal(orders.length, 1);
+  assert.equal(context.paylioPaymentLoading, false);
+  assert.equal(context.legacyStartLockRef.current, false);
+  assert.ok(calls.some(([name, value]) => name === 'error' && value === 'Provider unavailable'));
 });

@@ -1,30 +1,10 @@
+import { settlementAffiliate } from "./_settlement-affiliate.js";
+import { sendPaymentConfirmationEmail } from "./_payment-confirmation-email.js";
 import { acknowledgeLegacyPaid, inspectLegacyTransition, legacyTransitionError } from "./_legacy-paid-transition.js";
 import { debitLegacyOrderCredit } from "./_legacy-store-credit.js";
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
 const sbH = () => ({ apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" });
-
-async function resolveAffiliate(email, code) {
-  if (!email || !SB_URL) return (code || "").trim().toUpperCase() || null;
-  const normalized = (code || "").trim().toUpperCase();
-  const key = email.toLowerCase();
-  try {
-    const r = await fetch(`${SB_URL}/rest/v1/affiliate_customers?email=eq.${encodeURIComponent(key)}&select=affiliate_code&limit=1`, { headers: sbH() });
-    if (r.ok) {
-      const rows = await r.json();
-      if (rows?.length) return rows[0].affiliate_code;
-    }
-  } catch {}
-  if (normalized) {
-    await fetch(`${SB_URL}/rest/v1/affiliate_customers`, {
-      method: "POST",
-      headers: { ...sbH(), Prefer: "resolution=ignore-duplicates,return=minimal" },
-      body: JSON.stringify({ email: key, affiliate_code: normalized }),
-    }).catch(() => {});
-    return normalized;
-  }
-  return null;
-}
 
 // Shared core logic for processing a NOWPayments status update, whatever the
 // source (the real IPN webhook, or a direct server-side status check we run
@@ -136,8 +116,8 @@ export async function processNowPaymentsStatus(data, { providerVerified = false 
   await acknowledgeLegacyPaid(savedOrder, expectedPaid);
   const dbMarkedPaid = true, dbWriteError = null;
 
-  const resolvedAffiliate = await resolveAffiliate(email, String(sbMeta.affiliateCode || metadata.affiliateCode || metadata.affiliate_code || "")).catch(() => null);
-  const affiliateCode = resolvedAffiliate || String(sbMeta.affiliateCode || metadata.affiliateCode || "").trim().toUpperCase();
+  const verifiedAffiliate = await settlementAffiliate(sbMeta, email, Number(sbMeta.subtotal || 0), orderId, savedOrder.status);
+  const affiliateCode = verifiedAffiliate.code;
 
   const firstName = String(sbMeta.firstName || metadata.firstName || "");
   const lastName = String(sbMeta.lastName || metadata.lastName || "");
@@ -163,18 +143,15 @@ export async function processNowPaymentsStatus(data, { providerVerified = false 
   const finalAutoDiscount = Number(sbMeta.automaticDiscount ?? metadata.automaticDiscount ?? 0);
   const finalPromoDiscount = Number(sbMeta.promoDiscount ?? metadata.promoDiscount ?? 0);
   const finalAffiliateDiscount = Number(sbMeta.affiliateDiscount ?? metadata.affiliateDiscount ?? 0);
-  const finalAffiliateOwnerEmail = String(sbMeta.affiliateOwnerEmail || metadata.affiliateOwnerEmail || "");
+  const finalAffiliateOwnerEmail = verifiedAffiliate.ownerEmail;
   const finalStoreCreditUsed = Number(sbMeta.storeCreditUsed ?? metadata.storeCreditUsed ?? 0);
   // Affiliate commission is ALWAYS a fixed 10% of the verified subtotal — never trust
   // client-writable metadata fields, or a tampered order could pay out an inflated commission.
-  const finalAffiliateCommission = Number(finalSubtotal || finalTotal) * 0.1;
+  const finalAffiliateCommission = verifiedAffiliate.commission;
   const finalShippingType = String(sbMeta.shippingType || metadata.shippingType || "standard");
 
   if (!alreadyEmailSent) {
-    const emailResponse = await fetch(`${baseUrl}/api/send-payment-confirmed-email`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const emailResponse = await sendPaymentConfirmationEmail({
         email, orderId,
         total: finalTotal, subtotal: finalSubtotal, shipping: finalShipping,
         automaticDiscount: finalAutoDiscount, promoDiscount: finalPromoDiscount,
@@ -185,8 +162,7 @@ export async function processNowPaymentsStatus(data, { providerVerified = false 
         paymentId: data.payment_id || data.invoice_id || orderId,
         items,
         firstName, lastName, address, address2, city, state, postalCode, phone, country,
-      }),
-    }).catch(() => {});
+      }, { escapeValues: true }).catch(() => { console.error("NOWPayments payment receipt delivery failed"); });
 
     // Persist that the email was sent so a later duplicate status update (e.g. the
     // real IPN webhook arriving after our own fallback already handled it, or vice

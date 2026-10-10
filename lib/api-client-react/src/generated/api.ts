@@ -140,7 +140,7 @@ export const getCustomerSignupUrl = () => {
 }
 
 /**
- * @summary Create a customer account without email confirmation
+ * @deprecated Retired endpoint returns 410; use verified Supabase Auth signup
  */
 export const customerSignup = async (customerSignupInput: CustomerSignupInput, options?: Parameters<typeof customFetch>[1]): Promise<CustomerSignupResult> => {
 
@@ -206,7 +206,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CustomerSignupMutationVariables = {data: BodyType<CustomerSignupInput>}
 
     /**
- * @summary Create a customer account without email confirmation
+ * @deprecated Retired endpoint returns 410; use verified Supabase Auth signup
  */
 export const useCustomerSignup = <TError = ErrorType<CustomerSignupError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof customerSignup>>, TError,CustomerSignupMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}

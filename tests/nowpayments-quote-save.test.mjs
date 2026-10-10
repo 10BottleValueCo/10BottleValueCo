@@ -1,3 +1,4 @@
+process.env.RESEND_API_KEY = 'synthetic-mail-key';
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -13,10 +14,10 @@ const { processNowPaymentsStatus } = await import('../api/_nowpayments-shared.js
 const id = 'INV-QUOTEFIXTURE', buyer = '11111111-1111-4111-8111-111111111111', email = 'buyer@example.test';
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
 const res = () => ({ statusCode: 200, setHeader() {}, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } });
-const request = () => ({ method: 'POST', headers: { authorization: 'Bearer synthetic-session' }, body: { order_id: id, email, customer_email: email, pay_currency: 'btc', storeCreditUsed: 0, items: [{ name: 'Fixture', quantity: 1, price: 999 }] } });
+const request = () => ({ method: 'POST', headers: { authorization: 'Bearer synthetic-session' }, body: { expectedTotal: 107.25, order_id: id, email, customer_email: email, pay_currency: 'btc', storeCreditUsed: 0, items: [{ name: 'Fixture', quantity: 1, price: 999 }] } });
 
 function fixture(t, { patchMode = 'ok', changed = null } = {}) {
-  const row = { id, user_id: buyer, email, status: 'checkout', total: 999, metadata: { total: 999, storeCreditUsed: 0, address: 'Saved fixture address' }, payment_id: null, payment_provider: null };
+  const row = { id, user_id: buyer, email, status: 'checkout', total: 107.25, metadata: { total: 107.25, storeCreditUsed: 0, address: 'Saved fixture address' }, payment_id: null, payment_provider: null };
   const calls = [];
   t.mock.method(console, 'error', () => {});
   t.mock.method(globalThis, 'fetch', async (input, options = {}) => {
@@ -25,7 +26,7 @@ function fixture(t, { patchMode = 'ok', changed = null } = {}) {
     if (url.pathname === '/auth/v1/user') return json({ id: buyer, email, email_confirmed_at: '2026-10-09T00:00:00Z' });
     if (url.pathname === '/rest/v1/paylio_payment_attempts') return json([]);
     if (url.pathname === '/rest/v1/orders' && method === 'GET') {
-      if (url.searchParams.get('status') === 'in.(paid,done)') return json([]);
+      if (url.searchParams.get('select')?.includes('paid_at')) return json([]);
       const freshQuoteRead = url.searchParams.get('select') === 'id,user_id,email,status,total,metadata,payment_id,payment_provider';
       return json([{ ...row, ...(freshQuoteRead ? changed : {}) }]);
     }
@@ -35,7 +36,7 @@ function fixture(t, { patchMode = 'ok', changed = null } = {}) {
         assert.equal(url.searchParams.get('email'), `eq.${email}`);
         assert.equal(url.searchParams.get('user_id'), `eq.${buyer}`);
         assert.equal(url.searchParams.get('status'), 'eq.checkout');
-        assert.equal(url.searchParams.get('total'), 'eq.999');
+        assert.equal(url.searchParams.get('total'), 'eq.107.25');
         assert.equal(url.searchParams.get('payment_id'), 'is.null');
         assert.equal(url.searchParams.get('payment_provider'), 'is.null');
         assert.equal(options.headers.Prefer, 'return=representation');
@@ -63,13 +64,13 @@ function fixture(t, { patchMode = 'ok', changed = null } = {}) {
       return json({ id: 'invoice_fixture', invoice_url: 'https://nowpayments.io/payment/fixture' });
     }
     if (url.pathname === '/rest/v1/affiliate_customers') return json([]);
-    if (url.pathname === '/api/send-payment-confirmed-email') return json({ success: true });
+    if (url.pathname === '/emails') return json({ success: true });
     assert.fail(`Unexpected fixture request ${method} ${url.href}`);
   });
   return { row, calls };
 }
 
-test('NOWPayments replaces the stale draft total with an acknowledged server quote before provider creation and its finished callback accepts that amount', async t => {
+test('NOWPayments acknowledges the server quote matching the reviewed total before provider creation and its finished callback accepts that amount', async t => {
   const f = fixture(t), response = res();
   await create(request(), response);
   assert.equal(response.statusCode, 200, JSON.stringify(response.body));
@@ -88,8 +89,8 @@ for (const patchMode of ['empty', 'http', 'network', 'malformed', 'wrong-owner',
   test(`NOWPayments ${patchMode} quote acknowledgement prevents every provider create`, async t => {
     const f = fixture(t, { patchMode }), response = res();
     await create(request(), response);
-    assert.equal(response.statusCode, 503);
-    assert.equal(response.body.code, 'PAYMENT_QUOTE_UNACKNOWLEDGED');
+    assert.equal(response.statusCode, 409);
+    assert.equal(response.body.code, 'PAYMENT_RECONCILIATION_REQUIRED');
     assert.equal(f.calls.some(c => c.url.hostname === 'api.nowpayments.io'), false);
   });
 }
@@ -103,3 +104,12 @@ for (const changed of [{ status: 'refunded' }, { user_id: '22222222-2222-4222-82
     assert.equal(f.calls.some(c => c.method !== 'GET'), false);
   });
 }
+
+test('NOWPayments binds one hosted invoice and reopens it without creating another', async t => {
+  const f = fixture(t), first = res(), req = request();
+  req.body.address = 'Saved fixture address'; req.body.shippingType = 'standard';
+  await create(req, first); assert.equal(first.statusCode, 200);
+  assert.equal(f.row.metadata.legacyInvoiceAttempt.state, 'ready');
+  const second = res(); await create(req, second); assert.equal(second.statusCode, 200, JSON.stringify(second.body));
+  assert.deepEqual(second.body, first.body); assert.equal(f.calls.filter(c=>c.url.hostname==='api.nowpayments.io').length,1);
+});

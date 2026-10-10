@@ -1,3 +1,7 @@
+import { checkoutTiming } from "./_checkout-timing.js";
+import { discountAmount, addAmounts } from "../shared/checkout-money.js";
+import { formatInvoiceLabel } from "../shared/invoice-display.js";
+import { assertExpectedTotal } from "./_legacy-checkout-quote.js";
 import { PaylioError, reservePaylio, bindPaylio, paylioCustomerUrl, paylioStorage } from "./_paylio-binding.js";
 import { requireLegacyOrderAccess } from "./_order-access.js";
 import { legacyCreditStartError, legacyExistingCreditOrderError } from "./_legacy-store-credit.js";
@@ -7,6 +11,8 @@ import {
   getAutomaticDiscountRate,
 } from "./_catalog.js";
 import { verifyPromoCode } from "./_promo.js";
+import { AffiliateQuoteError, verifyAffiliateQuote, affiliateEmailFilter } from "./_affiliate-quote.js";
+import { summarizePaylioResponse } from "./_paylio-diagnostics.js";
 
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
@@ -15,6 +21,7 @@ export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
+  const markTiming = checkoutTiming(res);
   const creditError = legacyCreditStartError(req.body);
   if (creditError) {
     const { status, ...body } = creditError;
@@ -22,19 +29,23 @@ export default async function handler(req, res) {
   }
   const access = await requireLegacyOrderAccess(req, res, { orderId: req.body?.order_id || req.body?.orderId, provider: "paylio" });
   if (!access) return;
+  markTiming("access");
   const existingCreditError = await legacyExistingCreditOrderError(req.body);
+  markTiming("credit");
   if (existingCreditError) {
     const { status, ...body } = existingCreditError;
     return res.status(status).json(body);
   }
 
   req.body = { ...req.body, email: access.identity.email, customer_email: access.identity.email };
+  let phase = "quote";
+  let providerStatus = null;
+  let providerDiagnostic;
   try {
     const {
       currency = "USD",
       order_id,
       orderId,
-      note,
       provider = "",
       customer_email,
       email,
@@ -79,9 +90,8 @@ export default async function handler(req, res) {
     }
 
     const automaticDiscountRate = getAutomaticDiscountRate(subtotal);
-    const automaticDiscount = Math.round(subtotal * automaticDiscountRate * 100) / 100;
+    const automaticDiscount = discountAmount(subtotal, automaticDiscountRate);
 
-    const MAX_AFFILIATE_RATE = 0.05;
 
     let promoDiscount = 0;
     let verifiedPromoFreeShipping = false;
@@ -98,7 +108,7 @@ export default async function handler(req, res) {
       if (!verifiedPromo) return res.status(400).json({ code: "PAYLIO_PROMO_UNAVAILABLE", error: "This promo code is unavailable for this checkout." });
       if (verifiedPromo) {
         discountRule = verifiedPromo.rule;
-        promoDiscount = Math.round(subtotal * verifiedPromo.rate * 100) / 100;
+        promoDiscount = discountAmount(subtotal, verifiedPromo.rate);
         verifiedPromoFreeShipping = !!verifiedPromo.freeShipping;
         promoUsageRequired = verifiedPromo.source === "personal";
       }
@@ -106,46 +116,44 @@ export default async function handler(req, res) {
 
     let affiliateDiscount = 0;
     const finalAffiliateCode = String(affiliateCode || affiliate_code || "").trim().toUpperCase();
-    const affiliateRows = await paylioStorage(`affiliate_customers?${new URLSearchParams({email: `eq.${finalEmail}`, select: "affiliate_code", limit: "2"})}`);
-    if (!Array.isArray(affiliateRows) || affiliateRows.length > 1) throw new PaylioError("PAYLIO_ATTRIBUTION_UNAVAILABLE");
-    const affiliateAttributionCode = affiliateRows.length
-      ? String(affiliateRows[0].affiliate_code || "").trim().toUpperCase() : finalAffiliateCode;
-    if (affiliateRows.length && !affiliateAttributionCode) throw new PaylioError("PAYLIO_ATTRIBUTION_UNAVAILABLE");
+    const affiliateCandidates = await paylioStorage(`affiliate_customers?${new URLSearchParams({email: affiliateEmailFilter(finalEmail), select: "email,affiliate_code", limit: "100"})}`);
+    if (!Array.isArray(affiliateCandidates) || affiliateCandidates.length >= 100 || affiliateCandidates.some(row => typeof row?.email !== "string")) throw new PaylioError("PAYLIO_ATTRIBUTION_UNAVAILABLE");
+    const affiliateRows = affiliateCandidates.filter(row => row.email.trim().toLowerCase() === finalEmail.trim().toLowerCase());
+    if (affiliateRows.length > 1) throw new PaylioError("PAYLIO_ATTRIBUTION_UNAVAILABLE");
+    const inheritedCode = affiliateRows.length
+      ? String(affiliateRows[0].affiliate_code || "").trim().toUpperCase() : "";
+    if (affiliateRows.length && !inheritedCode) throw new PaylioError("PAYLIO_ATTRIBUTION_UNAVAILABLE");
+    let affiliateAttributionCode = "";
+    let affiliateRuleVersion = null;
+    let commissionRate = 0;
     const wantsAffiliateDiscount = !promoDiscount && finalAffiliateCode && Number(clientAffiliateDiscount) > 0;
-    // A new referral or discount must name an enabled affiliate other than the
-    // buyer. Existing attribution remains frozen, even if its account changes.
-    if (finalAffiliateCode && (!affiliateRows.length || wantsAffiliateDiscount)) {
-      if (!/^[A-Z0-9_-]{1,64}$/.test(finalAffiliateCode))
-        return res.status(400).json({ code: "PAYLIO_AFFILIATE_UNAVAILABLE", error: "This referral code is unavailable for this checkout." });
-      const affiliates = await paylioStorage(`affiliates?${new URLSearchParams({ code: `eq.${finalAffiliateCode}`, select: "code,email,active", limit: "2" })}`);
-      if (!Array.isArray(affiliates) || affiliates.length > 1
-        || (affiliates.length && (affiliates[0]?.code !== finalAffiliateCode
-          || typeof affiliates[0]?.email !== "string" || !affiliates[0].email.trim()
-          || ![true, false, null].includes(affiliates[0]?.active))))
-        throw new PaylioError("PAYLIO_ELIGIBILITY_UNAVAILABLE");
-      // Preserve the existing nullable-active convention used by the account UI.
-      if (!affiliates.length || affiliates[0].active === false || affiliates[0].email.trim().toLowerCase() === finalEmail)
-        return res.status(400).json({ code: "PAYLIO_AFFILIATE_UNAVAILABLE", error: "This referral code is unavailable for this checkout." });
-    }
-    if (wantsAffiliateDiscount) {
-      // A failed lookup is not evidence of a first purchase. Fulfilled orders
-      // still count after their status has advanced beyond paid.
-      const purchases = await paylioStorage(`orders?${new URLSearchParams({
-        email: `eq.${finalEmail}`, status: "in.(paid,done,processing,shipped,delivered)", select: "id", limit: "1",
-      })}`);
-      if (!Array.isArray(purchases) || purchases.length > 1
-        || purchases.some(purchase => typeof purchase?.id !== "string" || !purchase.id))
-        throw new PaylioError("PAYLIO_ELIGIBILITY_UNAVAILABLE");
-      if (purchases.length === 0) {
-        const impliedRate = Number(clientAffiliateDiscount) / (subtotal || 1);
-        affiliateDiscount = impliedRate <= MAX_AFFILIATE_RATE
-          ? Math.min(Number(clientAffiliateDiscount), subtotal)
-          : Math.round(subtotal * MAX_AFFILIATE_RATE * 100) / 100;
+    // Validate both entered and inherited owners before reserving a new payment.
+    // A saved attribution row cannot authorize inactive, unknown or self commission.
+    if (finalAffiliateCode || inheritedCode) {
+      let verified;
+      try {
+        verified = await verifyAffiliateQuote({ code: finalAffiliateCode || inheritedCode, email: finalEmail, customerId: access.identity.id,
+          disabled: !wantsAffiliateDiscount, supabaseUrl: SB_URL,
+          serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+          rules: process.env.MERIT_AFFILIATE_RULES_JSON });
+      } catch (error) {
+        if (!(error instanceof AffiliateQuoteError)) throw error;
+        return res.status(error.status === 409 ? 400 : 503).json({
+          code: error.status === 409 ? "PAYLIO_AFFILIATE_UNAVAILABLE" : "PAYLIO_ELIGIBILITY_UNAVAILABLE",
+          error: error.status === 409
+            ? "Payment has not started. This referral is unavailable. Remove the entered code; if the problem remains, contact support or choose Card."
+            : "Payment has not started. Referral verification is temporarily unavailable. Please try again.",
+        });
       }
+      affiliateAttributionCode = verified.code;
+      affiliateRuleVersion = verified.rule.version;
+      commissionRate = verified.commissionBps / 10000;
+      affiliateDiscount = verified.discountBps
+        ? discountAmount(subtotal, verified.discountBps / 10000) : 0;
     }
 
-    const finalAutomaticDiscount = promoDiscount > 0 || affiliateDiscount > 0 ? 0 : automaticDiscount;
-    const finalAffiliateDiscount = promoDiscount > 0 ? 0 : affiliateDiscount;
+    const finalAutomaticDiscount = promoDiscount > 0 || affiliateDiscount > automaticDiscount ? 0 : automaticDiscount;
+    const finalAffiliateDiscount = promoDiscount > 0 || automaticDiscount >= affiliateDiscount ? 0 : affiliateDiscount;
 
     const shipping =
       pricedItems.length === 0
@@ -158,7 +166,7 @@ export default async function handler(req, res) {
     // it can't be inflated to zero out or exceed the real order value.
     const preCreditTotal = Math.max(
       0,
-      subtotal - finalAutomaticDiscount - promoDiscount - finalAffiliateDiscount + shipping
+      addAmounts(subtotal, -finalAutomaticDiscount, -promoDiscount, -finalAffiliateDiscount, shipping)
     );
     const safeStoreCreditUsed = Math.min(Math.max(Number(storeCreditUsed) || 0, 0), preCreditTotal);
 
@@ -171,6 +179,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Order total must be greater than zero." });
     }
 
+    assertExpectedTotal(req.body.expectedTotal, amount);
     const safeAmount = amount.toFixed(2);
     const baseUrl = process.env.BASE_URL || "https://10bottlevalue.co";
     const source = access.order.metadata || {};
@@ -182,17 +191,21 @@ export default async function handler(req, res) {
       promoCode: promoDiscount > 0 ? String(promoCode).trim().toUpperCase() : "", promoUsageRequired,
       affiliateDiscount: finalAffiliateDiscount, affiliateCode: finalAffiliateCode,
       affiliateAttributionCode,
-      affiliateCommission: Number((subtotal * 0.1).toFixed(2)),
+      affiliateCommission: discountAmount(subtotal, commissionRate), affiliateRuleVersion,
       shippingType: shippingType === "express" ? "express" : "standard",
       storeCreditUsed: 0, paymentProvider: "Paylio Card", items: pricedItems,
     };
+    markTiming("quote");
+    phase = "reserve";
     const reservation = await reservePaylio(access, quote, provider);
+    markTiming("reserve");
     if (!reservation.created) {
       if (reservation.attempt.state !== "ready") throw new PaylioError("PAYLIO_CREATE_RECONCILIATION_REQUIRED", 409);
       return res.status(200).json({ payment_url: paylioCustomerUrl(reservation.attempt.checkout_url, finalEmail, provider), verifiedAmount: reservation.attempt.amount_cents / 100 });
     }
     // There is no documented idempotent create contract. An uncertain provider
     // response leaves the reservation locked for reconciliation, never auto-retried.
+    phase = "provider_create";
     const response = await fetch("https://paylio.org/api/v1/wallet", {
       method: "POST", redirect: "error", signal: AbortSignal.timeout(8000),
       headers: { Authorization: `Bearer ${reservation.account.key}`, "Content-Type": "application/json" },
@@ -201,21 +214,36 @@ export default async function handler(req, res) {
         callback: `${baseUrl}/api/paylio-callback?attempt=${encodeURIComponent(reservation.attempt.id)}`,
         return_url: `${baseUrl}/?payment=pending&provider=paylio&order=${encodeURIComponent(finalOrderId)}`,
         amount: safeAmount, currency: "USD", passFeeToCustomer: false,
-        email: finalEmail, note: finalOrderId,
+        email: finalEmail, note: formatInvoiceLabel(finalOrderId),
         ...(provider ? { provider } : {}),
       }),
     });
+    providerStatus = response.status;
     const raw = await response.text();
+    providerDiagnostic = summarizePaylioResponse(raw);
+    markTiming("provider");
     if (!response.ok || Buffer.byteLength(raw) > 50000) throw new PaylioError("PAYLIO_CREATION_UNAVAILABLE");
     let data; try { data = JSON.parse(raw); } catch { throw new PaylioError("PAYLIO_CREATION_UNAVAILABLE"); }
     // The binding is durably acknowledged before the customer receives a URL.
+    phase = "bind";
     const bound = await bindPaylio(reservation.attempt, data);
+    markTiming("bind");
     return res.status(200).json({ ...bound, payment_url: paylioCustomerUrl(bound.payment_url, finalEmail, provider) });
   } catch (error) {
+    // Diagnose the boundary without logging tokens, URLs, customer details,
+    // order numbers, provider bodies or amounts. Never retry uncertain creation.
+    console.error("Paylio setup failed", { phase, providerStatus, providerDiagnostic,
+      failureKind: ["TimeoutError", "AbortError", "TypeError"].includes(error?.name) ? error.name : "validation_or_storage",
+      reason: ["payment_id", "callback_token", "status", "amount", "currency", "fee_mode", "original_amount"].includes(error?.reason) ? error.reason : undefined,
+      code: error instanceof PaylioError ? error.code : error?.code === "PROMO_LOOKUP_UNAVAILABLE" ? error.code : "PAYLIO_CREATION_UNAVAILABLE" });
+    if (["CHECKOUT_QUOTE_CHANGED", "CHECKOUT_REFRESH_REQUIRED"].includes(error?.code)) return res.status(409).json({ code: error.code, error: error.message, total: error.total });
     if (error?.code === "PROMO_LOOKUP_UNAVAILABLE") return res.status(503).json({ code: error.code, error: error.message });
     return res.status(error instanceof PaylioError ? error.status : 503).json({
       code: error instanceof PaylioError ? error.code : "PAYLIO_CREATION_UNAVAILABLE",
-      error: "Payment setup is pending. Please contact support before trying another payment.",
+      error: phase === "quote" ? "Payment has not started. Review your checkout details and retry, or contact support."
+        : "Payment setup is pending. Please contact support before trying another payment.",
     });
+  } finally {
+    markTiming.report("paylio");
   }
 }

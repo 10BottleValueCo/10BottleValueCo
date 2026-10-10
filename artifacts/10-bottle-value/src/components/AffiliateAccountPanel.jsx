@@ -45,7 +45,7 @@ function money(formatPrice, value) {
 }
 
 function isPaidOrder(order) {
-  return ["paid", "done"].includes(String(order?.status || "").toLowerCase());
+  return ["paid", "done", "processing", "shipped", "delivered"].includes(String(order?.status || "").toLowerCase());
 }
 
 export default function AffiliateAccountPanel({
@@ -54,6 +54,7 @@ export default function AffiliateAccountPanel({
   paidOut = 0,
   loading = false,
   payoutError = false,
+  ordersError = false,
   affiliateLink = "",
   tx,
   formatPrice,
@@ -181,23 +182,23 @@ export default function AffiliateAccountPanel({
       <div className="lab-affiliate-stats" aria-label={tx("Affiliate summary", "Сводка партнёрства", "Зведення партнерства", "Affiliate-Übersicht", "Resumen de afiliación")}>
         <article className="lab-affiliate-stat">
           <span>{tx("Paid orders", "Оплаченные заказы", "Оплачені замовлення", "Bezahlte Bestellungen", "Pedidos pagados")}</span>
-          <strong>{paidOrders.length}</strong>
+          <strong>{ordersError ? "—" : loading ? "…" : paidOrders.length}</strong>
         </article>
         <article className="lab-affiliate-stat">
           <span>{tx("Paid sales", "Продажи по оплаченным заказам", "Продажі за оплаченими замовленнями", "Umsatz aus bezahlten Bestellungen", "Ventas de pedidos pagados")}</span>
-          <strong>{money(formatPrice, trackedSales)}</strong>
+          <strong>{ordersError ? "—" : loading ? "…" : money(formatPrice, trackedSales)}</strong>
         </article>
         <article className="lab-affiliate-stat">
           <span>{tx("Commission earned", "Начислено комиссий", "Нараховано комісій", "Verdiente Provision", "Comisiones generadas")}</span>
-          <strong>{money(formatPrice, pendingEarnings + releasedEarnings)}</strong>
+          <strong>{ordersError ? "—" : loading ? "…" : money(formatPrice, pendingEarnings + releasedEarnings)}</strong>
         </article>
         <article className="lab-affiliate-stat">
           <span>{tx("Pending", "Ожидает разблокировки", "Очікує розблокування", "Ausstehend", "Pendiente")}</span>
-          <strong>{money(formatPrice, pendingEarnings)}</strong>
+          <strong>{ordersError ? "—" : loading ? "…" : money(formatPrice, pendingEarnings)}</strong>
         </article>
         <article className="lab-affiliate-stat lab-affiliate-stat--available">
           <span>{tx("Available balance", "Доступно к выплате", "Доступно до виплати", "Verfügbares Guthaben", "Saldo disponible")}</span>
-          <strong>{loading ? "…" : money(formatPrice, availableBalance)}</strong>
+          <strong>{ordersError || payoutError ? "—" : loading ? "…" : money(formatPrice, availableBalance)}</strong>
         </article>
         <article className="lab-affiliate-stat lab-affiliate-stat--paid">
           <span>{tx("Paid out", "Уже выплачено", "Вже виплачено", "Ausgezahlt", "Pagado")}</span>
@@ -218,7 +219,11 @@ export default function AffiliateAccountPanel({
           <span className="lab-affiliate-orders__count">{sortedOrders.length}</span>
         </div>
 
-        {loading && sortedOrders.length === 0 ? (
+        {ordersError ? (
+          <div className="lab-affiliate-empty" role="alert">
+            {tx("Could not load referral orders. Refresh to retry; balances are unavailable until the request succeeds.", "Не удалось загрузить партнёрские заказы. Нажмите «Обновить»; баланс недоступен до успешной загрузки.", "Не вдалося завантажити партнерські замовлення. Оновіть; баланс недоступний до успішного запиту.", "Vermittelte Bestellungen konnten nicht geladen werden. Bitte aktualisieren; Guthaben ist bis dahin nicht verfügbar.", "No pudimos cargar los pedidos referidos. Actualiza; el saldo no está disponible hasta que se complete la carga.")}
+          </div>
+        ) : loading && sortedOrders.length === 0 ? (
           <div className="lab-affiliate-empty" role="status">
             {tx("Loading your affiliate activity…", "Загружаем партнёрские данные…", "Завантажуємо партнерські дані…", "Affiliate-Aktivität wird geladen…", "Cargando actividad de afiliación…")}
           </div>

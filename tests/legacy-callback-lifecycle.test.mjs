@@ -1,3 +1,4 @@
+process.env.RESEND_API_KEY = 'synthetic-mail-key';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
@@ -26,7 +27,7 @@ function fixture(t,{provider,status='checkout',patchMode='ok',emailStatus=200,pa
    if(patchMode==='wrong')return json([{...row,...body,id:'INV-OTHER'}]);
    Object.assign(row,body);return json([row]);
   }
-  if(url.pathname==='/api/send-payment-confirmed-email')return json({ok:emailStatus===200},emailStatus);
+  if(url.pathname==='/emails')return json({ok:emailStatus===200},emailStatus);
   if(method==='GET')return json([]);
   return json({ok:true});
  });
@@ -43,10 +44,10 @@ for(const provider of ['nowpayments','catalystpay']){
   const f=fixture(t,{provider,status});await assert.rejects(f.invoke());assert.equal(f.row.status,status);assert.equal(f.calls.some(c=>c.method!=='GET'),false);
  });
  for(const patchMode of ['empty','http','wrong'])test(`${provider}: failed ${patchMode} acknowledgement blocks receipts and affiliate/promo writes with zero credit`,async t=>{
-  const f=fixture(t,{provider,patchMode});await assert.rejects(f.invoke());assert.equal(f.calls.some(c=>c.url.pathname==='/api/send-payment-confirmed-email'||(c.method!=='GET'&&!c.url.pathname.endsWith('/orders'))),false);
+  const f=fixture(t,{provider,patchMode});await assert.rejects(f.invoke());assert.equal(f.calls.some(c=>c.url.pathname==='/emails'||(c.method!=='GET'&&!c.url.pathname.endsWith('/orders'))),false);
  });
  test(`${provider}: paid state is acknowledged before any receipt or ancillary write`,async t=>{
-  const f=fixture(t,{provider});const result=await f.invoke();assert.equal(result.dbMarkedPaid,true);const paid=f.calls.findIndex(c=>c.body?.status==='paid');const receipt=f.calls.findIndex(c=>c.url.pathname==='/api/send-payment-confirmed-email');assert.ok(paid>=0&&receipt>paid);
+  const f=fixture(t,{provider});const result=await f.invoke();assert.equal(result.dbMarkedPaid,true);const paid=f.calls.findIndex(c=>c.body?.status==='paid');const receipt=f.calls.findIndex(c=>c.url.pathname==='/emails');assert.ok(paid>=0&&receipt>paid);
  });
  test(`${provider}: rejected receipt is not marked as sent`,async t=>{
   const f=fixture(t,{provider,emailStatus:503});await f.invoke();assert.equal(f.calls.some(c=>c.body?.metadata?.confirmationEmailSentAt),false);

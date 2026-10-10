@@ -3,39 +3,40 @@ import assert from 'node:assert/strict';
 import {paylioAccount} from '../api/_paylio-binding.js';
 Object.assign(process.env,{SUPABASE_URL:'https://fixture.test',SUPABASE_SERVICE_ROLE_KEY:'fixture-service',PAYLIO_API_KEY:'fixture-provider-key',PAYLIO_PAYOUT_ADDRESS:'0x'+'1'.repeat(40),RESEND_API_KEY:'fixture-receipt'});
 mock.module('../api/_catalog.js',{namedExports:{validateAndPriceItems:()=>({pricedItems:[{name:'Fixture',dose:'1 mg',quantity:1,price:100}],subtotal:100,regularSubtotal:100}),getShippingPrice:()=>10,getAutomaticDiscountRate:()=>0}});
+process.env.MERIT_AFFILIATE_RULES_JSON=JSON.stringify({version:'fixture-v1',source:'existing affiliate terms',status:'operator_report',currency:'USD',unit:'basis_points',effectiveFrom:'2026-01-01',firstOrderDiscountBps:500,commissionBps:1000,approvedCodes:['VALIDCODE','ORIGINAL','NEWCODE']});
 const create=(await import('../api/create-paylio-payment.js')).default;
 const callback=(await import('../api/paylio-callback.js')).default;
 const orderId='INV-PAYLIO123',customerId='11111111-1111-4111-8111-111111111111',email='buyer@example.test';
 const row={id:orderId,user_id:customerId,email,status:'checkout',total:110,metadata:{firstName:'Buyer',address:'Fixture address',storeCreditUsed:0},payment_provider:null};
 const res=()=>({statusCode:200,setHeader(){},status(code){this.statusCode=code;return this},json(body){this.body=body;return this}});
 const json=(body,status=200)=>new Response(JSON.stringify(body),{status});
-function fixture(t,{bindingFails=false,providerFails=false,providerUrlSuffix='',pending=false,terminal=false,effectsFailOnce=false,emptyEffectsAck=false,existingAffiliate='',affiliateResponse,affiliateLookupFails=false,priorPurchases=[],historyFails=false,promoRows=[]}={}){
+function fixture(t,{checkoutOrderId=orderId,bindingFails=false,providerFails=false,providerFailureBody,providerUrlSuffix='',pending=false,terminal=false,effectsFailOnce=false,emptyEffectsAck=false,existingAffiliate='',affiliateResponse,affiliateLookupFails=false,priorPurchases=[],historyFails=false,promoRows=[]}={}){
  const calls=[];let attempt,effectsCalls=0;
  t.mock.method(globalThis,'fetch',async(input,options={})=>{
   const url=new URL(input),body=options.body?JSON.parse(options.body):null;
   calls.push({url,options,body});
   if(url.pathname==='/auth/v1/user')return json({id:customerId,email,email_confirmed_at:'2026-10-08T00:00:00Z'});
   if(url.pathname==='/rest/v1/orders'){
-   if(!url.searchParams.has('status'))return json([row]);
+   if(!url.searchParams.get('select')?.includes('paid_at'))return json([{...row,id:checkoutOrderId}]);
    if(historyFails==='network')throw new Error('fixture history unavailable');
    if(historyFails)return json({},503);
    if(!Array.isArray(priorPurchases))return json(priorPurchases);
-   const statuses=url.searchParams.get('status').slice(4,-1).split(',');
-   return json(priorPurchases.filter(p=>!p.status||statuses.includes(p.status)).slice(0,1));
+   return json(priorPurchases.map(p=>({email,status:'paid',...p})));
   }
-  if(url.pathname==='/rest/v1/affiliate_customers')return json(existingAffiliate?[{affiliate_code:existingAffiliate}]:[]);
-  if(url.pathname==='/rest/v1/affiliates')return json(affiliateResponse===undefined?[{code:url.searchParams.get('code').slice(3),email:'affiliate@example.test',active:true}]:affiliateResponse,affiliateLookupFails?503:200);
+  if(url.pathname==='/rest/v1/affiliate_customers')return json(existingAffiliate?[{email,affiliate_code:existingAffiliate}]:[]);
+  if(url.pathname==='/rest/v1/affiliates')return json(affiliateResponse===undefined?[{code:url.searchParams.get('code').slice(6).replaceAll('\\_', '_'),email:'affiliate@example.test',active:true}]:affiliateResponse,affiliateLookupFails?503:200);
   if(url.pathname==='/rest/v1/user_promos')return json(promoRows.filter(row=>`eq.${row.email}`===url.searchParams.get('email')));
   if(url.pathname==='/rest/v1/paylio_payment_attempts')return json(attempt?[attempt]:[]);
   if(url.pathname==='/rest/v1/rpc/reserve_paylio_checkout'){
    if(attempt)return json({created:false,attempt});
-   attempt={id:body.p_id,order_id:orderId,customer_id:customerId,email,fingerprint:body.p_fingerprint,account_fingerprint:body.p_account_fingerprint,payout_address:body.p_payout_address,amount_cents:body.p_amount_cents,currency:'USD',state:'reserved',quote:body.p_quote,created_at:new Date().toISOString()};
+   attempt={id:body.p_id,order_id:checkoutOrderId,customer_id:customerId,email,fingerprint:body.p_fingerprint,account_fingerprint:body.p_account_fingerprint,payout_address:body.p_payout_address,amount_cents:body.p_amount_cents,currency:'USD',state:'reserved',quote:body.p_quote,created_at:new Date().toISOString()};
    return json({created:true,attempt});
   }
   if(url.pathname==='/api/v1/wallet'){
    assert.equal(body.currency,'USD');assert.equal(body.passFeeToCustomer,false);
    assert.equal(body.callback,`https://10bottlevalue.co/api/paylio-callback?attempt=${attempt.id}`);
    assert.ok(!body.callback.includes(email));
+   if(providerFailureBody!==undefined)return new Response(providerFailureBody,{status:502});
    return providerFails?json({secret:'never-expose'},500):json({payment_id:'provider_fixture',ipn_token:'provider-secret-token',checkout_url:'https://paylio.org/pay/provider_fixture'+providerUrlSuffix,amount:body.amount,status:'unpaid'});
   }
   if(url.pathname==='/rest/v1/rpc/bind_paylio_checkout'){
@@ -59,8 +60,8 @@ function fixture(t,{bindingFails=false,providerFails=false,providerUrlSuffix='',
  });
  return {calls,attempt:()=>attempt};
 }
-const request=()=>({method:'POST',headers:{authorization:'Bearer fixture'},body:{order_id:orderId,email,items:[{name:'Fixture'}],storeCreditUsed:0}});
-const referralRequest=(body={})=>({...request(),body:{...request().body,affiliateCode:'VALIDCODE',affiliateDiscount:5,...body}});
+const request=()=>({method:'POST',headers:{authorization:'Bearer fixture'},body:{expectedTotal:110,order_id:orderId,email,items:[{name:'Fixture'}],storeCreditUsed:0}});
+const referralRequest=(body={})=>({...request(),body:{...request().body,affiliateCode:'VALIDCODE',affiliateDiscount:5,expectedTotal:105,...body}});
 const noReservation=f=>assert.equal(f.calls.some(c=>c.url.pathname==='/api/v1/wallet'||c.url.pathname==='/rest/v1/rpc/reserve_paylio_checkout'),false);
 test('checkout URL is exposed only after private binding; retry reuses it without a second provider create',async t=>{
  const f=fixture(t),first=res();await create(request(),first);assert.equal(first.statusCode,200);assert.deepEqual(first.body,{payment_url:'https://paylio.org/pay/provider_fixture',verifiedAmount:110});
@@ -87,10 +88,10 @@ test('unknown provider URL query remains contained without exposing a link or cr
 test('known customer referral is frozen separately from browser discount code',async t=>{
  const f=fixture(t,{existingAffiliate:'ORIGINAL'}),response=res();await create({...request(),body:{...request().body,affiliateCode:'NEWCODE'}},response);
  assert.equal(response.statusCode,200);assert.equal(f.attempt().quote.affiliateAttributionCode,'ORIGINAL');assert.equal(f.attempt().quote.affiliateCode,'NEWCODE');
- assert.equal(f.calls.some(c=>c.url.pathname==='/rest/v1/affiliates'),false);
+ assert.equal(f.calls.filter(c=>c.url.pathname==='/rest/v1/affiliates').length,2);
 });
-test('enabled referral preserves the first-purchase cap, lower requested discount and frozen retry',async t=>{
- for(const [discount,expected] of [[5,105],[999,105],[2,108]]){
+test('enabled referral uses the verified first-purchase rate despite client amounts and preserves frozen retry',async t=>{
+ for(const [discount,expected] of [[5,105],[999,105],[2,105]]){
   const f=fixture(t),response=res();await create(referralRequest({affiliateDiscount:discount}),response);
   assert.equal(response.statusCode,200);assert.equal(response.body.verifiedAmount,expected);
   assert.equal(f.attempt().quote.affiliateAttributionCode,'VALIDCODE');assert.equal(f.attempt().quote.affiliateCommission,10);
@@ -100,7 +101,7 @@ test('enabled referral preserves the first-purchase cap, lower requested discoun
  }
 });
 test('unknown, inactive and self-referral codes cannot reserve a discount or a new referral',async t=>{
- for(const affiliateResponse of [[],[{code:'VALIDCODE',email:'affiliate@example.test',active:false}],[{code:'VALIDCODE',email:' BUYER@EXAMPLE.TEST ',active:true}]]){
+ for(const affiliateResponse of [[],[{code:'VALIDCODE',email:'affiliate@example.test',active:null}],[{code:'VALIDCODE',email:'',active:true}],[{code:'OTHER',email:'affiliate@example.test',active:true}],[{code:'VALIDCODE',email:'affiliate@example.test',active:false}],[{code:'VALIDCODE',email:' BUYER@EXAMPLE.TEST ',active:true}]]){
   for(const affiliateDiscount of [0,5]){
    const f=fixture(t,{affiliateResponse}),response=res();await create(referralRequest({affiliateDiscount}),response);
    assert.equal(response.statusCode,400);assert.equal(response.body.code,'PAYLIO_AFFILIATE_UNAVAILABLE');noReservation(f);
@@ -111,7 +112,7 @@ test('unknown, inactive and self-referral codes cannot reserve a discount or a n
 });
 test('ambiguous, malformed or failed affiliate lookups cannot initiate Paylio',async t=>{
  const valid={code:'VALIDCODE',email:'affiliate@example.test',active:true};
- for(const options of [{affiliateLookupFails:true},...[[valid,valid],{error:'bad'},[null],[{...valid,code:'OTHER'}],[{...valid,email:''}],[{...valid,active:'true'}]].map(affiliateResponse=>({affiliateResponse}))]){
+ for(const options of [{affiliateLookupFails:true},...[[valid,valid],{error:'bad'},[null]].map(affiliateResponse=>({affiliateResponse}))]){
   const f=fixture(t,options),response=res();await create(referralRequest(),response);assert.equal(response.statusCode,503);noReservation(f);
  }
 });
@@ -121,27 +122,34 @@ test('failed or malformed purchase history never grants a first-purchase discoun
  }
 });
 test('paid and fulfilled purchases exclude the first-purchase discount; pending orders do not',async t=>{
- for(const status of ['paid','done','processing','shipped','delivered','pending']){
-  const f=fixture(t,{priorPurchases:[{id:'INV-EARLIER',status}]}),response=res();await create(referralRequest(),response);
+ for(const status of ['paid','done','processing','shipped','delivered','refunded','pending']){
+  const f=fixture(t,{priorPurchases:[{id:'INV-EARLIER',status}]}),response=res();await create(referralRequest({expectedTotal:status==='pending'?105:110}),response);
   assert.equal(response.statusCode,200);assert.equal(response.body.verifiedAmount,status==='pending'?105:110);
   assert.equal(f.attempt().quote.affiliateAttributionCode,'VALIDCODE');assert.equal(f.attempt().quote.affiliateCommission,10);
  }
 });
-test('ordinary checkout and promo precedence avoid irrelevant affiliate eligibility lookups',async t=>{
+test('ordinary checkout skips referral verification; promos preserve verified inherited attribution',async t=>{
  const ordinary=fixture(t,{historyFails:true,affiliateLookupFails:true}),response=res();await create(request(),response);assert.equal(response.statusCode,200);
  assert.equal(ordinary.calls.some(c=>c.url.pathname==='/rest/v1/affiliates'||c.url.searchParams.has('status')),false);
- const promo=fixture(t,{existingAffiliate:'ORIGINAL',historyFails:true,affiliateLookupFails:true}),discounted=res();await create(referralRequest({promoCode:'REVIEW10'}),discounted);
+ const promo=fixture(t,{existingAffiliate:'ORIGINAL'}),discounted=res();await create(referralRequest({promoCode:'REVIEW10',expectedTotal:100}),discounted);
  assert.equal(discounted.statusCode,200);assert.equal(discounted.body.verifiedAmount,100);assert.equal(promo.attempt().quote.promoDiscount,10);assert.equal(promo.attempt().quote.affiliateDiscount,0);
- assert.equal(promo.attempt().quote.affiliateAttributionCode,'ORIGINAL');assert.equal(promo.calls.some(c=>c.url.pathname==='/rest/v1/affiliates'||c.url.searchParams.has('status')),false);
+ assert.equal(promo.attempt().quote.affiliateAttributionCode,'ORIGINAL');assert.equal(promo.calls.filter(c=>c.url.pathname==='/rest/v1/affiliates').length,2);
 });
-test('nullable active matches existing affiliate convention without changing saved attribution',async t=>{
- const f=fixture(t,{existingAffiliate:'ORIGINAL',affiliateResponse:[{code:'VALIDCODE',email:'affiliate@example.test',active:null}]}),response=res();await create(referralRequest(),response);
- assert.equal(response.statusCode,200);assert.equal(response.body.verifiedAmount,105);assert.equal(f.attempt().quote.affiliateAttributionCode,'ORIGINAL');
+test('invalid inherited owners and unapproved codes cannot reserve or initiate Paylio',async t=>{
+ for(const entered of ['', 'VALIDCODE']) for(const affiliateResponse of [[],[{code:'ORIGINAL',email,active:true}],[{code:'ORIGINAL',email:'affiliate@example.test',active:false}],[{code:'ORIGINAL',email:'affiliate@example.test',active:null}]]){
+  const f=fixture(t,{existingAffiliate:'ORIGINAL',affiliateResponse}),response=res();await create(referralRequest({affiliateCode:entered}),response);
+  assert.equal(response.statusCode,400);assert.equal(response.body.code,'PAYLIO_AFFILIATE_UNAVAILABLE');noReservation(f);
+ }
+ for(const inherited of ['', 'UNAPPROVED']){
+  const f=fixture(t,{existingAffiliate:inherited}),response=res();await create(referralRequest({affiliateCode:inherited?'':'UNAPPROVED'}),response);assert.equal(response.statusCode,400);noReservation(f);
+ }
 });
-test('promo checkout validates a new attribution without checking first-purchase discount eligibility',async t=>{
- const f=fixture(t,{historyFails:true}),response=res();await create(referralRequest({promoCode:'REVIEW10'}),response);
- assert.equal(response.statusCode,200);assert.equal(response.body.verifiedAmount,100);assert.equal(f.attempt().quote.affiliateAttributionCode,'VALIDCODE');
- assert.equal(f.calls.filter(c=>c.url.pathname==='/rest/v1/affiliates').length,1);assert.equal(f.calls.some(c=>c.url.searchParams.has('status')),false);
+test('approved inherited owner retains commission without an entered discount; invalid private rules fail closed',async t=>{
+ const f=fixture(t,{existingAffiliate:'ORIGINAL'}),response=res();await create(request(),response);assert.equal(response.statusCode,200);
+ assert.equal(response.body.verifiedAmount,110);assert.equal(f.attempt().quote.affiliateAttributionCode,'ORIGINAL');assert.equal(f.attempt().quote.affiliateCommission,10);
+ const rules=process.env.MERIT_AFFILIATE_RULES_JSON;delete process.env.MERIT_AFFILIATE_RULES_JSON;
+ try { const broken=fixture(t),blocked=res();await create(referralRequest(),blocked);assert.equal(blocked.statusCode,503);noReservation(broken); }
+ finally { process.env.MERIT_AFFILIATE_RULES_JSON=rules; }
 });
 test('affiliate deactivation after private binding does not reprice or block verified settlement',async t=>{
  const affiliateResponse=[{code:'VALIDCODE',email:'affiliate@example.test',active:true}],f=fixture(t,{affiliateResponse}),response=res();await create(referralRequest(),response);
@@ -169,6 +177,16 @@ test('uncertain provider or failed binding leaks no provider response or URL and
   const second=res();await create(request(),second);assert.equal(second.statusCode,409);assert.equal(f.calls.filter(c=>c.url.pathname==='/api/v1/wallet').length,1);
  }
 });
+test('provider 502 diagnostics retain useful categories without customer data, tokens or an automatic retry',async t=>{
+ const output=[];t.mock.method(console,'error',(...args)=>output.push(args));
+ const privateBody=JSON.stringify({error:'Upstream RPC timed out for buyer@example.test',code:'plio_live_secret_value',ipn_token:'never-expose-token',checkout_url:'https://paylio.org/pay/private-checkout'});
+ const f=fixture(t,{providerFailureBody:privateBody}),first=res();await create(request(),first);
+ assert.equal(first.statusCode,503);assert.equal(output[0][1].providerStatus,502);
+ assert.deepEqual(output[0][1].providerDiagnostic,{bodyFormat:'json',bodyBytes:Buffer.byteLength(privateBody),errorCategory:'upstream_timeout'});
+ assert.doesNotMatch(JSON.stringify([first.body,output]),/buyer@|plio_live_secret|never-expose|private-checkout|timed out for/);
+ const second=res();await create(request(),second);assert.equal(second.statusCode,409);
+ assert.equal(f.calls.filter(c=>c.url.pathname==='/api/v1/wallet').length,1);
+});
 test('callback ignores forged public claims and performs server verification before one paid transition and one receipt',async t=>{
  const f=fixture(t);await create(request(),res());const id=f.attempt().id;
  const forged={method:'POST',url:`/api/paylio-callback?attempt=${id}&order_id=INV-FOREIGN&total=1`,body:{status:'paid',payment_id:'foreign',email:'foreign@example.test',metadata:{order_id:'INV-FOREIGN',storeCreditUsed:999}}};
@@ -190,7 +208,21 @@ test('unpaid provider result or refused terminal-state transaction cannot cause 
 test('CARD5 works with PayPal and Paylio and preserves the private rule version',async t=>{
  for(const provider of ['paypal',undefined]){
   const f=fixture(t,{promoRows:[{id:'33333333-3333-4333-8333-333333333333',email:'__PUBLIC__',code:'CARD5',rate:.05,used:false,revision:3}]}),response=res();
-  await create({...request(),body:{...request().body,provider,promoCode:'CARD5',promoDiscount:99}},response);
+  await create({...request(),body:{...request().body,provider,promoCode:'CARD5',promoDiscount:99,expectedTotal:105}},response);
   assert.equal(response.statusCode,200);assert.equal(response.body.verifiedAmount,105);assert.equal(f.attempt().quote.promoDiscount,5);assert.equal(f.attempt().quote.promoUsageRequired,false);assert.equal(f.attempt().quote.discountRule.revision,3);
  }
+});
+
+// Provider notes are display labels; all authoritative identities stay intact.
+test('Paylio note matches the short storefront invoice while binding retains the full order identity', async t=>{
+ const canonical='INV-0123456789ABCDEF0123456789ABCDEF',f=fixture(t,{checkoutOrderId:canonical});
+ const req={...request(),body:{...request().body,order_id:canonical,note:'FORGED-NOTE'}},response=res();
+ await create(req,response);assert.equal(response.statusCode,200);
+ const provider=f.calls.find(c=>c.url.pathname==='/api/v1/wallet');
+ assert.equal(provider.body.note,'INV-01234567');
+ assert.equal(new URL(provider.body.return_url).searchParams.get('order'),canonical);
+ assert.equal(f.attempt().order_id,canonical);assert.equal(f.attempt().quote.orderId,canonical);
+ assert.equal(f.calls.find(c=>c.url.pathname==='/rest/v1/rpc/reserve_paylio_checkout').body.p_order_id,canonical);
+ const again=res();await create(req,again);assert.equal(again.statusCode,200);
+ assert.equal(f.calls.filter(c=>c.url.pathname==='/api/v1/wallet').length,1);
 });

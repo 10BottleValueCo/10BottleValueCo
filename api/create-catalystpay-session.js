@@ -1,3 +1,6 @@
+import { checkoutTiming } from "./_checkout-timing.js";
+import { reserveLegacyInvoice, bindLegacyInvoice, legacyInvoicePending } from "./_legacy-invoice-lock.js";
+import { legacyCheckoutQuote, assertExpectedTotal } from "./_legacy-checkout-quote.js";
 import { requireLegacyOrderAccess } from "./_order-access.js";
 import { legacyCreditStartError, legacyExistingCreditOrderError } from "./_legacy-store-credit.js";
 import { validateAndPriceItems, getShippingPrice, getAutomaticDiscountRate } from "./_catalog.js";
@@ -23,14 +26,17 @@ const BASE_API_URL = IS_PRODUCTION
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const markTiming = checkoutTiming(res);
   const creditError = legacyCreditStartError(req.body);
   if (creditError) {
     const { status, ...body } = creditError;
     return res.status(status).json(body);
   }
-  const access = await requireLegacyOrderAccess(req, res, { orderId: req.body?.order_id });
+  const access = await requireLegacyOrderAccess(req, res, { orderId: req.body?.order_id, provider: "catalystpay" });
   if (!access) return;
+  markTiming("access");
   const existingCreditError = await legacyExistingCreditOrderError(req.body);
+  markTiming("credit");
   if (existingCreditError) {
     const { status, ...body } = existingCreditError;
     return res.status(status).json(body);
@@ -50,7 +56,6 @@ export default async function handler(req, res) {
       affiliateDiscount: clientAffiliateDiscount = 0,
       storeCreditUsed = 0,
       affiliateCode = "",
-      affiliateOwnerEmail = "",
       shippingType = "standard",
       firstName = "",
       lastName = "",
@@ -68,84 +73,18 @@ export default async function handler(req, res) {
 
     if (!order_id) return res.status(400).json({ error: "Missing order_id" });
 
-    // ---- SERVER-SIDE PRICE & STOCK VALIDATION ----
-    let pricedItems, subtotal, regularSubtotal;
-    try {
-      ({ pricedItems, subtotal, regularSubtotal } = validateAndPriceItems(items));
-    } catch (validationErr) {
-      return res.status(400).json({ error: validationErr.message });
-    }
+    if (access.order.metadata?.catalystpay_invoice_id && String(affiliateCode || "").trim().toUpperCase() !== String(access.order.metadata.affiliateCode || "").trim().toUpperCase())
+      return res.status(409).json({ code: "PAYMENT_BINDING_CONFLICT", error: "This payment has already started. Restore its original referral or contact support." });
 
-    const automaticDiscountRate = getAutomaticDiscountRate(subtotal);
-    const automaticDiscount = Math.round(subtotal * automaticDiscountRate * 100) / 100;
-
-    const MAX_AFFILIATE_RATE = 0.05;
-
-    let promoDiscount = 0;
-    let verifiedPromoFreeShipping = false;
-    let discountRule = null;
-    if (String(promoCode || "").trim()) {
-      const verifiedPromo = await verifyPromoCode({
-        code: promoCode,
-        email: customer_email,
-        sbUrl: SB_URL,
-        sbKey: SB_KEY,
-        subtotalCents: Math.round(subtotal * 100),
-      });
-      if (!verifiedPromo) return res.status(400).json({ code: "PROMO_UNAVAILABLE", error: "This promo code is unavailable for this checkout. Review or remove it before paying." });
-      if (verifiedPromo) {
-        discountRule = verifiedPromo.rule;
-        promoDiscount = Math.round(subtotal * verifiedPromo.rate * 100) / 100;
-        verifiedPromoFreeShipping = !!verifiedPromo.freeShipping;
-      }
-    }
-
-    // Affiliate discount is first-order-only — verify server-side
-    let isFirstTimeBuyer = true;
-    if (SB_URL && SB_KEY && customer_email) {
-      try {
-        const checkResp = await fetch(
-          `${SB_URL}/rest/v1/orders?email=eq.${encodeURIComponent(String(customer_email).toLowerCase().trim())}&status=in.(paid,done)&select=id&limit=1`,
-          { headers: sbH() }
-        );
-        if (checkResp.ok) {
-          const rows = await checkResp.json();
-          isFirstTimeBuyer = !Array.isArray(rows) || rows.length === 0;
-        }
-      } catch {}
-    }
-
-    let affiliateDiscount = 0;
-    if (!promoDiscount && isFirstTimeBuyer && String(affiliateCode || "").trim() && Number(clientAffiliateDiscount) > 0) {
-      const impliedRate = Number(clientAffiliateDiscount) / (subtotal || 1);
-      affiliateDiscount = impliedRate <= MAX_AFFILIATE_RATE
-        ? Math.min(Number(clientAffiliateDiscount), subtotal)
-        : Math.round(subtotal * MAX_AFFILIATE_RATE * 100) / 100;
-    }
-
-    const finalAutomaticDiscount = promoDiscount > 0 || affiliateDiscount > 0 ? 0 : automaticDiscount;
-    const finalAffiliateDiscount = promoDiscount > 0 ? 0 : affiliateDiscount;
-
-    const shipping =
-      pricedItems.length === 0
-        ? 0
-        : verifiedPromoFreeShipping || regularSubtotal === 0
-        ? 0
-        : getShippingPrice(regularSubtotal, shippingType === "express" ? "express" : "standard");
-
-    const baseTotal = subtotal - finalAutomaticDiscount - promoDiscount - finalAffiliateDiscount + shipping;
-
-    // Crypto discount removed
-    const cryptoDiscountAmount = 0;
-
-    const safeStoreCreditUsed = Math.min(
-      Math.max(Number(storeCreditUsed) || 0, 0),
-      Math.max(0, baseTotal - cryptoDiscountAmount)
-    );
-
-    const price_amount = Math.round(
-      (baseTotal - cryptoDiscountAmount - safeStoreCreditUsed) * 100
-    ) / 100;
+    const quote = await legacyCheckoutQuote(req.body, customer_email, { crypto: false, customerId: access.identity.id });
+    const { pricedItems, subtotal, regularSubtotal, promoDiscount, discountRule, finalAutomaticDiscount,
+      finalAffiliateDiscount, shipping, affiliateOwnerEmail, affiliateAttributionCode, affiliateCommission,
+      affiliateRuleVersion } = quote;
+    const cryptoDiscountAmount = quote.cryptoDiscount;
+    const safeStoreCreditUsed = 0;
+    const price_amount = quote.total;
+    assertExpectedTotal(req.body.expectedTotal, price_amount);
+    markTiming("quote");
 
     if (!price_amount || price_amount <= 0) {
       return res.status(400).json({ error: "Order total must be greater than zero." });
@@ -160,12 +99,12 @@ export default async function handler(req, res) {
         || Number(saved.shipping) !== shipping || String(saved.shippingType || "standard") !== shippingType
         || String(saved.promoCode || "") !== String(promoCode || "")
         || String(saved.affiliateCode || "") !== String(affiliateCode || "").trim().toUpperCase()
-        || String(saved.affiliateOwnerEmail || "") !== String(affiliateOwnerEmail || "")
         || ['firstName', 'lastName', 'country', 'address', 'address2', 'city', 'state', 'postalCode', 'phone', 'taxId', 'orderNotes']
           .some(field => String(req.body[field] || saved[field] || '') !== String(saved[field] || ''))
         || Number(saved.promoDiscount || 0) !== promoDiscount || Number(saved.affiliateDiscount || 0) !== finalAffiliateDiscount)
         return res.status(409).json({ code: "PAYMENT_BINDING_CONFLICT", error: "This payment has already started. Return to the original checkout or contact support." });
       const invoice = await verifyCatalystInvoiceBinding(access.order, savedInvoiceId);
+      markTiming("resume");
       if (!["New", "Processing"].includes(invoice.status) || !["None", "PaidPartial"].includes(invoice.additionalStatus))
         return res.status(409).json({ code: "PAYMENT_RECONCILIATION_REQUIRED", error: "This payment needs reconciliation. Contact support before trying another payment." });
       return res.status(200).json({ checkoutLink: catalystCheckoutUrl(invoice.checkoutLink), invoice_id: savedInvoiceId, amount: price_amount });
@@ -177,6 +116,17 @@ export default async function handler(req, res) {
     // metadata values must be alphanumeric, dashes, underscores only (PaidlyInteractive restriction)
     const safeEmail = (customer_email || "").replace(/[^a-zA-Z0-9\-_]/g, "_");
     const safeAffCode = (affiliateCode || "").replace(/[^a-zA-Z0-9\-_]/g, "_");
+
+    const reservedOrder = await reserveLegacyInvoice(access.order, "catalystpay", price_amount, {
+      total: price_amount, subtotal, shipping, automaticDiscount: finalAutomaticDiscount, promoDiscount, discountRule,
+      promoCode: String(promoCode || ""), affiliateDiscount: finalAffiliateDiscount, cryptoDiscount: cryptoDiscountAmount,
+      storeCreditUsed: 0, affiliateCode: String(affiliateCode || "").trim().toUpperCase(), affiliateOwnerEmail,
+      affiliateAttributionCode, affiliateCommission, affiliateRuleVersion, affiliateQuoteVersion: "server-referral-v1",
+      shippingType, items: pricedItems,
+      ...Object.fromEntries(["firstName", "lastName", "country", "address", "address2", "city", "state", "postalCode", "phone", "taxId", "orderNotes"]
+        .map(key => [key, String(req.body[key] || access.order.metadata?.[key] || "")])),
+    }, pricedItems);
+    markTiming("reserve");
 
     const nowRes = await fetch(`${BASE_API_URL}/api/v1/stores/${MERCHANT_ID}/invoices`, {
       method: "POST",
@@ -204,6 +154,7 @@ export default async function handler(req, res) {
     });
 
     const rawText = await nowRes.text();
+    markTiming("provider");
     if (!nowRes.ok || Buffer.byteLength(rawText) > 100000)
       throw Object.assign(new Error('Payment setup is pending. Please contact support before trying another payment.'), { status: 503, code: 'PAYMENT_CREATION_UNAVAILABLE' });
     let data = {};
@@ -214,67 +165,8 @@ export default async function handler(req, res) {
     }
     const checkoutLink = verifyCatalystCreatedInvoice(data, { orderId: order_id, amount: price_amount });
 
-    // The callback depends on this exact invoice binding. Never send a customer
-    // to an invoice whose canonical quote was not durably acknowledged.
-    if (!SB_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY || !/^[A-Za-z0-9_-]{1,160}$/.test(data.id || ""))
-      throw Object.assign(new Error("Payment setup is pending. Please contact support before trying another payment."), { status: 503, code: "PAYMENT_BINDING_UNAVAILABLE" });
-    {
-        const existing = await fetch(
-          `${SB_URL}/rest/v1/orders?id=eq.${encodeURIComponent(String(order_id))}&select=id,email,status,total,metadata,payment_id,payment_provider&limit=2`,
-          { headers: sbH(), redirect: "error", signal: AbortSignal.timeout(8000) }
-        );
-        const rows = existing.ok ? await existing.json() : [];
-        const currentStatus = String(rows?.[0]?.status || "").toLowerCase();
-        if (!Array.isArray(rows) || rows.length !== 1 || rows[0].id !== order_id || rows[0].email !== customer_email
-          || !["pending", "checkout", "checkout (clicked pay)", "wire_pending"].includes(currentStatus)
-          || rows[0].payment_id || rows[0].payment_provider || rows[0].metadata?.catalystpay_invoice_id)
-          throw Object.assign(new Error("A payment has already started or this order changed. Contact support before trying another payment."), { status: 409, code: "PAYMENT_BINDING_CONFLICT" });
-          const patch = {
-              status: "checkout (clicked pay)",
-              total: price_amount,
-              metadata: {
-                ...(rows?.[0]?.metadata || {}),
-                catalystpay_invoice_id: data.id,
-                total: price_amount,
-                subtotal: Number(subtotal),
-                shipping: Number(shipping),
-                automaticDiscount: Number(finalAutomaticDiscount),
-                promoDiscount: Number(promoDiscount),
-        discountRule,
-                promoCode: String(promoCode || ""),
-                affiliateDiscount: Number(finalAffiliateDiscount),
-                cryptoDiscount: Number(cryptoDiscountAmount),
-                storeCreditUsed: Number(safeStoreCreditUsed),
-                affiliateCode: String(affiliateCode || "").trim().toUpperCase(),
-                affiliateOwnerEmail: String(affiliateOwnerEmail || ""),
-                shippingType: String(shippingType),
-                items: pricedItems,
-                firstName: String(firstName || (rows?.[0]?.metadata?.firstName ?? "")),
-                lastName: String(lastName || (rows?.[0]?.metadata?.lastName ?? "")),
-                country: String(country || (rows?.[0]?.metadata?.country ?? "")),
-                address: String(address || (rows?.[0]?.metadata?.address ?? "")),
-                address2: String(address2 || (rows?.[0]?.metadata?.address2 ?? "")),
-                city: String(city || (rows?.[0]?.metadata?.city ?? "")),
-                state: String(state || (rows?.[0]?.metadata?.state ?? "")),
-                postalCode: String(postalCode || (rows?.[0]?.metadata?.postalCode ?? "")),
-                phone: String(phone || (rows?.[0]?.metadata?.phone ?? "")),
-                taxId: String(taxId || (rows?.[0]?.metadata?.taxId ?? "")),
-              },
-          };
-          const query = new URLSearchParams({ id: `eq.${order_id}`, email: `eq.${customer_email}`, status: `eq.${rows[0].status}`, payment_id: 'is.null', payment_provider: 'is.null', 'metadata->>catalystpay_invoice_id': 'is.null' });
-          if (rows[0].total != null) query.set('total', `eq.${rows[0].total}`);
-          const saved = await fetch(`${SB_URL}/rest/v1/orders?${query}`, {
-            method: "PATCH",
-            headers: { ...sbH(), Prefer: "return=representation" },
-            redirect: "error", signal: AbortSignal.timeout(8000),
-            body: JSON.stringify(patch),
-          });
-          const acknowledged = saved.ok ? await saved.json() : null;
-          const row = Array.isArray(acknowledged) && acknowledged.length === 1 ? acknowledged[0] : null;
-          if (!row || row.id !== order_id || row.email !== customer_email || row.status !== patch.status
-            || Number(row.total) !== price_amount || !isDeepStrictEqual(row.metadata, patch.metadata))
-            throw Object.assign(new Error("Payment setup is pending. Please contact support before trying another payment."), { status: 503, code: "PAYMENT_BINDING_UNACKNOWLEDGED" });
-    }
+    await bindLegacyInvoice(reservedOrder, "catalystpay", data.id, checkoutLink, { catalystpay_invoice_id: data.id });
+    markTiming("bind");
 
     return res.status(200).json({
       checkoutLink,
@@ -282,9 +174,13 @@ export default async function handler(req, res) {
       amount: price_amount,
     });
   } catch (err) {
-    if (err?.code === "PROMO_LOOKUP_UNAVAILABLE") return res.status(503).json({ code: err.code, error: err.message });
+    if (err?.code === "PROMO_LOOKUP_UNAVAILABLE" || err?.code?.startsWith("MERIT_AFFILIATE_")
+      || ["PROMO_UNAVAILABLE", "CHECKOUT_QUOTE_CHANGED", "CHECKOUT_REFRESH_REQUIRED"].includes(err?.code))
+      return res.status(err.status || 503).json({ code: err.code, error: err.message, ...(Number.isFinite(err.total) ? { total: err.total } : {}) });
     const known = typeof err?.code === 'string' && /^PAYMENT_[A-Z_]+$/.test(err.code);
     console.error("create-catalystpay-session error:", known ? err.code : "PAYMENT_CREATION_UNAVAILABLE");
     return res.status(known ? err.status || 503 : 503).json({ code: known ? err.code : "PAYMENT_CREATION_UNAVAILABLE", error: known ? err.message : "Payment setup is pending. Please contact support before trying another payment." });
+  } finally {
+    markTiming.report("catalystpay");
   }
 }

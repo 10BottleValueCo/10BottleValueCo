@@ -9,6 +9,7 @@ Object.assign(process.env, env);
 delete process.env.VITE_SUPABASE_URL;
 delete process.env.RESEND_API_KEY;
 let stripeCreates = [];
+let currentStartOrder;
 let verifiedIntent;
 mock.module('stripe', { defaultExport: class {
   checkout = { sessions: { create: async data => { stripeCreates.push(data); return { id: 'cs_fixture', client_secret: 'fixture-secret' }; }, listLineItems: async () => ({ data: [] }) } };
@@ -23,7 +24,7 @@ mock.module('../api/_catalog.js', { namedExports: {
 // This suite isolates credit containment. Real authentication/ownership and
 // provider ordering are covered by order-access.test.mjs and native acceptance.
 mock.module('../api/_order-access.js', { namedExports: {
-  requireLegacyOrderAccess: async () => ({ identity: { id: '11111111-1111-4111-8111-111111111111', email: 'buyer@example.test' } }),
+  requireLegacyOrderAccess: async () => ({ identity: { id: '11111111-1111-4111-8111-111111111111', email: 'buyer@example.test' }, order: structuredClone(currentStartOrder) }),
 } });
 const starts = await Promise.all(['create-payment', 'create-paylio-payment', 'create-stripe-session', 'create-payment-intent', 'create-catalystpay-session'].map(async name => [name, (await import(`../api/${name}.js`)).default]));
 const paylio = (await import('../api/paylio-callback.js')).default;
@@ -44,16 +45,17 @@ for (const [name, handler] of starts) {
   test(`${name}: partial credit rejected before any IO${name === 'create-paylio-payment' ? '' : '; zero credit still creates existing provider invoice'}`, async t => {
     stripeCreates = [];
     const calls = [];
+    currentStartOrder = { id: orderId, email, user_id: '11111111-1111-4111-8111-111111111111', status: 'checkout', total: 110, payment_id: null, payment_provider: null, metadata: { storeCreditUsed: 0 } };
     t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
       calls.push([String(url), options]);
       if (String(url).includes('/rest/v1/orders?')) {
-        const row = { id: orderId, email, user_id: '11111111-1111-4111-8111-111111111111', status: 'checkout', total: 110, payment_id: null, payment_provider: null, metadata: { storeCreditUsed: 0 } };
-        return json([{ ...row, ...(options.method === 'PATCH' ? JSON.parse(options.body) : {}) }]);
+        if (options.method === 'PATCH') Object.assign(currentStartOrder, JSON.parse(options.body));
+        return json([currentStartOrder]);
       }
       if (String(url).includes('/rest/v1/')) return json([]);
-      return json({ id: 'invoice_fixture', storeId: env.CATALYSTPAY_MERCHANT_ID, amount: '110.00', currency: 'USD', status: 'New', metadata: { OrderId: orderId }, payment_url: 'https://provider.example.test/pay', checkoutLink: 'https://provider.example.test/i/invoice_fixture' });
+      return json({ id: 'invoice_fixture', storeId: env.CATALYSTPAY_MERCHANT_ID, amount: '110.00', currency: 'USD', status: 'New', metadata: { OrderId: orderId }, invoice_url: 'https://nowpayments.io/payment/fixture', payment_url: 'https://provider.example.test/pay', checkoutLink: 'https://provider.example.test/i/invoice_fixture' });
     });
-    const base = { orderId, order_id: orderId, email, customer_email: email, items: [{}] };
+    const base = { expectedTotal: name === 'create-payment' ? 107.25 : 110, orderId, order_id: orderId, email, customer_email: email, items: [{}] };
     for (const credit of [10, '10.00', 0.001, 999999]) {
       const res = response();
       await handler({ method: 'POST', headers: {}, body: { ...base, storeCreditUsed: credit } }, res);

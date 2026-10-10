@@ -87,7 +87,7 @@ export async function checkLegacyPaymentReturn({
       if (!current()) return null;
       if (body?.ok !== true || body.id !== orderId || typeof body.status !== "string") throw new Error("Invalid order status.");
       const status = body.status.trim().toLowerCase();
-      if (PAID.has(status)) return { status: "paid", order: { id: body.id, status } };
+      if (PAID.has(status)) return { status: "paid", order: { id: body.id, status, ...(body.receipt && typeof body.receipt === "object" ? { receipt: body.receipt } : {}) } };
       if (UNPAID.has(status)) return { status: "unconfirmed", order: null };
       if (!PENDING.has(status)) throw new Error("Unknown order status.");
       return { status: "pending", order: null };
@@ -135,7 +135,15 @@ export function syncVerifiedLegacyOrder(orders, verified, expectedEmail) {
   if (!verified || !PAID.has(verified.status) || !emailOf(expectedEmail)) return { orders, receipt };
   const next = (Array.isArray(orders) ? orders : []).map(order => {
     if (idOf(order?.id) !== verified.id || emailOf(order?.email) !== emailOf(expectedEmail)) return order;
-    receipt = { ...order, status: verified.status };
+    const canonical = verified.receipt;
+    const safe = {};
+    if (canonical && Number.isFinite(canonical.total) && canonical.total >= 0) {
+      for (const key of ["total", "subtotal", "shipping", "automaticDiscount", "promoDiscount", "affiliateDiscount", "cryptoDiscount", "storeCreditUsed"])
+        if (Number.isFinite(canonical[key]) && canonical[key] >= 0) safe[key] = canonical[key];
+      for (const key of ["shippingType", "promoCode"]) if (typeof canonical[key] === "string") safe[key] = canonical[key];
+      if (Array.isArray(canonical.items)) safe.items = canonical.items;
+    }
+    receipt = { ...order, ...safe, status: verified.status };
     return receipt;
   });
   return { orders: next, receipt };

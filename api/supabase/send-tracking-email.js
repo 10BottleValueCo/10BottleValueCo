@@ -1,11 +1,18 @@
+import { requireAdmin } from "../_auth.js";
+const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+})[char]);
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  if (!(await requireAdmin(req, res))) return;
   const { email, orderId, trackingNumber } = req.body || {};
 
-  if (!email || !orderId || !trackingNumber) {
+  if (typeof email !== "string" || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    || typeof orderId !== "string" || !orderId || orderId.length > 120
+    || typeof trackingNumber !== "string" || !trackingNumber || trackingNumber.length > 200) {
     return res.status(400).json({ error: "Missing required fields: email, orderId, trackingNumber" });
   }
 
@@ -41,7 +48,7 @@ export default async function handler(req, res) {
           <tr>
             <td style="padding:32px 48px 24px;">
               <p style="margin:0 0 28px;font-size:15px;color:#3f3f46;line-height:1.65;">
-                Great news — your order <strong style="color:#09090b;">${orderId}</strong> is on its way. Here is your tracking number:
+                Great news — your order <strong style="color:#09090b;">${escapeHtml(orderId)}</strong> is on its way. Here is your tracking number:
               </p>
 
               <!-- Tracking number box -->
@@ -49,7 +56,7 @@ export default async function handler(req, res) {
                 <tr>
                   <td style="background:#f4f4f5;border:1px solid #e4e4e7;border-radius:10px;padding:20px 24px;text-align:center;">
                     <div style="font-size:11px;font-weight:700;letter-spacing:0.14em;color:#71717a;text-transform:uppercase;margin-bottom:8px;">Tracking Number</div>
-                    <div style="font-size:20px;font-weight:800;color:#09090b;letter-spacing:0.06em;font-family:monospace;">${trackingNumber}</div>
+                    <div style="font-size:20px;font-weight:800;color:#09090b;letter-spacing:0.06em;font-family:monospace;">${escapeHtml(trackingNumber)}</div>
                   </td>
                 </tr>
               </table>
@@ -100,7 +107,7 @@ export default async function handler(req, res) {
 
   try {
     const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
+      method: "POST", redirect: "error", signal: AbortSignal.timeout(5000),
       headers: {
         "Authorization": `Bearer ${process.env.RESEND_API_KEY}`,
         "Content-Type": "application/json",
@@ -116,13 +123,13 @@ export default async function handler(req, res) {
     const data = await response.json();
 
     if (!response.ok) {
-      console.error("[send-tracking-email] Resend error:", data);
-      return res.status(500).json({ error: data?.message || "Failed to send email" });
+      console.error("Tracking email provider request failed", { status: response.status });
+      return res.status(500).json({ error: "Email delivery unavailable" });
     }
 
     return res.status(200).json({ ok: true, id: data?.id });
   } catch (err) {
-    console.error("[send-tracking-email] Exception:", err?.message);
-    return res.status(500).json({ error: err?.message || "Unknown error" });
+    console.error("Tracking email delivery failed");
+    return res.status(500).json({ error: "Email delivery unavailable" });
   }
 }

@@ -260,7 +260,11 @@ test("Merit SQL transaction and privilege acceptance", { skip: !modulePath }, as
     assert.equal(first.order.paymentRules, undefined);
     assert.equal(first.order.costSnapshot, undefined);
     assert.equal(first.order.affiliateOwnerEmail, undefined);
+    assert.equal(first.order.affiliateCode, mainQuote.snapshot.affiliateCode);
+    assert.equal(first.order.affiliateCommission, mainQuote.snapshot.affiliateCommission);
     const original = await row(ready.order_id);
+    assert.equal(original.metadata.affiliateCode, "PARTNER");
+    assert.equal(original.metadata.affiliateCommission, 10);
     const replay = await service(tx => finalize(ready, tx));
     assert.equal(replay.alreadyPaid, true);
     assert.deepEqual(await row(ready.order_id), original);
@@ -1083,7 +1087,7 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
       const id='INV-NATIVEOWN123',body={order:{id,email,status:'pending',total:100,metadata:{items:[{name:'Fixture',quantity:1}]}}};
       const created=res();await handler({method:'POST',headers:{authorization:'Bearer synthetic-session','content-type':'application/json'},body},created);assert.equal(created.statusCode,200,JSON.stringify(created.body));
       assert.equal((await order(id)).user_id,customerId);
-      const status=res();await handler({method:'GET',url:`/api/order-checkout?orderId=${id}`,headers:{authorization:'Bearer synthetic-session'}},status);assert.deepEqual(status.body,{ok:true,id,status:'pending'});
+      const status=res();await handler({method:'GET',url:`/api/order-checkout?orderId=${id}`,headers:{authorization:'Bearer synthetic-session'}},status);assert.deepEqual(status.body,{ok:true,id,status:'pending',receipt:{total:100,items:[{name:'Fixture',quantity:1}]}});
       user=siblingId;const other=res();await handler({method:'GET',url:`/api/order-checkout?orderId=${id}`,headers:{authorization:'Bearer synthetic-session'}},other);assert.equal(other.statusCode,404);
     }finally{globalThis.fetch=originalFetch;for(const [k,v] of Object.entries(old)){if(v===undefined)delete process.env[k];else process.env[k]=v}}
   });
@@ -1250,7 +1254,7 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
       ('contain-own','buyer@example.test','OWN',0.1,false),
       ('contain-delete','buyer@example.test','DELETE',0.1,false),
       ('contain-other','other@example.test','OTHER',0.2,false),
-      ('contain-public','__PUBLIC__','PUBLIC_NATIVE',0.15,false),
+      ('d0000000-0000-4000-8000-000000000001','__PUBLIC__','PUBLIC_NATIVE',0.15,false),
       ('contain-null','buyer@example.test','NULL_STATE',0.1,NULL);
     INSERT INTO affiliates(email,code) VALUES('buyer@example.test','PARTNER_NATIVE'),('other@example.test','OTHER_NATIVE');
     INSERT INTO orders(id,user_id,email,status,total,affiliate_code,metadata) VALUES
@@ -1458,7 +1462,9 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
       const ownedView = affiliate.body.codeColumnOrders.find(row => row.id === 'CONTAIN-AFF-ORDER'); assert.ok(ownedView);
       assert.equal(ownedView.metadata.email, undefined); assert.equal(ownedView.metadata.address, undefined); assert.equal(ownedView.metadata.items[0].address, undefined);
       const publicPromo = response(); await publicPromoHandler({ method: 'GET', query: { code: 'PUBLIC_NATIVE' }, headers: {} }, publicPromo);
-      assert.equal(publicPromo.statusCode, 200); assert.deepEqual(publicPromo.body, { ok: true, promo: { code: 'PUBLIC_NATIVE', rate: 0.15 } });
+      assert.equal(publicPromo.statusCode, 200); assert.deepEqual(publicPromo.body, { ok: true, promo: {
+        code: 'PUBLIC_NATIVE', rate: 0.15, minimumSubtotal: 0, startsAt: null, endsAt: null,
+      } });
       authUser = { id: supportId, email: 'support@10bottlevalue.co', email_confirmed_at: '2026-01-01T00:00:00Z' };
       const payout = response(); await payoutHandler({ method: 'POST', headers: { authorization: 'Bearer synthetic-session' }, body: { affiliate_code: 'PARTNER_NATIVE', amount: 1.25 } }, payout);
       assert.equal(payout.statusCode, 201, JSON.stringify(payout.body));
@@ -1473,4 +1479,125 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
     }
     evidence.promoAffiliateAccess.actualApiCompatibility = { affiliateAccount: true, publicExactCodePromo: true, confirmedAdminPayout: true };
   });
+  await t.test('referral eligibility executes normalized identity and literal-code filters against native PostgREST', async () => {
+    const { verifyAffiliateQuote } = await import('../../api/_affiliate-quote.js');
+    const rules = { version: 'native-v2', source: 'fixture', status: 'operator_report', currency: 'USD', unit: 'basis_points',
+      effectiveFrom: '2026-01-01', firstOrderDiscountBps: 500, commissionBps: 1000, approvalMode: 'active_registry' };
+    await sql("INSERT INTO affiliates(email,code,active) VALUES('referral-owner@example.test','10bottle_native',true),('unrelated-referral-owner@example.test','10bottleXnative',true);");
+    const fetcher = async (input, init) => {
+      const url = new URL(input); assert.equal(url.origin, origin); assert.ok(url.pathname.startsWith('/rest/v1/'));
+      return fetch(`${origin}${url.pathname.slice('/rest/v1'.length)}${url.search}`, init);
+    };
+    for (const mode of ['mixed-padded-completed', 'paid-at-only', 'old-email-same-user', 'null-email-same-user', 'partial-other-email', 'no-purchase']) {
+      const uid = randomUUID(), email = `${mode}@example.test`, id = `INV-NATIVE-REFERRAL-${mode}`;
+      await sql(`INSERT INTO auth.users VALUES(${q(uid)},${q(email)},now());`);
+      if (mode !== 'no-purchase') {
+        const storedEmail = mode === 'mixed-padded-completed' ? ` ${email.toUpperCase()} ` : mode === 'old-email-same-user' ? 'previous@example.test' : mode === 'partial-other-email' ? `other${email}` : email;
+        const status = mode === 'mixed-padded-completed' ? ' COMPLETED ' : mode === 'paid-at-only' ? 'pending' : 'paid';
+        await sql(`INSERT INTO orders(id,email,user_id,status,total,metadata,paid_at) VALUES(${q(id)},${mode === 'null-email-same-user' ? 'NULL' : q(storedEmail)},${mode === 'partial-other-email' ? 'NULL' : q(uid)},${q(status)},100,'{}'::jsonb,${mode === 'paid-at-only' ? 'now()' : 'NULL'});`);
+      }
+      if (mode === 'partial-other-email') await sql(`INSERT INTO orders(id,email,status,total,metadata) SELECT 'INV-DECOY-' || n, 'prefix' || n || ${q(email)}, 'paid', 100, '{}'::jsonb FROM generate_series(1,1001) n;`);
+      if (mode === 'no-purchase') await sql(`INSERT INTO affiliate_customers(email,affiliate_code) VALUES(${q(` ${email.toUpperCase()} `)},'10bottle_native');`);
+      const result = await verifyAffiliateQuote({ code: '10BOTTLE_NATIVE', email, customerId: uid, rules,
+        supabaseUrl: origin, serviceRoleKey: token('service_role'), fetcher });
+      assert.equal(result.code, '10BOTTLE_NATIVE'); assert.equal(result.ownerEmail, 'referral-owner@example.test');
+      assert.equal(result.discountBps, ['partial-other-email','no-purchase'].includes(mode) ? 500 : 0, mode);
+    }
+    evidence.referralIdentity = { literalCode: true, mixedPaddedCompleted: true, paidAt: true, changedEmail: true, unrelatedEmailExcluded: true, paddedAttribution: true };
+  });
+
+  await t.test('atomic Paylio exclusion preserves a legacy invoice after stale preflight and serializes cross-provider races', async () => {
+    const signature = 'public.reserve_paylio_checkout(uuid,text,uuid,text,text,text,text,bigint,jsonb)';
+    const functionMetadata = () => scalar(`SELECT jsonb_build_object('owner',proowner,'acl',proacl,'securityDefiner',prosecdef,'settings',proconfig,'volatility',provolatile) FROM pg_proc WHERE oid=${q(signature)}::regprocedure;`);
+    const createDraft = async id => sql(`INSERT INTO orders(id,user_id,email,status,total,metadata,items) VALUES(${q(id)},${q(customerId)},'buyer@example.test','pending',100,'{}'::jsonb,'[]'::jsonb);`);
+    const claimLegacy = id => rest('service_role', `/orders?${new URLSearchParams({id:'eq.'+id,status:'eq.pending',payment_id:'is.null',payment_provider:'is.null','metadata->>legacyInvoiceAttempt':'is.null'})}`, {
+      method:'PATCH', headers:{Prefer:'return=representation'}, body:{status:'checkout (clicked pay)',metadata:{legacyInvoiceAttempt:{id:randomUUID(),provider:'nowpayments',state:'reserved'},subtotal:100,storeCreditUsed:0}},
+    });
+    const claimPaylio = id => rpc('reserve_paylio_checkout',{...paylioRequest,p_id:randomUUID(),p_order_id:id});
+    const pre='INV-PAYLIO-PRE-GUARD'; await createDraft(pre);
+    assert.equal((await claimLegacy(pre)).data.length,1);
+    assert.equal((await claimPaylio(pre)).status,200,'Baseline reproduces stale Paylio preflight overwriting an existing legacy invoice');
+    const beforeMetadata=await functionMetadata();
+    const migration=await readFile(new URL('../../supabase/migrations/20261010113000_paylio_legacy_invoice_exclusion.sql',import.meta.url),'utf8');
+    await sql(migration); assert.deepEqual(await functionMetadata(),beforeMetadata);
+    const definition=await sql(`SELECT pg_get_functiondef(${q(signature)}::regprocedure);`);
+    await sql(migration); assert.equal(await sql(`SELECT pg_get_functiondef(${q(signature)}::regprocedure);`),definition,'Migration replay is a no-op');
+    const post='INV-PAYLIO-POST-GUARD'; await createDraft(post); assert.equal((await claimLegacy(post)).data.length,1);
+    const beforeOrder=await order(post),rejected=await claimPaylio(post);
+    assert.equal(rejected.status,400); assert.match(rejected.data.message,/PAYLIO_ORDER_NOT_PAYABLE/);
+    assert.deepEqual(await order(post),beforeOrder);
+    assert.equal(await scalar(`SELECT count(*) FROM paylio_payment_attempts WHERE order_id=${q(post)};`),0);
+    const historical='INV-PAYLIO-HISTORICAL-CATALYST'; await createDraft(historical);
+    await sql(`UPDATE orders SET metadata='{"catalystpay_invoice_id":"historical-invoice"}'::jsonb WHERE id=${q(historical)};`);
+    const beforeHistorical=await order(historical),historicalRejected=await claimPaylio(historical);
+    assert.equal(historicalRejected.status,400); assert.match(historicalRejected.data.message,/PAYLIO_ORDER_NOT_PAYABLE/);
+    assert.deepEqual(await order(historical),beforeHistorical);
+    assert.equal(await scalar(`SELECT count(*) FROM paylio_payment_attempts WHERE order_id=${q(historical)};`),0);
+    const paylioFirst='INV-PAYLIO-FIRST-GUARD'; await createDraft(paylioFirst);
+    assert.equal((await claimPaylio(paylioFirst)).data.created,true);
+    const beforePaylioFirst=await order(paylioFirst),legacyRejected=await claimLegacy(paylioFirst);
+    assert.equal(legacyRejected.status,200); assert.equal(legacyRejected.data.length,0);
+    assert.deepEqual(await order(paylioFirst),beforePaylioFirst);
+    for(let i=0;i<4;i++) {
+      const id=`INV-PAYLIO-LEGACY-RACE-${i}`;await createDraft(id);
+      const replies=await simultaneous(`Paylio vs legacy invoice ${i}`,`SELECT id FROM orders WHERE id=${q(id)} FOR UPDATE`,[()=>claimLegacy(id),()=>claimPaylio(id)]);
+      const legacyWon=replies[0].status===200&&replies[0].data.length===1;
+      const paylioWon=replies[1].status===200&&replies[1].data.created===true;
+      assert.equal(Number(legacyWon)+Number(paylioWon),1,JSON.stringify(replies));
+      const saved=await order(id);assert.equal(Boolean(saved.metadata?.legacyInvoiceAttempt),legacyWon);
+      assert.equal(await scalar(`SELECT count(*) FROM paylio_payment_attempts WHERE order_id=${q(id)};`),Number(paylioWon));
+    }
+    evidence.paylioLegacyExclusion={baselineReproduced:true,stalePreflightBlocked:true,historicalCatalystBlocked:true,paylioFirstBlocksLegacy:true,ownerGrantsPreserved:true,idempotent:true,concurrentRaces:4,oneWinnerPerOrder:true};
+  });
+
+  for (const kind of ['paylio', 'catalystpay']) {
+    await t.test(`single-request ${kind} checkout saves and binds through native PostgREST with one authentication`, async () => {
+      const handler = (await import('../../api/order-checkout.js')).default;
+      const id = `INV-NATIVEONE${kind.toUpperCase()}`, uid = randomUUID(), email = `single-${kind}@example.test`;
+      await sql(`INSERT INTO auth.users VALUES(${q(uid)},${q(email)},now());`);
+      const env = { SUPABASE_URL: origin, VITE_SUPABASE_URL: origin, SUPABASE_SERVICE_ROLE_KEY: token('service_role'),
+        PAYLIO_API_KEY: 'synthetic-native-key', PAYLIO_PAYOUT_ADDRESS: '0x' + '1'.repeat(40),
+        CATALYSTPAY_MERCHANT_ID: 'native-store', CATALYSTPAY_API_TOKEN: 'synthetic-native-token',
+        CATALYSTPAY_WEBHOOK_SECRET: 'synthetic-native-webhook', CATALYSTPAY_ENV: 'production' };
+      const before = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]])); Object.assign(process.env, env);
+      const originalFetch = globalThis.fetch; let authReads = 0, providerCreates = 0, invoice;
+      const response = () => ({ statusCode: 200, headers: {}, setHeader(k,v) { this.headers[k]=v; }, status(n) { this.statusCode=n; return this; }, json(body) { this.body=body; return this; } });
+      const item = { name:'BPC-157', dose:'5 mg', quantity:1, price:79 };
+      const body = { order: { id,email,status:'checkout',total:138.99,metadata:{items:[item],subtotal:79,shipping:59.99,shippingType:'standard',automaticDiscount:0,promoDiscount:0,affiliateDiscount:0,cryptoDiscount:0,storeCreditUsed:0,total:138.99,firstName:'Native',paymentProvider:kind==='paylio'?'Paylio':'CatalystPay BTC',purchaserAttestation:{policiesAccepted:true}} },
+        payment: {kind,body:{order_id:id,email,customer_email:email,items:[item],expectedTotal:138.99,shippingType:'standard',storeCreditUsed:0,firstName:'Native'}} };
+      const request = cookie => ({method:'POST',headers:{authorization:'Bearer synthetic-session','content-type':'application/json',cookie:cookie||''},body:structuredClone(body)});
+      globalThis.fetch = async (input, init={}) => {
+        const url = new URL(input);
+        if (url.origin===origin && url.pathname==='/auth/v1/user') { authReads++; return new Response(JSON.stringify({id:uid,email,email_confirmed_at:'2026-10-10T00:00:00Z'})); }
+        if (url.origin===origin && url.pathname.startsWith('/rest/v1/')) return originalFetch(`${origin}${url.pathname.slice('/rest/v1'.length)}${url.search}`,init);
+        if (url.origin==='https://paylio.org' && url.pathname==='/api/v1/wallet') {
+          providerCreates++; const payload=JSON.parse(init.body);
+          return new Response(JSON.stringify({payment_id:'native_single_paylio',ipn_token:'synthetic-native-ipn-token',checkout_url:'https://paylio.org/pay/native_single_paylio',amount:payload.amount,status:'unpaid'}));
+        }
+        if (url.origin==='https://api.paidlyinteractive.com' && url.pathname==='/api/v1/stores/native-store/invoices' && init.method==='POST') {
+          providerCreates++; const payload=JSON.parse(init.body);
+          invoice={id:'native_single_catalyst',storeId:'native-store',amount:payload.amount,currency:'USD',status:'New',additionalStatus:'None',metadata:payload.metadata,checkoutLink:'https://checkout.example.test/native_single_catalyst'};
+          return new Response(JSON.stringify(invoice));
+        }
+        if (url.origin==='https://api.paidlyinteractive.com' && url.pathname==='/api/v1/stores/native-store/invoices/native_single_catalyst') return new Response(JSON.stringify(invoice));
+        assert.fail(`Unexpected native checkout network destination ${url.origin}${url.pathname}`);
+      };
+      try {
+        const first=response(); await handler(request(),first);
+        assert.equal(first.statusCode,200,JSON.stringify(first.body)); assert.equal(authReads,1);assert.equal(providerCreates,1);
+        assert.match(first.headers['Set-Cookie'],/Path=\/api\/order-checkout;/); assert.match(first.headers['Server-Timing'],/^save;dur=/);
+        const saved=await order(id); assert.equal(saved.user_id,uid); assert.equal(Number(saved.total),138.99);assert.equal(saved.status,'checkout (clicked pay)');
+        if (kind==='paylio') assert.equal(await scalar(`SELECT to_jsonb(state) FROM paylio_payment_attempts WHERE order_id=${q(id)};`),'ready');
+        else assert.equal(saved.metadata.legacyInvoiceAttempt.state,'ready');
+        const second=response(); await handler(request(first.headers['Set-Cookie'].split(';')[0]),second);
+        assert.equal(second.statusCode,200,JSON.stringify(second.body)); assert.deepEqual(second.body,first.body);assert.equal(authReads,2);assert.equal(providerCreates,1);
+        assert.deepEqual(await order(id),saved);
+        evidence.singleRequestCheckout ??= {}; evidence.singleRequestCheckout[kind]={oneAuthentication:true,nativeSaveAndBinding:true,originalCookieScope:true,resumeWithoutSecondCreate:true,noRealProviderCall:true};
+      } finally {
+        globalThis.fetch=originalFetch;
+        for(const [key,value] of Object.entries(before)){if(value===undefined)delete process.env[key];else process.env[key]=value;}
+      }
+    });
+  }
+
 });

@@ -93,10 +93,10 @@ test('failed or malformed reservation cannot make even one provider create call'
 });
 test('untrusted dynamic discount codes fail before any order reservation or provider create', async () => {
   const details = { checkoutForm: { firstName: 'Fixture', lastName: 'Buyer', country: 'United States', address: '1 Example Street', city: 'Boston', state: 'MA', postalCode: '02108', phone: '+1 212 555 1212' }, items: [{ name: 'BPC-157', dose: '10 mg', quantity: 1 }], shippingType: 'standard', purchaserAttestation: { over21AndResearchUseOnly: true, qualifiedResearcherOrLicensedProfessional: true, noHumanOrAnimalUse: true, policiesAccepted: true } };
-  for (const [input, code] of [[{ promoCode: 'UNTRUSTED' }, 'MERIT_PROMO_UNAVAILABLE'], [{ affiliateCode: 'UNTRUSTED' }, 'MERIT_AFFILIATE_UNVERIFIED']]) {
+  for (const [input, code] of [[{ promoCode: 'UNTRUSTED' }, 'MERIT_PROMO_UNAVAILABLE'], [{ affiliateCode: 'UNTRUSTED' }, 'MERIT_AFFILIATE_RULES_UNAVAILABLE']]) {
     const fixture = checkoutFixture({ quote: buildMeritQuote });
     const result = await run(fixture.handler, { ...createBody, ...details, ...input });
-    assert.equal(result.statusCode, input.promoCode ? 503 : 409);
+    assert.equal(result.statusCode, 503);
     assert.equal(result.body.code, code);
     assert.equal(fixture.calls.some(call => ['reserve', 'create', 'bind'].includes(call[0])), false);
   }

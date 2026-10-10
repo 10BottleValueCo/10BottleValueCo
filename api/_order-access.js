@@ -16,9 +16,22 @@ export function ownsOrder(order, identity) {
     ? order.user_id.toLowerCase() === identity.id
     : order.user_id === null && typeof order.email === "string" && order.email.trim().toLowerCase() === identity.email);
 }
+const verifiedRequestIdentities = new WeakMap();
+
+// Reuse only a server-verified identity during one in-process checkout action.
+// No identity is accepted from the browser, or cached across HTTP requests.
+export async function withVerifiedOrderIdentity(req, res, action) {
+  const identity = await requireOrderIdentity(req, res);
+  if (!identity) return;
+  verifiedRequestIdentities.set(req, identity);
+  try { return await action(identity); }
+  finally { verifiedRequestIdentities.delete(req); }
+}
+
 export async function requireOrderIdentity(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
   res.setHeader("Vary", "Authorization");
+  if (verifiedRequestIdentities.has(req)) return verifiedRequestIdentities.get(req);
   const user = await requireUser(req, res);
   if (!user) return null;
   const identity = orderIdentity(user);
@@ -46,7 +59,26 @@ export async function requireLegacyOrderAccess(req, res, { orderId, payable = tr
     endpoint.searchParams.set("id", `eq.${orderId}`);
     endpoint.searchParams.set("select", "id,user_id,email,status,metadata,payment_provider,total");
     endpoint.searchParams.set("limit", "2");
-    const response = await fetch(endpoint, { headers: { apikey: key, Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8000) });
+    const bindingUrl = new URL(`${url}/rest/v1/paylio_payment_attempts`);
+    bindingUrl.searchParams.set("order_id", `eq.${orderId}`);
+    bindingUrl.searchParams.set("select", "order_id");
+    bindingUrl.searchParams.set("limit", "2");
+    const read = endpoint => fetch(endpoint, { headers: { apikey: key, Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8000) });
+    // Independent private reads start only after authentication and claim checks.
+    // Inspect ownership first so reservation errors cannot disclose other orders.
+    const readBindings = async () => {
+      const response = await read(bindingUrl);
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new Error("Payment reservation lookup failed");
+      }
+      return response.json();
+    };
+    const [orderRead, bindingRead] = await Promise.allSettled([
+      read(endpoint), payable ? readBindings() : Promise.resolve(null),
+    ]);
+    if (orderRead.status !== "fulfilled") throw new Error("Order lookup failed");
+    const response = orderRead.value;
     if (!response.ok) throw new Error("Order lookup failed");
     const text = await response.text();
     if (Buffer.byteLength(text) > 250000) throw new Error("Oversized order response");
@@ -61,16 +93,13 @@ export async function requireLegacyOrderAccess(req, res, { orderId, payable = tr
       || String(order.payment_provider || order.metadata?.paymentProvider || "").toLowerCase() === "merit"))
       return reject(res, 409, "CHECKOUT_ORDER_CHANGED", "This order has changed. Refresh checkout before continuing.");
     if (payable) {
+      if (order.metadata?.legacyInvoiceAttempt && order.metadata.legacyInvoiceAttempt.provider !== provider)
+        return reject(res, 409, "PAYMENT_ALREADY_RESERVED", "A payment has already started for this order. Return to that payment or contact support.");
       // A privately reserved Paylio attempt must not be paid a second time via
       // another provider. Its immutable binding is checked independently of
       // editable public metadata. Missing private schema fails closed.
-      const bindingUrl = new URL(`${url}/rest/v1/paylio_payment_attempts`);
-      bindingUrl.searchParams.set("order_id", `eq.${orderId}`);
-      bindingUrl.searchParams.set("select", "order_id");
-      bindingUrl.searchParams.set("limit", "2");
-      const bindingResponse = await fetch(bindingUrl, { headers: { apikey: key, Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8000) });
-      if (!bindingResponse.ok) throw new Error("Payment reservation lookup failed");
-      const bindings = await bindingResponse.json();
+      if (bindingRead.status !== "fulfilled") throw new Error("Payment reservation lookup failed");
+      const bindings = bindingRead.value;
       if (!Array.isArray(bindings) || bindings.length > 1 || (bindings.length && bindings[0]?.order_id !== orderId)) throw new Error("Invalid payment reservation");
       if (bindings.length && provider !== "paylio")
         return reject(res, 409, "PAYMENT_ALREADY_RESERVED", "A payment has already started for this order. Return to that payment or contact support.");

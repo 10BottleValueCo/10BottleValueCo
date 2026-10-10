@@ -154,3 +154,11 @@ test("local paid history sync never touches another account or invents financial
   assert.equal(syncVerifiedLegacyOrder([foreign], { id: "INV-ABC123", status: "paid" }, user.email).receipt, null);
   assert.equal(syncVerifiedLegacyOrder(input, { id: "INV-ABC123", status: "refunded" }, user.email).receipt, null);
 });
+
+test('the authenticated paid receipt replaces a stale browser amount and referral discount', async () => {
+  const canonical = { total: 347, subtotal: 347, shipping: 0, affiliateDiscount: 0, automaticDiscount: 0, promoDiscount: 0, cryptoDiscount: 0, storeCreditUsed: 0 };
+  const checked = await run({ fetcher: async () => recorded('paid', { receipt: canonical }) });
+  const synced = syncVerifiedLegacyOrder([{ id: paymentReturn.order, email: user.email, status: 'pending', total: 329.65, affiliateDiscount: 17.35 }], checked.order, user.email);
+  assert.equal(synced.receipt.total, 347); assert.equal(synced.receipt.affiliateDiscount, 0);
+  assert.equal(synced.orders[0].status, 'paid');
+});

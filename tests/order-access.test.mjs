@@ -83,3 +83,47 @@ test('private Paylio reservation blocks alternate provider even if public metada
   fixture(t,{bindings:[{order_id:orderId}]});const blocked=response();assert.equal(await requireLegacyOrderAccess(request(),blocked,{orderId}),null);assert.equal(blocked.statusCode,409);assert.equal(blocked.body.code,'PAYMENT_ALREADY_RESERVED');
   const allowed=response();assert.ok(await requireLegacyOrderAccess(request(),allowed,{orderId,provider:'paylio'}));
 });
+
+test('authorized order and reservation reads overlap without dropping either guard', async t => {
+  fixture(t);
+  const started = [], releases = new Map();
+  t.mock.method(globalThis, 'fetch', async input => {
+    const path = new URL(input).pathname;
+    if (path === '/auth/v1/user') return json(user);
+    started.push(path);
+    return new Promise(resolve => releases.set(path, resolve));
+  });
+  const res = response();
+  const pending = requireLegacyOrderAccess(request(), res, { orderId });
+  for (let tries = 0; started.length < 2 && tries < 100; tries++) await new Promise(resolve => setTimeout(resolve, 1));
+  assert.deepEqual(started, ['/rest/v1/orders', '/rest/v1/paylio_payment_attempts']);
+  releases.get('/rest/v1/orders')(json([row]));
+  releases.get('/rest/v1/paylio_payment_attempts')(json([{ order_id: orderId }]));
+  assert.equal(await pending, null);
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.body.code, 'PAYMENT_ALREADY_RESERVED');
+});
+
+test('reservation read failures stay closed and do not reveal foreign order state', async t => {
+  fixture(t);
+  let own = true;
+  t.mock.method(globalThis, 'fetch', async input => {
+    const path = new URL(input).pathname;
+    if (path === '/auth/v1/user') return json(user);
+    if (path === '/rest/v1/orders') return json([{ ...row, user_id: own ? customerId : otherId }]);
+    throw new Error('reservation store unavailable');
+  });
+  const unavailable = response();
+  assert.equal(await requireLegacyOrderAccess(request(), unavailable, { orderId }), null);
+  assert.equal(unavailable.statusCode, 503);
+  own = false;
+  const hidden = response();
+  assert.equal(await requireLegacyOrderAccess(request(), hidden, { orderId }), null);
+  assert.equal(hidden.statusCode, 404);
+});
+
+test('read-only order access never queries payment reservations', async t => {
+  const calls = fixture(t);
+  assert.ok(await requireLegacyOrderAccess(request(), response(), { orderId, payable: false }));
+  assert.deepEqual(calls.map(x => x.url.pathname), ['/auth/v1/user', '/rest/v1/orders']);
+});

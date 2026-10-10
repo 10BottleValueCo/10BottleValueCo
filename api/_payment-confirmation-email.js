@@ -5,9 +5,8 @@ const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, character =>
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
 })[character]);
 
-// Shared existing branded receipt. Legacy callers retain their display contract;
-// server-authoritative Merit receipts enable escaping for every inserted string.
-export function renderPaymentConfirmationEmail(order, { escapeValues = false } = {}) {
+// Shared branded receipt. Escape every inserted string by default for all providers.
+export function renderPaymentConfirmationEmail(order, { escapeValues = true } = {}) {
   const {
     email,
     orderId,
@@ -214,7 +213,7 @@ export function renderPaymentConfirmationEmail(order, { escapeValues = false } =
   return html;
 }
 
-export async function sendPaymentConfirmationEmail(order, { env = process.env, fetcher = globalThis.fetch, escapeValues = false } = {}) {
+export async function sendPaymentConfirmationEmail(order, { env = process.env, fetcher = globalThis.fetch, escapeValues = true } = {}) {
   if (!env.RESEND_API_KEY) throw new Error("Missing RESEND_API_KEY");
   const response = await fetcher("https://api.resend.com/emails", {
     method: "POST", redirect: "error",
