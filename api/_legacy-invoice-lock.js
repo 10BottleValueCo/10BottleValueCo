@@ -1,3 +1,4 @@
+import { signSettlementAffiliate } from "./_settlement-affiliate.js";
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -12,6 +13,7 @@ export async function reserveLegacyInvoice(order, provider, total, metadata, ite
     || order.payment_id || order.payment_provider || order.metadata?.catalystpay_invoice_id) throw pending();
   const attempt = { id: randomUUID(), provider, state: 'reserved' };
   const snapshot = { ...order.metadata, ...metadata, legacyInvoiceAttempt: attempt };
+  if (snapshot.affiliateAttributionCode) snapshot.affiliateQuoteProof = signSettlementAffiliate(snapshot, order.email, snapshot.subtotal, order.id);
   const patch = { status: 'checkout (clicked pay)', total, items, metadata: snapshot };
   const query = new URLSearchParams({ id: `eq.${order.id}`, email: `eq.${order.email}`, status: `eq.${order.status}`,
     payment_id: 'is.null', payment_provider: 'is.null', 'metadata->>legacyInvoiceAttempt': 'is.null', 'metadata->>catalystpay_invoice_id': 'is.null' });

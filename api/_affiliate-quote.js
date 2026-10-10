@@ -24,7 +24,7 @@ export function readAffiliateRules(value) {
     effectiveFrom: rule.effectiveFrom, effectiveUntil: rule.effectiveUntil || null,
     firstOrderDiscountBps: rule.firstOrderDiscountBps, commissionBps: rule.commissionBps, approvalMode: rule.approvalMode || 'allowlist', approvedCodes: [...new Set(rule.approvedCodes || [])] };
 }
-export async function verifyAffiliateQuote({ code, email, disabled = false, supabaseUrl, serviceRoleKey, rules, fetcher = fetch }) {
+export async function verifyAffiliateQuote({ code, email, customerId, disabled = false, supabaseUrl, serviceRoleKey, rules, fetcher = fetch }) {
   code = String(code || '').trim().toUpperCase();
   email = String(email || '').trim().toLowerCase();
   const rule = readAffiliateRules(rules);
@@ -43,12 +43,32 @@ export async function verifyAffiliateQuote({ code, email, disabled = false, supa
     } catch { throw new AffiliateQuoteError(); }
   }
   const affiliateRows = selectedCode => rows('affiliates', { code: affiliateCodeFilter(selectedCode), select: 'code,email,active', limit: '2' });
-  const [affiliates, attribution, purchases] = await Promise.all([
-    affiliateRows(code),
-    rows('affiliate_customers', { email: `eq.${email}`, select: 'affiliate_code', limit: '2' }),
-    rows('orders', { email: `eq.${email}`, status: 'in.(paid,done,processing,shipped,delivered,refunded)',
-      select: 'id,metadata', order: 'created_at.asc', limit: '1' }),
-  ]);
+  // Legacy rows can use mixed-case/padded email and completed/paid_at states.
+  // Broad database candidates are bounded and rechecked against exact identity
+  // here; no candidate belonging to a different email/user can grant a benefit.
+  const emailPattern = affiliateEmailFilter(email).slice(6);
+  const identityFilter = /^[0-9a-f-]{36}$/i.test(customerId || '')
+    ? { or: `(user_id.eq.${customerId},email.ilike."${emailPattern.replace(/[\\"]/g, value => `\\${value}`)}")` }
+    : { email: `ilike.${emailPattern}` };
+  const paidStates = new Set(['paid', 'done', 'completed', 'processing', 'shipped', 'delivered', 'refunded']);
+  const isOwner = row => String(row?.email || '').trim().toLowerCase() === email
+    || (customerId && String(row?.user_id || '').toLowerCase() === customerId.toLowerCase());
+  async function previousPurchase() {
+    for (let offset = 0; offset < 1000; offset += 100) {
+      const batch = await rows('orders', { ...identityFilter, select: 'id,email,user_id,status,paid_at,metadata', order: 'created_at.asc,id.asc', limit: '100', offset: String(offset) });
+      if (batch.some(row => !row || typeof row.id !== 'string' || typeof row.email !== 'string' || typeof row.status !== 'string')) throw new AffiliateQuoteError();
+      const paid = batch.find(row => isOwner(row) && (paidStates.has(row.status.trim().toLowerCase()) || (row.paid_at && Number.isFinite(Date.parse(row.paid_at)))));
+      if (paid) return [paid];
+      if (batch.length < 100) return [];
+    }
+    throw new AffiliateQuoteError();
+  }
+  async function previousAttribution() {
+    const batch = await rows('affiliate_customers', { email: `ilike.${emailPattern}`, select: 'email,affiliate_code', limit: '100' });
+    if (batch.length >= 100 || batch.some(row => !row || typeof row.email !== 'string')) throw new AffiliateQuoteError();
+    return batch.filter(row => row.email.trim().toLowerCase() === email);
+  }
+  const [affiliates, attribution, purchases] = await Promise.all([affiliateRows(code), previousAttribution(), previousPurchase()]);
   function verifyOwner(records, selectedCode) {
     if (records.length > 1 || records.some(row => !row || typeof row !== 'object')) throw new AffiliateQuoteError();
     const selected = records[0];
@@ -76,4 +96,9 @@ export async function verifyAffiliateQuote({ code, email, disabled = false, supa
 // Escape SQL LIKE wildcards: a literal underscore must never match another code.
 export function affiliateCodeFilter(code) {
   return `ilike.${String(code).replace(/_/g, '\\_')}`;
+}
+
+// SQL candidates include legacy padding; callers must exact-match normalized email.
+export function affiliateEmailFilter(email) {
+  return `ilike.*${String(email).trim().toLowerCase().replace(/[\\%_*]/g, value => `\\${value}`)}*`;
 }

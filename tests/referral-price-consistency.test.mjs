@@ -25,7 +25,7 @@ function fixture(t,{purchases=[],affiliate={code:'10bottle',email:'partner@examp
   if(url.pathname==='/rest/v1/affiliates') { assert.equal(url.searchParams.get('code'),'ilike.10BOTTLE');return json(affiliate?[affiliate]:[]); }
   if(url.pathname==='/rest/v1/affiliate_customers')return json([]);
   if(url.pathname==='/rest/v1/orders') {
-   if(url.searchParams.has('status'))return json(purchases,historyFailure?503:200);
+   if(url.searchParams.get('select')?.includes('paid_at'))return json(purchases.map(p=>({email,...p})),historyFailure?503:200);
    return json([{id:'INV-REFERRAL',user_id:buyer,email,status:'checkout',total:329.65,metadata:{storeCreditUsed:0}}]);
   }
   assert.fail(`Unexpected fetch ${url.pathname}`);
@@ -45,7 +45,7 @@ test('eligibility returns no owner email, commission terms or registry',async t=
  fixture(t);const res=response();await eligibility({method:'POST',headers:{authorization:'Bearer fixture'},body:{code:'10bottle'}},res);
  assert.equal(res.statusCode,200);assert.deepEqual(res.body,{ok:true,code:'10BOTTLE',discountBps:500});
 });
-for(const status of ['paid','done','processing','shipped','delivered','refunded'])test(`${status} history removes first-order eligibility and prevents a higher-priced invoice`,async t=>{
+for(const status of ['paid','done','completed','processing','shipped','delivered','refunded'])test(`${status} history removes first-order eligibility and prevents a higher-priced invoice`,async t=>{
  const calls=fixture(t,{purchases:[{id:'INV-OLD',metadata:{},status}]});
  for(const handler of [catalyst,nowpayments]) {
   const res=response();await handler({method:'POST',headers:{authorization:'Bearer fixture'},body:{...body}},res);
@@ -70,4 +70,24 @@ test('case-insensitive lookup preserves literal underscores and rejects ambiguou
 test('missing or changed expected totals cannot authorize invoice creation',()=>{
  for(const value of [undefined,null,'329.65',NaN,0])assert.throws(()=>assertExpectedTotal(value,329.65),{code:'CHECKOUT_REFRESH_REQUIRED'});
  assert.throws(()=>assertExpectedTotal(329.65,347),{code:'CHECKOUT_QUOTE_CHANGED'});assertExpectedTotal(329.65,329.65);
+});
+
+for (const purchase of [
+ {email:'  BUYER@Example.Test ',status:' COMPLETED '},
+ {email,status:'pending',paid_at:'2026-10-01T10:00:00Z'},
+ {email:'previous@example.test',user_id:buyer,status:'paid'},
+]) test(`legacy identity and settlement evidence block another first-order discount: ${JSON.stringify(purchase)}`, async t=>{
+ fixture(t,{purchases:[{id:'INV-LEGACY',...purchase}]});
+ const quote=await legacyCheckoutQuote(body,email,{customerId:buyer});
+ assert.equal(quote.finalAffiliateDiscount,0);assert.equal(quote.total,347);
+});
+test('a substring email match belonging to someone else does not count as a purchase', async t=>{
+ fixture(t,{purchases:[{id:'INV-OTHER',email:'otherbuyer@example.test',user_id:'22222222-2222-4222-8222-222222222222',status:'paid'}]});
+ const quote=await legacyCheckoutQuote(body,email,{customerId:buyer});assert.equal(quote.finalAffiliateDiscount,17.35);
+});
+test('a full unbounded history page fails closed instead of assuming no prior purchases', async()=>{
+ const pending=Array.from({length:100},(_,i)=>({id:`INV-${i}`,email,status:'pending'}));
+ await assert.rejects(verifyAffiliateQuote({code:'10BOTTLE',email,customerId:buyer,supabaseUrl:'https://fixture.test',serviceRoleKey:'fixture',rules,fetcher:async input=>{
+  const path=new URL(input).pathname;return json(path.endsWith('/orders')?pending:path.endsWith('/affiliates')?[{code:'10bottle',email:'partner@example.test',active:true}]:[]);
+ }}),{status:503});
 });

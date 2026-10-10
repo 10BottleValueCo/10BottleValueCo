@@ -1,3 +1,4 @@
+import { fromCents, lineAmountCents, addAmounts } from "../shared/checkout-money.js";
 import { normalizePackCount, resolveWarehouseOffer } from "../shared/warehouse-offer.js";
 
 // Server-side price and stock snapshot. Keep this aligned with PRODUCTS_BASE
@@ -258,9 +259,9 @@ export function validateAndPriceItems(items) {
     }
 
     const unitPrice = getUnitPrice(product, fromWarehouse);
-    const lineTotal = Math.round(unitPrice * quantity * 100) / 100;
-    if (fromWarehouse === "us") usSubtotal += lineTotal;
-    else regularSubtotal += lineTotal;
+    const lineTotal = fromCents(lineAmountCents(unitPrice, quantity));
+    if (fromWarehouse === "us") usSubtotal = addAmounts(usSubtotal, lineTotal);
+    else regularSubtotal = addAmounts(regularSubtotal, lineTotal);
 
     // Current offers are ten-vial packs. Validate that selector above but keep
     // the established snapshot shape so open payment resumes remain unchanged.

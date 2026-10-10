@@ -62,7 +62,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Missing order_id" });
     }
 
-    const quote = await legacyCheckoutQuote(req.body, customer_email, { crypto: true });
+    const quote = await legacyCheckoutQuote(req.body, customer_email, { crypto: true, customerId: access.identity.id });
     const { pricedItems, subtotal, regularSubtotal, promoDiscount, discountRule, finalAutomaticDiscount,
       finalAffiliateDiscount, shipping, affiliateOwnerEmail, affiliateAttributionCode, affiliateCommission,
       affiliateRuleVersion } = quote;

@@ -149,7 +149,7 @@ export async function buildMeritQuote(body, verifiedEmail, options = {}) {
   let affiliate = null;
   if (input.affiliateCode) {
     try {
-      affiliate = await verifyAffiliateQuote({ code: input.affiliateCode, email: input.email,
+      affiliate = await verifyAffiliateQuote({ code: input.affiliateCode, email: input.email, customerId: options.customerId,
         disabled: input.affiliateDiscountDisabled || Boolean(input.promoCode),
         supabaseUrl: options.supabaseUrl, serviceRoleKey: options.serviceRoleKey,
         rules: options.affiliateRules, fetcher: options.fetcher });

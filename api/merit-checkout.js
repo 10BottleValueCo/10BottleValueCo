@@ -90,7 +90,7 @@ export function createMeritCheckoutHandler({ env = process.env, provider = creat
       }
       const providerConfig = await provider.configuration();
       const priced = await quote({ ...req.body, orderId: undefined }, customer.email, {
-        surchargeBps: config.surchargeBps, serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY, affiliateRules: env.MERIT_AFFILIATE_RULES_JSON,
+        customerId: customer.id, surchargeBps: config.surchargeBps, serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY, affiliateRules: env.MERIT_AFFILIATE_RULES_JSON,
         supabaseUrl: env.SUPABASE_URL || env.VITE_SUPABASE_URL,
       });
       const snapshot = { ...priced.snapshot, paymentRules: { ...meritRuleSnapshot(config), ...(priced.affiliateRule ? { affiliateRule: priced.affiliateRule } : {}) }, costSnapshot: null };

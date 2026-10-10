@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { addAmounts, discountAmount, sumLineAmounts } from '../shared/checkout-money.js';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { webcrypto } from 'node:crypto';
@@ -62,7 +63,7 @@ function fixture() {
   const calls = [];
   const form = { email: 'buyer@example.test', firstName: 'Test', lastName: 'Buyer', address: 'One Road', country: 'United States', city: 'City', state: 'CA', postalCode: '90210', phone: '+15555555555' };
   const context = {
-    Date, Math, Number, Object, JSON, URLSearchParams, Promise, AbortController, console, setTimeout: () => 0,
+    Date, Math, Number, Object, JSON, URLSearchParams, Promise, AbortController, console, addAmounts, discountAmount, sumLineAmounts, setTimeout: () => 0,
     legacyCheckoutHeaders, supabase: { auth: { getSession: async () => ({ data: { session: { access_token: 'synthetic-token', user: { id: 'buyer-fixture', email: 'buyer@example.test' } } } }) } },
     saveAccountCheckoutDetails: async () => false, checkoutBuyerRef: { current: 'buyer-fixture' },
     rememberValidCheckoutDetails: value => calls.push(['setCheckoutForm', value]),

@@ -7,7 +7,7 @@ const ACCESS_COOKIE = "tbv_checkout_access";
 const ALLOWED_STATUSES = new Set(["pending", "checkout"]);
 const AUTHORITY_FIELDS = new Set([
   "catalystpay_invoice_id", "nowpayments_invoice_id", "nowpayments_invoice_url", "nowpayments_create_state",
-  "affiliatequoteversion", "legacyinvoiceattempt", "nowpaymentscurrency",
+  "affiliatequoteversion", "affiliatequoteproof", "legacyinvoiceattempt", "nowpaymentscurrency",
   "discountrule", "affiliateattributioncode", "affiliateruleversion", "affiliatecommission", "affiliateowneremail",
   "checkout_access_hash",
   "checkoutaccesstoken",

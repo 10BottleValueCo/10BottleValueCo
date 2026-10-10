@@ -265,8 +265,8 @@ const affiliateRules = { version: 'fixture-referral-v1', source: 'fixture existi
 function affiliateDb({ affiliate = { code: 'PARTNER', email: 'partner@example.org', active: true }, original = { code: 'ORIGINAL', email: 'original@example.org', active: true }, purchases = [], attribution = [] } = {}) {
   const db = service(url => {
     if (url.pathname.endsWith('/affiliates')) { const row = url.searchParams.get('code') === 'ilike.ORIGINAL' ? original : affiliate; return row ? [row] : []; }
-    if (url.pathname.endsWith('/affiliate_customers')) return attribution;
-    if (url.pathname.endsWith('/orders')) return purchases;
+    if (url.pathname.endsWith('/affiliate_customers')) return attribution.map(row => ({ email: EMAIL, ...row }));
+    if (url.pathname.endsWith('/orders')) return purchases.map(row => ({ email: EMAIL, status: 'paid', ...row }));
     throw new Error('Unexpected table');
   });
   db.options.affiliateRules = affiliateRules;

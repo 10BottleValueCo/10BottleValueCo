@@ -116,7 +116,7 @@ export async function processNowPaymentsStatus(data, { providerVerified = false 
   await acknowledgeLegacyPaid(savedOrder, expectedPaid);
   const dbMarkedPaid = true, dbWriteError = null;
 
-  const verifiedAffiliate = await settlementAffiliate(sbMeta, email, Number(sbMeta.subtotal || 0));
+  const verifiedAffiliate = await settlementAffiliate(sbMeta, email, Number(sbMeta.subtotal || 0), orderId, savedOrder.status);
   const affiliateCode = verifiedAffiliate.code;
 
   const firstName = String(sbMeta.firstName || metadata.firstName || "");

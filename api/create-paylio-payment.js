@@ -1,3 +1,4 @@
+import { discountAmount, addAmounts } from "../shared/checkout-money.js";
 import { assertExpectedTotal } from "./_legacy-checkout-quote.js";
 import { PaylioError, reservePaylio, bindPaylio, paylioCustomerUrl, paylioStorage } from "./_paylio-binding.js";
 import { requireLegacyOrderAccess } from "./_order-access.js";
@@ -8,7 +9,7 @@ import {
   getAutomaticDiscountRate,
 } from "./_catalog.js";
 import { verifyPromoCode } from "./_promo.js";
-import { AffiliateQuoteError, verifyAffiliateQuote } from "./_affiliate-quote.js";
+import { AffiliateQuoteError, verifyAffiliateQuote, affiliateEmailFilter } from "./_affiliate-quote.js";
 import { summarizePaylioResponse } from "./_paylio-diagnostics.js";
 
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
@@ -85,7 +86,7 @@ export default async function handler(req, res) {
     }
 
     const automaticDiscountRate = getAutomaticDiscountRate(subtotal);
-    const automaticDiscount = Math.round(subtotal * automaticDiscountRate * 100) / 100;
+    const automaticDiscount = discountAmount(subtotal, automaticDiscountRate);
 
 
     let promoDiscount = 0;
@@ -103,7 +104,7 @@ export default async function handler(req, res) {
       if (!verifiedPromo) return res.status(400).json({ code: "PAYLIO_PROMO_UNAVAILABLE", error: "This promo code is unavailable for this checkout." });
       if (verifiedPromo) {
         discountRule = verifiedPromo.rule;
-        promoDiscount = Math.round(subtotal * verifiedPromo.rate * 100) / 100;
+        promoDiscount = discountAmount(subtotal, verifiedPromo.rate);
         verifiedPromoFreeShipping = !!verifiedPromo.freeShipping;
         promoUsageRequired = verifiedPromo.source === "personal";
       }
@@ -111,8 +112,10 @@ export default async function handler(req, res) {
 
     let affiliateDiscount = 0;
     const finalAffiliateCode = String(affiliateCode || affiliate_code || "").trim().toUpperCase();
-    const affiliateRows = await paylioStorage(`affiliate_customers?${new URLSearchParams({email: `eq.${finalEmail}`, select: "affiliate_code", limit: "2"})}`);
-    if (!Array.isArray(affiliateRows) || affiliateRows.length > 1) throw new PaylioError("PAYLIO_ATTRIBUTION_UNAVAILABLE");
+    const affiliateCandidates = await paylioStorage(`affiliate_customers?${new URLSearchParams({email: affiliateEmailFilter(finalEmail), select: "email,affiliate_code", limit: "100"})}`);
+    if (!Array.isArray(affiliateCandidates) || affiliateCandidates.length >= 100 || affiliateCandidates.some(row => typeof row?.email !== "string")) throw new PaylioError("PAYLIO_ATTRIBUTION_UNAVAILABLE");
+    const affiliateRows = affiliateCandidates.filter(row => row.email.trim().toLowerCase() === finalEmail.trim().toLowerCase());
+    if (affiliateRows.length > 1) throw new PaylioError("PAYLIO_ATTRIBUTION_UNAVAILABLE");
     const inheritedCode = affiliateRows.length
       ? String(affiliateRows[0].affiliate_code || "").trim().toUpperCase() : "";
     if (affiliateRows.length && !inheritedCode) throw new PaylioError("PAYLIO_ATTRIBUTION_UNAVAILABLE");
@@ -125,7 +128,7 @@ export default async function handler(req, res) {
     if (finalAffiliateCode || inheritedCode) {
       let verified;
       try {
-        verified = await verifyAffiliateQuote({ code: finalAffiliateCode || inheritedCode, email: finalEmail,
+        verified = await verifyAffiliateQuote({ code: finalAffiliateCode || inheritedCode, email: finalEmail, customerId: access.identity.id,
           disabled: !wantsAffiliateDiscount, supabaseUrl: SB_URL,
           serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
           rules: process.env.MERIT_AFFILIATE_RULES_JSON });
@@ -142,7 +145,7 @@ export default async function handler(req, res) {
       affiliateRuleVersion = verified.rule.version;
       commissionRate = verified.commissionBps / 10000;
       affiliateDiscount = verified.discountBps
-        ? Math.round(subtotal * verified.discountBps / 10000 * 100) / 100 : 0;
+        ? discountAmount(subtotal, verified.discountBps / 10000) : 0;
     }
 
     const finalAutomaticDiscount = promoDiscount > 0 || affiliateDiscount > automaticDiscount ? 0 : automaticDiscount;
@@ -159,7 +162,7 @@ export default async function handler(req, res) {
     // it can't be inflated to zero out or exceed the real order value.
     const preCreditTotal = Math.max(
       0,
-      subtotal - finalAutomaticDiscount - promoDiscount - finalAffiliateDiscount + shipping
+      addAmounts(subtotal, -finalAutomaticDiscount, -promoDiscount, -finalAffiliateDiscount, shipping)
     );
     const safeStoreCreditUsed = Math.min(Math.max(Number(storeCreditUsed) || 0, 0), preCreditTotal);
 
@@ -184,7 +187,7 @@ export default async function handler(req, res) {
       promoCode: promoDiscount > 0 ? String(promoCode).trim().toUpperCase() : "", promoUsageRequired,
       affiliateDiscount: finalAffiliateDiscount, affiliateCode: finalAffiliateCode,
       affiliateAttributionCode,
-      affiliateCommission: Number((subtotal * commissionRate).toFixed(2)), affiliateRuleVersion,
+      affiliateCommission: discountAmount(subtotal, commissionRate), affiliateRuleVersion,
       shippingType: shippingType === "express" ? "express" : "standard",
       storeCreditUsed: 0, paymentProvider: "Paylio Card", items: pricedItems,
     };

@@ -72,7 +72,7 @@ export default async function handler(req, res) {
     if (access.order.metadata?.catalystpay_invoice_id && String(affiliateCode || "").trim().toUpperCase() !== String(access.order.metadata.affiliateCode || "").trim().toUpperCase())
       return res.status(409).json({ code: "PAYMENT_BINDING_CONFLICT", error: "This payment has already started. Restore its original referral or contact support." });
 
-    const quote = await legacyCheckoutQuote(req.body, customer_email, { crypto: false });
+    const quote = await legacyCheckoutQuote(req.body, customer_email, { crypto: false, customerId: access.identity.id });
     const { pricedItems, subtotal, regularSubtotal, promoDiscount, discountRule, finalAutomaticDiscount,
       finalAffiliateDiscount, shipping, affiliateOwnerEmail, affiliateAttributionCode, affiliateCommission,
       affiliateRuleVersion } = quote;

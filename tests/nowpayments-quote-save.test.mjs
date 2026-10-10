@@ -26,7 +26,7 @@ function fixture(t, { patchMode = 'ok', changed = null } = {}) {
     if (url.pathname === '/auth/v1/user') return json({ id: buyer, email, email_confirmed_at: '2026-10-09T00:00:00Z' });
     if (url.pathname === '/rest/v1/paylio_payment_attempts') return json([]);
     if (url.pathname === '/rest/v1/orders' && method === 'GET') {
-      if (url.searchParams.get('status') === 'in.(paid,done)') return json([]);
+      if (url.searchParams.get('select')?.includes('paid_at')) return json([]);
       const freshQuoteRead = url.searchParams.get('select') === 'id,user_id,email,status,total,metadata,payment_id,payment_provider';
       return json([{ ...row, ...(freshQuoteRead ? changed : {}) }]);
     }

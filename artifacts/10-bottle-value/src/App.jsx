@@ -1,3 +1,4 @@
+import { sumLineAmounts, discountAmount, addAmounts } from "../../../shared/checkout-money.js";
 // @ts-nocheck
 // cache-bust
 // @ts-nocheck
@@ -9752,7 +9753,7 @@ export default function App() {
     [cart]
   );
   const subtotal = useMemo(
-    () => cart.reduce((sum, item) => sum + Number(item.price || 0) * (item.quantity ?? item.qty ?? 1), 0),
+    () => sumLineAmounts(cart),
     [cart]
   );
 
@@ -9840,7 +9841,7 @@ export default function App() {
   const automaticDiscountRate =
     subtotal >= 4000 ? 0.2 : subtotal >= 2000 ? 0.15 : subtotal >= 1000 ? 0.1 : 0;
   const promoDiscountRate = appliedPromo?.rate || 0;
-  const promoDiscount = Math.round(subtotal * promoDiscountRate * 100) / 100;
+  const promoDiscount = discountAmount(subtotal, promoDiscountRate);
   const isFirstTimeAffiliateBuyer = affiliateEligibility?.key === affiliateEligibilityKey
     && affiliateEligibility.status === "ready" && affiliateEligibility.discountBps > 0;
   const affiliateDiscountRate = hasActiveAffiliateDiscount && isFirstTimeAffiliateBuyer ? 0.05 : 0;
@@ -9855,8 +9856,8 @@ export default function App() {
         ? automaticDiscountRate > affiliateDiscountRate
         : automaticDiscountRate >= affiliateDiscountRate));
   const affiliateWins = hasActiveAffiliateDiscount && !autoWins;
-  const automaticDiscount = autoWins ? Math.round(subtotal * automaticDiscountRate * 100) / 100 : 0;
-  const affiliateDiscount = affiliateWins ? Math.round(subtotal * affiliateDiscountRate * 100) / 100 : 0;
+  const automaticDiscount = autoWins ? discountAmount(subtotal, automaticDiscountRate) : 0;
+  const affiliateDiscount = affiliateWins ? discountAmount(subtotal, affiliateDiscountRate) : 0;
   const getShippingPrice = (subtotal, type) => {
     if (type === "express") {
       if (subtotal >= 550) return 0;
@@ -9869,15 +9870,15 @@ export default function App() {
     return 59.99;
   };
 
-  const usSubtotal = cart.filter(i => i.fromWarehouse === "us").reduce((sum, i) => sum + Number(i.price || 0) * (i.quantity ?? i.qty ?? 1), 0);
-  const regularSubtotal = subtotal - usSubtotal;
+  const usSubtotal = sumLineAmounts(cart.filter(i => i.fromWarehouse === "us"));
+  const regularSubtotal = addAmounts(subtotal, -usSubtotal);
 
   const shipping =
     cart.length === 0 ? 0 : (appliedPromo?.freeShipping || ownerFreeShippingActive ? 0 : (regularSubtotal === 0 ? 0 : getShippingPrice(regularSubtotal, shippingType)));
-  const baseTotal = subtotal - automaticDiscount - promoDiscount - affiliateDiscount + shipping;
+  const baseTotal = addAmounts(subtotal, -automaticDiscount, -promoDiscount, -affiliateDiscount, shipping);
   // 2.5% discount for crypto payments
   const cryptoDiscountAmount = (paymentMethod === "crypto" && checkoutStep === "payment")
-    ? Math.round(baseTotal * 0.025 * 100) / 100
+    ? discountAmount(baseTotal, 0.025)
     : 0;
   const meritPayload = buildMeritCheckoutPayload({
     items: cart, checkoutForm, shippingType: effectiveShippingType,

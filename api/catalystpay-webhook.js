@@ -163,7 +163,7 @@ export default async function handler(req, res) {
   const finalAutoDiscount = Number(sbMeta.automaticDiscount ?? 0);
   const finalPromoDiscount = Number(sbMeta.promoDiscount ?? 0);
   const finalAffiliateDiscount = Number(sbMeta.affiliateDiscount ?? 0);
-  const verifiedAffiliate = await settlementAffiliate(sbMeta, email, finalSubtotal);
+  const verifiedAffiliate = await settlementAffiliate(sbMeta, email, finalSubtotal, orderId, savedOrder.status);
   const finalAffiliateOwnerEmail = verifiedAffiliate.ownerEmail;
   const finalStoreCreditUsed = Number(sbMeta.storeCreditUsed ?? 0);
   const finalAffiliateCode = verifiedAffiliate.code;

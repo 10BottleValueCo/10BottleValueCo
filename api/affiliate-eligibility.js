@@ -11,7 +11,7 @@ export default async function handler(req, res) {
   if (!customer) return;
   const code = String(req.body?.code || "").trim().toUpperCase();
   try {
-    const affiliate = await verifyAffiliateQuote({ code, email: customer.email,
+    const affiliate = await verifyAffiliateQuote({ code, email: customer.email, customerId: customer.id,
       supabaseUrl: process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
       serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
       rules: process.env.MERIT_AFFILIATE_RULES_JSON });

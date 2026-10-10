@@ -1087,7 +1087,7 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
       const id='INV-NATIVEOWN123',body={order:{id,email,status:'pending',total:100,metadata:{items:[{name:'Fixture',quantity:1}]}}};
       const created=res();await handler({method:'POST',headers:{authorization:'Bearer synthetic-session','content-type':'application/json'},body},created);assert.equal(created.statusCode,200,JSON.stringify(created.body));
       assert.equal((await order(id)).user_id,customerId);
-      const status=res();await handler({method:'GET',url:`/api/order-checkout?orderId=${id}`,headers:{authorization:'Bearer synthetic-session'}},status);assert.deepEqual(status.body,{ok:true,id,status:'pending'});
+      const status=res();await handler({method:'GET',url:`/api/order-checkout?orderId=${id}`,headers:{authorization:'Bearer synthetic-session'}},status);assert.deepEqual(status.body,{ok:true,id,status:'pending',receipt:{total:100,items:[{name:'Fixture',quantity:1}]}});
       user=siblingId;const other=res();await handler({method:'GET',url:`/api/order-checkout?orderId=${id}`,headers:{authorization:'Bearer synthetic-session'}},other);assert.equal(other.statusCode,404);
     }finally{globalThis.fetch=originalFetch;for(const [k,v] of Object.entries(old)){if(v===undefined)delete process.env[k];else process.env[k]=v}}
   });
@@ -1479,4 +1479,30 @@ test("Native Merit concurrency, public-policy containment and Store Credit accep
     }
     evidence.promoAffiliateAccess.actualApiCompatibility = { affiliateAccount: true, publicExactCodePromo: true, confirmedAdminPayout: true };
   });
+  await t.test('referral eligibility executes normalized identity and literal-code filters against native PostgREST', async () => {
+    const { verifyAffiliateQuote } = await import('../../api/_affiliate-quote.js');
+    const rules = { version: 'native-v2', source: 'fixture', status: 'operator_report', currency: 'USD', unit: 'basis_points',
+      effectiveFrom: '2026-01-01', firstOrderDiscountBps: 500, commissionBps: 1000, approvalMode: 'active_registry' };
+    await sql("INSERT INTO affiliates(email,code,active) VALUES('referral-owner@example.test','10bottle_native',true),('unrelated-referral-owner@example.test','10bottleXnative',true);");
+    const fetcher = async (input, init) => {
+      const url = new URL(input); assert.equal(url.origin, origin); assert.ok(url.pathname.startsWith('/rest/v1/'));
+      return fetch(`${origin}${url.pathname.slice('/rest/v1'.length)}${url.search}`, init);
+    };
+    for (const mode of ['mixed-padded-completed', 'paid-at-only', 'old-email-same-user', 'partial-other-email', 'no-purchase']) {
+      const uid = randomUUID(), email = `${mode}@example.test`, id = `INV-NATIVE-REFERRAL-${mode}`;
+      await sql(`INSERT INTO auth.users VALUES(${q(uid)},${q(email)},now());`);
+      if (mode !== 'no-purchase') {
+        const storedEmail = mode === 'mixed-padded-completed' ? ` ${email.toUpperCase()} ` : mode === 'old-email-same-user' ? 'previous@example.test' : mode === 'partial-other-email' ? `other${email}` : email;
+        const status = mode === 'mixed-padded-completed' ? ' COMPLETED ' : mode === 'paid-at-only' ? 'pending' : 'paid';
+        await sql(`INSERT INTO orders(id,email,user_id,status,total,metadata,paid_at) VALUES(${q(id)},${q(storedEmail)},${mode === 'partial-other-email' ? 'NULL' : q(uid)},${q(status)},100,'{}'::jsonb,${mode === 'paid-at-only' ? 'now()' : 'NULL'});`);
+      }
+      if (mode === 'no-purchase') await sql(`INSERT INTO affiliate_customers(email,affiliate_code) VALUES(${q(` ${email.toUpperCase()} `)},'10bottle_native');`);
+      const result = await verifyAffiliateQuote({ code: '10BOTTLE_NATIVE', email, customerId: uid, rules,
+        supabaseUrl: origin, serviceRoleKey: token('service_role'), fetcher });
+      assert.equal(result.code, '10BOTTLE_NATIVE'); assert.equal(result.ownerEmail, 'referral-owner@example.test');
+      assert.equal(result.discountBps, ['partial-other-email','no-purchase'].includes(mode) ? 500 : 0, mode);
+    }
+    evidence.referralIdentity = { literalCode: true, mixedPaddedCompleted: true, paidAt: true, changedEmail: true, unrelatedEmailExcluded: true, paddedAttribution: true };
+  });
+
 });

@@ -17,14 +17,13 @@ function fixture(t,{bindingFails=false,providerFails=false,providerFailureBody,p
   calls.push({url,options,body});
   if(url.pathname==='/auth/v1/user')return json({id:customerId,email,email_confirmed_at:'2026-10-08T00:00:00Z'});
   if(url.pathname==='/rest/v1/orders'){
-   if(!url.searchParams.has('status'))return json([row]);
+   if(!url.searchParams.get('select')?.includes('paid_at'))return json([row]);
    if(historyFails==='network')throw new Error('fixture history unavailable');
    if(historyFails)return json({},503);
    if(!Array.isArray(priorPurchases))return json(priorPurchases);
-   const statuses=url.searchParams.get('status').slice(4,-1).split(',');
-   return json(priorPurchases.filter(p=>!p.status||statuses.includes(p.status)).slice(0,1));
+   return json(priorPurchases.map(p=>({email,status:'paid',...p})));
   }
-  if(url.pathname==='/rest/v1/affiliate_customers')return json(existingAffiliate?[{affiliate_code:existingAffiliate}]:[]);
+  if(url.pathname==='/rest/v1/affiliate_customers')return json(existingAffiliate?[{email,affiliate_code:existingAffiliate}]:[]);
   if(url.pathname==='/rest/v1/affiliates')return json(affiliateResponse===undefined?[{code:url.searchParams.get('code').slice(6).replaceAll('\\_', '_'),email:'affiliate@example.test',active:true}]:affiliateResponse,affiliateLookupFails?503:200);
   if(url.pathname==='/rest/v1/user_promos')return json(promoRows.filter(row=>`eq.${row.email}`===url.searchParams.get('email')));
   if(url.pathname==='/rest/v1/paylio_payment_attempts')return json(attempt?[attempt]:[]);
