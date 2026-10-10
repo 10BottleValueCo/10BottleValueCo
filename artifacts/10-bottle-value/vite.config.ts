@@ -23,6 +23,8 @@ if (!basePath && !isBuild) {
   throw new Error('BASE_PATH environment variable is required but was not provided.');
 }
 
+const apiServerTarget = process.env.API_SERVER_URL || `http://127.0.0.1:${process.env.API_SERVER_PORT || '8080'}`;
+
 function darkenInlineNeutralColors() {
   return {
     name: 'darken-inline-neutral-colors',
@@ -98,6 +100,7 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
+    proxy: { '/api': { target: apiServerTarget, changeOrigin: true } },
     port,
     strictPort: true,
     host: '0.0.0.0',
@@ -107,6 +110,7 @@ export default defineConfig({
     },
   },
   preview: {
+    proxy: { '/api': { target: apiServerTarget, changeOrigin: true } },
     port,
     host: '0.0.0.0',
     allowedHosts: true,
