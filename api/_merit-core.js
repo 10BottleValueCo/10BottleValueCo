@@ -141,11 +141,29 @@ export function requireMeritProof(attempt, proof) {
   return { paid: proof.status === "succeeded", status: proof.status };
 }
 
-export function assertCheckoutOrigin(req) {
+export function assertCheckoutOrigin(req, env = process.env) {
   // Bearer authorization is still required separately. Permit absent Origin for
   // native clients; reject browser cross-site requests before provider work.
   const origin = String(req.headers?.origin || "");
-  if (origin && !["https://10bottlevalue.co", "https://www.10bottlevalue.co"].includes(origin)) {
+  let isReplitPreview = false;
+  const mode = String(env.MERIT_MODE || "");
+  if (origin && (mode === "test" || mode === "live")) {
+    try {
+      const parsed = new URL(origin);
+      const configuredHost = String(env.REPLIT_DEV_DOMAIN || "").trim().toLowerCase();
+      const isTestPreviewHost = parsed.hostname.endsWith(".replit.dev")
+        || (configuredHost !== "" && parsed.hostname === configuredHost);
+      const isExplicitLivePreviewOrigin = env.NODE_ENV === "development"
+        && env.MERIT_ALLOW_REPLIT_PREVIEW_LIVE === "true"
+        && configuredHost !== ""
+        && parsed.origin === `https://${configuredHost}`;
+      isReplitPreview = parsed.protocol === "https:"
+        && (mode === "test" ? isTestPreviewHost : isExplicitLivePreviewOrigin);
+    } catch {
+      isReplitPreview = false;
+    }
+  }
+  if (origin && !["https://10bottlevalue.co", "https://www.10bottlevalue.co"].includes(origin) && !isReplitPreview) {
     throw new MeritError(403, "This checkout request is not allowed.", "MERIT_ORIGIN_REJECTED");
   }
 }
