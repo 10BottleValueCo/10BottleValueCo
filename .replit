@@ -18,3 +18,12 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv.development]
+MERIT_CARD_SURCHARGE_BPS = "300"
+MERIT_CARD_SURCHARGE_EFFECTIVE_AT = "2026-10-10T00:00:00.000Z"
+MERIT_CARD_SURCHARGE_SOURCE = "Production checkout screenshot (3% card surcharge)"
+MERIT_ENABLED = "true"
+MERIT_MODE = "live"
+MERIT_RULE_VERSION = "preview-live-2026-10-10"
+MERIT_ALLOW_REPLIT_PREVIEW_LIVE = "true"
