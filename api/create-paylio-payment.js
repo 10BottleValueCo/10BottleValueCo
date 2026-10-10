@@ -1,3 +1,4 @@
+import { checkoutTiming } from "./_checkout-timing.js";
 import { discountAmount, addAmounts } from "../shared/checkout-money.js";
 import { formatInvoiceLabel } from "../shared/invoice-display.js";
 import { assertExpectedTotal } from "./_legacy-checkout-quote.js";
@@ -20,6 +21,7 @@ export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
+  const markTiming = checkoutTiming(res);
   const creditError = legacyCreditStartError(req.body);
   if (creditError) {
     const { status, ...body } = creditError;
@@ -27,7 +29,9 @@ export default async function handler(req, res) {
   }
   const access = await requireLegacyOrderAccess(req, res, { orderId: req.body?.order_id || req.body?.orderId, provider: "paylio" });
   if (!access) return;
+  markTiming("access");
   const existingCreditError = await legacyExistingCreditOrderError(req.body);
+  markTiming("credit");
   if (existingCreditError) {
     const { status, ...body } = existingCreditError;
     return res.status(status).json(body);
@@ -191,8 +195,10 @@ export default async function handler(req, res) {
       shippingType: shippingType === "express" ? "express" : "standard",
       storeCreditUsed: 0, paymentProvider: "Paylio Card", items: pricedItems,
     };
+    markTiming("quote");
     phase = "reserve";
     const reservation = await reservePaylio(access, quote, provider);
+    markTiming("reserve");
     if (!reservation.created) {
       if (reservation.attempt.state !== "ready") throw new PaylioError("PAYLIO_CREATE_RECONCILIATION_REQUIRED", 409);
       return res.status(200).json({ payment_url: paylioCustomerUrl(reservation.attempt.checkout_url, finalEmail, provider), verifiedAmount: reservation.attempt.amount_cents / 100 });
@@ -215,11 +221,13 @@ export default async function handler(req, res) {
     providerStatus = response.status;
     const raw = await response.text();
     providerDiagnostic = summarizePaylioResponse(raw);
+    markTiming("provider");
     if (!response.ok || Buffer.byteLength(raw) > 50000) throw new PaylioError("PAYLIO_CREATION_UNAVAILABLE");
     let data; try { data = JSON.parse(raw); } catch { throw new PaylioError("PAYLIO_CREATION_UNAVAILABLE"); }
     // The binding is durably acknowledged before the customer receives a URL.
     phase = "bind";
     const bound = await bindPaylio(reservation.attempt, data);
+    markTiming("bind");
     return res.status(200).json({ ...bound, payment_url: paylioCustomerUrl(bound.payment_url, finalEmail, provider) });
   } catch (error) {
     // Diagnose the boundary without logging tokens, URLs, customer details,

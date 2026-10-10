@@ -261,9 +261,10 @@ test('a real legacy payment start materializes the deferred draft with its attes
   context.getPaidOrdersForEmail = () => [];
   context.persistOrderToServer = handler('persistOrderToServer', context);
   await handler('markOrderCheckoutStartedById', context)(draft.id, 'PayPal');
-  assert.equal(requests.length, 2);
+  assert.equal(requests.length, 1);
   assert.equal(requests[0].url, '/api/order-checkout');
-  assert.equal(requests[1].body.order.metadata.purchaserAttestation.policiesAccepted, true);
+  assert.equal(requests[0].body.order.status, 'checkout');
+  assert.equal(requests[0].body.order.metadata.purchaserAttestation.policiesAccepted, true);
   assert.equal(orders[0].paymentProvider, 'PayPal');
   assert.equal(orders[0].status, 'checkout');
 });
@@ -712,4 +713,72 @@ test('first-order preview requires server eligibility for the current account an
  for(const affiliateEligibility of [{key:'buyer:CODE',status:'loading',discountBps:500},{key:'other:CODE',status:'ready',discountBps:500},{key:'buyer:CODE',status:'ready',discountBps:0}])
   assert.equal(initializer('isFirstTimeAffiliateBuyer',{...context,affiliateEligibility}),false);
  assert.equal(initializer('isFirstTimeAffiliateBuyer',{...context,affiliateEligibility:{key:'buyer:CODE',status:'ready',discountBps:500}}),true);
+});
+
+test('Paylio starts progress immediately, saves once, blocks double clicks and resumes the same invoice', async () => {
+  const { context, calls } = fixture();
+  let orders = [], releaseSave;
+  const saveGate = new Promise(resolve => { releaseSave = resolve; });
+  const requests = [], navigations = [];
+  Object.assign(context, {
+    affiliateDiscountDisabled: false, ownerFreeShippingActive: false, paymentMethod: 'paylio', paylioPaymentLoading: false,
+    setPaylioPaymentLoading: value => { context.paylioPaymentLoading = value; calls.push(['progress', value]); },
+    setPaylioPaymentError: value => calls.push(['paylioError', value]),
+    setOrderNumber: value => { context.orderNumber = value; },
+    getStoredOrders: () => orders, saveStoredOrders: next => { orders = next; },
+    setAllOrders: () => {}, setUserOrders: () => {}, getPaidOrdersForEmail: () => [],
+    fetch: async (url, options) => {
+      const body = JSON.parse(options.body); requests.push({ url, body });
+      if (url === '/api/order-checkout') { await saveGate; return { ok: true, json: async () => ({ ok: true }) }; }
+      assert.equal(url, '/api/create-paylio-payment');
+      assert.equal(orders[0].id, body.orderId);
+      return { ok: true, json: async () => ({ payment_url: 'https://paylio.org/pay?payment_id=synthetic-latency-fixture', verifiedAmount: context.finalTotal }) };
+    },
+  });
+  context.window.location = { origin: 'https://shop.example.test', assign: url => navigations.push(url) };
+  context.persistOrderToServer = handler('persistOrderToServer', context);
+  context.markOrderCheckoutStartedById = handler('markOrderCheckoutStartedById', context);
+  await handler('handleCheckout', context)();
+  const pay = handler('createPaylioPayment', context);
+  const pending = pay('paypal');
+  assert.equal(context.paylioPaymentLoading, true);
+  assert.equal(context.legacyStartLockRef.current, true);
+  await pay('paypal'); // Cannot create or navigate while the first save is pending.
+  for (let tries = 0; !requests.length && tries < 100; tries++) await new Promise(resolve => setTimeout(resolve, 1));
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].body.order.status, 'checkout');
+  assert.equal(requests[0].body.order.metadata.purchaserAttestation.policiesAccepted, true);
+  assert.equal(orders.length, 0);
+  assert.deepEqual(navigations, []);
+  releaseSave(); await pending;
+  assert.deepEqual(requests.map(x => x.url), ['/api/order-checkout', '/api/create-paylio-payment']);
+  assert.equal(context.paylioPaymentLoading, false);
+  await pay('paypal');
+  assert.equal(requests.length, 2);
+  assert.deepEqual(navigations, ['https://paylio.org/pay?payment_id=synthetic-latency-fixture', 'https://paylio.org/pay?payment_id=synthetic-latency-fixture']);
+  assert.equal(calls.some(([name, value]) => name === 'paylioError' && value), false);
+});
+
+test('failed Paylio save leaves no local checkout, no provider request and clears progress', async () => {
+  const { context, calls } = fixture();
+  const requests = [];
+  let localWrites = 0;
+  Object.assign(context, {
+    affiliateDiscountDisabled: false, paylioPaymentLoading: false,
+    setPaylioPaymentLoading: value => { context.paylioPaymentLoading = value; },
+    setPaylioPaymentError: value => calls.push(['error', value]),
+    getStoredOrders: () => [], saveStoredOrders: () => { localWrites++; }, setAllOrders: () => {},
+    setUserOrders: () => {}, getPaidOrdersForEmail: () => [],
+    fetch: async url => { requests.push(url); return { ok: false, json: async () => ({ error: 'Save unavailable' }) }; },
+  });
+  context.window.location = { assign: () => assert.fail('must not navigate') };
+  context.persistOrderToServer = handler('persistOrderToServer', context);
+  context.markOrderCheckoutStartedById = handler('markOrderCheckoutStartedById', context);
+  await handler('handleCheckout', context)();
+  await handler('createPaylioPayment', context)('paypal');
+  assert.deepEqual(requests, ['/api/order-checkout']);
+  assert.equal(localWrites, 0);
+  assert.equal(context.paylioPaymentLoading, false);
+  assert.equal(context.legacyStartLockRef.current, false);
+  assert.ok(calls.some(([name, value]) => name === 'error' && value === 'Save unavailable'));
 });

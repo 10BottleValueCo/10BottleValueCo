@@ -33,6 +33,7 @@ import HomePage from "./components/HomePage.jsx";
 import PaymentReturnHeader from "./components/PaymentReturnHeader.jsx";
 import PaymentReturnReadStatus from "./components/PaymentReturnReadStatus.jsx";
 import CashAppPaymentGuide from "./components/CashAppPaymentGuide.jsx";
+import PaymentOpeningDialog from "./components/PaymentOpeningDialog.jsx";
 import ProductPackSelector from "./components/ProductPackSelector.jsx";
 import { productSelectionFromProduct, readProductSelection, productSelectionUrl, resolveSelectedProduct, toStorefrontOffer } from "./product-selection.js";
 import UsFlag from "./components/UsFlag.jsx";
@@ -6728,44 +6729,30 @@ export default function App() {
   }
 
   async function markOrderCheckoutStartedById(orderId, paymentProvider = "Paylio") {
-    if (!orderId) return;
-    const deferred = deferredLegacyOrderRef.current;
-    if (deferred?.id === orderId && !getStoredOrders().some(order => order.id === orderId)) {
-      await persistOrderToServer({ id: deferred.id, email: deferred.email, status: "pending", total: deferred.total, metadata: deferred });
-    }
+    if (!orderId) throw new Error("Could not find this checkout. Refresh before continuing.");
     const orders = getStoredOrders();
-    let updatedOrder = null;
-    const nextOrders = orders.map((savedOrder) => {
-      if (savedOrder.id !== orderId) return savedOrder;
-      const currentStatus = String(savedOrder.status || "").toLowerCase();
-      if (currentStatus === "paid" || currentStatus === "done" || currentStatus === "refunded") {
-        return savedOrder;
-      }
-      const next = {
-        ...savedOrder,
-        status: "checkout",
-        paymentProvider: savedOrder.paymentProvider && savedOrder.paymentProvider !== "pending" ? savedOrder.paymentProvider : paymentProvider,
-        checkoutStartedAt: savedOrder.checkoutStartedAt || new Date().toISOString(),
-      };
-      updatedOrder = next;
-      return next;
+    const deferred = deferredLegacyOrderRef.current;
+    const savedOrder = orders.find(order => order.id === orderId)
+      || (deferred?.id === orderId ? deferred : null);
+    if (!savedOrder) throw new Error("Could not find this checkout. Refresh before continuing.");
+    const currentStatus = String(savedOrder.status || "").toLowerCase();
+    if (["paid", "done", "refunded"].includes(currentStatus)) return;
+    const updatedOrder = {
+      ...savedOrder,
+      status: "checkout",
+      paymentProvider: savedOrder.paymentProvider && savedOrder.paymentProvider !== "pending" ? savedOrder.paymentProvider : paymentProvider,
+      checkoutStartedAt: savedOrder.checkoutStartedAt || new Date().toISOString(),
+    };
+    // A new draft can be inserted directly as checkout. One acknowledged save
+    // preserves all details and attestations before any provider request starts.
+    await persistOrderToServer({
+      id: updatedOrder.id, email: updatedOrder.email, status: "checkout",
+      total: updatedOrder.total ?? 0, metadata: updatedOrder,
     });
+    const nextOrders = [updatedOrder, ...getStoredOrders().filter(order => order.id !== orderId)];
     saveStoredOrders(nextOrders);
     setAllOrders(nextOrders);
-    if (updatedOrder) {
-      try {
-        await persistOrderToServer({
-          id: updatedOrder.id,
-          email: updatedOrder.email,
-          status: "checkout",
-          total: updatedOrder.total ?? 0,
-          metadata: { ...updatedOrder, status: "checkout" },
-        });
-      } catch (e) {
-        console.error("Checkout order save failed:", e);
-        throw e;
-      }
-    }
+    if (currentUser?.email) setUserOrders(getPaidOrdersForEmail(currentUser.email, nextOrders));
   }
 
   function markOrderPaidById(orderId, paymentProvider = "NOWPayments", paymentId = "") {
@@ -22387,6 +22374,8 @@ export default function App() {
           </main>
         )}
       </div>
+
+      <PaymentOpeningDialog open={paylioPaymentLoading || catalystPayLoading} tx={tx} />
 
       {showProviderWarning && (
         <div

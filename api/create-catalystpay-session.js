@@ -1,3 +1,4 @@
+import { checkoutTiming } from "./_checkout-timing.js";
 import { reserveLegacyInvoice, bindLegacyInvoice, legacyInvoicePending } from "./_legacy-invoice-lock.js";
 import { legacyCheckoutQuote, assertExpectedTotal } from "./_legacy-checkout-quote.js";
 import { requireLegacyOrderAccess } from "./_order-access.js";
@@ -25,6 +26,7 @@ const BASE_API_URL = IS_PRODUCTION
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const markTiming = checkoutTiming(res);
   const creditError = legacyCreditStartError(req.body);
   if (creditError) {
     const { status, ...body } = creditError;
@@ -32,7 +34,9 @@ export default async function handler(req, res) {
   }
   const access = await requireLegacyOrderAccess(req, res, { orderId: req.body?.order_id, provider: "catalystpay" });
   if (!access) return;
+  markTiming("access");
   const existingCreditError = await legacyExistingCreditOrderError(req.body);
+  markTiming("credit");
   if (existingCreditError) {
     const { status, ...body } = existingCreditError;
     return res.status(status).json(body);
@@ -80,6 +84,7 @@ export default async function handler(req, res) {
     const safeStoreCreditUsed = 0;
     const price_amount = quote.total;
     assertExpectedTotal(req.body.expectedTotal, price_amount);
+    markTiming("quote");
 
     if (!price_amount || price_amount <= 0) {
       return res.status(400).json({ error: "Order total must be greater than zero." });
@@ -99,6 +104,7 @@ export default async function handler(req, res) {
         || Number(saved.promoDiscount || 0) !== promoDiscount || Number(saved.affiliateDiscount || 0) !== finalAffiliateDiscount)
         return res.status(409).json({ code: "PAYMENT_BINDING_CONFLICT", error: "This payment has already started. Return to the original checkout or contact support." });
       const invoice = await verifyCatalystInvoiceBinding(access.order, savedInvoiceId);
+      markTiming("resume");
       if (!["New", "Processing"].includes(invoice.status) || !["None", "PaidPartial"].includes(invoice.additionalStatus))
         return res.status(409).json({ code: "PAYMENT_RECONCILIATION_REQUIRED", error: "This payment needs reconciliation. Contact support before trying another payment." });
       return res.status(200).json({ checkoutLink: catalystCheckoutUrl(invoice.checkoutLink), invoice_id: savedInvoiceId, amount: price_amount });
@@ -120,6 +126,7 @@ export default async function handler(req, res) {
       ...Object.fromEntries(["firstName", "lastName", "country", "address", "address2", "city", "state", "postalCode", "phone", "taxId", "orderNotes"]
         .map(key => [key, String(req.body[key] || access.order.metadata?.[key] || "")])),
     }, pricedItems);
+    markTiming("reserve");
 
     const nowRes = await fetch(`${BASE_API_URL}/api/v1/stores/${MERCHANT_ID}/invoices`, {
       method: "POST",
@@ -147,6 +154,7 @@ export default async function handler(req, res) {
     });
 
     const rawText = await nowRes.text();
+    markTiming("provider");
     if (!nowRes.ok || Buffer.byteLength(rawText) > 100000)
       throw Object.assign(new Error('Payment setup is pending. Please contact support before trying another payment.'), { status: 503, code: 'PAYMENT_CREATION_UNAVAILABLE' });
     let data = {};
@@ -158,6 +166,7 @@ export default async function handler(req, res) {
     const checkoutLink = verifyCatalystCreatedInvoice(data, { orderId: order_id, amount: price_amount });
 
     await bindLegacyInvoice(reservedOrder, "catalystpay", data.id, checkoutLink, { catalystpay_invoice_id: data.id });
+    markTiming("bind");
 
     return res.status(200).json({
       checkoutLink,
