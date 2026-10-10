@@ -25,7 +25,7 @@ function fixture(t,{bindingFails=false,providerFails=false,providerFailureBody,p
    return json(priorPurchases.filter(p=>!p.status||statuses.includes(p.status)).slice(0,1));
   }
   if(url.pathname==='/rest/v1/affiliate_customers')return json(existingAffiliate?[{affiliate_code:existingAffiliate}]:[]);
-  if(url.pathname==='/rest/v1/affiliates')return json(affiliateResponse===undefined?[{code:url.searchParams.get('code').slice(3),email:'affiliate@example.test',active:true}]:affiliateResponse,affiliateLookupFails?503:200);
+  if(url.pathname==='/rest/v1/affiliates')return json(affiliateResponse===undefined?[{code:url.searchParams.get('code').slice(6).replaceAll('\\_', '_'),email:'affiliate@example.test',active:true}]:affiliateResponse,affiliateLookupFails?503:200);
   if(url.pathname==='/rest/v1/user_promos')return json(promoRows.filter(row=>`eq.${row.email}`===url.searchParams.get('email')));
   if(url.pathname==='/rest/v1/paylio_payment_attempts')return json(attempt?[attempt]:[]);
   if(url.pathname==='/rest/v1/rpc/reserve_paylio_checkout'){
@@ -61,8 +61,8 @@ function fixture(t,{bindingFails=false,providerFails=false,providerFailureBody,p
  });
  return {calls,attempt:()=>attempt};
 }
-const request=()=>({method:'POST',headers:{authorization:'Bearer fixture'},body:{order_id:orderId,email,items:[{name:'Fixture'}],storeCreditUsed:0}});
-const referralRequest=(body={})=>({...request(),body:{...request().body,affiliateCode:'VALIDCODE',affiliateDiscount:5,...body}});
+const request=()=>({method:'POST',headers:{authorization:'Bearer fixture'},body:{expectedTotal:110,order_id:orderId,email,items:[{name:'Fixture'}],storeCreditUsed:0}});
+const referralRequest=(body={})=>({...request(),body:{...request().body,affiliateCode:'VALIDCODE',affiliateDiscount:5,expectedTotal:105,...body}});
 const noReservation=f=>assert.equal(f.calls.some(c=>c.url.pathname==='/api/v1/wallet'||c.url.pathname==='/rest/v1/rpc/reserve_paylio_checkout'),false);
 test('checkout URL is exposed only after private binding; retry reuses it without a second provider create',async t=>{
  const f=fixture(t),first=res();await create(request(),first);assert.equal(first.statusCode,200);assert.deepEqual(first.body,{payment_url:'https://paylio.org/pay/provider_fixture',verifiedAmount:110});
@@ -91,8 +91,8 @@ test('known customer referral is frozen separately from browser discount code',a
  assert.equal(response.statusCode,200);assert.equal(f.attempt().quote.affiliateAttributionCode,'ORIGINAL');assert.equal(f.attempt().quote.affiliateCode,'NEWCODE');
  assert.equal(f.calls.filter(c=>c.url.pathname==='/rest/v1/affiliates').length,2);
 });
-test('enabled referral preserves the first-purchase cap, lower requested discount and frozen retry',async t=>{
- for(const [discount,expected] of [[5,105],[999,105],[2,108]]){
+test('enabled referral uses the verified first-purchase rate despite client amounts and preserves frozen retry',async t=>{
+ for(const [discount,expected] of [[5,105],[999,105],[2,105]]){
   const f=fixture(t),response=res();await create(referralRequest({affiliateDiscount:discount}),response);
   assert.equal(response.statusCode,200);assert.equal(response.body.verifiedAmount,expected);
   assert.equal(f.attempt().quote.affiliateAttributionCode,'VALIDCODE');assert.equal(f.attempt().quote.affiliateCommission,10);
@@ -124,7 +124,7 @@ test('failed or malformed purchase history never grants a first-purchase discoun
 });
 test('paid and fulfilled purchases exclude the first-purchase discount; pending orders do not',async t=>{
  for(const status of ['paid','done','processing','shipped','delivered','refunded','pending']){
-  const f=fixture(t,{priorPurchases:[{id:'INV-EARLIER',status}]}),response=res();await create(referralRequest(),response);
+  const f=fixture(t,{priorPurchases:[{id:'INV-EARLIER',status}]}),response=res();await create(referralRequest({expectedTotal:status==='pending'?105:110}),response);
   assert.equal(response.statusCode,200);assert.equal(response.body.verifiedAmount,status==='pending'?105:110);
   assert.equal(f.attempt().quote.affiliateAttributionCode,'VALIDCODE');assert.equal(f.attempt().quote.affiliateCommission,10);
  }
@@ -132,7 +132,7 @@ test('paid and fulfilled purchases exclude the first-purchase discount; pending 
 test('ordinary checkout skips referral verification; promos preserve verified inherited attribution',async t=>{
  const ordinary=fixture(t,{historyFails:true,affiliateLookupFails:true}),response=res();await create(request(),response);assert.equal(response.statusCode,200);
  assert.equal(ordinary.calls.some(c=>c.url.pathname==='/rest/v1/affiliates'||c.url.searchParams.has('status')),false);
- const promo=fixture(t,{existingAffiliate:'ORIGINAL'}),discounted=res();await create(referralRequest({promoCode:'REVIEW10'}),discounted);
+ const promo=fixture(t,{existingAffiliate:'ORIGINAL'}),discounted=res();await create(referralRequest({promoCode:'REVIEW10',expectedTotal:100}),discounted);
  assert.equal(discounted.statusCode,200);assert.equal(discounted.body.verifiedAmount,100);assert.equal(promo.attempt().quote.promoDiscount,10);assert.equal(promo.attempt().quote.affiliateDiscount,0);
  assert.equal(promo.attempt().quote.affiliateAttributionCode,'ORIGINAL');assert.equal(promo.calls.filter(c=>c.url.pathname==='/rest/v1/affiliates').length,2);
 });
@@ -209,7 +209,7 @@ test('unpaid provider result or refused terminal-state transaction cannot cause 
 test('CARD5 works with PayPal and Paylio and preserves the private rule version',async t=>{
  for(const provider of ['paypal',undefined]){
   const f=fixture(t,{promoRows:[{id:'33333333-3333-4333-8333-333333333333',email:'__PUBLIC__',code:'CARD5',rate:.05,used:false,revision:3}]}),response=res();
-  await create({...request(),body:{...request().body,provider,promoCode:'CARD5',promoDiscount:99}},response);
+  await create({...request(),body:{...request().body,provider,promoCode:'CARD5',promoDiscount:99,expectedTotal:105}},response);
   assert.equal(response.statusCode,200);assert.equal(response.body.verifiedAmount,105);assert.equal(f.attempt().quote.promoDiscount,5);assert.equal(f.attempt().quote.promoUsageRequired,false);assert.equal(f.attempt().quote.discountRule.revision,3);
  }
 });

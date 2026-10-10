@@ -1,11 +1,14 @@
 import { requireOrderIdentity, ownsOrder } from "./_order-access.js";
 import { paylioResumeMatchesOrder } from "./_paylio-binding.js";
-import { catalystResumeMatchesOrder } from "./_catalystpay-resume.js";
+import { catalystResumeMatchesOrder, nowpaymentsResumeMatchesOrder } from "./_catalystpay-resume.js";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 const ACCESS_COOKIE = "tbv_checkout_access";
-const ALLOWED_STATUSES = new Set(["pending", "checkout", "wire_pending"]);
+const ALLOWED_STATUSES = new Set(["pending", "checkout"]);
 const AUTHORITY_FIELDS = new Set([
+  "catalystpay_invoice_id", "nowpayments_invoice_id", "nowpayments_invoice_url", "nowpayments_create_state",
+  "affiliatequoteversion", "legacyinvoiceattempt", "nowpaymentscurrency",
+  "discountrule", "affiliateattributioncode", "affiliateruleversion", "affiliatecommission", "affiliateowneremail",
   "checkout_access_hash",
   "checkoutaccesstoken",
   "paid",
@@ -258,6 +261,16 @@ async function getOrderStatus(req, res) {
     ok: true,
     id: row.id,
     status: String(row.status || ""),
+    receipt: {
+      total: Number(row.total),
+      ...Object.fromEntries(["subtotal", "shipping", "automaticDiscount", "promoDiscount", "affiliateDiscount", "cryptoDiscount", "storeCreditUsed"]
+        .filter(key => row.metadata?.[key] !== null && row.metadata?.[key] !== undefined && Number.isFinite(Number(row.metadata[key])))
+        .map(key => [key, Number(row.metadata[key])])),
+      ...Object.fromEntries(["shippingType", "promoCode"].filter(key => typeof row.metadata?.[key] === "string").map(key => [key, row.metadata[key]])),
+      ...(Array.isArray(row.metadata?.items) ? { items: row.metadata.items.map(item => Object.fromEntries(
+        ["name", "dose", "quantity", "price", "noteLabel", "fromWarehouse", "vials"].filter(key => item?.[key] !== undefined).map(key => [key, item[key]])
+      )) } : {}),
+    },
   });
 }
 
@@ -318,6 +331,14 @@ async function saveOrder(req, res) {
       setAccessCookie(res, order.id, access.token);
       res.status(200).json({ ok: true, id: existing.id, status: existing.status, locked: true, saved: false });
       return;
+    }
+    if (existing.metadata?.legacyInvoiceAttempt) {
+      if (nowpaymentsResumeMatchesOrder(existing, order)) {
+        setAccessCookie(res, order.id, access.token);
+        res.status(200).json({ ok: true, id: existing.id, status: existing.status, locked: true, saved: false });
+        return;
+      }
+      throw new CheckoutError(409, "Payment has already started. Return to the original payment or contact support.");
     }
     if (!ALLOWED_STATUSES.has(existingStatus)) {
       throw new CheckoutError(409, "This payment has already started. Contact support before changing it.");

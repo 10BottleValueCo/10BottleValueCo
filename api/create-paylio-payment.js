@@ -1,3 +1,4 @@
+import { assertExpectedTotal } from "./_legacy-checkout-quote.js";
 import { PaylioError, reservePaylio, bindPaylio, paylioCustomerUrl, paylioStorage } from "./_paylio-binding.js";
 import { requireLegacyOrderAccess } from "./_order-access.js";
 import { legacyCreditStartError, legacyExistingCreditOrderError } from "./_legacy-store-credit.js";
@@ -141,7 +142,7 @@ export default async function handler(req, res) {
       affiliateRuleVersion = verified.rule.version;
       commissionRate = verified.commissionBps / 10000;
       affiliateDiscount = verified.discountBps
-        ? Math.min(Number(clientAffiliateDiscount), Math.round(subtotal * verified.discountBps / 10000 * 100) / 100) : 0;
+        ? Math.round(subtotal * verified.discountBps / 10000 * 100) / 100 : 0;
     }
 
     const finalAutomaticDiscount = promoDiscount > 0 || affiliateDiscount > automaticDiscount ? 0 : automaticDiscount;
@@ -171,6 +172,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Order total must be greater than zero." });
     }
 
+    assertExpectedTotal(req.body.expectedTotal, amount);
     const safeAmount = amount.toFixed(2);
     const baseUrl = process.env.BASE_URL || "https://10bottlevalue.co";
     const source = access.order.metadata || {};
@@ -223,6 +225,7 @@ export default async function handler(req, res) {
       failureKind: ["TimeoutError", "AbortError", "TypeError"].includes(error?.name) ? error.name : "validation_or_storage",
       reason: ["payment_id", "callback_token", "status", "amount", "currency", "fee_mode", "original_amount"].includes(error?.reason) ? error.reason : undefined,
       code: error instanceof PaylioError ? error.code : error?.code === "PROMO_LOOKUP_UNAVAILABLE" ? error.code : "PAYLIO_CREATION_UNAVAILABLE" });
+    if (["CHECKOUT_QUOTE_CHANGED", "CHECKOUT_REFRESH_REQUIRED"].includes(error?.code)) return res.status(409).json({ code: error.code, error: error.message, total: error.total });
     if (error?.code === "PROMO_LOOKUP_UNAVAILABLE") return res.status(503).json({ code: error.code, error: error.message });
     return res.status(error instanceof PaylioError ? error.status : 503).json({
       code: error instanceof PaylioError ? error.code : "PAYLIO_CREATION_UNAVAILABLE",

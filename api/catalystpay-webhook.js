@@ -1,3 +1,4 @@
+import { settlementAffiliate } from "./_settlement-affiliate.js";
 import { sendPaymentConfirmationEmail } from "./_payment-confirmation-email.js";
 import { acknowledgeLegacyPaid, inspectLegacyTransition } from "./_legacy-paid-transition.js";
 import { debitLegacyOrderCredit } from "./_legacy-store-credit.js";
@@ -162,10 +163,11 @@ export default async function handler(req, res) {
   const finalAutoDiscount = Number(sbMeta.automaticDiscount ?? 0);
   const finalPromoDiscount = Number(sbMeta.promoDiscount ?? 0);
   const finalAffiliateDiscount = Number(sbMeta.affiliateDiscount ?? 0);
-  const finalAffiliateOwnerEmail = String(sbMeta.affiliateOwnerEmail || "");
+  const verifiedAffiliate = await settlementAffiliate(sbMeta, email, finalSubtotal);
+  const finalAffiliateOwnerEmail = verifiedAffiliate.ownerEmail;
   const finalStoreCreditUsed = Number(sbMeta.storeCreditUsed ?? 0);
-  const finalAffiliateCode = String(sbMeta.affiliateCode || "").trim().toUpperCase();
-  const finalAffiliateCommission = Number(finalSubtotal || finalTotal) * 0.1;
+  const finalAffiliateCode = verifiedAffiliate.code;
+  const finalAffiliateCommission = verifiedAffiliate.commission;
   const finalShippingType = String(sbMeta.shippingType || "standard");
 
   const expectedPaid = { id: orderId, email, status: "paid", payment_provider: "CatalystPay BTC",

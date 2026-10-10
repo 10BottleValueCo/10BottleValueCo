@@ -134,7 +134,7 @@ test('Lightning to Card to Lightning keeps the original legacy order and follows
   const { context, calls } = fixture();
   const requests = [], navigations = [];
   Object.assign(context, {
-    paymentMethod: 'cashapp', catalystPayLoading: false, orderNumber: 'INV-LIGHTNING1', meritSession: null,
+    affiliateDiscountDisabled: false, paymentMethod: 'cashapp', catalystPayLoading: false, orderNumber: 'INV-LIGHTNING1', meritSession: null,
     deferredLegacyOrderRef: { current: { id: 'INV-LIGHTNING1', email:'buyer@example.test' } },
     setPaymentMethodState: value => { context.paymentMethod = value; },
     setOrderNumber: value => { context.orderNumber = value; },
@@ -145,7 +145,7 @@ test('Lightning to Card to Lightning keeps the original legacy order and follows
       const body = JSON.parse(options.body); requests.push({ url, body });
       if (url === '/api/order-checkout') return { ok: true, json: async () => ({ ok: true, id: body.order.id, locked: true, saved: false }) };
       assert.equal(url, '/api/create-catalystpay-session');
-      return { ok: true, json: async () => ({ checkoutLink: 'https://checkout.example.test/original-invoice', invoice_id: 'original-invoice' }) };
+      return { ok: true, json: async () => ({ checkoutLink: 'https://checkout.example.test/original-invoice', invoice_id: 'original-invoice', amount: context.finalTotal }) };
     },
   });
   context.window.location = { assign: url => navigations.push(url) };

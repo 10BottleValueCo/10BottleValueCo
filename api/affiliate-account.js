@@ -1,3 +1,4 @@
+import { affiliateCodeFilter } from "./_affiliate-quote.js";
 import { requireVerifiedCustomer } from "./_require-customer.js";
 
 const PAGE_SIZE = 100;
@@ -141,7 +142,7 @@ function normalizePublicCode(value) {
 async function getPublicAffiliateCode(code) {
   const params = new URLSearchParams({
     select: "code,active",
-    code: `eq.${code}`,
+    code: affiliateCodeFilter(code),
     limit: "2",
   });
   const rows = await supabaseGet(`affiliates?${params.toString()}`);
@@ -149,8 +150,9 @@ async function getPublicAffiliateCode(code) {
     throw new AffiliateAccountError(409, "Affiliate code needs support review.");
   }
   const affiliate = rows[0];
+  if (affiliate && String(affiliate.code || "").trim().toUpperCase() !== code) throw new AffiliateAccountError(503, "Affiliate code lookup is unavailable.");
   return affiliate
-    ? { code: String(affiliate.code || "").trim().toUpperCase(), active: affiliate.active !== false }
+    ? { code: String(affiliate.code || "").trim().toUpperCase(), active: affiliate.active === true }
     : null;
 }
 
@@ -158,7 +160,7 @@ async function getPayoutTotal(code) {
   const rows = await supabaseGet(
     `affiliate_payouts?${new URLSearchParams({
       select: "amount",
-      affiliate_code: `eq.${code}`,
+      affiliate_code: affiliateCodeFilter(code),
       order: "created_at.asc",
       limit: "10000",
     }).toString()}`,
@@ -179,21 +181,21 @@ async function getAffiliatePage(code, offset) {
     supabaseGet(
       `affiliate_orders?${pagedParams(
         "order_id,affiliate_code,commission_amount,shipping_type,created_at",
-        { affiliate_code: `eq.${code}` },
+        { affiliate_code: affiliateCodeFilter(code) },
         offset,
       )}`,
     ),
     supabaseGet(
       `orders?${pagedParams(
         orderSelect,
-        { affiliate_code: `eq.${code}` },
+        { affiliate_code: affiliateCodeFilter(code) },
         offset,
       )}`,
     ),
     supabaseGet(
       `orders?${pagedParams(
         orderSelect,
-        { "metadata->>affiliateCode": `eq.${code}` },
+        { "metadata->>affiliateCode": affiliateCodeFilter(code) },
         offset,
       )}`,
     ),
@@ -274,7 +276,7 @@ export default async function handler(req, res) {
       affiliate: {
         code,
         email: customer.email,
-        active: affiliate.active !== false,
+        active: affiliate.active === true,
         created_at: affiliate.created_at || null,
       },
       ...page,

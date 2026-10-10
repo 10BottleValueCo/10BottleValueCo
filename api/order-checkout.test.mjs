@@ -128,7 +128,7 @@ function checkoutOrder(overrides = {}) {
   };
 }
 
-test("authenticated order writes use a scoped HttpOnly capability and expose status only", async (t) => {
+test("authenticated order writes use a scoped HttpOnly capability and expose only the owner receipt and status", async (t) => {
   const supabase = createSupabaseMock();
   withTestEnvironment(t, supabase.fetchMock);
 
@@ -181,6 +181,7 @@ test("authenticated order writes use a scoped HttpOnly capability and expose sta
     ok: true,
     id: ORDER_ID,
     status: "checkout",
+    receipt: { total: 129.5, items: [{ name: "Example product", quantity: 1 }] },
   });
 });
 
@@ -272,7 +273,7 @@ test("GET needs actual owner; same-email foreign UUID and missing order are indi
   assert.deepEqual(responseBodies[0], responseBodies[1]);
   supabase.rows[0].user_id = null;
   const legacy = makeRes(); await handler(makeRequest({ method: "GET", url: `/api/order-checkout?orderId=${ORDER_ID}` }), legacy);
-  assert.equal(legacy.statusCode, 200); assert.deepEqual(Object.keys(legacy.body).sort(), ["id", "ok", "status"]);
+  assert.equal(legacy.statusCode, 200); assert.deepEqual(Object.keys(legacy.body).sort(), ["id", "ok", "receipt", "status"]);
 });
 
 test("an edit capability cannot override a different recorded UUID owner", async t => {
@@ -349,7 +350,7 @@ test("Lightning switch-back resumes its frozen checkout without writing or repla
   }
   const changedMetadata = [
     ...['subtotal', 'shipping', 'automaticDiscount', 'promoDiscount', 'affiliateDiscount', 'cryptoDiscount', 'storeCreditUsed'].map(field => ({ ...metadata, [field]: 2 })),
-    ...['shippingType', 'promoCode', 'affiliateCode', 'affiliateOwnerEmail', 'firstName', 'lastName', 'country', 'address', 'address2', 'city', 'state', 'postalCode', 'phone', 'taxId', 'orderNotes', 'paymentProvider'].map(field => ({ ...metadata, [field]: 'changed' })),
+    ...['shippingType', 'promoCode', 'affiliateCode', 'firstName', 'lastName', 'country', 'address', 'address2', 'city', 'state', 'postalCode', 'phone', 'taxId', 'orderNotes', 'paymentProvider'].map(field => ({ ...metadata, [field]: 'changed' })),
     ...[{ quantity: 2 }, { price: 1 }, { dose: '10 mg' }, { fromWarehouse: 'us' }, { vials: 5 }].map(change => ({ ...metadata, items: [{ ...metadata.items[0], ...change }] })),
   ];
   for (const change of [{ total: 1 }, ...changedMetadata.map(metadata => ({ metadata }))]) {
@@ -369,4 +370,13 @@ test("Lightning switch-back resumes its frozen checkout without writing or repla
   assert.equal((await resume()).statusCode, 409);
   assert.equal(sb.calls.filter(call => call.method === 'PATCH').length, 0);
   assert.equal(sb.calls.filter(call => call.method === 'POST').length, 1); // Initial draft only.
+});
+
+test('customer checkout cannot set wire_pending or inject server-owned invoice and commission fields', async t => {
+  const sb = createSupabaseMock(); withTestEnvironment(t, sb.fetchMock);
+  const wire = makeRes(); await handler(makeRequest({ body: { order: checkoutOrder({ status:'wire_pending' }) } }), wire);
+  assert.equal(wire.statusCode,400);assert.equal(sb.rows.length,0);
+  const injected = { catalystpay_invoice_id:'forged',legacyInvoiceAttempt:{state:'ready'},affiliateQuoteVersion:'server-referral-v1',affiliateAttributionCode:'FORGED',affiliateCommission:999,affiliateOwnerEmail:'forged@example.test',affiliateRuleVersion:'forged',discountRule:{rate:1} };
+  const saved=makeRes();await handler(makeRequest({body:{order:checkoutOrder({metadata:injected})}}),saved);assert.equal(saved.statusCode,200);
+  for(const key of Object.keys(injected))assert.equal(sb.rows[0].metadata[key],undefined,key);
 });

@@ -3949,6 +3949,8 @@ export default function App() {
   });
   const [ownerFreeShippingActive, setOwnerFreeShippingActive] = useState(false);
   const [affiliateDiscountDisabled, setAffiliateDiscountDisabled] = useState(false);
+  const [affiliateEligibility, setAffiliateEligibility] = useState(null);
+  const [affiliateEligibilityRefresh, setAffiliateEligibilityRefresh] = useState(0);
   const [affiliateManuallyApplied, setAffiliateManuallyApplied] = useState(false);
 
   // Persist applied promo across sessions and redeployments
@@ -4007,6 +4009,7 @@ export default function App() {
     affiliateSelectionVersionRef.current += 1;
     setAffiliateCodeRemoved(false);
     setActiveAffiliateCode(code);
+    setAffiliateEligibilityRefresh(value => value + 1);
     try {
       sessionStorage.removeItem("tbv-affiliate-removed");
       localStorage.setItem("tbv-active-affiliate", code);
@@ -9766,6 +9769,34 @@ export default function App() {
   }, [subtotal, checkoutForm.country]);
 
   const resolvedAffiliateCode = getResolvedAffiliateCode();
+  const affiliateEligibilityKey = `${normalizeEmail(currentUser?.email)}:${resolvedAffiliateCode}`;
+  useEffect(() => {
+    if (!resolvedAffiliateCode) { setAffiliateEligibility(null); return; }
+    if (!currentUser?.email) {
+      setAffiliateEligibility({ key: affiliateEligibilityKey, status: "signed_out", discountBps: 0 });
+      return;
+    }
+    let cancelled = false;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    setAffiliateEligibility({ key: affiliateEligibilityKey, status: "loading", discountBps: 0 });
+    (async () => {
+      try {
+        const headers = await legacyCheckoutHeaders(supabase, currentUser.email);
+        const response = await fetch("/api/affiliate-eligibility", {
+          method: "POST", headers, body: JSON.stringify({ code: resolvedAffiliateCode }), signal: controller.signal,
+        });
+        const result = await response.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!response.ok || result?.ok !== true || result.code !== resolvedAffiliateCode
+          || ![0, 500].includes(result.discountBps)) throw new Error("Referral eligibility unavailable");
+        setAffiliateEligibility({ key: affiliateEligibilityKey, status: "ready", discountBps: result.discountBps });
+      } catch {
+        if (!cancelled) setAffiliateEligibility({ key: affiliateEligibilityKey, status: "unavailable", discountBps: 0 });
+      } finally { clearTimeout(timer); }
+    })();
+    return () => { cancelled = true; controller.abort(); clearTimeout(timer); };
+  }, [affiliateEligibilityKey, affiliateEligibilityRefresh, currentUser?.id, page]);
   const activeAffiliateProfile =
     affiliateProfiles.find(
       (profile) => profile.code === resolvedAffiliateCode && profile.active !== false
@@ -9809,8 +9840,9 @@ export default function App() {
   const automaticDiscountRate =
     subtotal >= 4000 ? 0.2 : subtotal >= 2000 ? 0.15 : subtotal >= 1000 ? 0.1 : 0;
   const promoDiscountRate = appliedPromo?.rate || 0;
-  const promoDiscount = subtotal * promoDiscountRate;
-  const isFirstTimeAffiliateBuyer = currentUser ? userOrders.length === 0 : true;
+  const promoDiscount = Math.round(subtotal * promoDiscountRate * 100) / 100;
+  const isFirstTimeAffiliateBuyer = affiliateEligibility?.key === affiliateEligibilityKey
+    && affiliateEligibility.status === "ready" && affiliateEligibility.discountBps > 0;
   const affiliateDiscountRate = hasActiveAffiliateDiscount && isFirstTimeAffiliateBuyer ? 0.05 : 0;
   // Only one discount (automatic vs affiliate) applies at a time — no stacking.
   // Highest rate always wins.
@@ -9823,8 +9855,8 @@ export default function App() {
         ? automaticDiscountRate > affiliateDiscountRate
         : automaticDiscountRate >= affiliateDiscountRate));
   const affiliateWins = hasActiveAffiliateDiscount && !autoWins;
-  const automaticDiscount = autoWins ? subtotal * automaticDiscountRate : 0;
-  const affiliateDiscount = affiliateWins ? subtotal * affiliateDiscountRate : 0;
+  const automaticDiscount = autoWins ? Math.round(subtotal * automaticDiscountRate * 100) / 100 : 0;
+  const affiliateDiscount = affiliateWins ? Math.round(subtotal * affiliateDiscountRate * 100) / 100 : 0;
   const getShippingPrice = (subtotal, type) => {
     if (type === "express") {
       if (subtotal >= 550) return 0;
@@ -10161,6 +10193,8 @@ export default function App() {
     };
     const attempt = await legacyAttemptsRef.current.prepare(provider, selection, snapshot, owner);
     if (checkoutBuyerRef.current !== owner) throw new Error("Sign in again before continuing checkout.");
+    if (!attempt.url && affiliateTrackingCode && (affiliateEligibility?.key !== affiliateEligibilityKey || affiliateEligibility.status !== "ready"))
+      throw new Error(tx("Wait for referral verification, or remove the code before paying.", "Дождитесь проверки партнёрского кода или удалите его перед оплатой."));
     const original = deferredLegacyOrderRef.current;
     if (!original || original.email !== snapshot.email) throw new Error("Review your checkout details before continuing.");
     deferredLegacyOrderRef.current = { ...original, ...snapshot, id: attempt.orderId, status: "pending", paymentProvider: "pending" };
@@ -10229,6 +10263,8 @@ export default function App() {
         method: "POST",
         headers: await legacyCheckoutHeaders(supabase, email),
         body: JSON.stringify({
+          expectedTotal: Number(finalTotal.toFixed(2)),
+          affiliateDiscountDisabled,
           pay_currency: payCurrency,
           order_id: orderNumber,
           success_url: `${window.location.origin}/?provider=nowpayments&payment=pending&order=${encodeURIComponent(orderNumber)}`,
@@ -10277,6 +10313,7 @@ export default function App() {
         );
       }
 
+      if (data?.code === "CHECKOUT_QUOTE_CHANGED") setAffiliateEligibilityRefresh(value => value + 1);
       if (!res.ok) {
         throw new Error(
           data?.message ||
@@ -10291,6 +10328,7 @@ export default function App() {
       setPaymentTimer(59 * 60 + 45);
 
       if (data?.invoice_url) {
+        if (Math.round(Number(data.price_amount) * 100) !== Math.round(finalTotal * 100)) throw new Error("Payment total does not match this checkout. Contact support before continuing.");
         const cryptoLabel = selectedNetwork
           ? `${selectedCrypto} · ${selectedNetwork}`
           : selectedCrypto || "Crypto";
@@ -10368,6 +10406,8 @@ export default function App() {
         method: "POST",
         headers: await legacyCheckoutHeaders(supabase, email),
         body: JSON.stringify({
+          expectedTotal: Number(finalTotal.toFixed(2)),
+          affiliateDiscountDisabled,
           order_id: orderNumber,
           customer_email: email || "",
           promoCode: appliedPromo?.code || "",
@@ -10401,7 +10441,9 @@ export default function App() {
       });
 
       const data = await res.json().catch(() => ({}));
+      if (data?.code === "CHECKOUT_QUOTE_CHANGED") setAffiliateEligibilityRefresh(value => value + 1);
       if (!res.ok) throw new Error(data?.error || data?.message || "Failed to create CatalystPay invoice.");
+      if (Math.round(Number(data.amount) * 100) !== Math.round(finalTotal * 100)) throw new Error("Payment total does not match this checkout. Contact support before continuing.");
       if (!data?.checkoutLink) throw new Error("CatalystPay checkout link was not returned.");
 
       window.location.assign(legacyAttemptsRef.current.remember(attempt, data.checkoutLink));
@@ -10432,6 +10474,8 @@ export default function App() {
         method: "POST",
         headers: await legacyCheckoutHeaders(supabase, email),
         body: JSON.stringify({
+          expectedTotal: Number(finalTotal.toFixed(2)),
+          affiliateDiscountDisabled,
           amount: Number(finalTotal.toFixed(2)),
           currency: "USD",
           orderId: orderNumber,
@@ -10493,7 +10537,9 @@ export default function App() {
         }),
       });
       const data = await res.json();
+      if (data?.code === "CHECKOUT_QUOTE_CHANGED") setAffiliateEligibilityRefresh(value => value + 1);
       if (!res.ok) throw new Error(data?.message || data?.error || "Failed to create Paylio payment link.");
+      if (Math.round(Number(data.verifiedAmount) * 100) !== Math.round(finalTotal * 100)) throw new Error("Payment total does not match this checkout. Contact support before continuing.");
       const paymentUrl = data?.payment_url;
       if (!paymentUrl) throw new Error("Paylio payment link was not returned by the server.");
       try { localStorage.setItem(`tbv-pay-method-${orderNumber}`, "Card"); } catch {}
@@ -10655,66 +10701,6 @@ export default function App() {
     }
   }
 
-  async function handleWireConfirm() {
-    if (wireLoading || wireConfirmed) return;
-    setWireLoading(true);
-    setWireError("");
-    try {
-      const syncedCF = readCheckoutSnapshot();
-      const email = (syncedCF.email || currentUser?.email || "").trim().toLowerCase();
-      const now = new Date().toISOString();
-      const meta = {
-        id: orderNumber,
-        email,
-        status: "wire_pending",
-        paymentProvider: "Wire Transfer (SWIFT)",
-        wireConfirmedAt: now,
-        total: Number(finalTotal.toFixed(2)),
-        subtotal: Number(subtotal.toFixed(2)),
-        shipping: Number(shipping.toFixed(2)),
-        shippingType: effectiveShippingType,
-        automaticDiscount: Number(automaticDiscount.toFixed(2)),
-        promoDiscount: Number(promoDiscount.toFixed(2)),
-        promoCode: appliedPromo?.code || "",
-        affiliateDiscount: Number(affiliateDiscount.toFixed(2)),
-         cryptoDiscount: Number(cryptoDiscountAmount.toFixed(2)),
-        affiliateCode: affiliateTrackingCode,
-        affiliateOwnerEmail: affiliateTrackingOwnerEmail,
-        affiliateCommission: Number(affiliateCommission.toFixed(2)),
-        storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
-        firstName: syncedCF.firstName || "",
-        lastName: syncedCF.lastName || "",
-        country: syncedCF.country || "",
-        address: syncedCF.address || "",
-        address2: syncedCF.address2 || "",
-        city: syncedCF.city || "",
-        state: syncedCF.state || "",
-        postalCode: syncedCF.postalCode || "",
-        phone: syncedCF.phone || "",
-        taxId: syncedCF.taxId || "",
-        orderNotes: getCheckoutOrderNotes(syncedCF),
-        items: cart.map((item) => ({ name: item.name, dose: item.dose, quantity: item.quantity, price: item.price, ...(item.noteLabel ? { noteLabel: item.noteLabel } : {}), ...(item.fromWarehouse ? { fromWarehouse: item.fromWarehouse } : {}), ...(item.vials !== undefined && item.vials !== 10 ? { vials: item.vials } : {}) })),
-      };
-      await persistOrderToServer({
-        id: orderNumber,
-        email,
-        status: "wire_pending",
-        total: Number(finalTotal.toFixed(2)),
-        metadata: meta,
-      });
-      await fetch("/api/send-wire-confirmation", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderNumber, email, total: Number(finalTotal.toFixed(2)), firstName: syncedCF.firstName || "", lastName: syncedCF.lastName || "" }),
-      }).catch(() => {});
-      setWireConfirmed(true);
-    } catch (e) {
-      setWireError("Something went wrong. Please email us with your order number.");
-    } finally {
-      setWireLoading(false);
-    }
-  }
-
   async function onPaypalApprove(data) {
     setPaypalPaymentLoading(true);
     setPaypalPaymentError("");
@@ -10860,9 +10846,8 @@ export default function App() {
       );
       return;
     }
-    let matchedAffiliate = affiliateProfiles.find(
-      (profile) => profile.code === normalizedCode && profile.active !== false
-    );
+    // A cached admin/affiliate list is display data, never current eligibility.
+    let matchedAffiliate = null;
 
     let matchedUserPromo = !promo && !matchedAffiliate
       ? userPromos.find((p) => p.code === normalizedCode && p.used === false && p.active !== false
@@ -10986,21 +10971,11 @@ export default function App() {
       setPromoInput("");
       setPromoMessage(
         tx(
-          isFirstTimeAffiliateBuyer
-            ? `${matchedAffiliate.code} applied successfully. 5% off your first order applied.`
-            : `${matchedAffiliate.code} applied successfully. Referral code active.`,
-          isFirstTimeAffiliateBuyer
-            ? `${matchedAffiliate.code} успешно применён. Скидка 5% на первый заказ активна.`
-            : `${matchedAffiliate.code} успешно применён. Реферальный код активен.`,
-          isFirstTimeAffiliateBuyer
-            ? `${matchedAffiliate.code} успішно застосовано. Знижка 5% на перше замовлення активна.`
-            : `${matchedAffiliate.code} успішно застосовано. Реферальний код активний.`,
-          isFirstTimeAffiliateBuyer
-            ? `${matchedAffiliate.code} erfolgreich angewendet. 5% Rabatt auf Ihre erste Bestellung.`
-            : `${matchedAffiliate.code} erfolgreich angewendet. Empfehlungscode aktiv.`,
-          isFirstTimeAffiliateBuyer
-            ? `${matchedAffiliate.code} aplicado. 5% de descuento en tu primer pedido.`
-            : `${matchedAffiliate.code} aplicado. Código de referido activo.`
+          `${matchedAffiliate.code} saved.`,
+          `${matchedAffiliate.code} сохранён.`,
+          `${matchedAffiliate.code} збережено.`,
+          `${matchedAffiliate.code} gespeichert.`,
+          `${matchedAffiliate.code} guardado.`
         )
       );
       return;
@@ -20350,6 +20325,19 @@ export default function App() {
                       {promoMessage && (
                         <div role="status" className="w-full text-xs text-white/80">
                           {promoMessage}
+                        </div>
+                      )}
+                      {resolvedAffiliateCode && !appliedPromo && !affiliateDiscountDisabled && (
+                        <div role="status" className="w-full text-xs leading-5 text-white/80">
+                          {!currentUser?.email
+                            ? tx("Sign in to confirm your first-order discount.", "Войдите, чтобы подтвердить скидку на первый заказ.", "Увійдіть, щоб підтвердити знижку на перше замовлення.", "Melden Sie sich an, um Ihren Erstbestellungsrabatt zu bestätigen.", "Inicia sesión para confirmar tu descuento del primer pedido.")
+                            : affiliateEligibility?.key !== affiliateEligibilityKey || affiliateEligibility.status === "loading"
+                              ? tx("Checking your referral discount…", "Проверяем партнёрскую скидку…", "Перевіряємо партнерську знижку…", "Empfehlungsrabatt wird geprüft…", "Comprobando tu descuento…")
+                              : affiliateEligibility.status === "unavailable"
+                                ? <>{tx("We could not confirm this referral. Retry or remove the code before paying.", "Не удалось подтвердить партнёрский код. Повторите проверку или уберите код перед оплатой.", "Не вдалося підтвердити партнерський код. Повторіть перевірку або приберіть код перед оплатою.", "Der Empfehlungscode konnte nicht bestätigt werden. Erneut prüfen oder vor der Zahlung entfernen.", "No pudimos confirmar el código. Reintenta o quítalo antes de pagar.")} <button type="button" className="underline" onClick={() => setAffiliateEligibilityRefresh(value => value + 1)}>{tx("Retry", "Повторить", "Повторити", "Erneut versuchen", "Reintentar")}</button></>
+                                : isFirstTimeAffiliateBuyer
+                                  ? tx("Your 5% first-order discount is confirmed. The largest eligible discount applies.", "Скидка 5% на первый заказ подтверждена. Применяется наибольшая доступная скидка.", "Знижку 5% на перше замовлення підтверджено. Застосовується найбільша доступна знижка.", "Ihr Erstbestellungsrabatt von 5% ist bestätigt. Es gilt der höchste verfügbare Rabatt.", "Tu descuento del 5% está confirmado. Se aplica el mayor descuento disponible.")
+                                  : tx("Referral code active. The 5% discount applies to your first paid order only.", "Партнёрский код активен. Скидка 5% действует только на первый оплаченный заказ.", "Партнерський код активний. Знижка 5% діє лише на перше оплачене замовлення.", "Empfehlungscode aktiv. Der Rabatt von 5% gilt nur für Ihre erste bezahlte Bestellung.", "Código activo. El descuento del 5% solo se aplica al primer pedido pagado.")}
                         </div>
                       )}
                     </div>

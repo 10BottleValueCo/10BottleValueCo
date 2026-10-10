@@ -88,7 +88,7 @@ function fixture(t, { providerPatch = {}, creationPatch = {}, creationStatus = 2
   });
   return { calls };
 }
-const start = () => ({ method: 'POST', body: { order_id: id, customer_email: 'buyer@example.test', email: 'buyer@example.test', items: [{}], storeCreditUsed: 0 } });
+const start = () => ({ method: 'POST', body: { expectedTotal: 110, order_id: id, customer_email: 'buyer@example.test', email: 'buyer@example.test', items: [{}], storeCreditUsed: 0 } });
 const settledHint = (patch = {}) => ({ method: 'POST', headers: {}, body: JSON.stringify({ type: 'InvoiceSettled', invoiceId, ...patch }) });
 
 test('unsigned callback without event metadata resolves saved invoice, verifies provider, then acknowledges paid once', async t => {
@@ -141,7 +141,7 @@ test('unavailable invoice-read readiness prevents payment creation', async t => 
 test('failed, empty or altered binding acknowledgements never expose a new checkout URL', async t => {
   for (const ackMode of ['http', 'empty', 'changed']) {
     fixture(t, { saved: false, ackMode }); const response = res(); await create(start(), response);
-    assert.equal(response.statusCode, 503); assert.equal(response.body.code, 'PAYMENT_BINDING_UNACKNOWLEDGED');
+    assert.equal(response.statusCode, 409); assert.equal(response.body.code, 'PAYMENT_RECONCILIATION_REQUIRED');
     assert.equal(response.body.checkoutLink, undefined);
   }
 });
@@ -156,12 +156,12 @@ test('wrong or incomplete provider creation responses never become a stored invo
     const f = fixture(t, { saved: false, creationPatch }), response = res(); await create(start(), response);
     assert.equal(response.statusCode, 503, JSON.stringify(creationPatch));
     assert.equal(response.body.checkoutLink, undefined);
-    assert.equal(f.calls.some(call => call.method === 'PATCH'), false);
+    assert.equal(f.calls.some(call => call.body?.metadata?.catalystpay_invoice_id), false);
   }
   const f = fixture(t, { saved: false, creationStatus: 500, creationPatch: { error: 'private-provider-detail', ipn_token: 'private-token' } }), response = res();
   await create(start(), response); assert.equal(response.statusCode, 503);
   assert.doesNotMatch(JSON.stringify(response.body), /private-provider-detail|private-token|checkoutLink/);
-  assert.equal(f.calls.some(call => call.method === 'PATCH'), false);
+  assert.equal(f.calls.some(call => call.body?.metadata?.catalystpay_invoice_id), false);
 });
 
 test('a saved unpaid invoice resumes without creating another invoice; changed amount or settled status cannot restart payment', async t => {
@@ -174,7 +174,7 @@ test('a saved unpaid invoice resumes without creating another invoice; changed a
 });
 
 test('resume cannot silently change recipient, destination, notes or referral context for an existing invoice', async t => {
-  for (const field of ['firstName', 'lastName', 'country', 'address', 'address2', 'city', 'state', 'postalCode', 'phone', 'taxId', 'orderNotes', 'affiliateCode', 'affiliateOwnerEmail']) {
+  for (const field of ['firstName', 'lastName', 'country', 'address', 'address2', 'city', 'state', 'postalCode', 'phone', 'taxId', 'orderNotes', 'affiliateCode']) {
     const f = fixture(t, { providerPatch: { status: 'New' } }), response = res(), request = start();
     request.body[field] = 'changed';
     await create(request, response); assert.equal(response.statusCode, 409, field); assert.equal(response.body.code, 'PAYMENT_BINDING_CONFLICT');

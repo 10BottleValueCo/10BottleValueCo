@@ -100,7 +100,7 @@ test("public affiliate lookup returns only the requested code and active status"
     ok: true,
     affiliate: { code: "AFF-ONE", active: true },
   });
-  assert.equal(requestedUrl.searchParams.get("code"), "eq.AFF-ONE");
+  assert.equal(requestedUrl.searchParams.get("code"), "ilike.AFF-ONE");
   assert.equal(requestedUrl.searchParams.get("select"), "code,active");
   assert.equal(res.headers["Cache-Control"], "no-store");
 });
@@ -129,7 +129,7 @@ test("affiliate history is scoped to the verified owner and removes private orde
       ]);
     }
     if (url.pathname.endsWith("/rest/v1/affiliate_orders")) {
-      assert.equal(url.searchParams.get("affiliate_code"), "eq.AFF-ONE");
+      assert.equal(url.searchParams.get("affiliate_code"), "ilike.AFF-ONE");
       return makeResponse([
         {
           order_id: "ORDER-1",
@@ -172,12 +172,12 @@ test("affiliate history is scoped to the verified owner and removes private orde
       if (url.searchParams.has("affiliate_code")) return makeResponse([row]);
       assert.equal(
         url.searchParams.get("metadata->>affiliateCode"),
-        "eq.AFF-ONE",
+        "ilike.AFF-ONE",
       );
       return makeResponse([]);
     }
     if (url.pathname.endsWith("/rest/v1/affiliate_payouts")) {
-      assert.equal(url.searchParams.get("affiliate_code"), "eq.AFF-ONE");
+      assert.equal(url.searchParams.get("affiliate_code"), "ilike.AFF-ONE");
       return makeResponse([{ amount: 8.25 }]);
     }
     throw new Error(`Unexpected Supabase request: ${url} ${options.method || "GET"}`);

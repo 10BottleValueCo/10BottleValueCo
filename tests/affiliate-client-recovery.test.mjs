@@ -52,7 +52,7 @@ function promoFixture(){
  const calls=[];const context={promoInput:'PARTNER',promoApplyRequestRef:{current:0},promoCatalog:{},appliedPromo:null,affiliateProfiles:[],userPromos:[],usedPromoCodes:[],subtotal:100,currentUser:null,
  affiliateSelectionVersionRef:{current:0},sessionStorage:{setItem:()=>{},removeItem:()=>{}},lookupPublicPromoCode:async()=>null,lookupPublicAffiliateCode:async()=>({code:'PARTNER',active:true}),tx:x=>x,isFirstTimeAffiliateBuyer:true,localStorage:{setItem:()=>{},removeItem:()=>{}},
  };
- for(const name of ['setPromoMessage','setAppliedPromo','setAffiliateDiscountDisabled','setAffiliateManuallyApplied','setActiveAffiliateCode','setPromoInput','setAffiliateCodeRemoved'])context[name]=value=>calls.push([name,value]);
+ for(const name of ['setAffiliateEligibilityRefresh','setPromoMessage','setAppliedPromo','setAffiliateDiscountDisabled','setAffiliateManuallyApplied','setActiveAffiliateCode','setPromoInput','setAffiliateCodeRemoved'])context[name]=value=>calls.push([name,value]);
  context.selectAffiliateCode=handler('selectAffiliateCode',context);
  context.clearSelectedAffiliateCode=handler('clearSelectedAffiliateCode',context);
  return {calls,context};
@@ -77,7 +77,7 @@ test('removing a referral changes the actual checkout code and survives signup/u
   const context = { activeAffiliateCode:'PARTNER', affiliateCodeRemoved:false, affiliateSelectionVersionRef:{current:0},
     currentUser:{affiliateCode:'SIGNUP'},window:{location:{search:'?ref=URLCODE'}},
     setAffiliateCodeRemoved:v=>{context.affiliateCodeRemoved=v;},setActiveAffiliateCode:v=>{context.activeAffiliateCode=v;},
-    setAffiliateDiscountDisabled:()=>{},setAffiliateManuallyApplied:()=>{},
+    setAffiliateEligibilityRefresh:()=>{},setAffiliateDiscountDisabled:()=>{},setAffiliateManuallyApplied:()=>{},
     localStorage:{removeItem:k=>local.delete(k),setItem:(k,v)=>local.set(k,v)},
     sessionStorage:{removeItem:k=>session.delete(k),setItem:(k,v)=>session.set(k,v)},
   };

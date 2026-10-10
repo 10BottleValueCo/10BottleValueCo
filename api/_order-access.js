@@ -61,6 +61,8 @@ export async function requireLegacyOrderAccess(req, res, { orderId, payable = tr
       || String(order.payment_provider || order.metadata?.paymentProvider || "").toLowerCase() === "merit"))
       return reject(res, 409, "CHECKOUT_ORDER_CHANGED", "This order has changed. Refresh checkout before continuing.");
     if (payable) {
+      if (order.metadata?.legacyInvoiceAttempt && order.metadata.legacyInvoiceAttempt.provider !== provider)
+        return reject(res, 409, "PAYMENT_ALREADY_RESERVED", "A payment has already started for this order. Return to that payment or contact support.");
       // A privately reserved Paylio attempt must not be paid a second time via
       // another provider. Its immutable binding is checked independently of
       // editable public metadata. Missing private schema fails closed.

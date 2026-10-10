@@ -21,10 +21,10 @@ function lines(items) {
 
 // Permit only a no-write return to the original Lightning quote. The provider
 // endpoint still checks current catalog pricing and the exact live invoice.
-export function catalystResumeMatchesOrder(existing, order) {
+export function catalystResumeMatchesOrder(existing, order, options = {}) {
   const saved = existing?.metadata, incoming = order?.metadata;
-  if (!record(saved) || !record(incoming) || !/^[A-Za-z0-9_-]{1,160}$/.test(saved.catalystpay_invoice_id || "")
-    || incoming.paymentProvider !== "CatalystPay BTC"
+  if (!record(saved) || !record(incoming) || !/^[A-Za-z0-9_-]{1,160}$/.test(options.invoiceId || saved.catalystpay_invoice_id || "")
+    || incoming.paymentProvider !== (options.paymentProvider || "CatalystPay BTC")
     || cents(existing.total) === null || cents(existing.total) <= 0
     || cents(existing.total) !== cents(saved.total) || cents(order.total) !== cents(existing.total)) return false;
   for (const field of ["subtotal", "shipping", "automaticDiscount", "promoDiscount", "affiliateDiscount", "cryptoDiscount", "storeCreditUsed"]) {
@@ -33,9 +33,16 @@ export function catalystResumeMatchesOrder(existing, order) {
   }
   if (cents(incoming.storeCreditUsed ?? 0) !== 0) return false;
   if (String(incoming.shippingType || "standard") !== String(saved.shippingType || "standard")) return false;
-  for (const field of ["promoCode", "affiliateCode", "affiliateOwnerEmail", "firstName", "lastName", "country", "address", "address2", "city", "state", "postalCode", "phone", "taxId", "orderNotes"]) {
+  for (const field of ["promoCode", "affiliateCode", "firstName", "lastName", "country", "address", "address2", "city", "state", "postalCode", "phone", "taxId", "orderNotes"]) {
     if (String(incoming[field] || "") !== String(saved[field] || "")) return false;
   }
   const left = lines(incoming.items), right = lines(saved.items);
   return left !== null && right !== null && isDeepStrictEqual(left, right);
+}
+
+export function nowpaymentsResumeMatchesOrder(existing, order) {
+  const attempt = existing?.metadata?.legacyInvoiceAttempt;
+  return attempt?.provider === "nowpayments" && attempt.state === "ready"
+    && typeof existing.metadata.paymentProvider === "string" && !!existing.metadata.paymentProvider
+    && catalystResumeMatchesOrder(existing, order, { invoiceId: attempt.invoiceId, paymentProvider: existing.metadata.paymentProvider });
 }

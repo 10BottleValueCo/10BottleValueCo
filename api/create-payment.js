@@ -1,3 +1,5 @@
+import { reserveLegacyInvoice, bindLegacyInvoice, legacyInvoicePending } from "./_legacy-invoice-lock.js";
+import { legacyCheckoutQuote, assertExpectedTotal } from "./_legacy-checkout-quote.js";
 import { requireLegacyOrderAccess } from "./_order-access.js";
 import { legacyCreditStartError, legacyExistingCreditOrderError } from "./_legacy-store-credit.js";
 import { validateAndPriceItems, getShippingPrice, getAutomaticDiscountRate } from "./_catalog.js";
@@ -19,7 +21,7 @@ export default async function handler(req, res) {
     const { status, ...body } = creditError;
     return res.status(status).json(body);
   }
-  const access = await requireLegacyOrderAccess(req, res, { orderId: req.body?.order_id });
+  const access = await requireLegacyOrderAccess(req, res, { orderId: req.body?.order_id, provider: "nowpayments" });
   if (!access) return;
   const existingCreditError = await legacyExistingCreditOrderError(req.body);
   if (existingCreditError) {
@@ -42,7 +44,6 @@ export default async function handler(req, res) {
       affiliateDiscount: clientAffiliateDiscount = 0,
       storeCreditUsed = 0,
       affiliateCode = "",
-      affiliateOwnerEmail = "",
       shippingType = "standard",
       firstName = "",
       lastName = "",
@@ -61,90 +62,14 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Missing order_id" });
     }
 
-    // ---- SERVER-SIDE PRICE & STOCK VALIDATION ----
-    // Same rule as create-stripe-session.js: never trust a client-submitted
-    // price_amount/subtotal/discounts. Recompute everything from the catalog.
-    let pricedItems, subtotal, regularSubtotal;
-    try {
-      ({ pricedItems, subtotal, regularSubtotal } = validateAndPriceItems(items));
-    } catch (validationErr) {
-      return res.status(400).json({ error: validationErr.message });
-    }
-
-    const automaticDiscountRate = getAutomaticDiscountRate(subtotal);
-    const automaticDiscount = Math.round(subtotal * automaticDiscountRate * 100) / 100;
-
-    const MAX_AFFILIATE_RATE = 0.05;
-
-    // Never trust the client-submitted promo discount amount or an arbitrary rate cap.
-    // Look up the real promo code (static catalog or admin-issued Supabase user_promos,
-    // which can legitimately be up to 100%) and apply its verified rate.
-    let promoDiscount = 0;
-    let verifiedPromoFreeShipping = false;
-    let discountRule = null;
-    if (String(promoCode || "").trim()) {
-      const verifiedPromo = await verifyPromoCode({
-        code: promoCode,
-        email: customer_email,
-        sbUrl: SB_URL,
-        sbKey: SB_KEY,
-        subtotalCents: Math.round(subtotal * 100),
-      });
-      if (!verifiedPromo) return res.status(400).json({ code: "PROMO_UNAVAILABLE", error: "This promo code is unavailable for this checkout. Review or remove it before paying." });
-      if (verifiedPromo) {
-        discountRule = verifiedPromo.rule;
-        promoDiscount = Math.round(subtotal * verifiedPromo.rate * 100) / 100;
-        verifiedPromoFreeShipping = !!verifiedPromo.freeShipping;
-      }
-    }
-
-    // Affiliate discount is first-order-only — verify server-side
-    let isFirstTimeBuyer = true;
-    if (SB_URL && SB_KEY && customer_email) {
-      try {
-        const checkResp = await fetch(
-          `${SB_URL}/rest/v1/orders?email=eq.${encodeURIComponent(String(customer_email).toLowerCase().trim())}&status=in.(paid,done)&select=id&limit=1`,
-          { headers: sbH() }
-        );
-        if (checkResp.ok) {
-          const rows = await checkResp.json();
-          isFirstTimeBuyer = !Array.isArray(rows) || rows.length === 0;
-        }
-      } catch {}
-    }
-
-    let affiliateDiscount = 0;
-    if (!promoDiscount && isFirstTimeBuyer && String(affiliateCode || "").trim() && Number(clientAffiliateDiscount) > 0) {
-      const impliedRate = Number(clientAffiliateDiscount) / (subtotal || 1);
-      affiliateDiscount = impliedRate <= MAX_AFFILIATE_RATE
-        ? Math.min(Number(clientAffiliateDiscount), subtotal)
-        : Math.round(subtotal * MAX_AFFILIATE_RATE * 100) / 100;
-    }
-
-    const finalAutomaticDiscount = promoDiscount > 0 || affiliateDiscount > 0 ? 0 : automaticDiscount;
-    const finalAffiliateDiscount = promoDiscount > 0 ? 0 : affiliateDiscount;
-
-    const shipping =
-      pricedItems.length === 0
-        ? 0
-        : verifiedPromoFreeShipping || regularSubtotal === 0
-        ? 0
-        : getShippingPrice(regularSubtotal, shippingType === "express" ? "express" : "standard");
-
-    // storeCreditUsed is capped server-side to the recomputed pre-credit total so
-    // it can't be inflated to zero out or exceed the real order value.
-    const preCreditTotal = Math.max(
-      0,
-      subtotal - finalAutomaticDiscount - promoDiscount - finalAffiliateDiscount + shipping
-    );
-
-    // 2.5% discount for crypto payments
-    const cryptoDiscount = Math.round(preCreditTotal * 0.025 * 100) / 100;
-    const totalAfterCryptoDiscount = preCreditTotal - cryptoDiscount;
-
-    const safeStoreCreditUsed = Math.min(Math.max(Number(storeCreditUsed) || 0, 0), totalAfterCryptoDiscount);
-
-    const price_amount = Math.round((totalAfterCryptoDiscount - safeStoreCreditUsed) * 100) / 100;
+    const quote = await legacyCheckoutQuote(req.body, customer_email, { crypto: true });
+    const { pricedItems, subtotal, regularSubtotal, promoDiscount, discountRule, finalAutomaticDiscount,
+      finalAffiliateDiscount, shipping, affiliateOwnerEmail, affiliateAttributionCode, affiliateCommission,
+      affiliateRuleVersion } = quote;
+    const cryptoDiscount = quote.cryptoDiscount;
+    const safeStoreCreditUsed = 0;
+    const price_amount = quote.total;
+    assertExpectedTotal(req.body.expectedTotal, price_amount);
 
     if (!price_amount || price_amount <= 0) {
       return res.status(400).json({ error: "Order total must be greater than zero." });
@@ -163,6 +88,7 @@ export default async function handler(req, res) {
     // Save and acknowledge the server quote before creating a payable invoice.
     // The callback compares the provider amount with this canonical total.
     // This is a conditional snapshot save, not an immutable payment ledger.
+    let reservedOrder;
     try {
       const storageUrl = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
       const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -195,7 +121,7 @@ export default async function handler(req, res) {
         cryptoDiscount: Number(cryptoDiscount),
         storeCreditUsed: 0,
         affiliateCode: String(affiliateCode || "").trim().toUpperCase(),
-        affiliateOwnerEmail: String(affiliateOwnerEmail || ""),
+        affiliateOwnerEmail, affiliateAttributionCode, affiliateCommission, affiliateRuleVersion, affiliateQuoteVersion: "server-referral-v1",
         shippingType: String(shippingType),
         items: pricedItems,
         firstName: String(firstName || existingMeta.firstName || ""),
@@ -209,26 +135,24 @@ export default async function handler(req, res) {
         phone: String(phone || existingMeta.phone || ""),
         taxId: String(taxId || existingMeta.taxId || ""),
       };
-      const query = new URLSearchParams({ id: `eq.${current.id}`, email: `eq.${current.email}`, status: `eq.${current.status}` });
-      for (const field of ["user_id", "total", "payment_id", "payment_provider"]) query.set(field, current[field] == null ? "is.null" : `eq.${current[field]}`);
-      const response = await fetch(`${storageUrl}/rest/v1/orders?${query}`, {
-        method: "PATCH", headers: { ...headers, Prefer: "return=representation" },
-        body: JSON.stringify({ status: "checkout (clicked pay)", total: price_amount, items: pricedItems, metadata }),
-        signal: AbortSignal.timeout(10000), redirect: "error",
-      });
-      if (!response.ok) throw new Error("Quote save unavailable");
-      const savedRows = await response.json();
-      const saved = Array.isArray(savedRows) && savedRows.length === 1 ? savedRows[0] : null;
-      if (!saved || saved.id !== current.id || saved.email !== current.email || saved.user_id !== current.user_id
-        || saved.status !== "checkout (clicked pay)" || Number(saved.total) !== price_amount
-        || saved.payment_id !== current.payment_id || saved.payment_provider !== current.payment_provider
-        || !isDeepStrictEqual(saved.items, pricedItems) || !isDeepStrictEqual(saved.metadata, metadata)) throw new Error("Quote save not acknowledged");
-    } catch {
+      const existingAttempt = current.metadata?.legacyInvoiceAttempt;
+      if (existingAttempt) {
+        if (existingAttempt.provider !== "nowpayments" || existingAttempt.state !== "ready"
+          || Number(current.total) !== price_amount || !isDeepStrictEqual(current.metadata.items, pricedItems)
+          || current.metadata.nowpaymentsCurrency !== pay_currency
+          || ["promoCode", "affiliateCode", "shippingType", "firstName", "lastName", "country", "address", "address2", "city", "state", "postalCode", "phone", "taxId", "orderNotes"]
+            .some(key => String(req.body[key] || "") !== String(current.metadata[key] || ""))) throw legacyInvoicePending();
+        return res.status(200).json({ id: existingAttempt.invoiceId, invoice_url: existingAttempt.checkoutUrl, price_amount });
+      }
+      reservedOrder = await reserveLegacyInvoice(current, "nowpayments", price_amount,
+        { ...metadata, nowpaymentsCurrency: pay_currency, orderNotes: String(req.body.orderNotes || existingMeta.orderNotes || "") }, pricedItems);
+    } catch (error) {
+      if (error?.code === "PAYMENT_RECONCILIATION_REQUIRED") return res.status(409).json({ code: error.code, error: error.message });
       return res.status(503).json({ code: "PAYMENT_QUOTE_UNACKNOWLEDGED", error: "The checkout quote could not be saved. Please try again before paying." });
     }
 
     const nowRes = await fetch("https://api.nowpayments.io/v1/invoice", {
-      method: "POST",
+      method: "POST", redirect: "error", signal: AbortSignal.timeout(8000),
       headers: { "x-api-key": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
         price_amount: Number(price_amount).toFixed(2),
@@ -246,20 +170,20 @@ export default async function handler(req, res) {
     });
 
     const rawText = await nowRes.text();
-    let data = {};
-    try {
-      data = rawText ? JSON.parse(rawText) : {};
-    } catch {
-      return res.status(502).json({ error: "NOWPayments returned non-JSON", raw: rawText.slice(0, 300) });
-    }
+    if (!nowRes.ok || Buffer.byteLength(rawText) > 100000) throw legacyInvoicePending();
+    let data; try { data = JSON.parse(rawText); } catch { throw legacyInvoicePending(); }
+    let checkoutUrl; try { checkoutUrl = new URL(data.invoice_url); } catch { throw legacyInvoicePending(); }
+    if (!/^[A-Za-z0-9_-]{1,160}$/.test(String(data.id || "")) || checkoutUrl.protocol !== "https:"
+      || checkoutUrl.hostname !== "nowpayments.io" || checkoutUrl.username || checkoutUrl.password
+      || (data.price_amount != null && Math.round(Number(data.price_amount) * 100) !== Math.round(price_amount * 100))) throw legacyInvoicePending();
+    await bindLegacyInvoice(reservedOrder, "nowpayments", String(data.id), checkoutUrl.href);
+    return res.status(200).json({ id: data.id, invoice_url: checkoutUrl.href, price_amount });
 
-    if (!nowRes.ok) {
-      return res.status(nowRes.status).json({ error: data.message || "NOWPayments error", ...data });
-    }
-
-    return res.status(200).json(data);
   } catch (err) {
-    if (err?.code === "PROMO_LOOKUP_UNAVAILABLE") return res.status(503).json({ code: err.code, error: err.message });
+    if (err?.code === "PAYMENT_RECONCILIATION_REQUIRED") return res.status(409).json({ code: err.code, error: err.message });
+    if (err?.code === "PROMO_LOOKUP_UNAVAILABLE" || err?.code?.startsWith("MERIT_AFFILIATE_")
+      || ["PROMO_UNAVAILABLE", "CHECKOUT_QUOTE_CHANGED", "CHECKOUT_REFRESH_REQUIRED"].includes(err?.code))
+      return res.status(err.status || 503).json({ code: err.code, error: err.message, ...(Number.isFinite(err.total) ? { total: err.total } : {}) });
     console.error("create-payment error:", err.message);
     return res.status(500).json({ error: err.message || "Payment creation failed" });
   }
