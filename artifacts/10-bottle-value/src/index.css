@@ -96,8 +96,8 @@ body {
 }
 
 .admin-order-panel-outline {
-  border: 3px solid #fff !important;
-  box-shadow: 0 0 0 2px rgba(12, 14, 17, 0.98) !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+  box-shadow: none !important;
 }
 
 button,
