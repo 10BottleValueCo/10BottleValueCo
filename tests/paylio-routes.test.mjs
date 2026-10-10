@@ -10,7 +10,7 @@ const orderId='INV-PAYLIO123',customerId='11111111-1111-4111-8111-111111111111',
 const row={id:orderId,user_id:customerId,email,status:'checkout',total:110,metadata:{firstName:'Buyer',address:'Fixture address',storeCreditUsed:0},payment_provider:null};
 const res=()=>({statusCode:200,setHeader(){},status(code){this.statusCode=code;return this},json(body){this.body=body;return this}});
 const json=(body,status=200)=>new Response(JSON.stringify(body),{status});
-function fixture(t,{bindingFails=false,providerFails=false,providerUrlSuffix='',pending=false,terminal=false,effectsFailOnce=false,emptyEffectsAck=false,existingAffiliate='',affiliateResponse,affiliateLookupFails=false,priorPurchases=[],historyFails=false,promoRows=[]}={}){
+function fixture(t,{bindingFails=false,providerFails=false,providerFailureBody,providerUrlSuffix='',pending=false,terminal=false,effectsFailOnce=false,emptyEffectsAck=false,existingAffiliate='',affiliateResponse,affiliateLookupFails=false,priorPurchases=[],historyFails=false,promoRows=[]}={}){
  const calls=[];let attempt,effectsCalls=0;
  t.mock.method(globalThis,'fetch',async(input,options={})=>{
   const url=new URL(input),body=options.body?JSON.parse(options.body):null;
@@ -37,6 +37,7 @@ function fixture(t,{bindingFails=false,providerFails=false,providerUrlSuffix='',
    assert.equal(body.currency,'USD');assert.equal(body.passFeeToCustomer,false);
    assert.equal(body.callback,`https://10bottlevalue.co/api/paylio-callback?attempt=${attempt.id}`);
    assert.ok(!body.callback.includes(email));
+   if(providerFailureBody!==undefined)return new Response(providerFailureBody,{status:502});
    return providerFails?json({secret:'never-expose'},500):json({payment_id:'provider_fixture',ipn_token:'provider-secret-token',checkout_url:'https://paylio.org/pay/provider_fixture'+providerUrlSuffix,amount:body.amount,status:'unpaid'});
   }
   if(url.pathname==='/rest/v1/rpc/bind_paylio_checkout'){
@@ -176,6 +177,16 @@ test('uncertain provider or failed binding leaks no provider response or URL and
   const f=fixture(t,options),first=res();await create(request(),first);assert.equal(first.statusCode,503);assert.doesNotMatch(JSON.stringify(first.body),/paylio\.org\/pay|provider-secret-token|never-expose/);
   const second=res();await create(request(),second);assert.equal(second.statusCode,409);assert.equal(f.calls.filter(c=>c.url.pathname==='/api/v1/wallet').length,1);
  }
+});
+test('provider 502 diagnostics retain useful categories without customer data, tokens or an automatic retry',async t=>{
+ const output=[];t.mock.method(console,'error',(...args)=>output.push(args));
+ const privateBody=JSON.stringify({error:'Upstream RPC timed out for buyer@example.test',code:'plio_live_secret_value',ipn_token:'never-expose-token',checkout_url:'https://paylio.org/pay/private-checkout'});
+ const f=fixture(t,{providerFailureBody:privateBody}),first=res();await create(request(),first);
+ assert.equal(first.statusCode,503);assert.equal(output[0][1].providerStatus,502);
+ assert.deepEqual(output[0][1].providerDiagnostic,{bodyFormat:'json',bodyBytes:Buffer.byteLength(privateBody),errorCategory:'upstream_timeout'});
+ assert.doesNotMatch(JSON.stringify([first.body,output]),/buyer@|plio_live_secret|never-expose|private-checkout|timed out for/);
+ const second=res();await create(request(),second);assert.equal(second.statusCode,409);
+ assert.equal(f.calls.filter(c=>c.url.pathname==='/api/v1/wallet').length,1);
 });
 test('callback ignores forged public claims and performs server verification before one paid transition and one receipt',async t=>{
  const f=fixture(t);await create(request(),res());const id=f.attempt().id;

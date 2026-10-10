@@ -8,6 +8,7 @@ import {
 } from "./_catalog.js";
 import { verifyPromoCode } from "./_promo.js";
 import { AffiliateQuoteError, verifyAffiliateQuote } from "./_affiliate-quote.js";
+import { summarizePaylioResponse } from "./_paylio-diagnostics.js";
 
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
@@ -32,6 +33,7 @@ export default async function handler(req, res) {
   req.body = { ...req.body, email: access.identity.email, customer_email: access.identity.email };
   let phase = "quote";
   let providerStatus = null;
+  let providerDiagnostic;
   try {
     const {
       currency = "USD",
@@ -207,6 +209,7 @@ export default async function handler(req, res) {
     });
     providerStatus = response.status;
     const raw = await response.text();
+    providerDiagnostic = summarizePaylioResponse(raw);
     if (!response.ok || Buffer.byteLength(raw) > 50000) throw new PaylioError("PAYLIO_CREATION_UNAVAILABLE");
     let data; try { data = JSON.parse(raw); } catch { throw new PaylioError("PAYLIO_CREATION_UNAVAILABLE"); }
     // The binding is durably acknowledged before the customer receives a URL.
@@ -216,7 +219,7 @@ export default async function handler(req, res) {
   } catch (error) {
     // Diagnose the boundary without logging tokens, URLs, customer details,
     // order numbers, provider bodies or amounts. Never retry uncertain creation.
-    console.error("Paylio setup failed", { phase, providerStatus,
+    console.error("Paylio setup failed", { phase, providerStatus, providerDiagnostic,
       failureKind: ["TimeoutError", "AbortError", "TypeError"].includes(error?.name) ? error.name : "validation_or_storage",
       reason: ["payment_id", "callback_token", "status", "amount", "currency", "fee_mode", "original_amount"].includes(error?.reason) ? error.reason : undefined,
       code: error instanceof PaylioError ? error.code : error?.code === "PROMO_LOOKUP_UNAVAILABLE" ? error.code : "PAYLIO_CREATION_UNAVAILABLE" });
