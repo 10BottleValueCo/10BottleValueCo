@@ -103,7 +103,7 @@ test("US inventory prices, free all-US shipping and mixed warehouse shipping rem
   await assert.rejects(quote(international), isError(400));
 });
 
-test("US-only SKU cannot become worldwide by omitting or forging its warehouse", async () => {
+test("US-only SKU cannot become worldwide, and an absent warehouse stock blocks its quote", async () => {
   for (const country of ["Canada", "United States"]) {
     for (const fromWarehouse of [undefined, "", false, "worldwide", "regular"]) {
       const body = fixture({ items: [{ name: "DSIP", dose: "10 mg", quantity: 1, fromWarehouse }] });
@@ -112,10 +112,7 @@ test("US-only SKU cannot become worldwide by omitting or forging its warehouse",
     }
   }
   const actualUs = fixture({ items: [{ name: "DSIP", dose: "10mg", quantity: 1, fromWarehouse: "us" }], shippingType: "us-warehouse" });
-  const result = await quote(actualUs);
-  assert.equal(result.amountCents, 17500);
-  assert.equal(result.shippingCents, 0);
-  assert.equal(result.snapshot.items[0].fromWarehouse, "us");
+  await assert.rejects(quote(actualUs), isError(400));
   actualUs.checkoutForm.country = "Canada";
   await assert.rejects(quote(actualUs), isError(400));
 });
@@ -162,7 +159,7 @@ test("identity and explicit credit selection are required before discount lookup
 
 test("catalog rejects missing, unavailable, over-quantity and invalid warehouse entries", async () => {
   for (const items of [[], [null], [{ name: "unknown", dose: "5 mg", quantity: 1 }],
-    [{ name: "TB-500 + BPC-157", dose: "20 mg", quantity: 1, fromWarehouse: "us" }],
+    [{ name: "Retatrutide / GLP-3", dose: "10 mg", quantity: 1, fromWarehouse: "us" }],
     [{ ...fixture().items[0], quantity: 51 }], [{ ...fixture().items[0], quantity: 1.5 }],
     [{ ...fixture().items[0], fromWarehouse: "backup" }]]) {
     await assert.rejects(quote(fixture({ items })), isError(400));

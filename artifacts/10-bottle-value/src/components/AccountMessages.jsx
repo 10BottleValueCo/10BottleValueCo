@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
-  ArrowUp,
   ImagePlus,
   LoaderCircle,
   MessageSquareText,
   Paperclip,
   RefreshCw,
+  Send,
   ShieldCheck,
   Smile,
 } from "lucide-react";
@@ -410,7 +410,17 @@ export default function AccountMessages({
             aria-label={sending ? "Sending message" : "Send message"}
             data-testid="button-send-message"
           >
-            {sending ? <span className="account-messages__send-pulse" aria-hidden="true"><i /><i /><i /></span> : <ArrowUp size={19} strokeWidth={2.2} />}
+            {sending ? (
+              <>
+                <span className="account-messages__send-pulse" aria-hidden="true"><i /><i /><i /></span>
+                <span>Sending</span>
+              </>
+            ) : (
+              <>
+                <Send size={16} strokeWidth={2.1} aria-hidden="true" />
+                <span>Send</span>
+              </>
+            )}
           </button>
         </div>
       </form>

@@ -135,6 +135,31 @@ test("server rejects unsupported packs and preserves old ten-vial snapshot shape
   }
 });
 
+test("new US warehouse offers stay available at the supplied prices", () => {
+  const additions = [
+    ["MOTS-C", "20 mg", 215],
+    ["Tesamorelin", "20 mg", 515],
+    ["Melanotan-1", "10 mg", 135],
+    ["KPV", "5 mg", 125],
+  ];
+
+  for (const [name, dose, expectedPrice] of additions) {
+    const offer = PRODUCTS.find(
+      (product) =>
+        product.name === name &&
+        product.dose === dose &&
+        product.warehouse === "us",
+    );
+    assert.ok(offer, `${name} ${dose} has a US offer`);
+    assert.equal(offer.outOfStock ?? false, false, `${name} ${dose} is in stock`);
+    assert.equal(
+      validateAndPriceItems([{ name, dose, quantity: 1, fromWarehouse: "us" }]).usSubtotal,
+      expectedPrice,
+      `${name} ${dose} uses the requested checkout price`,
+    );
+  }
+});
+
 test("prices stay authoritative and product option aliases retain their existing meaning", () => {
   assert.equal(validateAndPriceItems([item({ price: 0.01 })]).subtotal, 139);
   assert.equal(validateAndPriceItems([item({ price: 0.01, fromWarehouse: "us" })]).subtotal, 179);

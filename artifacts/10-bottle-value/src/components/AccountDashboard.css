@@ -41,12 +41,14 @@
 
 #account-shipping-details,
 #account-security-details,
+#account-email-details,
 #account-orders-details {
   scroll-margin-top: 96px;
 }
 
 .lab-account #account-shipping-details.profile-editor-open,
 .lab-account #account-security-details,
+.lab-account #account-email-details,
 .lab-account #account-orders-details {
   background-color: rgba(0, 0, 0, 0.6);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 12px 26px rgba(0, 0, 0, 0.2);
@@ -54,6 +56,7 @@
 
 .lab-account #account-shipping-details.profile-editor-open [class*="bg-black/[0.18]"],
 .lab-account #account-security-details [class*="bg-black/[0.18]"],
+.lab-account #account-email-details [class*="bg-black/[0.18]"],
 .lab-account #account-orders-details [class*="bg-black/[0.18]"] {
   background-color: rgba(0, 0, 0, 0.4);
 }
@@ -803,8 +806,10 @@
 
 .lab-account[data-active-section="orders"] #account-shipping-details,
 .lab-account[data-active-section="orders"] #account-security-details,
+.lab-account[data-active-section="orders"] #account-email-details,
 .lab-account[data-active-section="shipping"] #account-orders-details,
 .lab-account[data-active-section="shipping"] #account-security-details,
+.lab-account[data-active-section="shipping"] #account-email-details,
 .lab-account[data-active-section="security"] #account-shipping-details,
 .lab-account[data-active-section="security"] #account-orders-details {
   display: none !important;

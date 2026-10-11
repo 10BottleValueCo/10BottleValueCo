@@ -40,6 +40,7 @@ import UsFlag from "./components/UsFlag.jsx";
 import ResearcherEntryGate, { hasResearcherEntryAcceptance } from "./components/ResearcherEntryGate.jsx";
 import PeptigrityMark from "./components/PeptigrityMark.jsx";
 import vialCManifest from "./data/vialCManifest.json";
+import melanotan2VialInline from "./assets/vials/melanotan-2-mt2-10mg.webp?inline";
 import cashAppLogo from "./assets/payment-logos/cash-app.svg";
 import bitcoinLogo from "./assets/payment-logos/bitcoin.svg";
 import paypalMark from "./assets/payment-logos/paypal-mark.svg";
@@ -112,6 +113,9 @@ const publicPathToPage = {
   account: "account",
   cart: "cart",
   "cart/confirmation": "cart",
+  ...(import.meta.env.DEV
+    ? { "order-confirmed-preview": "payment-return" }
+    : {}),
 };
 
 const publicPageToPath = {
@@ -132,6 +136,36 @@ const publicPageToPath = {
   account: "/account",
   cart: "/cart",
 };
+
+const ORDER_CONFIRMED_PREVIEW_PATH = "/order-confirmed-preview";
+const ORDER_CONFIRMED_PREVIEW_ORDER = import.meta.env.DEV
+  ? {
+      id: "PREVIEW-ORDER-001",
+      status: "preview",
+      email: "preview@example.test",
+      firstName: "Preview",
+      lastName: "Customer",
+      shippingType: "us-warehouse",
+      subtotal: 89,
+      shipping: 0,
+      total: 89,
+      items: [
+        {
+          name: "5-Amino-1MQ",
+          dose: "5 mg",
+          quantity: 1,
+          price: 89,
+          fromWarehouse: "us",
+        },
+      ],
+    }
+  : null;
+
+function isOrderConfirmedPreviewLocation() {
+  return import.meta.env.DEV
+    && typeof window !== "undefined"
+    && window.location.pathname.replace(/\/+$/, "").toLowerCase() === ORDER_CONFIRMED_PREVIEW_PATH;
+}
 
 const routeChunkLoaders = {
   account: () => Promise.all([importAccountDashboard(), importAccountMessages()]),
@@ -1712,6 +1746,17 @@ const PRODUCTS_BASE = [
       coaPdf: "coa-tesamorelin.pdf",
     },
     {
+      name: "Tesamorelin",
+      price: 515,
+      usPriceBase: 510,
+      dose: "20 mg",
+      total: "200 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
+      coaImages: ["coa-tesamorelin-p1.png"],
+      coaPdf: "coa-tesamorelin.pdf",
+    },
+    {
       name: "IGF-1 LR3",
       price: 375,
       dose: "1 mg",
@@ -2165,6 +2210,15 @@ const PRODUCTS_BASE = [
     },
     {
       name: "KPV",
+      price: 125,
+      usPriceBase: 120,
+      dose: "5 mg",
+      total: "50 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
+    },
+    {
+      name: "KPV",
       price: 119,
       dose: "10 mg",
       total: "100 mg total",
@@ -2218,12 +2272,30 @@ const PRODUCTS_BASE = [
       warehouse: "us",
     },
     {
+      name: "MOTS-C",
+      price: 215,
+      usPriceBase: 210,
+      dose: "20 mg",
+      total: "200 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
+    },
+    {
       name: "Thymosin Alpha-1",
       price: 289,
       dose: "10 mg",
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: 70,
+    },
+    {
+      name: "Melanotan-1",
+      price: 135,
+      usPriceBase: 130,
+      dose: "10 mg",
+      total: "100 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
     },
     {
       name: "Melanotan-2",
@@ -3837,6 +3909,7 @@ export default function App() {
     const payment = (params.get("payment") || "").toLowerCase().trim();
     if (["success", "pending", "cancelled", "cancel", "failed"].includes(payment)) return "payment-return";
     const pathSlug = window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase().trim();
+    if (import.meta.env.DEV && pathSlug === "order-confirmed-preview") return "payment-return";
     if (publicPathToPage[pathSlug]) return publicPathToPage[pathSlug];
     // A known product remains on its page even when the requested warehouse
     // has no exact offer. The selector explains that state without substitution.
@@ -3904,6 +3977,7 @@ export default function App() {
 
   // Keep every public section on a stable, crawlable URL.
   useEffect(() => {
+    if (page === "payment-return" && isOrderConfirmedPreviewLocation()) return;
     const publicPath = publicPageToPath[page];
     const path = window.location.pathname;
     if (publicPath) {
@@ -4035,10 +4109,20 @@ export default function App() {
   const [copiedOrderId, setCopiedOrderId] = useState(null);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [isChangingEmail, setIsChangingEmail] = useState(false);
+  const [emailChangeBusy, setEmailChangeBusy] = useState(false);
+  const [emailChangePending, setEmailChangePending] = useState(false);
+  const [emailChangeForm, setEmailChangeForm] = useState({
+    currentEmail: "",
+    newEmail: "",
+    currentPassword: "",
+  });
+  const [emailChangeMessage, setEmailChangeMessage] = useState("");
   const [profileSaveFeedback, setProfileSaveFeedback] = useState(null);
   const [activeAccountSection, setActiveAccountSection] = useState("overview");
   const [changePasswordForm, setChangePasswordForm] = useState({ newPassword: "", confirmPassword: "" });
   const [changePasswordMessage, setChangePasswordMessage] = useState("");
+  const emailChangeUserIdRef = useRef("");
   const [profileForm, setProfileForm] = useState({
     firstName: "",
     lastName: "",
@@ -4056,6 +4140,31 @@ export default function App() {
     const timeoutId = window.setTimeout(() => setProfileSaveFeedback(null), 7000);
     return () => window.clearTimeout(timeoutId);
   }, [profileSaveFeedback]);
+  useEffect(() => {
+    const userId = currentUser?.id || "";
+    if (userId !== emailChangeUserIdRef.current) {
+      emailChangeUserIdRef.current = userId;
+      setEmailChangeForm({
+        currentEmail: currentUser?.email || "",
+        newEmail: "",
+        currentPassword: "",
+      });
+      setEmailChangeMessage("");
+      setEmailChangePending(false);
+      return;
+    }
+    if (currentUser?.email) {
+      setEmailChangeForm((form) =>
+        normalizeEmail(form.currentEmail) === normalizeEmail(currentUser.email)
+          ? form
+          : {
+              currentEmail: currentUser.email,
+              newEmail: "",
+              currentPassword: "",
+            },
+      );
+    }
+  }, [currentUser?.id, currentUser?.email]);
   const [promoInput, setPromoInput] = useState("");
   const promoApplyRequestRef = useRef(0);
   const [promoMessage, setPromoMessage] = useState("");
@@ -4402,8 +4511,17 @@ export default function App() {
     }
     setLogoBumpKey((k) => k + 1);
   };
-  const [paymentReturn, setPaymentReturn] = useState(() => readPaymentReturn(window.location.search));
-  const [paymentReturnOrder, setPaymentReturnOrder] = useState(null);
+  const [paymentReturn, setPaymentReturn] = useState(() => isOrderConfirmedPreviewLocation()
+    ? {
+        status: "success",
+        origin: "preview",
+        provider: "preview",
+        order: ORDER_CONFIRMED_PREVIEW_ORDER?.id || "PREVIEW-ORDER-001",
+      }
+    : readPaymentReturn(window.location.search));
+  const [paymentReturnOrder, setPaymentReturnOrder] = useState(() =>
+    isOrderConfirmedPreviewLocation() ? ORDER_CONFIRMED_PREVIEW_ORDER : null
+  );
   const [legacyReturnReadStatus, setLegacyReturnReadStatus] = useState("checking");
   const [legacyReturnRetry, setLegacyReturnRetry] = useState(0);
   const legacyReturnResumeRef = useRef(false);
@@ -4424,7 +4542,7 @@ export default function App() {
     }
   }, [currentUser]);
   useEffect(() => {
-    if (page !== "payment-return" || paymentReturn.status !== "success") return;
+    if (page !== "payment-return" || paymentReturn.status !== "success" || paymentReturn.origin === "preview") return;
     let isActive = true;
 
     void import("canvas-confetti")
@@ -4499,6 +4617,7 @@ export default function App() {
     };
   }, [page, paymentReturn.status]);
   useEffect(() => {
+    if (paymentReturn.origin === "preview") return;
     if (paymentReturn.provider === "merit" || paymentReturn.origin === "provider-return") return;
     const stored = paymentReturn.status === "success" && currentUser?.email
       ? getStoredOrders().find(o => o.id === paymentReturn.order && normalizeEmail(o.email) === normalizeEmail(currentUser.email))
@@ -4644,6 +4763,7 @@ export default function App() {
   const [adminEmojiOpen, setAdminEmojiOpen] = useState(false);
   const [contactSending, setContactSending] = useState(false);
   const [chatAttachmentUploading, setChatAttachmentUploading] = useState(false);
+  const chatAttachmentUploadingRef = useRef(false);
   const [chatLightboxUrl, setChatLightboxUrl] = useState(null);
   const [chatAttachmentUrls, setChatAttachmentUrls] = useState({});
   const chatAttachmentObjectUrlsRef = useRef(new Set());
@@ -5184,21 +5304,63 @@ export default function App() {
     });
   }
 
+  function getSupportAttachmentDetails(file) {
+    if (!file) return null;
+    const extension = file.name?.match(/\.([^.]+)$/)?.[1]?.toLowerCase() || "";
+    const imageExtensions = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "avif", "heic", "heif"]);
+    const videoExtensions = new Set(["mp4", "mov", "m4v", "webm", "mkv", "avi", "3gp", "ogv", "ogg"]);
+    const documentExtensions = new Set(["pdf", "txt", "csv", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "rtf", "odt", "ods"]);
+    const isImage = file.type?.startsWith("image/") || imageExtensions.has(extension);
+    const isVideo = file.type?.startsWith("video/") || videoExtensions.has(extension);
+    const isFile = file.type === "application/pdf" || documentExtensions.has(extension);
+    if (!isImage && !isVideo && !isFile) return null;
+
+    const mimeByExtension = {
+      png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+      webp: "image/webp", bmp: "image/bmp", avif: "image/avif", heic: "image/heic",
+      heif: "image/heif", mp4: "video/mp4", mov: "video/quicktime", m4v: "video/x-m4v",
+      webm: "video/webm", mkv: "video/x-matroska", avi: "video/x-msvideo",
+      "3gp": "video/3gpp", ogv: "video/ogg", ogg: "video/ogg", pdf: "application/pdf",
+    };
+    const contentType =
+      file.type && file.type !== "application/octet-stream"
+        ? file.type
+        : mimeByExtension[extension] || file.type || "application/octet-stream";
+    return { isImage: Boolean(isImage), isVideo: Boolean(isVideo), isFile: Boolean(isFile), contentType };
+  }
+
+  function getPastedSupportAttachment(event) {
+    const clipboard = event.clipboardData;
+    if (!clipboard) return null;
+    const fromItems = Array.from(clipboard.items || [])
+      .filter((item) => item.kind === "file")
+      .map((item) => item.getAsFile())
+      .filter(Boolean);
+    const candidates = [...fromItems, ...Array.from(clipboard.files || [])];
+    return candidates.find((file) => getSupportAttachmentDetails(file)) || null;
+  }
+
+  function handleSupportAttachmentPaste(event, sendFn) {
+    const file = getPastedSupportAttachment(event);
+    if (!file) return;
+    event.preventDefault();
+    if (chatAttachmentUploadingRef.current) return;
+    void uploadAndSendAttachment(file, sendFn);
+  }
+
   async function uploadAndSendAttachment(file, sendFn) {
     if (!currentUser?.email) {
       setUserInboxError("Sign in to send support messages.");
       return;
     }
-    const fileExtension = file?.name?.match(/\.([^.]+)$/)?.[1]?.toLowerCase() || "";
-    const supportedDocumentExtensions = new Set(["pdf", "txt", "csv", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "rtf", "odt", "ods"]);
-    const isImage = Boolean(file?.type?.startsWith('image/'));
-    const isVideo = Boolean(file?.type?.startsWith('video/'));
-    const isFile = file?.type === 'application/pdf' || supportedDocumentExtensions.has(fileExtension);
-    if (!file || (!isImage && !isVideo && !isFile)) {
+    const attachmentDetails = getSupportAttachmentDetails(file);
+    if (!file || !attachmentDetails) {
       if (file) alert('Choose an image, video, or supported document file.');
       return;
     }
     if (file.size > 100 * 1024 * 1024) { alert('Attachment must be under 100 MB'); return; }
+    if (chatAttachmentUploadingRef.current) return;
+    chatAttachmentUploadingRef.current = true;
     setChatAttachmentUploading(true);
     try {
       const {
@@ -5218,7 +5380,7 @@ export default function App() {
           headers: uploadHeaders,
           body: JSON.stringify({
             fileName: file.name,
-            contentType: file.type || "",
+            contentType: attachmentDetails.contentType,
             size: file.size,
           }),
         },
@@ -5231,7 +5393,7 @@ export default function App() {
       const storageResponse = await fetch(uploadDetails.uploadUrl, {
         method: "PUT",
         headers: {
-          "Content-Type": uploadDetails.contentType,
+          "Content-Type": uploadDetails.contentType || attachmentDetails.contentType,
           "cache-control": "max-age=3600",
           "x-upsert": "false",
         },
@@ -5247,10 +5409,11 @@ export default function App() {
         ...previous,
         [uploadDetails.path]: previewUrl,
       }));
-      await sendFn(uploadDetails.path, file.name, isFile, isVideo);
+      await sendFn(uploadDetails.path, file.name, attachmentDetails.isFile, attachmentDetails.isVideo);
     } catch (err) {
       alert('Upload failed: ' + err.message);
     } finally {
+      chatAttachmentUploadingRef.current = false;
       setChatAttachmentUploading(false);
     }
   }
@@ -5485,14 +5648,14 @@ export default function App() {
     });
   }
 
-  async function sendAdminReply(id, { isEdit = false, messageText } = {}) {
+  async function sendAdminReply(id, { messageText } = {}) {
     const replyDraft = messageText ?? adminReplyInputRef.current?.value ?? adminReplyText;
     if (!replyDraft.trim() || adminSendingRef.current) return;
     adminSendingRef.current = true;
     try {
-      const quotePrefix = (!isEdit && adminReplyPreview) ? `[QUOTE:${encodeURIComponent(JSON.stringify(adminReplyPreview))}]` : "";
+      const quotePrefix = adminReplyPreview ? `[QUOTE:${encodeURIComponent(JSON.stringify(adminReplyPreview))}]` : "";
       const reply = quotePrefix + replyDraft.trim();
-      const change = { admin_reply: reply, replied_at: new Date().toISOString(), ...(!isEdit && { user_read_at: null }) };
+      const change = { admin_reply: reply, replied_at: new Date().toISOString(), user_read_at: null };
       const { data, error: patchErr } = await supabase
         .from("contact_messages")
         .update(change)
@@ -5504,9 +5667,42 @@ export default function App() {
       setAdminReplyText("");
       setAdminReplyPreview(null);
       loadAdminMessages();
-      showAdminDeliveryMessage(isEdit ? "Reply updated in the site's Support inbox." : "Reply saved in the site's Support inbox.");
+      showAdminDeliveryMessage("Reply saved in the site's Support inbox.");
     } catch (err) {
       setAdminMessage(`Reply failed: ${err.message}`);
+      clearTimeout(window.__tbvAdminMessageTimeout);
+      window.__tbvAdminMessageTimeout = setTimeout(() => setAdminMessage(""), 8000);
+    } finally {
+      adminSendingRef.current = false;
+    }
+  }
+
+  async function editAdminReply(id, messageText) {
+    const replyDraft = messageText ?? adminReplyInputRef.current?.value ?? adminReplyText;
+    const trimmed = String(replyDraft || "").trim();
+    if (!trimmed || adminSendingRef.current) return;
+    const currentMessage = adminMessages.find((message) => String(message.id) === String(id));
+    const existingQuotePrefix = String(currentMessage?.admin_reply || "").match(/^\[QUOTE:[^\]]+\]/)?.[0] || "";
+    const updatedReply = existingQuotePrefix + trimmed;
+    adminSendingRef.current = true;
+    try {
+      const { error } = await supabase
+        .from("contact_messages")
+        .update({ admin_reply: updatedReply })
+        .eq("id", id)
+        .select("id")
+        .single();
+      if (error) throw new Error(error.message);
+      setAdminMessages((previous) =>
+        previous.map((message) => message.id === id ? { ...message, admin_reply: updatedReply } : message)
+      );
+      setAdminReplyingId(null);
+      setAdminReplyText("");
+      setAdminReplyPreview(null);
+      loadAdminMessages();
+      showAdminDeliveryMessage("Reply edited in place.");
+    } catch (err) {
+      setAdminMessage(`Edit failed: ${err.message}`);
       clearTimeout(window.__tbvAdminMessageTimeout);
       window.__tbvAdminMessageTimeout = setTimeout(() => setAdminMessage(""), 8000);
     } finally {
@@ -5565,13 +5761,15 @@ export default function App() {
     const trimmed = currentText.trim();
     if (!trimmed) return;
     try {
-      const { error } = await supabase.from("contact_messages").update({ message: trimmed }).eq("id", id);
+      const { error } = await supabase.from("contact_messages").update({ message: trimmed }).eq("id", id).select("id").single();
       if (error) throw error;
       setUserInboxMessages((prev) => prev.map((m) => m.id === id ? { ...m, message: trimmed } : m));
       setEditingMsgId(null);
       setEditingMsgText("");
+      setUserInboxError("");
     } catch (err) {
       console.error("Edit message failed:", err.message);
+      setUserInboxError(`Edit failed: ${err.message}`);
     }
   }
 
@@ -6498,7 +6696,7 @@ export default function App() {
             items: mergedItems,
             id: sbOrder.id ?? meta.id,
             invoiceId: meta.invoiceId || "",
-            email: meta.email || sbOrder.email || "",
+            email: sbOrder.email || meta.email || "",
             total: meta.total ?? sbOrder.total ?? 0,
             status: sbOrder.status ?? meta.status ?? "pending",
             createdAt: meta.createdAt || sbOrder.created_at || "",
@@ -6539,6 +6737,240 @@ export default function App() {
       console.error("Failed to refresh user orders:", err);
     } finally {
       setIsRefreshingUserOrders(false);
+    }
+  }
+
+  async function callAccountEmailChangeApi(action, payload = {}, accessToken) {
+    let token = accessToken;
+    if (!token) {
+      const { data: { session } } = await supabase.auth.getSession();
+      token = session?.access_token;
+    }
+    if (!token) {
+      throw new Error(tx("Sign in to change your email.", "Войдите в аккаунт, чтобы изменить email.", "Увійдіть в акаунт, щоб змінити email.", "Melden Sie sich an, um Ihre E-Mail zu ändern.", "Inicia sesión para cambiar tu correo."));
+    }
+    const response = await fetch("/api/account-email-change", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ action, ...payload }),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok || !result?.ok) {
+      throw new Error(result?.error || tx("Email change could not be completed.", "Не удалось изменить email.", "Не вдалося змінити email.", "Die E-Mail konnte nicht geändert werden.", "No se pudo cambiar el correo."));
+    }
+    return result;
+  }
+
+  async function finalizePendingEmailMigration(session) {
+    if (!session?.access_token || !session?.user?.id) return null;
+    const result = await callAccountEmailChangeApi("finalize", {}, session.access_token);
+    if (result.pendingConfirmation) {
+      setEmailChangePending(true);
+      setEmailChangeForm((form) => ({ ...form, currentPassword: "" }));
+      setEmailChangeMessage(tx(
+        "Confirm the email-change link sent by Supabase. Your account history will move after confirmation.",
+        "Подтвердите смену email по письму от Supabase. История аккаунта перенесётся после подтверждения.",
+        "Підтвердьте зміну email у листі від Supabase. Історія акаунта перенесеться після підтвердження.",
+        "Bestätigen Sie die E-Mail-Änderung über die Nachricht von Supabase. Ihr Kontoverlauf wird danach übertragen.",
+        "Confirma el cambio de correo desde el mensaje de Supabase. Tu historial se transferirá después."
+      ));
+      return result;
+    }
+    if (result.migrated) {
+      const email = result.email || session.user.email;
+      const normalizedEmail = normalizeEmail(email);
+      setEmailChangePending(false);
+      setCurrentUser((user) =>
+        user?.id === session.user.id ? { ...user, email: normalizedEmail } : user,
+      );
+      setAccountForm((form) => ({
+        ...form,
+        email: normalizedEmail,
+        password: "",
+        confirmPassword: "",
+      }));
+      setEmailChangeForm({
+        currentEmail: normalizedEmail,
+        newEmail: "",
+        currentPassword: "",
+      });
+      setEmailChangeMessage(tx(
+        "Email updated. Your account history is available under the new email.",
+        "Email обновлён. История аккаунта доступна по новому адресу.",
+        "Email оновлено. Історія акаунта доступна за новою адресою.",
+        "E-Mail aktualisiert. Ihr Kontoverlauf ist unter der neuen Adresse verfügbar.",
+        "Correo actualizado. Tu historial está disponible con la nueva dirección."
+      ));
+      loadStoreCredit(normalizedEmail);
+      fetchUserPromos(normalizedEmail, appliedPromo);
+      refreshUserOrdersFromSupabase(normalizedEmail);
+    }
+    return result;
+  }
+
+  function localizeEmailChangeError(error) {
+    const message = String(error?.message || "");
+    if (message === "The current password is incorrect.") {
+      return tx("The current password is incorrect.", "Текущий пароль указан неверно.", "Поточний пароль вказано неправильно.", "Das aktuelle Passwort ist falsch.", "La contraseña actual es incorrecta.");
+    }
+    if (message.includes("already has a balance or affiliate account")) {
+      return tx(
+        "The new email already has a balance or affiliate account. Contact support before changing it.",
+        "У нового email уже есть баланс или партнёрский аккаунт. Перед сменой обратитесь в поддержку.",
+        "Для нової пошти вже є баланс або партнерський акаунт. Перед зміною зверніться до підтримки.",
+        "Für die neue E-Mail gibt es bereits ein Guthaben oder Partnerkonto. Wenden Sie sich vor der Änderung an den Support.",
+        "El nuevo correo ya tiene saldo o una cuenta de afiliado. Contacta con soporte antes de cambiarlo."
+      );
+    }
+    if (message.includes("already pending")) {
+      return tx(
+        "An email change is already pending. Confirm it or wait 24 hours before starting another.",
+        "Смена email уже ожидает подтверждения. Подтвердите её или подождите 24 часа.",
+        "Зміна email вже очікує підтвердження. Підтвердьте її або зачекайте 24 години.",
+        "Eine E-Mail-Änderung wartet bereits auf Bestätigung. Bestätigen Sie sie oder warten Sie 24 Stunden.",
+        "Ya hay un cambio de correo pendiente. Confírmalo o espera 24 horas."
+      );
+    }
+    return message || tx("Email change could not be completed.", "Не удалось изменить email.", "Не вдалося змінити email.", "Die E-Mail konnte nicht geändert werden.", "No se pudo cambiar el correo.");
+  }
+
+  async function submitEmailChange() {
+    if (emailChangeBusy) return;
+    const currentEmail = normalizeEmail(emailChangeForm.currentEmail);
+    const newEmail = normalizeEmail(emailChangeForm.newEmail);
+    const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail);
+    if (currentEmail !== normalizeEmail(currentUser?.email)) {
+      setEmailChangeMessage(tx("Enter the email currently used by your account.", "Введите email, который сейчас привязан к аккаунту.", "Введіть email, який зараз прив’язаний до акаунта.", "Geben Sie die aktuell verwendete E-Mail-Adresse ein.", "Escribe el correo que usa actualmente tu cuenta."));
+      return;
+    }
+    if (!validEmail) {
+      setEmailChangeMessage(tx("Enter a valid new email address.", "Введите корректный новый email.", "Введіть коректну нову адресу.", "Geben Sie eine gültige neue E-Mail-Adresse ein.", "Escribe una dirección de correo válida."));
+      return;
+    }
+    if (newEmail === currentEmail) {
+      setEmailChangeMessage(tx("The new email must be different.", "Новый email должен отличаться от текущего.", "Нова адреса має відрізнятися від поточної.", "Die neue E-Mail-Adresse muss sich unterscheiden.", "El nuevo correo debe ser diferente."));
+      return;
+    }
+    if (
+      isAdminUser() &&
+      !ADMIN_EMAILS.includes(newEmail) &&
+      !window.confirm(tx(
+        "Changing this admin email will remove admin access until the new address is added to the site's admin allowlist. Continue?",
+        "После смены email эта учётная запись потеряет доступ администратора, пока новый адрес не добавят в список администраторов сайта. Продолжить?",
+        "Після зміни email цей обліковий запис втратить доступ адміністратора, доки нову адресу не додадуть до списку адміністраторів сайту. Продовжити?",
+        "Nach der Änderung verliert dieses Konto den Adminzugriff, bis die neue Adresse zur Adminliste der Website hinzugefügt wird. Fortfahren?",
+        "Al cambiar este correo, la cuenta perderá el acceso de administrador hasta que se añada la nueva dirección a la lista del sitio. ¿Continuar?"
+      ))
+    ) {
+      return;
+    }
+    if (!emailChangeForm.currentPassword) {
+      setEmailChangeMessage(tx("Enter your current password.", "Введите текущий пароль.", "Введіть поточний пароль.", "Geben Sie Ihr aktuelles Passwort ein.", "Escribe tu contraseña actual."));
+      return;
+    }
+
+    setEmailChangeBusy(true);
+    setEmailChangeMessage("");
+    let session = null;
+    let prepared = false;
+    let authUpdated = false;
+    try {
+      const { data } = await supabase.auth.getSession();
+      session = data?.session;
+      if (!session?.access_token) {
+        throw new Error(tx("Your sign-in has expired. Sign in again.", "Срок входа истёк. Войдите снова.", "Сеанс входу завершився. Увійдіть знову.", "Ihre Anmeldung ist abgelaufen. Melden Sie sich erneut an.", "Tu sesión ha caducado. Inicia sesión de nuevo."));
+      }
+      await callAccountEmailChangeApi("prepare", {
+        currentEmail,
+        newEmail,
+        currentPassword: emailChangeForm.currentPassword,
+      }, session.access_token);
+      prepared = true;
+
+      const { error } = await supabase.auth.updateUser({ email: newEmail });
+      if (error) throw error;
+      authUpdated = true;
+
+      const { data: updatedData } = await supabase.auth.getSession();
+      const activeSession = updatedData?.session || session;
+      const result = await finalizePendingEmailMigration(activeSession);
+      if (
+        result?.migrated ||
+        (!result?.pendingConfirmation &&
+          normalizeEmail(activeSession?.user?.email) === newEmail)
+      ) {
+        setEmailChangePending(false);
+        setEmailChangeMessage(tx(
+          "Email updated. Your account history is available under the new email.",
+          "Email обновлён. История аккаунта доступна по новому адресу.",
+          "Email оновлено. Історія акаунта доступна за новою адресою.",
+          "E-Mail aktualisiert. Ihr Kontoverlauf ist unter der neuen Adresse verfügbar.",
+          "Correo actualizado. Tu historial está disponible con la nueva dirección."
+        ));
+      } else {
+        setEmailChangePending(true);
+        setEmailChangeMessage(tx(
+          "Confirm the email-change link sent by Supabase. Your account history will move after confirmation.",
+          "Подтвердите смену email по письму от Supabase. История аккаунта перенесётся после подтверждения.",
+          "Підтвердьте зміну email у листі від Supabase. Історія акаунта перенесеться після підтвердження.",
+          "Bestätigen Sie die E-Mail-Änderung über die Nachricht von Supabase. Ihr Kontoverlauf wird danach übertragen.",
+          "Confirma el cambio de correo desde el mensaje de Supabase. Tu historial se transferirá después."
+        ));
+      }
+    } catch (error) {
+      if (prepared && !authUpdated && session?.access_token) {
+        try {
+          await callAccountEmailChangeApi("cancel", {}, session.access_token);
+        } catch {
+          // If Supabase already accepted the change, its pending migration must remain.
+        }
+      }
+      if (authUpdated) {
+        setEmailChangePending(true);
+        setEmailChangeMessage(tx(
+          "Your email was updated, but the history transfer is still pending. Confirm the new email or try again later.",
+          "Email обновлён, перенос истории ожидает завершения. Подтвердите новый адрес или повторите позже.",
+          "Email оновлено, перенесення історії ще очікується. Підтвердьте нову адресу або спробуйте пізніше.",
+          "Ihre E-Mail wurde aktualisiert, die Übertragung des Verlaufs steht noch aus. Bestätigen Sie die neue Adresse oder versuchen Sie es später erneut.",
+          "El correo se actualizó, pero la transferencia del historial sigue pendiente. Confirma la nueva dirección o inténtalo más tarde."
+        ));
+      } else {
+        setEmailChangeMessage(localizeEmailChangeError(error));
+      }
+    } finally {
+      setEmailChangeForm((form) => ({ ...form, currentPassword: "" }));
+      setEmailChangeBusy(false);
+    }
+  }
+
+  async function retryEmailMigration() {
+    if (emailChangeBusy) return;
+    setEmailChangeBusy(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error(tx("Sign in again to continue.", "Войдите снова, чтобы продолжить.", "Увійдіть знову, щоб продовжити.", "Melden Sie sich erneut an, um fortzufahren.", "Inicia sesión de nuevo para continuar."));
+      const result = await finalizePendingEmailMigration(session);
+      if (
+        result?.migrated ||
+        (!result?.pendingConfirmation &&
+          normalizeEmail(session.user?.email) === normalizeEmail(currentUser?.email))
+      ) {
+        setEmailChangePending(false);
+        setEmailChangeMessage(tx(
+          "Email updated. Your account history is available under the new email.",
+          "Email обновлён. История аккаунта доступна по новому адресу.",
+          "Email оновлено. Історія акаунта доступна за новою адресою.",
+          "E-Mail aktualisiert. Ihr Kontoverlauf ist unter der neuen Adresse verfügbar.",
+          "Correo actualizado. Tu historial está disponible con la nueva dirección."
+        ));
+      }
+    } catch (error) {
+      setEmailChangeMessage(localizeEmailChangeError(error));
+    } finally {
+      setEmailChangeBusy(false);
     }
   }
 
@@ -9277,6 +9709,9 @@ export default function App() {
         setAccountForm({ email: user.email, password: "", confirmPassword: "" });
         fetchUserPromos(user.email, appliedPromo);
         loadStoreCredit(user.email);
+        window.setTimeout(() => {
+          finalizePendingEmailMigration(session).catch(() => {});
+        }, 0);
       }
       setAuthReady(true);
     });
@@ -9313,6 +9748,11 @@ export default function App() {
         setCurrentUser(user);
         setAccountForm({ email: user.email, password: "", confirmPassword: "" });
         setContactForm((f) => ({ ...f, email: f.email || user.email || "" }));
+        if (["INITIAL_SESSION", "SIGNED_IN", "USER_UPDATED"].includes(event)) {
+          window.setTimeout(() => {
+            finalizePendingEmailMigration(session).catch(() => {});
+          }, 0);
+        }
       } else {
         setCurrentUser(null);
       }
@@ -12976,6 +13416,17 @@ export default function App() {
     const vialKey = JSON.stringify([product.name, product.dose, product.noteLabel ?? ""]);
     const vialImage = vialCManifest[vialKey];
     if (vialImage) {
+      if (
+        product.name === "Melanotan-2" &&
+        product.dose === "10 mg" &&
+        !(product.noteLabel ?? "")
+      ) {
+        return {
+          imgUrl: melanotan2VialInline,
+          baseImgUrl: melanotan2VialInline,
+          isOptionC: true,
+        };
+      }
       const baseImage = vialBaseImages.get(JSON.stringify([product.name, product.noteLabel ?? ""])) || vialImage;
       return {
         imgUrl: getPreloadedDisplayImageUrl(`${import.meta.env.BASE_URL}vials-c/${vialImage}`),
@@ -13214,7 +13665,7 @@ export default function App() {
     : null;
   const cachedCatalogBackground = getPreloadedDisplayImageUrl(worldwideCatalogBackground);
   const catalogBackgroundOverlay =
-    ["contact", "track", "account"].includes(page) ? "0.46" : "0.38";
+    ["contact", "track", "account", "payment-return"].includes(page) ? "0.46" : "0.38";
   const catalogBackgroundStyle = {
     backgroundImage: `linear-gradient(rgba(18, 20, 22, ${catalogBackgroundOverlay}), rgba(18, 20, 22, ${catalogBackgroundOverlay})), url("${cachedCatalogBackground}")`,
     backgroundPosition: "center top",
@@ -13227,7 +13678,7 @@ export default function App() {
   };
   const usesCatalogBackground = page === "shop" || page === "product" || page === "us-warehouse" || page === "cart";
   const usesWorldwideBackground =
-    usesCatalogBackground || ["contact", "track", "account"].includes(page);
+    usesCatalogBackground || ["contact", "track", "account", "payment-return"].includes(page);
   const openSupportAccountAuth = (mode) => {
     setContactModalOpen(false);
     setReplyPreview(null);
@@ -13249,7 +13700,10 @@ export default function App() {
     }
 
     if (section === "shipping") setIsEditingProfile(true);
-    if (section === "security") setIsChangingPassword(true);
+    if (section === "security") {
+      setIsChangingPassword(true);
+      setIsChangingEmail(true);
+    }
   };
 
   return (
@@ -13289,11 +13743,15 @@ export default function App() {
 
       {/* Contact modal */}
       {contactModalOpen && (
-        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/20 px-4" onClick={() => setContactModalOpen(false)}>
-          <div className="w-full max-w-xl rounded-[1.65rem] border border-white/10 bg-[#111416]/95 shadow-[0_36px_100px_rgba(0,0,0,0.65)] backdrop-blur-2xl flex flex-col max-h-[88vh]" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/55 px-4 backdrop-blur-sm" onClick={() => setContactModalOpen(false)}>
+          <div
+            className="w-full max-w-2xl rounded-[1.65rem] border border-white/[0.22] bg-[#030506] shadow-[0_0_0_1px_rgba(255,255,255,0.045),0_36px_100px_rgba(0,0,0,0.78)] flex flex-col max-h-[88vh]"
+            style={{ backgroundColor: "#030506", backgroundImage: "none", opacity: 1, backdropFilter: "none", WebkitBackdropFilter: "none" }}
+            onClick={(e) => e.stopPropagation()}
+          >
 
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-white/[0.08] px-6 pt-6 pb-4 shrink-0">
+            <div className="flex items-center justify-between border-b border-white/[0.13] bg-[#050708] px-6 pt-6 pb-4 shrink-0" style={{ backgroundColor: "#050708" }}>
               <div>
                 <div className="text-[10px] uppercase tracking-[0.28em] text-emerald-300/75">Support</div>
                 <h2 className="mt-1 text-lg font-semibold leading-tight tracking-[-0.02em] text-white">
@@ -13304,7 +13762,7 @@ export default function App() {
             </div>
 
             {/* Chat messages area */}
-            <div ref={inboxScrollRef} className="mx-4 mb-2 flex min-h-[120px] flex-1 flex-col gap-3.5 overflow-y-auto overscroll-contain rounded-2xl border border-white/[0.09] bg-[#080b0c] px-3 pt-3 pb-3 [&::-webkit-scrollbar]:w-[6px] [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25 [&::-webkit-scrollbar-thumb]:hover:bg-emerald-300/50">
+            <div ref={inboxScrollRef} className="mx-4 mb-2 flex min-h-[120px] flex-1 flex-col gap-3.5 overflow-y-auto overscroll-contain rounded-2xl bg-[#020304] px-3 pt-3 pb-3 [&::-webkit-scrollbar]:w-[6px] [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25 [&::-webkit-scrollbar-thumb]:hover:bg-emerald-300/50" style={{ backgroundColor: "#020304", backgroundImage: "none", opacity: 1, backdropFilter: "none", WebkitBackdropFilter: "none" }}>
               {!currentUser?.email ? (
                 <div className="m-auto max-w-sm px-4 py-8 text-center text-sm leading-6 text-white/65">
                   Sign in or create an account to view your support messages.
@@ -13369,8 +13827,8 @@ export default function App() {
                               className="w-full rounded-2xl rounded-br-sm border border-white/25 bg-white/10 px-3.5 py-2.5 text-sm text-white outline-none resize-none"
                             />
                             <div className="flex gap-1.5 justify-end">
-                              <button onClick={() => { setEditingMsgId(null); setEditingMsgText(""); }} className="rounded-full border border-white/15 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white/50 hover:text-white transition">Cancel</button>
-                              <button onClick={() => editUserMessage(msg.id)} disabled={!editingMsgText.trim()} className="rounded-full bg-white/15 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white hover:bg-white/25 disabled:opacity-30 transition">Save</button>
+                              <button type="button" onClick={() => { setEditingMsgId(null); setEditingMsgText(""); }} className="rounded-full border border-white/15 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white/50 hover:text-white transition">Cancel</button>
+                              <button type="button" onClick={() => editUserMessage(msg.id)} disabled={!editingMsgText.trim()} className="rounded-full bg-white/15 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white hover:bg-white/25 disabled:opacity-30 transition">Save</button>
                             </div>
                           </div>
                         ) : (
@@ -13380,7 +13838,7 @@ export default function App() {
                                 <button key={e} onClick={() => toggleReaction(rKeySent, e)} className={`text-[16px] leading-none hover:scale-125 active:scale-110 transition-transform px-0.5 ${msgReactions[rKeySent]?.[e] ? "opacity-100" : "opacity-60 hover:opacity-100"}`}>{e}</button>
                               ))}
                             </div>
-                            <div id={chatMsgDomId(msg.id, "msg")} className={`rounded-2xl rounded-br-sm border border-emerald-300/15 bg-[#17201c] px-3.5 py-2.5 shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition-colors duration-500 ${highlightedMsgKey === chatMsgDomId(msg.id, "msg") ? "ring-2 ring-sky-400 bg-sky-400/25" : ""}`}>
+                             <div id={chatMsgDomId(msg.id, "msg")} className={`rounded-2xl rounded-br-sm border border-emerald-300/35 bg-[#102019] px-3.5 py-2.5 shadow-[0_8px_24px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors duration-500 ${highlightedMsgKey === chatMsgDomId(msg.id, "msg") ? "ring-2 ring-sky-400 bg-sky-400/25" : ""}`}>
                               <div className="text-sm text-white leading-relaxed break-words overflow-hidden">{renderMsgContent(msg.message, msg.id, "message")}</div>
                               <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-white/40">
                                 <span>{fmt(msg.created_at)}</span>
@@ -13409,7 +13867,7 @@ export default function App() {
                               <button key={e} onClick={() => toggleReaction(rKeyRcvd, e)} className={`text-[16px] leading-none hover:scale-125 active:scale-110 transition-transform px-0.5 ${msgReactions[rKeyRcvd]?.[e] ? "opacity-100" : "opacity-60 hover:opacity-100"}`}>{e}</button>
                             ))}
                           </div>
-                          <div id={chatMsgDomId(msg.id, "reply")} className={`rounded-2xl rounded-bl-sm border border-white/[0.08] bg-[#15191b] px-3.5 py-2.5 transition-colors duration-500 ${highlightedMsgKey === chatMsgDomId(msg.id, "reply") ? "ring-2 ring-sky-400 bg-sky-400/20" : ""}`}>
+                          <div id={chatMsgDomId(msg.id, "reply")} className={`rounded-2xl rounded-bl-sm border border-white/[0.16] bg-[#0d1113] px-3.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors duration-500 ${highlightedMsgKey === chatMsgDomId(msg.id, "reply") ? "ring-2 ring-sky-400 bg-sky-400/20" : ""}`}>
                             <div className="text-sm text-white/90 leading-relaxed break-words overflow-hidden">{renderMsgContent(msg.admin_reply, msg.id, "admin_reply")}</div>
                             <div className="mt-1 flex items-center gap-2 text-[10px] text-white/40">
                               <span>{fmt(msg.replied_at || msg.created_at)}</span>
@@ -13435,7 +13893,7 @@ export default function App() {
               {adminIsTyping && (
                 <div className="flex items-end gap-2 mt-1">
                   <div className="w-6 h-6 rounded-full border border-emerald-300/20 bg-emerald-400/10 flex items-center justify-center text-[10px] text-emerald-300 font-bold shrink-0">S</div>
-                  <div className="rounded-2xl rounded-bl-sm border border-white/[0.08] bg-[#15191b] px-3.5 py-3">
+                  <div className="rounded-2xl rounded-bl-sm border border-white/[0.16] bg-[#0d1113] px-3.5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
                     <div className="flex gap-1.5 items-center">
                       <span className="inline-block w-1.5 h-1.5 rounded-full bg-white/50 animate-bounce" style={{animationDelay:"0ms"}}/>
                       <span className="inline-block w-1.5 h-1.5 rounded-full bg-white/50 animate-bounce" style={{animationDelay:"160ms"}}/>
@@ -13472,14 +13930,14 @@ export default function App() {
                 </div>
               ) : (
                 <>
-              <input ref={userFileInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAndSendAttachment(f, sendAttachmentAsUserMessage); e.target.value = ''; }} />
+              <input ref={userFileInputRef} type="file" accept="image/*,video/*,application/pdf,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.rtf,.odt,.ods" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAndSendAttachment(f, sendAttachmentAsUserMessage); e.target.value = ''; }} />
               {replyPreview && (
                 <div className="flex items-center gap-2 rounded-xl border-l-2 border-emerald-400/60 bg-[#171b1b] px-3 py-2">
                   <div className="flex-1 min-w-0 text-xs text-white/50 italic truncate">Replying to: {replyPreview.text}</div>
                   <button onClick={() => setReplyPreview(null)} className="shrink-0 text-white/40 hover:text-white transition text-sm">✕</button>
                 </div>
               )}
-              <div className="relative flex items-end gap-2">
+                <div className="relative flex items-end gap-2">
                 {userEmojiOpen && (
                   <div className="absolute bottom-full mb-2 left-0 z-50 w-64 rounded-2xl border border-white/10 bg-[#101416] p-2 shadow-2xl">
                     <div className="grid grid-cols-8 gap-0.5">
@@ -13490,10 +13948,10 @@ export default function App() {
                     </div>
                   </div>
                 )}
-                <div className="flex-1 flex flex-col gap-1">
+                  <div className="min-w-0 flex-1 rounded-[1.2rem] border border-white/[0.14] bg-[#080a0b] px-3.5 py-2.5 transition focus-within:border-emerald-300/45 focus-within:ring-2 focus-within:ring-emerald-300/10">
                   <BufferedTextarea
                     ref={contactMessageInputRef}
-                    placeholder="Write a message…"
+                    placeholder="Write a message or paste a photo/video…"
                     value={contactForm.message}
                     onValueChange={(value) => setContactForm((f) => ({ ...f, message: value.slice(0, 1000) }))}
                     onImmediateInput={(value) => {
@@ -13504,27 +13962,49 @@ export default function App() {
                       broadcastTyping("user");
                     }}
                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendContactMessage(e.currentTarget.value); } }}
-                    onPaste={(e) => { const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/')); if (item) { e.preventDefault(); const f = item.getAsFile(); if (f) uploadAndSendAttachment(f, sendAttachmentAsUserMessage); } }}
-                    rows={2}
+                    onPaste={(e) => handleSupportAttachmentPaste(e, sendAttachmentAsUserMessage)}
+                      rows={2}
                     maxLength={1000}
-                    className="w-full resize-none rounded-2xl border border-white/10 bg-[#0b0e0f] px-4 py-2.5 text-sm text-white placeholder:text-white/35 outline-none transition focus:border-emerald-300/35 focus:ring-2 focus:ring-emerald-300/10"
-                  />
-                  <div className={`text-right text-[10px] pr-1 ${contactForm.message.length >= 900 ? "text-amber-300/90" : "text-white/20"}`}>{contactForm.message.length}/1000 symbols max</div>
-                </div>
-                <div className="flex flex-col gap-1.5 shrink-0">
-                  <div className="flex gap-1.5">
-                    <button onClick={() => userFileInputRef.current?.click()} disabled={chatAttachmentUploading} title="Send image" className="w-9 h-9 rounded-full border border-white/10 bg-white/[0.035] flex items-center justify-center text-white/65 hover:text-white hover:bg-white/10 transition disabled:opacity-40">
-                      {chatAttachmentUploading ? <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> : <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>}
-                    </button>
-                    <button onClick={() => setUserEmojiOpen(v => !v)} title="Emoji" className="w-9 h-9 rounded-full border border-white/10 bg-white/[0.035] flex items-center justify-center text-[18px] text-white/75 hover:bg-white/10 hover:text-white transition">😊</button>
+                      className="block min-h-[44px] max-h-32 w-full resize-y border-0 bg-transparent p-0 text-sm text-white placeholder:text-white/45 outline-none ring-0"
+                      style={{ backgroundColor: "transparent", color: "#fff", WebkitTextFillColor: "#fff", caretColor: "#fff", opacity: 1, border: 0, boxShadow: "none" }}
+                    />
+                    <div className="mt-2 flex items-center justify-between gap-2 border-t border-white/[0.08] pt-2">
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => userFileInputRef.current?.click()}
+                          disabled={chatAttachmentUploading}
+                          title="Attach image, video, or document"
+                          aria-label="Attach image or video"
+                          className="flex h-9 w-9 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.035] text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+                        >
+                          {chatAttachmentUploading ? <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> : <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setUserEmojiOpen(v => !v)}
+                          title="Choose emoji"
+                          aria-label="Choose emoji"
+                          aria-expanded={userEmojiOpen}
+                          className="flex h-9 w-9 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.035] text-[18px] text-white/75 transition hover:bg-white/10 hover:text-white"
+                        >😊</button>
+                      </div>
+                      <div className="flex min-w-0 items-center gap-2">
+                        <div className={`whitespace-nowrap text-[10px] ${contactForm.message.length >= 900 ? "text-amber-300/90" : "text-white/35"}`}>
+                          {contactForm.message.length}/1000
+                        </div>
+                        <button
+                          ref={contactMessageSendButtonRef}
+                          type="button"
+                          onClick={() => sendContactMessage(contactMessageInputRef.current?.value ?? contactForm.message)}
+                          disabled={contactSending || !contactForm.message.trim()}
+                          className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-full border border-emerald-300/35 bg-emerald-400 px-4 text-[10px] font-black uppercase tracking-[0.12em] text-[#07110c] shadow-[0_5px_16px_rgba(0,0,0,0.28)] transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {contactSending ? "Sending…" : <>Send <span aria-hidden="true">↗</span></>}
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <button
-                  ref={contactMessageSendButtonRef}
-                  onClick={() => sendContactMessage(contactMessageInputRef.current?.value ?? contactForm.message)}
-                  disabled={contactSending || !contactForm.message.trim()}
-                  className="rounded-full border border-emerald-300/25 bg-emerald-400 px-5 py-2.5 text-[11px] font-black uppercase tracking-[0.15em] text-[#07110c] shadow-[0_6px_18px_rgba(0,0,0,0.25)] hover:bg-emerald-300 disabled:opacity-30 transition"
-                >{contactSending ? "…" : "Send"}</button>
-                </div>
               </div>
                 </>
               )}
@@ -16351,7 +16831,7 @@ export default function App() {
                                               <BufferedTextarea ref={adminReplyInputRef} value={adminReplyText} onValueChange={setAdminReplyText} rows={2} placeholder="Edit reply…" autoFocus className="rounded-2xl border border-white/20 bg-black/25 px-4 py-3 text-sm text-white placeholder:text-white/30 outline-none resize-none" />
                                                 <div className="flex gap-2 justify-end">
                                                   <button onClick={() => { setAdminReplyingId(null); setAdminReplyText(""); }} className="rounded-full border border-white/15 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.15em] text-white/50 hover:text-white transition">Cancel</button>
-                                                  <button onClick={() => sendAdminReply(msg.id, { isEdit: true })} disabled={!adminReplyText.trim()} className="rounded-full bg-white px-5 py-2 text-[11px] font-black uppercase tracking-[0.15em] text-black hover:bg-white/90 disabled:opacity-40 transition">Save</button>
+                                                  <button type="button" onClick={() => editAdminReply(msg.id)} disabled={!adminReplyText.trim()} className="rounded-full bg-white px-5 py-2 text-[11px] font-black uppercase tracking-[0.15em] text-black hover:bg-white/90 disabled:opacity-40 transition">Save</button>
                                                 </div>
                                               </div>
                                             );
@@ -16406,7 +16886,7 @@ export default function App() {
                                     <div className="px-4 pb-4 pt-2 border-t border-white/8">
                                       {adminReplyingId === null && (
                                         <>
-                                        <input ref={adminFileInputRef} type="file" accept="image/*,video/*,.pdf,application/pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAndSendAttachment(f, (url, fileName, isFile, isVideo) => sendAttachmentAsAdminMessage(url, email, lastUnanswered, fileName, isFile, isVideo)); e.target.value = ''; }} />
+                                        <input ref={adminFileInputRef} type="file" accept="image/*,video/*,application/pdf,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.rtf,.odt,.ods" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAndSendAttachment(f, (url, fileName, isFile, isVideo) => sendAttachmentAsAdminMessage(url, email, lastUnanswered, fileName, isFile, isVideo)); e.target.value = ''; }} />
                                         {adminReplyPreview && (
                                           <div className="flex items-center gap-2 rounded-xl border-l-2 border-emerald-400/60 bg-white/5 px-3 py-2 mb-2">
                                             <div className="flex-1 min-w-0 text-xs text-white/50 italic truncate">Replying to: {adminReplyPreview.text}</div>
@@ -16430,14 +16910,14 @@ export default function App() {
                                             onValueChange={setAdminReplyText}
                                             onImmediateInput={() => broadcastTyping("admin")}
                                             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (lastUnanswered) sendAdminReply(lastUnanswered.id, { messageText: e.currentTarget.value }); else sendAdminFollowUp(email, e.currentTarget.value); } }}
-                                            onPaste={(e) => { const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/')); if (item) { e.preventDefault(); const f = item.getAsFile(); if (f) uploadAndSendAttachment(f, (url) => sendAttachmentAsAdminMessage(url, email, lastUnanswered)); } }}
+                                            onPaste={(e) => handleSupportAttachmentPaste(e, (url, fileName, isFile, isVideo) => sendAttachmentAsAdminMessage(url, email, lastUnanswered, fileName, isFile, isVideo))}
                                             rows={2}
-                                            placeholder="Reply… (Enter to send)"
+                                            placeholder="Reply or paste a photo/video… (Enter to send)"
                                             className="flex-1 rounded-2xl border border-white/15 bg-black/25 px-4 py-2.5 text-sm text-white placeholder:text-white/30 outline-none resize-none"
                                           />
                                           <div className="flex flex-col gap-1.5 shrink-0">
                                             <div className="flex gap-1.5">
-                                              <button onClick={() => adminFileInputRef.current?.click()} disabled={chatAttachmentUploading} title="Send image or PDF" className="w-9 h-9 rounded-full border border-white/15 bg-black/20 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition disabled:opacity-40">
+                                              <button onClick={() => adminFileInputRef.current?.click()} disabled={chatAttachmentUploading} title="Send image, video, or document" className="w-9 h-9 rounded-full border border-white/15 bg-black/20 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition disabled:opacity-40">
                                                 {chatAttachmentUploading ? <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> : <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>}
                                               </button>
                                               <button onClick={() => setAdminEmojiOpen(v => !v)} title="Emoji" className="w-9 h-9 rounded-full border border-white/15 bg-black/20 flex items-center justify-center text-[18px] hover:bg-white/10 transition">😊</button>
@@ -16901,6 +17381,8 @@ export default function App() {
                   "KLOW|80mg":195,"Klow|80mg":195,"KLOW80|80mg":195,
                   "GLOW|70mg":195,"Glow|70mg":195,"GLOW70|70mg":195,
                   "HGH|10iu":55,"HGH|15iu":80,"HGH|24iu":130,"HGH|36iu":180,"HGH|10IU":55,"HGH|15IU":80,"HGH|24IU":130,"HGH|36IU":180,
+                  "10-GH|10iu":55,"10-GH|15iu":80,"10-GH|24iu":130,"10-GH|36iu":180,
+                  "10-GH|10IU":55,"10-GH|15IU":80,"10-GH|24IU":130,"10-GH|36IU":180,
                   "Cagrilintide|5mg":105,"Cagrilintide|10mg":185,
                   "Cagrilintide+Semaglutide|10mg":190,"Cagrilintide + Semaglutide|10mg each":190,
                   "Mazdutide|10mg":195,
@@ -16967,7 +17449,7 @@ export default function App() {
                   "Retatrutide|5mg":95,"Retatrutide|10mg":120,"Retatrutide|20mg":170,"Retatrutide|30mg":210,"Retatrutide|40mg":250,"Retatrutide|50mg":295,
                   "GHK-CU|50mg":70,"GHK-CU|100mg":85,"GHK-Cu|50mg":70,"GHK-Cu|100mg":85,
                   "GHRP-2|5mg":85,
-                  "Tesamorelin|10mg":225,
+                  "Tesamorelin|10mg":225,"Tesamorelin|20mg":310,
                   "HCG|5000iu":125,"HCG|10000iu":200,
                   "BPC-157|10mg":110,
                   "TB-500|5mg":115,
@@ -16975,9 +17457,10 @@ export default function App() {
                   "TB-500 + BPC-157|10mg each":135,"TB-500 + BPC-157|20mg each":210,
                   "GLOW|70mg":235,"Glow|70mg":235,"GLOW70|70mg":235,
                   "AOD|5mg":145,"AOD 9604|5mg":145,
-                  "MOTS-C|10mg":105,"NAD+|500mg":120,"MOTS-C|40mg":225,
+                  "MOTS-C|10mg":105,"MOTS-C|20mg":130,"NAD+|500mg":120,"MOTS-C|40mg":225,
                   "Epithalon|10mg":88,"Epitalon|10mg":88,
-                  "KPV|10mg":100,
+                  "KPV|5mg":75,"KPV|10mg":100,
+                  "Melanotan-1|10mg":80,"Melanotan I|10mg":80,"MT-1|10mg":80,"MT1|10mg":80,
                   "Semax|10mg":90,
                   "Selank|10mg":90,
                   "Ipamorelin|5mg":85,
@@ -18591,6 +19074,82 @@ export default function App() {
                     </div>
                   )}
 
+                  {isChangingEmail && (
+                    <div id="account-email-details" className="mt-4 rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-5">
+                      <div className="mb-4 text-[11px] font-bold uppercase tracking-[0.22em] text-white/70">
+                        {tx("Change email", "Изменить email", "Змінити email", "E-Mail ändern", "Cambiar correo")}
+                      </div>
+                      {emailChangePending ? (
+                        <div className="grid gap-4">
+                          <div role="status" className="text-sm leading-6 text-white/80">
+                            {emailChangeMessage}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={retryEmailMigration}
+                            disabled={emailChangeBusy}
+                            className="min-h-[44px] w-fit whitespace-nowrap rounded-full bg-white !text-black px-5 py-2.5 text-[10px] font-extrabold uppercase tracking-[0.16em] transition hover:bg-white/90 disabled:cursor-wait disabled:opacity-60 md:min-h-0 md:text-[11px]"
+                          >
+                            {emailChangeBusy
+                              ? tx("Checking…", "Проверяем…", "Перевіряємо…", "Wird geprüft…", "Comprobando…")
+                              : tx("I've confirmed — check status", "Я подтвердил — проверить", "Я підтвердив — перевірити", "Bestätigt — Status prüfen", "Ya confirmé — comprobar")}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="grid gap-3">
+                          <BufferedInput
+                            type="email"
+                            autoComplete="email"
+                            value={emailChangeForm.currentEmail}
+                            onValueChange={(value) => {
+                              setEmailChangeForm((form) => ({ ...form, currentEmail: value }));
+                              setEmailChangeMessage("");
+                            }}
+                            placeholder={tx("Current email", "Нынешний email", "Поточна адреса", "Aktuelle E-Mail", "Correo actual")}
+                            className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50"
+                          />
+                          <BufferedInput
+                            type="email"
+                            autoComplete="email"
+                            value={emailChangeForm.newEmail}
+                            onValueChange={(value) => {
+                              setEmailChangeForm((form) => ({ ...form, newEmail: value }));
+                              setEmailChangeMessage("");
+                            }}
+                            placeholder={tx("New email", "Новый email", "Нова адреса", "Neue E-Mail", "Correo nuevo")}
+                            className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50"
+                          />
+                          <BufferedInput
+                            type="password"
+                            autoComplete="current-password"
+                            value={emailChangeForm.currentPassword}
+                            onValueChange={(value) => {
+                              setEmailChangeForm((form) => ({ ...form, currentPassword: value }));
+                              setEmailChangeMessage("");
+                            }}
+                            placeholder={tx("Current password", "Текущий пароль", "Поточний пароль", "Aktuelles Passwort", "Contraseña actual")}
+                            className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50"
+                          />
+                          {emailChangeMessage ? (
+                            <div role="status" className="text-sm leading-6 text-white/80">
+                              {emailChangeMessage}
+                            </div>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={submitEmailChange}
+                            disabled={emailChangeBusy}
+                            className="min-h-[44px] w-fit whitespace-nowrap rounded-full bg-white !text-black px-5 py-2.5 text-[10px] font-extrabold uppercase tracking-[0.16em] transition hover:bg-white/90 disabled:cursor-wait disabled:opacity-60 md:min-h-0 md:text-[11px]"
+                          >
+                            {emailChangeBusy
+                              ? tx("Updating…", "Обновляем…", "Оновлюємо…", "Wird aktualisiert…", "Actualizando…")
+                              : tx("Update email", "Изменить email", "Змінити email", "E-Mail aktualisieren", "Actualizar correo")}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   
                   <div className="legacy-account-extras" hidden>
                   {userPromos.filter(p => p.email !== "__PUBLIC__").length > 0 && (
@@ -19936,16 +20495,22 @@ export default function App() {
                         return (
                           <div key={i} className={`flex items-center justify-between px-5 py-3 ${i < paymentReturnOrder.items.length - 1 ? "border-b border-white/8" : ""}`}>
                             <div className="min-w-0 flex-1">
-                              <div className="flex items-baseline gap-2 flex-wrap">
+                              <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
                                 <span className="text-sm font-semibold text-white leading-tight">{publicProductName(item.name)}{item.dose ? ` ${item.dose}` : ""}</span>
                                 {item.noteLabel && (
                                   <span className="text-[10px] font-normal text-white/50 tracking-[0.12em]">{item.noteLabel}</span>
                                 )}
-                                <span className="text-[10px] font-semibold text-white/60 tracking-wide">× 10 vials</span>
-                              </div>
-                              <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-white">
-                                <span>× {item.quantity || 1}</span>
-                                {item.fromWarehouse === "us" && <span className="rounded-full bg-blue-500/20 border border-blue-400/30 px-1.5 py-[1px] text-[9px] font-bold text-blue-300 uppercase tracking-wide">🇺🇸</span>}
+                                <span className="inline-flex shrink-0 items-baseline gap-1 whitespace-nowrap text-[10px] font-semibold tracking-wide text-white/60">
+                                  <span>× {item.quantity || 1}</span>
+                                  <span aria-hidden="true">·</span>
+                                  <span>10 vials</span>
+                                </span>
+                                {item.fromWarehouse === "us" && (
+                                  <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/60 bg-[#a32133] px-1.5 py-[1px] text-[9px] font-black uppercase tracking-[0.1em] text-white shadow-[0_0_12px_rgba(163,33,51,0.35)]">
+                                    <UsFlag className="h-[8px] w-[14px]" />
+                                    US
+                                  </span>
+                                )}
                                 {usLabel && (
                                   <span className="rounded-md bg-amber-400/15 border border-amber-400/30 px-1.5 py-[1px] text-[9px] font-black text-amber-300 tracking-wide">
                                     {tx(`Label ${usLabel}`, `Этикетка ${usLabel}`, `Етикетка ${usLabel}`, `Etikett ${usLabel}`, `Etiqueta ${usLabel}`)}
@@ -20045,7 +20610,7 @@ export default function App() {
                   {/* Note 2 */}
                   <div className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/25 px-4 py-3">
                     <span className="mt-0.5 text-base shrink-0">📍</span>
-                    <p className="text-[12px] leading-5 text-white">{tx("Your tracking number will be available within ~2 business days — you'll see it in your account under 'Orders'.", "Трекинг-номер появится примерно через 2 рабочих дня — вы увидите его в своём личном кабинете в разделе «Orders».", "Трекінг-номер з'явиться приблизно через 2 робочих дні — ви побачите його у своєму особистому кабінеті у розділі «Orders».", "Ihre Sendungsnummer wird innerhalb von ~2 Werktagen in Ihrem Konto unter 'Orders' erscheinen.", "Tu número de seguimiento estará disponible en ~2 días hábiles — lo verás en tu cuenta en 'Orders'.")}</p>
+                    <p className="text-[12px] leading-5 text-white">{tx("Your tracking number will be available within ~2 business days. You'll see it in your account under 'Your Orders'.", "Трекинг-номер появится примерно через 2 рабочих дня. Вы увидите его в своём личном кабинете в разделе «Ваши заказы».", "Трекінг-номер з'явиться приблизно через 2 робочих дні. Ви побачите його у своєму особистому кабінеті у розділі «Ваші замовлення».", "Ihre Sendungsnummer wird innerhalb von ~2 Werktagen in Ihrem Konto unter 'Ihre Bestellungen' erscheinen.", "Tu número de seguimiento estará disponible en ~2 días hábiles. Lo verás en tu cuenta en 'Tus pedidos'.")}</p>
                   </div>
                   {/* Note 3 — support */}
                   <div className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/25 px-4 py-3">

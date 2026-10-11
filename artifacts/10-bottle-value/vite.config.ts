@@ -1,58 +1,119 @@
 import path from 'path';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
-import { darkenNeutralColorsInSource } from './neutral-color-transform.js';
+import { defineConfig, type ProxyOptions } from 'vite';
 
 import runtimeErrorOverlay from '@replit/vite-plugin-runtime-error-modal';
 
 const rawPort = process.env.PORT;
-const isBuild = process.argv.includes('build');
 
-if (!rawPort && !isBuild) {
-  throw new Error('PORT environment variable is required but was not provided.');
+if (!rawPort) {
+  throw new Error(
+    'PORT environment variable is required but was not provided.',
+  );
 }
 
-const port = Number(rawPort || '3000');
+const port = Number(rawPort);
 
-if (!isBuild && (Number.isNaN(port) || port <= 0)) {
+if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
 const basePath = process.env.BASE_PATH;
-if (!basePath && !isBuild) {
-  throw new Error('BASE_PATH environment variable is required but was not provided.');
+
+if (!basePath) {
+  throw new Error(
+    'BASE_PATH environment variable is required but was not provided.',
+  );
 }
 
-// Opt in when Preview sends /api to Vite rather than the separate Express app.
-// Keep existing platform routing unchanged unless an API port is configured.
-const apiProxyPort = process.env.API_PROXY_PORT;
-if (apiProxyPort && (!/^\d{1,5}$/.test(apiProxyPort) || Number(apiProxyPort) < 1 || Number(apiProxyPort) > 65535 || Number(apiProxyPort) === port)) {
-  throw new Error('API_PROXY_PORT must be a valid local port different from PORT.');
-}
-const apiProxy = apiProxyPort ? { '/api': { target: `http://127.0.0.1:${apiProxyPort}`, changeOrigin: false } } : undefined;
+const publishedSite = 'https://10-bottle-value-co.vercel.app';
 
-function darkenInlineNeutralColors() {
-  return {
-    name: 'darken-inline-neutral-colors',
-    enforce: 'pre',
-    transform(code, id) {
-      if (
-        !id.includes('/src/') ||
-        !/\.(?:[jt]sx?|css)(?:\?|$)/.test(id) ||
-        id.includes('/node_modules/')
-      ) {
-        return null;
+const configurePublishedSiteProxy: ProxyOptions['configure'] = (proxy) => {
+  proxy.on('proxyRes', (proxyResponse) => {
+    delete proxyResponse.headers['x-frame-options'];
+
+    const contentSecurityPolicy =
+      proxyResponse.headers['content-security-policy'];
+    if (typeof contentSecurityPolicy === 'string') {
+      const withoutFrameAncestors = contentSecurityPolicy
+        .replace(/(?:^|;)\s*frame-ancestors\s+[^;]*/gi, '')
+        .replace(/^;\s*|;\s*$/g, '');
+      if (withoutFrameAncestors) {
+        proxyResponse.headers['content-security-policy'] =
+          withoutFrameAncestors;
+      } else {
+        delete proxyResponse.headers['content-security-policy'];
       }
-      const transformed = darkenNeutralColorsInSource(code);
-      return transformed === code ? null : { code: transformed, map: null };
-    },
-  };
-}
+    }
+
+    const location = proxyResponse.headers.location;
+    if (typeof location === 'string') {
+      try {
+        const redirectedUrl = new URL(location, publishedSite);
+        if (redirectedUrl.origin === publishedSite) {
+          proxyResponse.headers.location = `/site${redirectedUrl.pathname}${redirectedUrl.search}${redirectedUrl.hash}`;
+        }
+      } catch {
+        // Keep unparseable upstream redirect headers unchanged.
+      }
+    }
+  });
+};
+
+const publishedSiteProxy: ProxyOptions = {
+  target: publishedSite,
+  changeOrigin: true,
+  secure: true,
+  ws: true,
+  rewrite: (requestPath) =>
+    requestPath.replace(/^\/site(?=\/|$)/, '') || '/',
+  bypass: (request) => {
+    const requestPath = request.url ?? '/';
+    if (
+      /^\/(?:@vite|@react-refresh|src\/|node_modules\/|@id\/|@fs\/|__vite|__open-in-editor)/.test(
+        requestPath,
+      )
+    ) {
+      return requestPath;
+    }
+
+    const pathname = requestPath.split('?')[0];
+    // Serve local branded Melanotan I and II renders instead of the
+    // matching production-site asset proxy.
+    if (
+      pathname.endsWith('/vials-c/melanotan-1-mt1-10mg.webp') ||
+      pathname.endsWith('/vials-c/melanotan-2-mt2-10mg.webp')
+    ) {
+      return requestPath;
+    }
+    if (pathname === '/site' || pathname.startsWith('/site/')) {
+      return undefined;
+    }
+
+    const isRemoteAsset =
+      pathname.startsWith('/images/') ||
+      pathname.startsWith('/vials-c/') ||
+      pathname.startsWith('/affiliate/') ||
+      pathname.startsWith('/crypto/') ||
+      pathname.startsWith('/coa-') ||
+      /\.(?:png|jpe?g|webp|gif|svg|ico|pdf|woff2?|ttf|otf)$/i.test(pathname);
+
+    return isRemoteAsset ? undefined : requestPath;
+  },
+  configure: configurePublishedSiteProxy,
+};
 
 export default defineConfig({
-  base: basePath || '/',
+  base: basePath,
+  define: {
+    'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(
+      process.env.SUPABASE_URL ?? '',
+    ),
+    'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(
+      process.env.SUPABASE_ANON_KEY ?? '',
+    ),
+  },
   plugins: [
-    darkenInlineNeutralColors(),
     react(),
     runtimeErrorOverlay(),
     ...(process.env.NODE_ENV !== 'production' &&
@@ -81,27 +142,8 @@ export default defineConfig({
     },
     dedupe: ['react', 'react-dom'],
   },
-  define: {
-    'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(
-      process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
-    ),
-    'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(
-      process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '',
-    ),
-    'import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY': JSON.stringify(
-      process.env.STRIPE_PUBLISHABLE_KEY || process.env.VITE_STRIPE_PUBLISHABLE_KEY || '',
-    ),
-  },
   root: path.resolve(import.meta.dirname),
   build: {
-    rollupOptions: {
-      input: {
-        storefront: path.resolve(import.meta.dirname, 'index.html'),
-        meritTest: path.resolve(import.meta.dirname, 'merit-test.html'),
-        meritReview: path.resolve(import.meta.dirname, 'merit-review.html'),
-        operations: path.resolve(import.meta.dirname, 'operations.html'),
-      },
-    },
     outDir: path.resolve(import.meta.dirname, 'dist/public'),
     emptyOutDir: true,
   },
@@ -110,7 +152,9 @@ export default defineConfig({
     strictPort: true,
     host: '0.0.0.0',
     allowedHosts: true,
-    proxy: apiProxy,
+    proxy: {
+      '^/(?!@vite|@react-refresh|src/|node_modules/|@id/|@fs/|__vite|__open-in-editor)': publishedSiteProxy,
+    },
     fs: {
       strict: true,
     },
@@ -119,6 +163,5 @@ export default defineConfig({
     port,
     host: '0.0.0.0',
     allowedHosts: true,
-    proxy: apiProxy,
   },
 });

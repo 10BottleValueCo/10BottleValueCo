@@ -577,15 +577,23 @@
 }
 
 .account-messages__send {
-  flex: 0 0 46px;
-  width: 46px;
+  flex: 0 0 auto;
+  min-width: 108px;
   height: 46px;
-  display: grid;
-  place-items: center;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 15px;
   border: 1px solid rgba(221, 199, 141, 0.55);
   border-radius: 12px;
   color: #20242a;
   background: #ddc78d;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
   transition: background 150ms ease, transform 150ms ease, opacity 150ms ease;
 }
 
@@ -652,7 +660,7 @@
   .account-messages__composer { padding: 13px 14px 12px; }
   .account-messages__compose-row textarea { min-height: 50px; padding: 12px; }
   .account-messages__tool-button { flex-basis: 32px; width: 32px; height: 32px; }
-  .account-messages__send { flex-basis: 43px; width: 43px; height: 43px; }
+  .account-messages__send { min-width: 96px; height: 43px; padding: 0 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

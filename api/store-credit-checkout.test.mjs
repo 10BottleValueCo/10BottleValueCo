@@ -144,8 +144,8 @@ test("out-of-stock and invalid-quantity items are rejected", () => {
     () =>
       validateAndPriceItems([
         {
-          name: "TB-500 + BPC-157",
-          dose: "20 mg",
+          name: "Retatrutide / GLP-3",
+          dose: "10 mg",
           quantity: 1,
           fromWarehouse: "us",
         },

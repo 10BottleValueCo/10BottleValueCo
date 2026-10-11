@@ -25,6 +25,17 @@ test("legacy short names and unrelated products remain compatible", () => {
   assert.equal(publicProductName("BPC-157"), "BPC-157");
 });
 
+test("Melanotan-1 displays as MT1 while preserving its catalog identity and route", () => {
+  const product = { name: "Melanotan-1", dose: "10 mg" };
+  assert.equal(publicProductName(product.name), "MT1");
+  assert.equal(catalogProductName("MT1"), "Melanotan-1");
+  assert.equal(catalogProductName("Melanotan I"), "Melanotan-1");
+  assert.equal(productSlug(product), "melanotan-1-10mg");
+  assert.equal(matchesProductSearch(product, "MT1"), true);
+  assert.equal(matchesProductSearch(product, "MT-1"), true);
+  assert.equal(matchesProductSearch(product, "Melanotan I"), true);
+});
+
 test("Melanotan-2 displays as MT-2 while preserving its catalog identity and route", () => {
   const product = { name: "Melanotan-2", dose: "10 mg" };
   assert.equal(publicProductName(product.name), "MT-2");

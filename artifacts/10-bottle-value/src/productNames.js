@@ -8,6 +8,7 @@ const legacySlugNames = {
 };
 
 const labelNames = {
+  "melanotan-1": "MT1",
   "melanotan-2": "MT-2",
   melanotan2: "MT-2",
   "melanotan 2": "MT-2",
@@ -27,6 +28,10 @@ const catalogNames = {
   mt2: "Melanotan-2",
   melanotan2: "Melanotan-2",
   "melanotan 2": "Melanotan-2",
+  "mt-1": "Melanotan-1",
+  mt1: "Melanotan-1",
+  "mt 1": "Melanotan-1",
+  "melanotan i": "Melanotan-1",
   "reconstitution solution": "BAC Water",
   ara290: "ARA290 (Cibinetide)",
   "cagrilintide + glp sg-1": "Cagrilintide + Semaglutide",
@@ -64,6 +69,7 @@ export function matchesProductSearch(product, searchTerm) {
   const aliases = {
     mt: "melanotan",
     mt1: "melanotan1",
+    "mt-1": "melanotan1",
     mt2: "melanotan2",
     "mt-2": "melanotan2",
     "melanotan-2": "melanotan2",
@@ -82,6 +88,7 @@ export function matchesProductSearch(product, searchTerm) {
     product.total,
     product.note,
   ];
+  if (publicName === "MT1") searchValues.push("Melanotan1", "Melanotan I");
   if (publicName === "MT-2") searchValues.push("Melanotan2");
   return searchValues.some((value) => normalize(value).includes(query));
 }
