@@ -90,12 +90,12 @@ export default function AffiliateAccountPanel({
   const profileRate = Number(profile?.commissionRate);
   const commissionRate = Math.round((Number.isFinite(profileRate) && profileRate > 0 ? profileRate : 0.1) * 100);
   const sortedOrders = useMemo(
-    () => [...paidOrders].sort((a, b) => {
+    () => [...orders].sort((a, b) => {
       const dateA = Date.parse(a.created_at || "") || 0;
       const dateB = Date.parse(b.created_at || "") || 0;
       return dateB - dateA;
     }),
-    [paidOrders],
+    [orders],
   );
 
   async function handleCopyLink() {
@@ -210,10 +210,10 @@ export default function AffiliateAccountPanel({
         <div className="lab-affiliate-orders__heading">
           <div>
             <h2 id="account-affiliate-orders-title">
-              {tx("Paid referral orders", "Оплаченные заказы по вашей ссылке", "Оплачені замовлення за вашим посиланням", "Bezahlte vermittelte Bestellungen", "Pedidos referidos pagados")}
+              {tx("Referral orders", "Заказы по вашей ссылке", "Замовлення за вашим посиланням", "Vermittelte Bestellungen", "Pedidos referidos")}
             </h2>
             <p>
-              {tx("Order values and commission status. Customer details are not shown.", "Суммы заказов и статус комиссии. Данные покупателей не показываются.", "Суми замовлень і статус комісії. Дані покупців не показуються.", "Bestellwerte und Provisionsstatus. Kundendaten werden nicht angezeigt.", "Importes y estado de comisión. No se muestran datos de los clientes.")}
+              {tx("Order values and commission status. Customer and product details are hidden.", "Суммы и статус комиссии. Данные покупателей и состав заказов скрыты.", "Суми й статус комісії. Дані покупців і склад замовлень приховано.", "Bestellwerte und Provisionsstatus. Kunden- und Produktdaten bleiben verborgen.", "Importes y estado de comisión. Los datos de clientes y productos están ocultos.")}
             </p>
           </div>
           <span className="lab-affiliate-orders__count">{sortedOrders.length}</span>
@@ -258,14 +258,6 @@ export default function AffiliateAccountPanel({
                         <span className="lab-affiliate-order__shipping">{shippingLabel}</span>
                       )}
                     </div>
-                    {Array.isArray(order.items) && order.items.length > 0 && (
-                      <p className="lab-affiliate-order__items">
-                        {order.items
-                          .map((item) => [item?.name, item?.dose].filter(Boolean).join(" "))
-                          .filter(Boolean)
-                          .join(", ")}
-                      </p>
-                    )}
                     <span className="lab-affiliate-order__date">{formatDate(order.created_at)}</span>
                   </div>
                   <div className="lab-affiliate-order__amount">
@@ -274,7 +266,7 @@ export default function AffiliateAccountPanel({
                   </div>
                   <div className="lab-affiliate-order__commission">
                     <span>{tx("Commission", "Комиссия", "Комісія", "Provision", "Comisión")}</span>
-                    <strong>{money(formatPrice, order.commission_amount)}</strong>
+                    <strong>{commissionEligible ? money(formatPrice, order.commission_amount) : "—"}</strong>
                     <small>
                       {commissionStatus}
                       {commissionEligible && !order.commissionAvailable && order.available_at

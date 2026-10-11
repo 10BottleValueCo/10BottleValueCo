@@ -141,12 +141,20 @@ test("affiliate history is scoped to the verified owner and removes private orde
       ]);
     }
     if (url.pathname.endsWith("/rest/v1/orders")) {
+      assert.equal(url.searchParams.has("affiliate_code"), false);
+      assert.equal(
+        url.searchParams.get("select"),
+        "id,status,created_at,total,metadata",
+      );
+      assert.equal(
+        url.searchParams.get("metadata->>affiliateCode"),
+        "ilike.AFF-ONE",
+      );
       const row = {
         id: "ORDER-1",
         status: "paid",
         created_at: "2026-01-02T00:00:00.000Z",
         total: 125,
-        affiliate_code: "AFF-ONE",
         metadata: {
           affiliateCode: "AFF-ONE",
           affiliateCommission: 12.5,
@@ -159,6 +167,7 @@ test("affiliate history is scoped to the verified owner and removes private orde
               dose: "10 mg",
               quantity: 1,
               price: 125,
+              fromWarehouse: "us",
               customerEmail: "buyer@example.org",
               address: "Private street 1",
             },
@@ -169,12 +178,7 @@ test("affiliate history is scoped to the verified owner and removes private orde
           paymentId: "private-payment-id",
         },
       };
-      if (url.searchParams.has("affiliate_code")) return makeResponse([row]);
-      assert.equal(
-        url.searchParams.get("metadata->>affiliateCode"),
-        "ilike.AFF-ONE",
-      );
-      return makeResponse([]);
+      return makeResponse([row]);
     }
     if (url.pathname.endsWith("/rest/v1/affiliate_payouts")) {
       assert.equal(url.searchParams.get("affiliate_code"), "ilike.AFF-ONE");
@@ -192,25 +196,70 @@ test("affiliate history is scoped to the verified owner and removes private orde
   assert.equal(res.body.affiliate.code, "AFF-ONE");
   assert.equal(res.body.payoutsTotal, 8.25);
   assert.equal(res.body.ledgerRows[0].order_id, "ORDER-1");
-  assert.equal(res.body.codeColumnOrders[0].metadata.affiliateCode, "AFF-ONE");
+  assert.deepEqual(res.body.codeColumnOrders, []);
+  assert.equal(res.body.codeMetadataOrders[0].metadata.affiliateCode, "AFF-ONE");
 
-  const visibleOrder = JSON.stringify(res.body.codeColumnOrders[0]);
+  const visibleOrder = JSON.stringify(res.body.codeMetadataOrders[0]);
   for (const privateValue of [
     "buyer@example.org",
     "Private street 1",
     "+1 212 555 0100",
     "private-payment-id",
     "customerEmail",
+    "BPC-157",
   ]) {
     assert.equal(visibleOrder.includes(privateValue), false);
   }
-  assert.equal(res.body.codeColumnOrders[0].metadata.items[0].name, "BPC-157");
-  assert.deepEqual(
-    Object.keys(res.body.codeColumnOrders[0].metadata.items[0]).sort(),
-    ["dose", "name", "price", "quantity"],
-  );
+  assert.equal("items" in res.body.codeMetadataOrders[0].metadata, false);
+  assert.equal(res.body.codeMetadataOrders[0].metadata.allItemsUs, true);
   assert.ok(
     calls.every((url) => url.origin === "https://supabase.test"),
     "Supabase requests must use the configured server URL",
   );
+});
+
+test("empty affiliate history returns a successful empty state", async (t) => {
+  withTestEnvironment(t, async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith("/auth/v1/user")) {
+      return makeResponse({
+        email: AFFILIATE_EMAIL,
+        email_confirmed_at: "2026-01-01T00:00:00.000Z",
+      });
+    }
+    if (url.pathname.endsWith("/rest/v1/affiliates")) {
+      return makeResponse([
+        {
+          code: "AFF-ONE",
+          email: AFFILIATE_EMAIL,
+          active: true,
+          created_at: "2026-01-01T00:00:00.000Z",
+        },
+      ]);
+    }
+    if (url.pathname.endsWith("/rest/v1/affiliate_orders")) {
+      return makeResponse([]);
+    }
+    if (url.pathname.endsWith("/rest/v1/orders")) {
+      assert.equal(
+        url.searchParams.get("metadata->>affiliateCode"),
+        "ilike.AFF-ONE",
+      );
+      return makeResponse([]);
+    }
+    if (url.pathname.endsWith("/rest/v1/affiliate_payouts")) {
+      return makeResponse([]);
+    }
+    throw new Error(`Unexpected Supabase request: ${url}`);
+  });
+
+  const res = mockRes();
+  await handler(makeRequest({ orders: "1" }), res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.ok, true);
+  assert.deepEqual(res.body.ledgerRows, []);
+  assert.deepEqual(res.body.codeColumnOrders, []);
+  assert.deepEqual(res.body.codeMetadataOrders, []);
+  assert.equal(res.body.payoutsTotal, 0);
 });

@@ -1,51 +1,23 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 
-type ResponseAdapter = {
-  setHeader(name: string, value: string): void;
-  status(code: number): ResponseAdapter;
-  json(body: unknown): ResponseAdapter;
-};
-
 const router: IRouter = Router();
 
-router.get(
+router.all(
   "/affiliate-account",
   async (req: Request, res: Response): Promise<void> => {
-    let responseStatus = 200;
-    let responseBody: unknown;
-    const adapter: ResponseAdapter = {
-      setHeader(name, value) {
-        res.setHeader(name, value);
-      },
-      status(code) {
-        responseStatus = code;
-        return this;
-      },
-      json(body) {
-        responseBody = body;
-        return this;
-      },
-    };
-
     try {
-      const handlerUrl = new URL(
-        "../../../api/affiliate-account.js",
-        import.meta.url,
-      );
+      // Resolved from dist/index.mjs so Preview and the deployed handler share
+      // the same ownership checks and response sanitization.
+      const handlerUrl = new URL("../../../api/affiliate-account.js", import.meta.url);
       const module = (await import(handlerUrl.href)) as {
-        default: (
-          request: Request,
-          response: ResponseAdapter,
-        ) => Promise<unknown>;
+        default: (request: Request, response: Response) => Promise<unknown>;
       };
-      await module.default(req, adapter);
-      res.status(responseStatus).json(responseBody);
-    } catch (error) {
-      req.log.error({ err: error }, "Affiliate account handler failed");
-      res.status(503).json({
-        ok: false,
-        error: "Affiliate account data is temporarily unavailable.",
-      });
+      await module.default(req, res);
+    } catch {
+      req.log.error({ requestId: req.id }, "Affiliate account adapter failed");
+      if (res.headersSent) return;
+      res.setHeader("Cache-Control", "private, no-store");
+      res.status(503).json({ ok: false, error: "Affiliate account is unavailable." });
     }
   },
 );

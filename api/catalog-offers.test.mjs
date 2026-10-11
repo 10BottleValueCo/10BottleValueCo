@@ -40,16 +40,13 @@ test("shared selectors reject malformed warehouses and packs without coercing th
   }
 });
 
-test("server cannot turn a US-only strength into a worldwide offer", () => {
+test("server keeps US-only strengths out of worldwide offers and enforces current US stock", () => {
   const dsip = { name: "DSIP", dose: "10 mg", quantity: 1 };
   for (const fromWarehouse of [undefined, ""]) {
     assert.equal(findCatalogProduct({ ...dsip, fromWarehouse }), null);
     assert.throws(() => validateAndPriceItems([{ ...dsip, fromWarehouse }]), /no longer available/);
   }
-  const result = validateAndPriceItems([{ ...dsip, fromWarehouse: "us" }]);
-  assert.equal(result.usSubtotal, 175);
-  assert.equal(result.regularSubtotal, 0);
-  assert.equal(result.pricedItems[0].fromWarehouse, "us");
+  assert.throws(() => validateAndPriceItems([{ ...dsip, fromWarehouse: "us" }]), /out of stock/);
   for (const fromWarehouse of [false, 0, null, "worldwide", "regular", "US", "eu", {}, []]) {
     assert.equal(findCatalogProduct(item({ fromWarehouse })), null);
     assert.throws(() => validateAndPriceItems([item({ fromWarehouse })]), /Invalid product warehouse/);
@@ -57,10 +54,72 @@ test("server cannot turn a US-only strength into a worldwide offer", () => {
 });
 
 test("missing or sold-out exact warehouse offers never borrow a different strength or stock flag", () => {
-  assert.throws(() => validateAndPriceItems([item({ dose: "5 mg", fromWarehouse: "us" })]), /no longer available/);
+  assert.throws(() => validateAndPriceItems([item({ name: "AOD", dose: "10 mg", fromWarehouse: "us" })]), /no longer available/);
   const retatrutide = { name: "Retatrutide / GLP-3", dose: "5 mg", quantity: 1 };
   assert.equal(validateAndPriceItems([retatrutide]).subtotal, 109);
   assert.throws(() => validateAndPriceItems([{ ...retatrutide, fromWarehouse: "us" }]), /out of stock/);
+});
+
+test("US warehouse stock follows the supplied count threshold and excludes GLOW", () => {
+  const usOffer = (name, dose, noteLabel = "") =>
+    PRODUCTS.find(
+      (product) =>
+        product.name === name &&
+        product.dose === dose &&
+        product.warehouse === "us" &&
+        (product.noteLabel ?? "") === noteLabel,
+    );
+
+  for (const [name, dose] of [
+    ["Retatrutide / GLP-3", "10 mg"],
+    ["Retatrutide / GLP-3", "20 mg"],
+    ["Retatrutide / GLP-3", "30 mg"],
+    ["Retatrutide / GLP-3", "40 mg"],
+  ]) {
+    assert.equal(usOffer(name, dose)?.outOfStock, true, `${name} ${dose} is below 40 units`);
+  }
+
+  for (const [name, dose] of [
+    ["Retatrutide / GLP-3", "15 mg"],
+    ["Retatrutide / GLP-3", "50 mg"],
+    ["Retatrutide / GLP-3", "60 mg"],
+    ["Tirzepatide / GLP-2", "40 mg"],
+    ["MOTS-C", "40 mg"],
+    ["KLOW80", "80 mg"],
+    ["Ipamorelin", "5 mg"],
+    ["Glutathione", "600 mg"],
+    ["Glutathione", "1500 mg"],
+    ["NAD+", "1000 mg"],
+    ["5-Amino-1MQ", "50 mg"],
+  ]) {
+    const product = usOffer(name, dose);
+    assert.ok(product, `${name} ${dose} has a US offer`);
+    assert.equal(product.outOfStock ?? false, false, `${name} ${dose} is in stock`);
+  }
+
+  for (const [name, dose] of [
+    ["DSIP", "10 mg"],
+    ["HCG", "5000 iu"],
+    ["HCG", "10000 iu"],
+    ["Epitalon", "10 mg"],
+  ]) {
+    assert.equal(usOffer(name, dose)?.outOfStock, true, `${name} ${dose} is absent or mismatched`);
+  }
+
+  const cjcIpaUs = usOffer("CJC-1295 + Ipamorelin", "10 mg each", "no/d");
+  assert.ok(cjcIpaUs, "CJC + IPA has an exact US offer");
+  assert.equal(cjcIpaUs.outOfStock ?? false, false, "the supplied image confirms this US kit is in stock");
+  assert.equal(
+    validateAndPriceItems([{
+      name: "CJC-1295 + Ipamorelin",
+      dose: "10 mg each",
+      noteLabel: "no/d",
+      quantity: 1,
+      fromWarehouse: "us",
+    }]).usSubtotal,
+    239,
+  );
+  assert.equal(PRODUCTS.some((product) => /glow/i.test(product.name)), false);
 });
 
 test("server rejects unsupported packs and preserves old ten-vial snapshot shape", () => {

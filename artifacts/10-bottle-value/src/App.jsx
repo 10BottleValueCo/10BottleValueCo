@@ -1580,7 +1580,6 @@ const PRODUCTS_BASE = [
       total: "200 mg total",
       note: "10 vial kit (10 vials included)",
       warehouse: "us",
-      outOfStock: true,
     },
     {
       name: "Ipamorelin",
@@ -1769,6 +1768,7 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 70,
       warehouse: "us",
+      outOfStock: true,
       coaImages: ["coa-reta-5mg-p1.png"],
       coaPdf: "coa-reta-5mg.pdf",
     },
@@ -1811,6 +1811,7 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 100,
       warehouse: "us",
+      outOfStock: true,
       coaImages: ["coa-reta-5mg-p1.png"],
       coaPdf: "coa-reta-5mg.pdf",
     },
@@ -1824,6 +1825,7 @@ const PRODUCTS_BASE = [
       marketPrice: 120,
       warehouse: "us",
       isHot: true,
+      outOfStock: true,
       coaImages: ["coa-reta-5mg-p1.png"],
       coaPdf: "coa-reta-5mg.pdf",
     },
@@ -1869,7 +1871,6 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 190,
       warehouse: "us",
-      outOfStock: true,
       coaImages: ["coa-reta-5mg-p1.png"],
       coaPdf: "coa-reta-5mg.pdf",
     },
@@ -1892,7 +1893,6 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 215,
       warehouse: "us",
-      outOfStock: true,
       coaImages: ["coa-reta-5mg-p1.png"],
       coaPdf: "coa-reta-5mg.pdf",
     },
@@ -1953,7 +1953,6 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 110,
       warehouse: "us",
-      outOfStock: true,
       coaImages: ["coa-tirz-30mg-p1.png"],
       coaPdf: "coa-tirz-30mg.pdf",
     },
@@ -1995,7 +1994,6 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
       warehouse: "us",
-      outOfStock: true,
     },
     {
       name: "Semax",
@@ -2052,6 +2050,7 @@ const PRODUCTS_BASE = [
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
       warehouse: "us",
+      outOfStock: true,
     },
     {
       name: "GHK-CU",
@@ -2199,7 +2198,6 @@ const PRODUCTS_BASE = [
       total: "400 mg total",
       note: "10 vial kit (10 vials included)",
       warehouse: "us",
-      outOfStock: true,
     },
     {
       name: "MOTS-C",
@@ -2264,7 +2262,6 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 115,
       warehouse: "us",
-      outOfStock: true,
       coaImages: ["coa-klow80-p1.png"],
       coaPdf: "coa-klow80.pdf",
     },
@@ -2439,7 +2436,6 @@ const PRODUCTS_BASE = [
       warehouse: "us",
       coaImages: ["coa-ipamorelin-5mg-p1.png"],
       coaPdf: "coa-ipamorelin-5mg.pdf",
-      outOfStock: true,
     },
     {
       name: "AOD",
@@ -2556,6 +2552,7 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
       warehouse: "us",
+      outOfStock: true,
       coaImages: ["coa-hcg-5000iu-p1.png"],
       coaPdf: "coa-hcg-5000iu.pdf",
     },
@@ -2578,6 +2575,7 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
       warehouse: "us",
+      outOfStock: true,
       coaImages: ["coa-hcg-5000iu-p1.png"],
       coaPdf: "coa-hcg-5000iu.pdf",
     },
@@ -2616,6 +2614,7 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       marketPrice: 40,
       warehouse: "us",
+      outOfStock: true,
       coaImages: ["coa-epitalon-50mg-p1.png"],
       coaPdf: "coa-epitalon-50mg.pdf",
     },
@@ -2897,6 +2896,136 @@ const PRODUCTS_BASE = [
       total: "100 mg total",
       note: "10 vial kit (10 vials included)",
       marketPrice: "—",
+    },
+    {
+      name: "BPC-157",
+      price: 79,
+      dose: "5 mg",
+      total: "50 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
+    },
+    {
+      name: "TB-500",
+      price: 219,
+      dose: "10 mg",
+      total: "100 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
+    },
+    {
+      name: "Retatrutide / GLP-3",
+      price: 209,
+      dose: "15 mg",
+      total: "150 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
+    },
+    {
+      name: "Tirzepatide / GLP-2",
+      price: 129,
+      dose: "15 mg",
+      total: "150 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
+    },
+    {
+      name: "Tirzepatide / GLP-2",
+      price: 149,
+      dose: "20 mg",
+      total: "200 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
+    },
+    {
+      name: "Tirzepatide / GLP-2",
+      price: 289,
+      dose: "50 mg",
+      total: "500 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
+    },
+    {
+      name: "Semax",
+      price: 79,
+      dose: "5 mg",
+      total: "50 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
+    },
+    {
+      name: "Selank",
+      price: 79,
+      dose: "5 mg",
+      total: "50 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
+    },
+    {
+      name: "Glutathione",
+      price: 139,
+      dose: "600 mg",
+      total: "6000 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
+    },
+    {
+      name: "Glutathione",
+      price: 179,
+      dose: "1500 mg",
+      total: "15000 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
+    },
+    {
+      name: "NAD+",
+      price: 259,
+      dose: "1000 mg",
+      total: "10000 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
+    },
+    {
+      name: "5-Amino-1MQ",
+      price: 219,
+      dose: "50 mg",
+      total: "500 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
+    },
+    {
+      name: "CJC-1295",
+      price: 319,
+      dose: "5 mg",
+      total: "50 mg total",
+      note: "10 vial kit (10 vials included)",
+      noteLabel: "with/d",
+      warehouse: "us",
+    },
+    {
+      name: "CJC-1295",
+      price: 299,
+      dose: "10 mg",
+      total: "100 mg total",
+      note: "10 vial kit (10 vials included)",
+      noteLabel: "no/d",
+      warehouse: "us",
+    },
+    {
+      name: "PT-141",
+      price: 119,
+      dose: "10 mg",
+      total: "100 mg total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
+    },
+    {
+      name: "BAC Water",
+      price: 29,
+      dose: "10 ml",
+      total: "100 ml total",
+      note: "10 vial kit (10 vials included)",
+      warehouse: "us",
     },
 ];
 // CATALOG_DATA_END
@@ -5588,7 +5717,8 @@ export default function App() {
   function getAffiliateReleaseDays(order) {
     // US warehouse: order.fromWarehouse, or shippingType contains "us-warehouse",
     // or ALL items have fromWarehouse === "us"
-    const itemsAllUS = Array.isArray(order?.items) && order.items.length > 0 && order.items.every(i => i.fromWarehouse === "us");
+    const itemsAllUS = order?.allItemsUs === true
+      || (Array.isArray(order?.items) && order.items.length > 0 && order.items.every(i => i.fromWarehouse === "us"));
     const isUS = order?.fromWarehouse === "us"
       || String(order?.shippingType || "").toLowerCase().includes("us-warehouse")
       || itemsAllUS;
@@ -8321,13 +8451,15 @@ export default function App() {
       }));
   }
 
-  async function loadAffiliateProfilesFromSupabase() {
+  async function loadAffiliateProfilesFromSupabase({ silent = false } = {}) {
     const requestId = ++affiliateProfileRequestRef.current;
     const userEmail = normalizeEmail(currentUser?.email);
     const isCurrent = () => requestId === affiliateProfileRequestRef.current
       && userEmail === affiliateProfileIdentityRef.current;
-    setAffiliateProfiles([]);
-    setAffiliateProfilesLoaded(false);
+    if (!silent) {
+      setAffiliateProfiles([]);
+      setAffiliateProfilesLoaded(false);
+    }
     setAffiliateProfileError("");
     try {
       let rows = [];
@@ -8362,7 +8494,11 @@ export default function App() {
         (profile) => normalizeEmail(profile.ownerEmail) === userEmail && profile.active !== false
       );
 
-      if (ownAffiliate && currentUser?.email) {
+      if (
+        ownAffiliate &&
+        currentUser?.email &&
+        String(currentUser.affiliateCode || "").trim().toUpperCase() !== ownAffiliate.code
+      ) {
         const updatedUser = {
           ...currentUser,
           affiliateCode: ownAffiliate.code,
@@ -8380,8 +8516,10 @@ export default function App() {
     } catch (error) {
       if (!isCurrent()) return;
       console.error("Failed to load Supabase affiliates", error);
-      setAffiliateProfileError("unavailable");
-      setAffiliateProfilesLoaded(true);
+      if (!silent) {
+        setAffiliateProfileError("unavailable");
+        setAffiliateProfilesLoaded(true);
+      }
     }
   }
 
@@ -8467,6 +8605,21 @@ export default function App() {
       }
 
       const orderDetailsById = new Map();
+      const affiliateMetadataFields = new Set([
+        "affiliateCode",
+        "affiliateCommission",
+        "affiliateCommissionAdjustment",
+        "affiliateCommissionDeduction",
+        "allItemsUs",
+        "createdAt",
+        "fromWarehouse",
+        "paidAt",
+        "refundCommissionDeduction",
+        "shippingType",
+        "status",
+        "subtotal",
+        "total",
+      ]);
       const addOrderDetails = (row) => {
         const orderId = String(row?.id ?? row?.order_id ?? "").trim();
         if (!orderId) return;
@@ -8481,7 +8634,9 @@ export default function App() {
           )
         );
         const definedMetadata = Object.fromEntries(
-          Object.entries(rowMetadata).filter(([, value]) => value !== undefined && value !== null)
+          Object.entries(rowMetadata).filter(
+            ([key, value]) => affiliateMetadataFields.has(key) && value !== undefined && value !== null
+          )
         );
         orderDetailsById.set(orderId, {
           ...previous,
@@ -8506,15 +8661,23 @@ export default function App() {
         .forEach((order) => {
           const metadata =
             order.metadata && typeof order.metadata === "object" ? order.metadata : {};
+          const items = Array.isArray(order.items)
+            ? order.items
+            : Array.isArray(metadata.items)
+              ? metadata.items
+              : [];
+          const allItemsUs = items.length > 0
+            ? items.every((item) => String(item?.fromWarehouse || "").toLowerCase() === "us")
+            : metadata.allItemsUs === true;
+          const affiliateCode = order.affiliateCode || metadata.affiliateCode;
           addOrderDetails({
             id: order.id,
             status: order.status,
             created_at: order.created_at || order.createdAt || null,
             total: order.total,
-            affiliate_code: order.affiliateCode || metadata.affiliateCode,
+            affiliate_code: affiliateCode,
             metadata: {
-              ...metadata,
-              affiliateCode: order.affiliateCode || metadata.affiliateCode,
+              affiliateCode,
               subtotal: order.subtotal ?? metadata.subtotal,
               total: order.total ?? metadata.total,
               paidAt: order.paidAt || metadata.paidAt,
@@ -8525,7 +8688,9 @@ export default function App() {
                 order.affiliateCommissionAdjustment ?? metadata.affiliateCommissionAdjustment,
               affiliateCommissionDeduction:
                 order.affiliateCommissionDeduction ?? metadata.affiliateCommissionDeduction,
-              items: order.items ?? metadata.items,
+              refundCommissionDeduction:
+                order.refundCommissionDeduction ?? metadata.refundCommissionDeduction,
+              allItemsUs,
             },
           });
         });
@@ -8553,11 +8718,6 @@ export default function App() {
         const shippingType = String(
           metadata.shippingType || order.shippingType || ledger?.shipping_type || "standard"
         ).toLowerCase();
-        const items = Array.isArray(metadata.items)
-          ? metadata.items
-          : Array.isArray(order.items)
-            ? order.items
-            : [];
         const createdAt =
           order.created_at || order.createdAt || metadata.createdAt || ledger?.created_at || null;
         const paidAt = metadata.paidAt || order.paidAt || createdAt;
@@ -8593,7 +8753,7 @@ export default function App() {
         const commissionTiming = {
           shippingType,
           fromWarehouse: metadata.fromWarehouse || order.fromWarehouse || "",
-          items,
+          allItemsUs: metadata.allItemsUs === true,
           createdAt: paidAt || createdAt,
           paidAt,
         };
@@ -8615,9 +8775,8 @@ export default function App() {
           commissionAvailable,
           available_at: availableAt instanceof Date ? availableAt.toISOString() : null,
           from_warehouse: metadata.fromWarehouse || order.fromWarehouse || "",
-          items,
         };
-      }).filter((order) => order.commissionEligible);
+      });
       commissionRows.sort(
         (a, b) => (Date.parse(b.created_at || "") || 0) - (Date.parse(a.created_at || "") || 0)
       );
@@ -9172,6 +9331,22 @@ export default function App() {
     loadAffiliateProfilesFromSupabase();
     return () => { affiliateProfileRequestRef.current += 1; };
   }, [currentUser?.id, currentUser?.email]);
+
+  useEffect(() => {
+    if (page !== "account" || !currentUser?.email) return undefined;
+
+    const refreshProfiles = () => {
+      if (document.visibilityState === "visible") {
+        loadAffiliateProfilesFromSupabase({ silent: true });
+      }
+    };
+    const refreshInterval = window.setInterval(refreshProfiles, 30_000);
+    window.addEventListener("focus", refreshProfiles);
+    return () => {
+      window.clearInterval(refreshInterval);
+      window.removeEventListener("focus", refreshProfiles);
+    };
+  }, [page, currentUser]);
 
   useEffect(() => {
     if (activeAffiliateCode) {
@@ -11109,6 +11284,7 @@ export default function App() {
       const { error } = await supabase.from("affiliates").upsert({
         email: email,
         code: code,
+        active: true,
       });
       if (error) {
         setIssueAffMessage(`Error: ${error.message}`);
@@ -13052,7 +13228,7 @@ export default function App() {
 
   const navigateAccountSection = (section) => {
     setActiveAccountSection(section);
-    if (section === "affiliate") loadAffiliateProfilesFromSupabase();
+    if (section === "affiliate") loadAffiliateProfilesFromSupabase({ silent: true });
     if (section === "messages") {
       setContactModalOpen(false);
       setReplyPreview(null);
@@ -14278,21 +14454,24 @@ export default function App() {
                       const active = productSelection.warehouse === warehouse;
                       const offer = resolveSelectedProduct(products, { ...productSelection, warehouse });
                       const unavailable = !offer || offer.outOfStock;
+                      const unavailableLabel = offer?.outOfStock
+                        ? tx("out of stock", "нет в наличии", "немає в наявності", "nicht auf Lager", "agotado")
+                        : tx("unavailable for this configuration", "эта комплектация недоступна", "ця комплектація недоступна", "diese Variante ist nicht verfügbar", "esta configuración no está disponible");
                       return (
                         <button key={warehouse} type="button"
                           onClick={() => { if (!active) changeProductSelection({ ...productSelection, warehouse }); }}
                           aria-pressed={active}
-                          aria-label={`${label}${unavailable ? ` — ${tx("unavailable for this configuration", "эта комплектация недоступна", "ця комплектація недоступна", "diese Variante ist nicht verfügbar", "esta configuración no está disponible")}` : ""}`}
+                          aria-label={`${label}${unavailable ? ` — ${unavailableLabel}` : ""}`}
                           className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-4 py-2 text-[12px] font-bold uppercase tracking-[0.12em] ${active ? "border-white bg-white text-black" : "border-white/20 bg-white/10 text-white hover:bg-white/20"}`}>
                           <span>{label}</span>
-                          {unavailable && <span className="text-[9px] font-semibold tracking-normal opacity-60">{tx("Unavailable", "Недоступно", "Недоступно", "Nicht verfügbar", "No disponible")}</span>}
+                          {unavailable && <span className="text-[9px] font-semibold tracking-normal opacity-60">{unavailableLabel}</span>}
                         </button>
                       );
                     })}
                   </div>
                   {selectedProductUnavailable && (
-                    <p id="warehouse-availability" role="status" className="mt-2 text-[12px] leading-5 text-white/80">
-                      {selectedProduct.dose} · {productSelection.vials} {tx("vials", "флаконов", "флаконів", "Fläschchen", "viales")} — {selectedProductConfigurationMissing
+                    <p id="warehouse-availability" role="status" className="mt-2 text-[12px] leading-5 text-white/80 uppercase">
+                      {selectedProduct.dose} · {productSelection.vials} {tx("vials", "флаконов", "флаконів", "Fläschchen", "viales")} · {selectedProductConfigurationMissing
                         ? tx("not available from this warehouse. Your strength and pack size have been kept.", "нет на этом складе. Дозировка и размер набора сохранены.", "немає на цьому складі. Дозування та розмір набору збережено.", "in diesem Lager nicht verfügbar. Stärke und Packungsgröße bleiben erhalten.", "no disponible en este almacén. Se mantienen la dosis y el tamaño del paquete.")
                         : tx("out of stock at this warehouse.", "нет в наличии на этом складе.", "немає в наявності на цьому складі.", "in diesem Lager ausverkauft.", "agotado en este almacén.")}
                     </p>

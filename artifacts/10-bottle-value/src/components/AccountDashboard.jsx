@@ -87,6 +87,7 @@ export default function AccountDashboard({
 
   const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim();
   const greetingName = user?.firstName?.trim() || "Researcher";
+  const hasAffiliateAccess = Boolean(affiliateProfile?.code) && affiliateProfile.active !== false;
   const shippingParts = [
     user?.address,
     user?.address2,
@@ -108,7 +109,9 @@ export default function AccountDashboard({
     { id: "shipping", label: tx("Shipping Details", "Доставка", "Доставка", "Versanddaten", "Datos de envío"), icon: "truck" },
     { id: "security", label: tx("Security", "Безопасность", "Безпека", "Sicherheit", "Seguridad"), icon: "lock" },
     { id: "avatars", label: tx("Avatars", "Аватары", "Аватари", "Avatare", "Avatares"), icon: "avatars" },
-    { id: "affiliate", label: tx("Affiliate", "Партнёрка", "Партнерка", "Affiliate", "Afiliados"), icon: "affiliate" },
+    ...(hasAffiliateAccess
+      ? [{ id: "affiliate", label: tx("Affiliate", "Партнёрка", "Партнерка", "Affiliate", "Afiliados"), icon: "affiliate" }]
+      : []),
   ];
 
   return (

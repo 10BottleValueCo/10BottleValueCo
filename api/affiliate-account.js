@@ -10,7 +10,6 @@ const ORDER_METADATA_FIELDS = [
   "affiliateCommissionDeduction",
   "createdAt",
   "fromWarehouse",
-  "items",
   "paidAt",
   "refundCommissionDeduction",
   "shippingType",
@@ -37,8 +36,9 @@ function getSupabaseConfig() {
   return { url, key };
 }
 
-async function supabaseGet(path) {
+async function supabaseGet(path, requestLog) {
   const { url, key } = getSupabaseConfig();
+  const resource = path.split("?")[0];
   let response;
   try {
     response = await fetch(`${url}/rest/v1/${path}`, {
@@ -48,27 +48,26 @@ async function supabaseGet(path) {
       },
       signal: AbortSignal.timeout(10000),
     });
-  } catch {
+  } catch (error) {
+    requestLog?.error(
+      { resource, errorType: error?.name || "network" },
+      "Supabase affiliate read failed",
+    );
     throw new AffiliateAccountError(503, "Affiliate account data is unavailable.");
   }
   if (!response.ok) {
+    requestLog?.error(
+      { resource, upstreamStatus: response.status },
+      "Supabase affiliate read failed",
+    );
     throw new AffiliateAccountError(503, "Affiliate account data is unavailable.");
   }
   const data = await response.json().catch(() => null);
   if (!Array.isArray(data)) {
+    requestLog?.error({ resource }, "Supabase affiliate response was invalid");
     throw new AffiliateAccountError(503, "Affiliate account data is unavailable.");
   }
   return data;
-}
-
-function sanitizeItem(item) {
-  if (!item || typeof item !== "object" || Array.isArray(item)) return null;
-  const allowed = ["dose", "fromWarehouse", "name", "noteLabel", "price", "quantity"];
-  return Object.fromEntries(
-    allowed
-      .filter((key) => item[key] !== undefined && item[key] !== null)
-      .map((key) => [key, item[key]]),
-  );
 }
 
 function sanitizeMetadata(value) {
@@ -79,10 +78,11 @@ function sanitizeMetadata(value) {
       .filter((key) => metadata[key] !== undefined && metadata[key] !== null)
       .map((key) => [key, metadata[key]]),
   );
-  if (Array.isArray(safe.items)) {
-    safe.items = safe.items.map(sanitizeItem).filter(Boolean);
-  } else {
-    delete safe.items;
+  const items = Array.isArray(metadata.items) ? metadata.items : [];
+  if (items.length > 0) {
+    safe.allItemsUs = items.every(
+      (item) => String(item?.fromWarehouse || "").toLowerCase() === "us",
+    );
   }
   return safe;
 }
@@ -118,13 +118,13 @@ function pagedParams(select, filters, offset) {
   return params.toString();
 }
 
-async function getAffiliate(email) {
+async function getAffiliate(email, requestLog) {
   const params = new URLSearchParams({
     select: "code,email,active,created_at",
     email: `eq.${email}`,
     limit: "2",
   });
-  const rows = await supabaseGet(`affiliates?${params.toString()}`);
+  const rows = await supabaseGet(`affiliates?${params.toString()}`, requestLog);
   if (rows.length > 1) {
     throw new AffiliateAccountError(409, "Affiliate account needs support review.");
   }
@@ -139,13 +139,13 @@ function normalizePublicCode(value) {
   return code;
 }
 
-async function getPublicAffiliateCode(code) {
+async function getPublicAffiliateCode(code, requestLog) {
   const params = new URLSearchParams({
     select: "code,active",
     code: affiliateCodeFilter(code),
     limit: "2",
   });
-  const rows = await supabaseGet(`affiliates?${params.toString()}`);
+  const rows = await supabaseGet(`affiliates?${params.toString()}`, requestLog);
   if (rows.length > 1) {
     throw new AffiliateAccountError(409, "Affiliate code needs support review.");
   }
@@ -156,7 +156,7 @@ async function getPublicAffiliateCode(code) {
     : null;
 }
 
-async function getPayoutTotal(code) {
+async function getPayoutTotal(code, requestLog) {
   const rows = await supabaseGet(
     `affiliate_payouts?${new URLSearchParams({
       select: "amount",
@@ -164,17 +164,19 @@ async function getPayoutTotal(code) {
       order: "created_at.asc",
       limit: "10000",
     }).toString()}`,
+    requestLog,
   );
   return rows.reduce((total, row) => total + Number(row.amount || 0), 0);
 }
 
-async function getAffiliatePage(code, offset) {
-  const orderSelect = "id,status,created_at,total,metadata,affiliate_code";
+async function getAffiliatePage(code, offset, requestLog) {
+  // Order attribution is stored in the metadata JSON and affiliate_orders
+  // ledger. The orders table has no top-level affiliate_code column.
+  const orderSelect = "id,status,created_at,total,metadata";
   const payoutsPromise =
-    offset === 0 ? getPayoutTotal(code).catch(() => null) : Promise.resolve(null);
+    offset === 0 ? getPayoutTotal(code, requestLog).catch(() => null) : Promise.resolve(null);
   const [
     ledgerRows,
-    codeColumnOrders,
     codeMetadataOrders,
     payoutsTotal,
   ] = await Promise.all([
@@ -184,13 +186,7 @@ async function getAffiliatePage(code, offset) {
         { affiliate_code: affiliateCodeFilter(code) },
         offset,
       )}`,
-    ),
-    supabaseGet(
-      `orders?${pagedParams(
-        orderSelect,
-        { affiliate_code: affiliateCodeFilter(code) },
-        offset,
-      )}`,
+      requestLog,
     ),
     supabaseGet(
       `orders?${pagedParams(
@@ -198,19 +194,17 @@ async function getAffiliatePage(code, offset) {
         { "metadata->>affiliateCode": affiliateCodeFilter(code) },
         offset,
       )}`,
+      requestLog,
     ),
     payoutsPromise,
   ]);
 
   return {
     ledgerRows,
-    codeColumnOrders: codeColumnOrders.map(sanitizeOrder),
+    codeColumnOrders: [],
     codeMetadataOrders: codeMetadataOrders.map(sanitizeOrder),
     payoutsTotal,
-    hasMore:
-      ledgerRows.length === PAGE_SIZE ||
-      codeColumnOrders.length === PAGE_SIZE ||
-      codeMetadataOrders.length === PAGE_SIZE,
+    hasMore: ledgerRows.length === PAGE_SIZE || codeMetadataOrders.length === PAGE_SIZE,
   };
 }
 
@@ -224,7 +218,7 @@ export default async function handler(req, res) {
   if (req.query?.code !== undefined) {
     try {
       const code = normalizePublicCode(req.query.code);
-      const affiliate = await getPublicAffiliateCode(code);
+      const affiliate = await getPublicAffiliateCode(code, req.log);
       return res.status(200).json({ ok: true, affiliate });
     } catch (error) {
       const status =
@@ -247,7 +241,7 @@ export default async function handler(req, res) {
 
   try {
     const offset = readOffset(req.query?.offset);
-    const affiliate = await getAffiliate(customer.email);
+    const affiliate = await getAffiliate(customer.email, req.log);
     if (!affiliate) {
       return res.status(200).json({
         ok: true,
@@ -263,7 +257,7 @@ export default async function handler(req, res) {
     const code = String(affiliate.code || "").trim().toUpperCase();
     const includeOrders = req.query?.orders === "1";
     const page = includeOrders
-      ? await getAffiliatePage(code, offset)
+      ? await getAffiliatePage(code, offset, req.log)
       : {
           ledgerRows: [],
           codeColumnOrders: [],
