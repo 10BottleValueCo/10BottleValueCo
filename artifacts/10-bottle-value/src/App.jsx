@@ -12237,15 +12237,25 @@ export default function App() {
         return;
       }
 
-      if (signUpData?.session) {
-        await supabase.auth.signOut();
-        setAccountMessage(tx(
-          "Email confirmation is not enabled for this site. Please contact support before signing in.",
-          "Подтверждение email не включено на этом сайте. Перед входом обратитесь в поддержку.",
-          "Підтвердження email не ввімкнено на цьому сайті. Перед входом зверніться до служби підтримки.",
-          "Die E-Mail-Bestätigung ist auf dieser Website nicht aktiviert. Bitte wenden Sie sich vor der Anmeldung an den Support.",
-          "La confirmación por email no está activada en este sitio. Contacta con soporte antes de iniciar sesión."
-        ));
+      if (signUpData?.session?.user) {
+        requireSignupVerificationRef.current = false;
+        const newUser = userFromSupabase(signUpData.session.user);
+        setCurrentUser(newUser);
+        setAccountForm({ email: newUser.email, password: "", confirmPassword: "" });
+        setContactForm((form) => ({ ...form, email: form.email || newUser.email || "" }));
+        setAccountPromoCodeInput("");
+        setSignupVerificationEmail("");
+        setSignupVerificationCode("");
+        setPendingRegistrationPromoCode("");
+        setAuthMode("signin");
+        setAccountMessage("");
+        syncUserPaidOrders(newUser.email);
+        fetchUserPromos(newUser.email, appliedPromo);
+        loadStoreCredit(newUser.email);
+        if (pendingCheckoutAfterAuth && cart.length > 0) {
+          setPendingCheckoutAfterAuth(false);
+          setPage("cart");
+        }
         return;
       }
 
