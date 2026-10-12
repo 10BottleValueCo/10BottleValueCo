@@ -24,25 +24,26 @@ const BASE_API_URL = IS_PRODUCTION
   ? "https://api.paidlyinteractive.com"
   : "https://api-staging.paidlyinteractive.com";
 
-export default async function handler(req, res) {
+export default async function handler(req, res, checkoutBody) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   const markTiming = checkoutTiming(res);
-  const creditError = legacyCreditStartError(req.body);
+  const input = checkoutBody === undefined ? req.body : checkoutBody;
+  const creditError = legacyCreditStartError(input);
   if (creditError) {
     const { status, ...body } = creditError;
     return res.status(status).json(body);
   }
-  const access = await requireLegacyOrderAccess(req, res, { orderId: req.body?.order_id, provider: "catalystpay" });
+  const access = await requireLegacyOrderAccess(req, res, { orderId: input?.order_id, provider: "catalystpay" });
   if (!access) return;
   markTiming("access");
-  const existingCreditError = await legacyExistingCreditOrderError(req.body);
+  const existingCreditError = await legacyExistingCreditOrderError(input);
   markTiming("credit");
   if (existingCreditError) {
     const { status, ...body } = existingCreditError;
     return res.status(status).json(body);
   }
 
-  req.body = { ...req.body, email: access.identity.email, customer_email: access.identity.email };
+  const body = { ...input, email: access.identity.email, customer_email: access.identity.email };
   try {
     if (!MERCHANT_ID || !API_TOKEN) {
       return res.status(500).json({ error: "Payment verification is temporarily unavailable." });
@@ -69,21 +70,21 @@ export default async function handler(req, res) {
       taxId = "",
       items = [],
       paymentMethod = "",
-    } = req.body || {};
+    } = body;
 
     if (!order_id) return res.status(400).json({ error: "Missing order_id" });
 
     if (access.order.metadata?.catalystpay_invoice_id && String(affiliateCode || "").trim().toUpperCase() !== String(access.order.metadata.affiliateCode || "").trim().toUpperCase())
       return res.status(409).json({ code: "PAYMENT_BINDING_CONFLICT", error: "This payment has already started. Restore its original referral or contact support." });
 
-    const quote = await legacyCheckoutQuote(req.body, customer_email, { crypto: false, customerId: access.identity.id });
+    const quote = await legacyCheckoutQuote(body, customer_email, { crypto: false, customerId: access.identity.id });
     const { pricedItems, subtotal, regularSubtotal, promoDiscount, discountRule, finalAutomaticDiscount,
       finalAffiliateDiscount, shipping, affiliateOwnerEmail, affiliateAttributionCode, affiliateCommission,
       affiliateRuleVersion } = quote;
     const cryptoDiscountAmount = quote.cryptoDiscount;
     const safeStoreCreditUsed = 0;
     const price_amount = quote.total;
-    assertExpectedTotal(req.body.expectedTotal, price_amount);
+    assertExpectedTotal(body.expectedTotal, price_amount);
     markTiming("quote");
 
     if (!price_amount || price_amount <= 0) {
@@ -100,7 +101,7 @@ export default async function handler(req, res) {
         || String(saved.promoCode || "") !== String(promoCode || "")
         || String(saved.affiliateCode || "") !== String(affiliateCode || "").trim().toUpperCase()
         || ['firstName', 'lastName', 'country', 'address', 'address2', 'city', 'state', 'postalCode', 'phone', 'taxId', 'orderNotes']
-          .some(field => String(req.body[field] || saved[field] || '') !== String(saved[field] || ''))
+          .some(field => String(body[field] || saved[field] || '') !== String(saved[field] || ''))
         || Number(saved.promoDiscount || 0) !== promoDiscount || Number(saved.affiliateDiscount || 0) !== finalAffiliateDiscount)
         return res.status(409).json({ code: "PAYMENT_BINDING_CONFLICT", error: "This payment has already started. Return to the original checkout or contact support." });
       const invoice = await verifyCatalystInvoiceBinding(access.order, savedInvoiceId);
@@ -124,7 +125,7 @@ export default async function handler(req, res) {
       affiliateAttributionCode, affiliateCommission, affiliateRuleVersion, affiliateQuoteVersion: "server-referral-v1",
       shippingType, items: pricedItems,
       ...Object.fromEntries(["firstName", "lastName", "country", "address", "address2", "city", "state", "postalCode", "phone", "taxId", "orderNotes"]
-        .map(key => [key, String(req.body[key] || access.order.metadata?.[key] || "")])),
+        .map(key => [key, String(body[key] || access.order.metadata?.[key] || "")])),
     }, pricedItems);
     markTiming("reserve");
 

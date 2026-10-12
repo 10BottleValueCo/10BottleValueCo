@@ -4,6 +4,8 @@ import { requireOrderIdentity, withVerifiedOrderIdentity, ownsOrder } from "./_o
 import { paylioResumeMatchesOrder } from "./_paylio-binding.js";
 import { catalystResumeMatchesOrder, nowpaymentsResumeMatchesOrder } from "./_catalystpay-resume.js";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import startPaylioPayment from "./create-paylio-payment.js";
+import startCatalystPayment from "./create-catalystpay-session.js";
 
 const ACCESS_COOKIE = "tbv_checkout_access";
 const ALLOWED_STATUSES = new Set(["pending", "checkout"]);
@@ -460,13 +462,10 @@ async function saveAndStartPayment(req, res) {
     if (!saved) return;
     res.setHeader("X-Checkout-Saved", "1");
     markTiming("save");
-    const provider = payment.kind === "paylio"
-      ? (await import("./create-paylio-payment.js")).default
-      : (await import("./create-catalystpay-session.js")).default;
-    const original = req.body;
-    req.body = body;
-    try { await provider(req, res); }
-    finally { req.body = original; }
+    const provider = payment.kind === "paylio" ? startPaylioPayment : startCatalystPayment;
+    // Preserve the original request and its server-verified identity. Platform
+    // request properties may be accessors; do not overwrite req.body to forward.
+    await provider(req, res, body);
   });
 }
 
@@ -494,12 +493,24 @@ export default async function handler(req, res) {
         : "Checkout order storage is unavailable.";
     const code = error instanceof CheckoutError ? error.code : "CHECKOUT_INTERNAL_ERROR";
     if (!(error instanceof CheckoutError) || code === "CHECKOUT_ORDER_SAVE_UNACKNOWLEDGED") {
-      console.error("Checkout handler failed", { code });
+      console.error("Checkout handler failed", {
+        code,
+        ...(error instanceof CheckoutError ? {} : safeExceptionDiagnostic(error)),
+      });
     }
     res.status(status).json({
       ok: false, error: message,
       ...(code ? { code } : {}),
       ...(error instanceof CheckoutError && error.diagnostic ? { diagnostic: error.diagnostic } : {}),
+      ...(!(error instanceof CheckoutError) ? { diagnostic: safeExceptionDiagnostic(error) } : {}),
     });
   }
+}
+
+function safeExceptionDiagnostic(error) {
+  const exceptionName = ["TypeError", "ReferenceError", "SyntaxError", "RangeError"].includes(error?.name)
+    ? error.name : "Error";
+  const runtimeCode = ["ERR_MODULE_NOT_FOUND", "MODULE_NOT_FOUND", "ERR_REQUIRE_ESM", "ERR_UNKNOWN_FILE_EXTENSION"].includes(error?.code)
+    ? error.code : undefined;
+  return { exceptionName, ...(runtimeCode ? { runtimeCode } : {}) };
 }

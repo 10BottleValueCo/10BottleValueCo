@@ -10,6 +10,12 @@ export function checkoutFailureMessage(result, fallback = "Could not save this c
   if (!/^CHECKOUT_[A-Z_]{1,50}$/.test(result?.code || "")) return message;
   const details = [`Code: ${result.code}`];
   const diagnostic = result?.diagnostic;
+  if (["Error", "TypeError", "ReferenceError", "SyntaxError", "RangeError"].includes(diagnostic?.exceptionName)) {
+    details.push(`Exception: ${diagnostic.exceptionName}`);
+  }
+  if (["ERR_MODULE_NOT_FOUND", "MODULE_NOT_FOUND", "ERR_REQUIRE_ESM", "ERR_UNKNOWN_FILE_EXTENSION"].includes(diagnostic?.runtimeCode)) {
+    details.push(`Runtime code: ${diagnostic.runtimeCode}`);
+  }
   if (STAGES.has(diagnostic?.stage)) details.push(`Step: ${diagnostic.stage}`);
   if (Number.isInteger(diagnostic?.storageStatus)
     && diagnostic.storageStatus >= 100 && diagnostic.storageStatus <= 599) {

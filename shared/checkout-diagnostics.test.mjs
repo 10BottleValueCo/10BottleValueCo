@@ -30,3 +30,17 @@ test("raw upstream details and invalid diagnostic fields are never rendered", ()
   assert.equal(checkoutFailureMessage({ error: "Old error." }), "Old error.");
   assert.equal(checkoutFailureMessage({ code: "private-token" }), "Could not save this checkout.");
 });
+
+test("runtime diagnostics reveal only fixed exception names and module error codes", () => {
+  const text = checkoutFailureMessage({
+    error: "Storage unavailable.", code: "CHECKOUT_INTERNAL_ERROR",
+    diagnostic: { exceptionName: "TypeError", runtimeCode: "ERR_MODULE_NOT_FOUND", message: "private-token" },
+  });
+  assert.match(text, /Exception: TypeError/);
+  assert.match(text, /Runtime code: ERR_MODULE_NOT_FOUND/);
+  assert.ok(!text.includes("private-token"));
+  assert.equal(checkoutFailureMessage({
+    error: "Storage unavailable.", code: "CHECKOUT_INTERNAL_ERROR",
+    diagnostic: { exceptionName: "private-token", runtimeCode: "private-token" },
+  }), "Storage unavailable. [Code: CHECKOUT_INTERNAL_ERROR]");
+});

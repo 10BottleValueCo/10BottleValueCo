@@ -455,3 +455,33 @@ test("unexpected checkout exceptions get a fixed code without exposing their mes
   assert.equal(res.body.code, "CHECKOUT_INTERNAL_ERROR");
   assert.ok(!JSON.stringify([res.body, logged]).includes("private-token"));
 });
+
+test("combined legacy payment start supports a read-only request body without mutating it", async t => {
+  for (const kind of ["paylio", "catalystpay"]) await t.test(kind, async t => {
+    const sb = createSupabaseMock();
+    withTestEnvironment(t, sb.fetchMock);
+    const originalBody = {
+      order: checkoutOrder(),
+      payment: {
+        kind,
+        body: { orderId: ORDER_ID, order_id: ORDER_ID, email: EMAIL, currency: "EUR", items: [], expectedTotal: 129.5 },
+      },
+    };
+    const req = makeRequest({ body: originalBody });
+    Object.defineProperty(req, "body", { configurable: true, enumerable: true, get: () => originalBody });
+    const res = makeRes();
+    await handler(req, res);
+    assert.equal(res.headers["X-Checkout-Saved"], "1");
+    assert.equal(sb.rows.length, 1);
+    assert.equal(req.body, originalBody);
+    assert.notEqual(res.body?.code, "CHECKOUT_INTERNAL_ERROR", JSON.stringify(res.body));
+    // Invalid currency/empty items cannot produce a payable invoice; reach the
+    // provider's normal validation/configuration response without real payment.
+    assert.ok(res.statusCode >= 400);
+    if (kind === "paylio") {
+      assert.equal(res.statusCode, 400);
+      assert.equal(res.body.error, "This checkout is priced in USD.");
+    }
+    assert.ok(!sb.calls.some(call => call.url.hostname !== "supabase.test"));
+  });
+});

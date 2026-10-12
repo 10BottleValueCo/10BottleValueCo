@@ -17,27 +17,28 @@ import { summarizePaylioResponse } from "./_paylio-diagnostics.js";
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
 
-export default async function handler(req, res) {
+export default async function handler(req, res, checkoutBody) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
   const markTiming = checkoutTiming(res);
-  const creditError = legacyCreditStartError(req.body);
+  const input = checkoutBody === undefined ? req.body : checkoutBody;
+  const creditError = legacyCreditStartError(input);
   if (creditError) {
     const { status, ...body } = creditError;
     return res.status(status).json(body);
   }
-  const access = await requireLegacyOrderAccess(req, res, { orderId: req.body?.order_id || req.body?.orderId, provider: "paylio" });
+  const access = await requireLegacyOrderAccess(req, res, { orderId: input?.order_id || input?.orderId, provider: "paylio" });
   if (!access) return;
   markTiming("access");
-  const existingCreditError = await legacyExistingCreditOrderError(req.body);
+  const existingCreditError = await legacyExistingCreditOrderError(input);
   markTiming("credit");
   if (existingCreditError) {
     const { status, ...body } = existingCreditError;
     return res.status(status).json(body);
   }
 
-  req.body = { ...req.body, email: access.identity.email, customer_email: access.identity.email };
+  const body = { ...input, email: access.identity.email, customer_email: access.identity.email };
   let phase = "quote";
   let providerStatus = null;
   let providerDiagnostic;
@@ -58,7 +59,7 @@ export default async function handler(req, res) {
       affiliateOwnerEmail = "",
       affiliateCommission = 0,
       storeCreditUsed = 0,
-    } = req.body || {};
+    } = body;
 
     if (String(currency).toUpperCase() !== "USD") return res.status(400).json({ error: "This checkout is priced in USD." });
     if (provider && !["multi","moonpay","wert","revolut","cryptocom","rampnetwork","transak","coinbase","paypal","stripe","banxa","klarna"].includes(provider))
@@ -179,7 +180,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Order total must be greater than zero." });
     }
 
-    assertExpectedTotal(req.body.expectedTotal, amount);
+    assertExpectedTotal(body.expectedTotal, amount);
     const safeAmount = amount.toFixed(2);
     const baseUrl = process.env.BASE_URL || "https://10bottlevalue.co";
     const source = access.order.metadata || {};
