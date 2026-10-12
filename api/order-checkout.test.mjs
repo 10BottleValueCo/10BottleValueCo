@@ -380,3 +380,78 @@ test('customer checkout cannot set wire_pending or inject server-owned invoice a
   const saved=makeRes();await handler(makeRequest({body:{order:checkoutOrder({metadata:injected})}}),saved);assert.equal(saved.statusCode,200);
   for(const key of Object.keys(injected))assert.equal(sb.rows[0].metadata[key],undefined,key);
 });
+
+test("checkout storage failures expose safe diagnostics without upstream data", async t => {
+  const cases = [
+    { kind: "missing_key", code: "CHECKOUT_STORAGE_CONFIG_MISSING" },
+    { kind: "missing_url", code: "CHECKOUT_STORAGE_CONFIG_MISSING" },
+    { kind: "timeout", code: "CHECKOUT_STORAGE_TIMEOUT" },
+    { kind: "network", code: "CHECKOUT_STORAGE_CONNECTION_FAILED" },
+    { kind: "body_read", code: "CHECKOUT_STORAGE_CONNECTION_FAILED" },
+    { kind: "rejected", code: "CHECKOUT_STORAGE_REJECTED", storageStatus: 400, storageCode: "PGRST204" },
+    { kind: "forbidden", code: "CHECKOUT_STORAGE_REJECTED", storageStatus: 403, storageCode: "42501" },
+    { kind: "conflict", code: "CHECKOUT_STORAGE_CONFLICT", storageStatus: 409, storageCode: "23505", status: 409 },
+    { kind: "unsafe_code", code: "CHECKOUT_STORAGE_REJECTED", storageStatus: 400 },
+    { kind: "invalid_json", code: "CHECKOUT_STORAGE_RESPONSE_INVALID", storageStatus: 200 },
+    { kind: "unexpected_shape", code: "CHECKOUT_STORAGE_RESPONSE_INVALID", storageStatus: 200 },
+    { kind: "unacknowledged", code: "CHECKOUT_ORDER_SAVE_UNACKNOWLEDGED", stage: "ORDER_CREATE" },
+  ];
+  for (const scenario of cases) await t.test(scenario.kind, async t => {
+    const logged = [];
+    const originalError = console.error;
+    console.error = (...args) => logged.push(args);
+    t.after(() => { console.error = originalError; });
+    const sb = createSupabaseMock();
+    withTestEnvironment(t, async (input, options = {}) => {
+      const url = new URL(input);
+      if (url.pathname === "/auth/v1/user") {
+        const response = await sb.fetchMock(input, options);
+        if (scenario.kind === "missing_key") delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+        if (scenario.kind === "missing_url") delete process.env.SUPABASE_URL;
+        return response;
+      }
+      if (scenario.kind === "timeout") throw new DOMException("private-token", "TimeoutError");
+      if (scenario.kind === "network") throw new TypeError("private-token");
+      if (scenario.kind === "body_read") return { text: async () => { throw new Error("private-token"); } };
+      if (["rejected", "forbidden", "conflict", "unsafe_code"].includes(scenario.kind)) {
+        return makeResponse({
+          code: scenario.kind === "unsafe_code" ? "private-token" : scenario.storageCode,
+          message: "private-token", details: EMAIL, hint: "private-token",
+        }, scenario.storageStatus);
+      }
+      if (scenario.kind === "invalid_json") return new Response("private-token", { status: 200 });
+      if (scenario.kind === "unexpected_shape") return makeResponse({ private: EMAIL });
+      if (scenario.kind === "unacknowledged" && options.method === "POST") return makeResponse([]);
+      return sb.fetchMock(input, options);
+    });
+    const res = makeRes();
+    await handler(makeRequest({ body: { order: checkoutOrder() } }), res);
+    assert.equal(res.statusCode, scenario.status || 503);
+    assert.equal(res.body.code, scenario.code);
+    assert.equal(res.body.diagnostic.stage, scenario.stage || "ORDER_LOOKUP");
+    assert.equal(res.body.diagnostic.storageStatus, scenario.storageStatus);
+    assert.equal(res.body.diagnostic.storageCode, scenario.storageCode);
+    if (scenario.kind.startsWith("missing_")) assert.deepEqual(res.body.diagnostic.missing,
+      [scenario.kind === "missing_key" ? "service_key" : "url"]);
+    for (const text of [JSON.stringify(res.body), JSON.stringify(logged)]) {
+      assert.ok(!text.includes("private-token"));
+      assert.ok(!text.includes(EMAIL));
+      assert.ok(!text.includes("test-service-role-key"));
+    }
+  });
+});
+
+test("unexpected checkout exceptions get a fixed code without exposing their message", async t => {
+  withTestEnvironment(t, createSupabaseMock().fetchMock);
+  const logged = [];
+  const previous = console.error;
+  console.error = (...args) => logged.push(args);
+  t.after(() => { console.error = previous; });
+  const req = makeRequest();
+  Object.defineProperty(req, "body", { get() { throw new Error("private-token"); } });
+  const res = makeRes();
+  await handler(req, res);
+  assert.equal(res.statusCode, 503);
+  assert.equal(res.body.code, "CHECKOUT_INTERNAL_ERROR");
+  assert.ok(!JSON.stringify([res.body, logged]).includes("private-token"));
+});

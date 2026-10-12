@@ -23,9 +23,11 @@ const AUTHORITY_FIELDS = new Set([
 ]);
 
 class CheckoutError extends Error {
-  constructor(status, message) {
+  constructor(status, message, code, diagnostic) {
     super(message);
     this.status = status;
+    this.code = code;
+    this.diagnostic = diagnostic;
   }
 }
 
@@ -176,14 +178,26 @@ function orderQuery(id) {
 
 async function supabaseJson(path, options = {}) {
   const { url, key } = getSupabaseConfig();
+  // Fixed labels only: never expose query strings, IDs, payloads or URLs.
+  const method = options.method || "GET";
+  const stage = path.startsWith("paylio_payment_attempts?")
+    ? "PAYMENT_BINDING_LOOKUP"
+    : method === "POST" ? "ORDER_CREATE"
+      : method === "PATCH" ? "ORDER_UPDATE" : "ORDER_LOOKUP";
   if (!url || !key) {
-    throw new CheckoutError(503, "Checkout order storage is unavailable.");
+    const diagnostic = { stage, missing: [
+      ...(!url ? ["url"] : []), ...(!key ? ["service_key"] : []),
+    ] };
+    console.error("Checkout storage configuration missing", diagnostic);
+    throw new CheckoutError(503, "Checkout order storage is not configured.",
+      "CHECKOUT_STORAGE_CONFIG_MISSING", diagnostic);
   }
 
   let response;
+  let text;
   try {
     response = await fetch(`${url}/rest/v1/${path}`, {
-      method: options.method || "GET",
+      method,
       headers: {
         apikey: key,
         Authorization: `Bearer ${key}`,
@@ -195,14 +209,18 @@ async function supabaseJson(path, options = {}) {
         : { body: JSON.stringify(options.body) }),
       signal: AbortSignal.timeout(10000),
     });
+    text = await response.text();
   } catch (error) {
+    const timeout = ["TimeoutError", "AbortError"].includes(error?.name);
     console.error("Checkout order storage connection failed", {
-      errorName: error instanceof Error ? error.name : "UnknownError",
+      stage,
+      code: timeout ? "CHECKOUT_STORAGE_TIMEOUT" : "CHECKOUT_STORAGE_CONNECTION_FAILED",
     });
-    throw new CheckoutError(503, "Checkout order storage is unavailable.");
+    throw new CheckoutError(503,
+      timeout ? "Checkout order storage timed out." : "Could not connect to checkout order storage.",
+      timeout ? "CHECKOUT_STORAGE_TIMEOUT" : "CHECKOUT_STORAGE_CONNECTION_FAILED", { stage });
   }
 
-  const text = await response.text();
   let data = null;
   if (text) {
     try {
@@ -216,10 +234,11 @@ async function supabaseJson(path, options = {}) {
       data &&
       typeof data === "object" &&
       typeof data.code === "string" &&
-      /^[A-Z0-9_]{1,24}$/i.test(data.code)
+      /^(?:PGRST\d{3}|[0-9A-Z]{5})$/.test(data.code)
         ? data.code
         : undefined;
     console.error("Checkout order storage request failed", {
+      stage,
       status: response.status,
       code: responseCode,
     });
@@ -228,8 +247,15 @@ async function supabaseJson(path, options = {}) {
       response.status === 409
         ? "This order is already being processed. Refresh and try again."
         : "Checkout order storage is unavailable.",
+      response.status === 409 ? "CHECKOUT_STORAGE_CONFLICT" : "CHECKOUT_STORAGE_REJECTED",
+      { stage, storageStatus: response.status, ...(responseCode ? { storageCode: responseCode } : {}) },
     );
     throw error;
+  }
+  if (!Array.isArray(data)) {
+    console.error("Checkout order storage response invalid", { stage, status: response.status });
+    throw new CheckoutError(503, "Checkout order storage returned an invalid response.",
+      "CHECKOUT_STORAGE_RESPONSE_INVALID", { stage, storageStatus: response.status });
   }
   return data;
 }
@@ -396,7 +422,8 @@ async function saveOrder(req, res) {
     if (!Array.isArray(inserted) || inserted.length !== 1 || inserted[0].id !== order.id
       || inserted[0].user_id !== identity.id || inserted[0].email !== identity.email
       || inserted[0].status !== order.status || Number(inserted[0].total) !== order.total) {
-      throw new CheckoutError(503, "The checkout order could not be saved.");
+      throw new CheckoutError(503, "The checkout order could not be saved.",
+        "CHECKOUT_ORDER_SAVE_UNACKNOWLEDGED", { stage: "ORDER_CREATE" });
     }
   }
 
@@ -465,6 +492,14 @@ export default async function handler(req, res) {
       error instanceof CheckoutError
         ? error.message
         : "Checkout order storage is unavailable.";
-    res.status(status).json({ ok: false, error: message });
+    const code = error instanceof CheckoutError ? error.code : "CHECKOUT_INTERNAL_ERROR";
+    if (!(error instanceof CheckoutError) || code === "CHECKOUT_ORDER_SAVE_UNACKNOWLEDGED") {
+      console.error("Checkout handler failed", { code });
+    }
+    res.status(status).json({
+      ok: false, error: message,
+      ...(code ? { code } : {}),
+      ...(error instanceof CheckoutError && error.diagnostic ? { diagnostic: error.diagnostic } : {}),
+    });
   }
 }

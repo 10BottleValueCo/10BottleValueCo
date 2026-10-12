@@ -1,4 +1,5 @@
 import { sumLineAmounts, discountAmount, addAmounts } from "../../../shared/checkout-money.js";
+import { checkoutFailureMessage } from "../../../shared/checkout-diagnostics.js";
 // @ts-nocheck
 // cache-bust
 // @ts-nocheck
@@ -7288,7 +7289,7 @@ export default function App() {
       if (currentUser?.email) setUserOrders(getPaidOrdersForEmail(currentUser.email, next));
     }
     if (!response.ok || (!payment && result?.ok !== true)) {
-      throw new Error(result?.error || "Could not save this checkout.");
+      throw new Error(checkoutFailureMessage(result));
     }
     return result;
   }
