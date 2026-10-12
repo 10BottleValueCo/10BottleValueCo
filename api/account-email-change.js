@@ -1,5 +1,4 @@
 const PENDING_FIELD = "tbv_pending_email_migration";
-const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 class EmailChangeError extends Error {
@@ -160,12 +159,8 @@ async function verifyCurrentPassword(config, customer, password) {
 }
 
 async function setPending(config, user, pending) {
-  const metadata =
-    user.app_metadata && typeof user.app_metadata === "object"
-      ? user.app_metadata
-      : {};
   await adminRequest(config, user.id, "PUT", {
-    app_metadata: { ...metadata, [PENDING_FIELD]: pending },
+    app_metadata: { [PENDING_FIELD]: pending },
   });
 }
 
@@ -180,17 +175,18 @@ async function clearPending(config, userId, expected) {
     expected &&
     (!pending ||
       normalizeEmail(pending.from) !== normalizeEmail(expected.from) ||
-      normalizeEmail(pending.to) !== normalizeEmail(expected.to))
+      normalizeEmail(pending.to) !== normalizeEmail(expected.to) ||
+      (expected.createdAt && pending.createdAt !== expected.createdAt))
   ) {
     return;
   }
   if (!pending) return;
-  const nextMetadata = { ...metadata };
-  delete nextMetadata[PENDING_FIELD];
-  await adminRequest(config, userId, "PUT", { app_metadata: nextMetadata });
+  // Supabase merges app_metadata; omitting a key does not remove it.
+  // Null explicitly removes only our reservation without rewriting roles.
+  await adminRequest(config, userId, "PUT", { app_metadata: { [PENDING_FIELD]: null } });
 }
 
-async function prepare(req, config, customer, body) {
+async function prepare(req, config, customer, body, replace = false) {
   const currentEmail = normalizeEmail(body.currentEmail);
   const newEmail = normalizeEmail(body.newEmail);
   if (currentEmail !== customer.email) {
@@ -211,20 +207,18 @@ async function prepare(req, config, customer, body) {
 
   let existing = user?.app_metadata?.[PENDING_FIELD];
   if (existing) {
-    const age = Date.now() - Date.parse(existing.createdAt || "");
     const stale =
       normalizeEmail(user.email) === normalizeEmail(existing.from) &&
-      Number.isFinite(age) &&
-      age > PENDING_TTL_MS;
+      !normalizeEmail(user.new_email);
     if (stale) {
       await clearPending(config, customer.id, existing);
       existing = null;
     }
   }
-  if (existing) {
+  if (existing && (!replace || normalizeEmail(existing.from) !== customer.email)) {
     throw new EmailChangeError(
       409,
-      "An email change is already pending. Confirm it or wait 24 hours before starting another.",
+      "An email change is already pending. Check its status before starting another.",
     );
   }
 
@@ -235,7 +229,62 @@ async function prepare(req, config, customer, body) {
     createdAt: new Date().toISOString(),
   };
   await setPending(config, user, pending);
-  return { ok: true, prepared: true };
+  return { ok: true, prepared: true, ...(replace ? { previousPending: existing || null, pending } : {}) };
+}
+
+async function requestEmailChange(req, config, customer, body) {
+  const reservation = await prepare(req, config, customer, body, true);
+  let failure;
+  let rejected = false;
+  try {
+    const response = await fetch(`${config.url}/auth/v1/user`, {
+      method: "PUT",
+      headers: {
+        apikey: config.anonKey,
+        Authorization: `Bearer ${customer.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email: reservation.pending.to }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const result = await readBody(response);
+    if (!response.ok) {
+      rejected = true;
+      const taken = result?.code === "email_exists" ||
+        /already.*(registered|exists|use)|email.*taken/i.test(String(result?.msg || result?.message || result?.error_description || ""));
+      const limited = response.status === 429;
+      failure = new EmailChangeError(
+        taken ? 409 : limited ? 429 : 503,
+        taken ? "This email is already used by another account. Enter a different email."
+          : limited ? "Too many email requests. Wait a few minutes and try again."
+          : "Could not send the confirmation email. Please try again.",
+      );
+    }
+  } catch {
+    failure = new EmailChangeError(503, "Could not verify whether the confirmation email was sent. Check status or try again.");
+  }
+  // Read the provider's actual state, not just our reservation. This also
+  // reconciles a timeout after Supabase accepted the request.
+  const user = await adminRequest(config, customer.id);
+  if (normalizeEmail(user.email) === reservation.pending.to ||
+      (!rejected && normalizeEmail(user.new_email) === reservation.pending.to)) {
+    try {
+      return await finalize(config, customer, req);
+    } catch (error) {
+      if (normalizeEmail(user.email) === reservation.pending.to &&
+          error instanceof EmailChangeError && error.status >= 500) {
+        return { ok: true, migrated: false, pendingMigration: true, newEmail: reservation.pending.to };
+      }
+      throw error;
+    }
+  }
+  const latest = user?.app_metadata?.[PENDING_FIELD];
+  if (latest?.createdAt === reservation.pending.createdAt &&
+      normalizeEmail(latest.to) === reservation.pending.to) {
+    if (reservation.previousPending) await setPending(config, user, reservation.previousPending);
+    else await clearPending(config, customer.id, reservation.pending);
+  }
+  throw failure || new EmailChangeError(409, "The email change was not started. The address may already be in use. Enter a different email.");
 }
 
 async function cancel(config, customer) {
@@ -244,6 +293,9 @@ async function cancel(config, customer) {
   if (!pending) return { ok: true, cancelled: false };
   if (normalizeEmail(user.email) !== normalizeEmail(pending.from)) {
     throw new EmailChangeError(409, "This email change has already been confirmed.");
+  }
+  if (normalizeEmail(user.new_email) === normalizeEmail(pending.to)) {
+    throw new EmailChangeError(409, "This change is awaiting confirmation. Enter a different email to replace it.");
   }
   await clearPending(config, customer.id, pending);
   return { ok: true, cancelled: true };
@@ -275,7 +327,10 @@ async function finalize(config, customer, req) {
   const adminEmail = normalizeEmail(user.email);
   if (adminEmail !== to) {
     if (adminEmail === from) {
-      return { ok: true, migrated: false, pendingConfirmation: true };
+      if (normalizeEmail(user.new_email) === to) {
+        return { ok: true, migrated: false, pendingConfirmation: true, newEmail: to };
+      }
+      return { ok: true, migrated: false, requestNotSent: true };
     }
     throw new EmailChangeError(409, "The pending email change needs support review.");
   }
@@ -302,7 +357,8 @@ export default async function handler(req, res) {
         : {};
 
     let result;
-    if (body.action === "prepare") result = await prepare(req, config, customer, body);
+    if (body.action === "request") result = await requestEmailChange(req, config, customer, body);
+    else if (body.action === "prepare") result = await prepare(req, config, customer, body);
     else if (body.action === "cancel") result = await cancel(config, customer);
     else if (body.action === "finalize") result = await finalize(config, customer, req);
     else throw new EmailChangeError(400, "Invalid email change action.");

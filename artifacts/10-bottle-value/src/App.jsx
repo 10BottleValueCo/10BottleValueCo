@@ -4113,6 +4113,8 @@ export default function App() {
   const [isChangingEmail, setIsChangingEmail] = useState(false);
   const [emailChangeBusy, setEmailChangeBusy] = useState(false);
   const [emailChangePending, setEmailChangePending] = useState(false);
+  const [emailChangeTarget, setEmailChangeTarget] = useState("");
+  const [emailHistoryPending, setEmailHistoryPending] = useState(false);
   const [emailChangeForm, setEmailChangeForm] = useState({
     currentEmail: "",
     newEmail: "",
@@ -4124,6 +4126,7 @@ export default function App() {
   const [changePasswordForm, setChangePasswordForm] = useState({ newPassword: "", confirmPassword: "" });
   const [changePasswordMessage, setChangePasswordMessage] = useState("");
   const emailChangeUserIdRef = useRef("");
+  const emailChangeInFlightRef = useRef(false);
   const [profileForm, setProfileForm] = useState({
     firstName: "",
     lastName: "",
@@ -4152,6 +4155,8 @@ export default function App() {
       });
       setEmailChangeMessage("");
       setEmailChangePending(false);
+      setEmailChangeTarget("");
+      setEmailHistoryPending(false);
       return;
     }
     if (currentUser?.email) {
@@ -6760,30 +6765,47 @@ export default function App() {
     });
     const result = await response.json().catch(() => null);
     if (!response.ok || !result?.ok) {
-      throw new Error(result?.error || tx("Email change could not be completed.", "Не удалось изменить email.", "Не вдалося змінити email.", "Die E-Mail konnte nicht geändert werden.", "No se pudo cambiar el correo."));
+      const error = new Error(result?.error || tx("Email change could not be completed.", "Не удалось изменить email.", "Не вдалося змінити email.", "Die E-Mail konnte nicht geändert werden.", "No se pudo cambiar el correo."));
+      error.status = response.status;
+      throw error;
     }
     return result;
   }
 
-  async function finalizePendingEmailMigration(session) {
+  async function finalizePendingEmailMigration(session, suppliedResult) {
     if (!session?.access_token || !session?.user?.id) return null;
-    const result = await callAccountEmailChangeApi("finalize", {}, session.access_token);
-    if (result.pendingConfirmation) {
+    if (!suppliedResult && emailChangeInFlightRef.current) return null;
+    const result = suppliedResult || await callAccountEmailChangeApi("finalize", {}, session.access_token);
+    if ((!suppliedResult && emailChangeInFlightRef.current) ||
+        emailChangeUserIdRef.current !== session.user.id) return null;
+    if (result.pendingConfirmation || result.pendingMigration) {
       setEmailChangePending(true);
-      setEmailChangeForm((form) => ({ ...form, currentPassword: "" }));
+      setEmailChangeTarget(result.newEmail || "");
+      setEmailHistoryPending(Boolean(result.pendingMigration));
+      setEmailChangeForm((form) => ({ ...form, newEmail: result.newEmail || form.newEmail, currentPassword: "" }));
       setEmailChangeMessage(tx(
-        "Confirm the email-change link sent by Supabase. Your account history will move after confirmation.",
-        "Подтвердите смену email по письму от Supabase. История аккаунта перенесётся после подтверждения.",
-        "Підтвердьте зміну email у листі від Supabase. Історія акаунта перенесеться після підтвердження.",
-        "Bestätigen Sie die E-Mail-Änderung über die Nachricht von Supabase. Ihr Kontoverlauf wird danach übertragen.",
-        "Confirma el cambio de correo desde el mensaje de Supabase. Tu historial se transferirá después."
+        "Confirmation is required. Check your new and current inboxes, including Spam. If you receive two confirmation links, open both. Your email and history will update only after confirmation.",
+        "Нужно подтверждение. Проверьте новую и текущую почту, включая «Спам». Если пришли две ссылки подтверждения, откройте обе. Email и история обновятся только после подтверждения.",
+        "Потрібне підтвердження. Перевірте нову й поточну пошту та «Спам». Якщо отримали два посилання, відкрийте обидва. Email та історія оновляться після підтвердження.",
+        "Bestätigung erforderlich. Prüfen Sie beide Postfächer und Spam. Wenn Sie zwei Bestätigungslinks erhalten, öffnen Sie beide. E-Mail und Verlauf werden erst nach Bestätigung aktualisiert.",
+        "Se necesita confirmación. Revisa ambos correos y Spam. Si recibes dos enlaces, abre ambos. El correo y el historial se actualizarán después de confirmar."
       ));
+      if (result.pendingMigration) {
+        setEmailChangeMessage(tx(
+          "Your email is confirmed, but account history is still transferring. Check status to retry. Do not request another email change yet.",
+          "Новый email подтверждён, но перенос истории ещё не завершён. Нажмите «Проверить статус» для повторной попытки. Пока не меняйте email снова.",
+          "Новий email підтверджено, але історія ще переноситься. Перевірте статус для повторної спроби.",
+          "Die E-Mail ist bestätigt, der Verlauf wird noch übertragen. Prüfen Sie den Status, um es erneut zu versuchen.",
+          "El correo está confirmado, pero el historial sigue transfiriéndose. Comprueba el estado para reintentar."
+        ));
+      }
       return result;
     }
     if (result.migrated) {
       const email = result.email || session.user.email;
       const normalizedEmail = normalizeEmail(email);
       setEmailChangePending(false);
+      setEmailHistoryPending(false);
       setCurrentUser((user) =>
         user?.id === session.user.id ? { ...user, email: normalizedEmail } : user,
       );
@@ -6808,12 +6830,33 @@ export default function App() {
       loadStoreCredit(normalizedEmail);
       fetchUserPromos(normalizedEmail, appliedPromo);
       refreshUserOrdersFromSupabase(normalizedEmail);
+      // Refresh the cached auth session only after the confirmed migration.
+      supabase.auth.refreshSession().catch(() => {});
+    } else {
+      setEmailChangePending(false);
+      setEmailHistoryPending(false);
+      if (result.requestNotSent) {
+        setEmailChangeMessage(tx(
+          "The previous change was not started. Enter a different email and try again.",
+          "Предыдущая смена не началась. Введите другой email и повторите.",
+          "Попередня зміна не почалася. Введіть інший email і повторіть.",
+          "Die vorherige Änderung wurde nicht gestartet. Geben Sie eine andere E-Mail ein.",
+          "El cambio anterior no se inició. Introduce otro correo e inténtalo de nuevo."
+        ));
+      }
     }
     return result;
   }
 
   function localizeEmailChangeError(error) {
     const message = String(error?.message || "");
+    if (!message.includes("already has a balance") &&
+        (error?.code === "email_exists" || /email.*(already|in use)|already.*registered|address may already/i.test(message))) {
+      return tx("This email is already in use. Enter a different email.", "Этот email уже занят. Введите другой адрес.", "Цей email вже зайнятий. Введіть іншу адресу.", "Diese E-Mail wird bereits verwendet. Geben Sie eine andere ein.", "Este correo ya está en uso. Introduce otro.");
+    }
+    if (/too many email requests/i.test(message)) {
+      return tx("Too many requests. Wait a few minutes and try again.", "Слишком много запросов. Подождите несколько минут и повторите.", "Забагато запитів. Зачекайте кілька хвилин.", "Zu viele Anfragen. Warten Sie einige Minuten.", "Demasiadas solicitudes. Espera unos minutos.");
+    }
     if (message === "The current password is incorrect.") {
       return tx("The current password is incorrect.", "Текущий пароль указан неверно.", "Поточний пароль вказано неправильно.", "Das aktuelle Passwort ist falsch.", "La contraseña actual es incorrecta.");
     }
@@ -6828,11 +6871,11 @@ export default function App() {
     }
     if (message.includes("already pending")) {
       return tx(
-        "An email change is already pending. Confirm it or wait 24 hours before starting another.",
-        "Смена email уже ожидает подтверждения. Подтвердите её или подождите 24 часа.",
-        "Зміна email вже очікує підтвердження. Підтвердьте її або зачекайте 24 години.",
-        "Eine E-Mail-Änderung wartet bereits auf Bestätigung. Bestätigen Sie sie oder warten Sie 24 Stunden.",
-        "Ya hay un cambio de correo pendiente. Confírmalo o espera 24 horas."
+        "An email change is pending. Check its status before starting another.",
+        "Есть незавершённая смена email. Проверьте статус перед новой попыткой.",
+        "Є незавершена зміна email. Перевірте статус перед новою спробою.",
+        "Eine E-Mail-Änderung ist offen. Prüfen Sie den Status.",
+        "Hay un cambio de correo pendiente. Comprueba su estado."
       );
     }
     return message || tx("Email change could not be completed.", "Не удалось изменить email.", "Не вдалося змінити email.", "Die E-Mail konnte nicht geändert werden.", "No se pudo cambiar el correo.");
@@ -6874,75 +6917,39 @@ export default function App() {
     }
 
     setEmailChangeBusy(true);
+    emailChangeInFlightRef.current = true;
     setEmailChangeMessage("");
-    let session = null;
-    let prepared = false;
-    let authUpdated = false;
     try {
       const { data } = await supabase.auth.getSession();
-      session = data?.session;
+      const session = data?.session;
       if (!session?.access_token) {
         throw new Error(tx("Your sign-in has expired. Sign in again.", "Срок входа истёк. Войдите снова.", "Сеанс входу завершився. Увійдіть знову.", "Ihre Anmeldung ist abgelaufen. Melden Sie sich erneut an.", "Tu sesión ha caducado. Inicia sesión de nuevo."));
       }
-      await callAccountEmailChangeApi("prepare", {
+      const result = await callAccountEmailChangeApi("request", {
         currentEmail,
         newEmail,
         currentPassword: emailChangeForm.currentPassword,
       }, session.access_token);
-      prepared = true;
-
-      const { error } = await supabase.auth.updateUser({ email: newEmail });
-      if (error) throw error;
-      authUpdated = true;
-
-      const { data: updatedData } = await supabase.auth.getSession();
-      const activeSession = updatedData?.session || session;
-      const result = await finalizePendingEmailMigration(activeSession);
-      if (
-        result?.migrated ||
-        (!result?.pendingConfirmation &&
-          normalizeEmail(activeSession?.user?.email) === newEmail)
-      ) {
-        setEmailChangePending(false);
-        setEmailChangeMessage(tx(
-          "Email updated. Your account history is available under the new email.",
-          "Email обновлён. История аккаунта доступна по новому адресу.",
-          "Email оновлено. Історія акаунта доступна за новою адресою.",
-          "E-Mail aktualisiert. Ihr Kontoverlauf ist unter der neuen Adresse verfügbar.",
-          "Correo actualizado. Tu historial está disponible con la nueva dirección."
-        ));
-      } else {
-        setEmailChangePending(true);
-        setEmailChangeMessage(tx(
-          "Confirm the email-change link sent by Supabase. Your account history will move after confirmation.",
-          "Подтвердите смену email по письму от Supabase. История аккаунта перенесётся после подтверждения.",
-          "Підтвердьте зміну email у листі від Supabase. Історія акаунта перенесеться після підтвердження.",
-          "Bestätigen Sie die E-Mail-Änderung über die Nachricht von Supabase. Ihr Kontoverlauf wird danach übertragen.",
-          "Confirma el cambio de correo desde el mensaje de Supabase. Tu historial se transferirá después."
-        ));
-      }
+      await finalizePendingEmailMigration(session, result);
     } catch (error) {
-      if (prepared && !authUpdated && session?.access_token) {
-        try {
-          await callAccountEmailChangeApi("cancel", {}, session.access_token);
-        } catch {
-          // If Supabase already accepted the change, its pending migration must remain.
+      setEmailChangePending(false);
+      setEmailChangeMessage(localizeEmailChangeError(error));
+      // A network failure can occur after the provider accepted the change.
+      // Reconcile without deleting the migration or claiming success.
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session && (!error.status || error.status >= 500)) {
+          const state = await callAccountEmailChangeApi("finalize", {}, data.session.access_token);
+          if (state.migrated || state.pendingConfirmation) {
+            await finalizePendingEmailMigration(data.session, state);
+          }
         }
-      }
-      if (authUpdated) {
-        setEmailChangePending(true);
-        setEmailChangeMessage(tx(
-          "Your email was updated, but the history transfer is still pending. Confirm the new email or try again later.",
-          "Email обновлён, перенос истории ожидает завершения. Подтвердите новый адрес или повторите позже.",
-          "Email оновлено, перенесення історії ще очікується. Підтвердьте нову адресу або спробуйте пізніше.",
-          "Ihre E-Mail wurde aktualisiert, die Übertragung des Verlaufs steht noch aus. Bestätigen Sie die neue Adresse oder versuchen Sie es später erneut.",
-          "El correo se actualizó, pero la transferencia del historial sigue pendiente. Confirma la nueva dirección o inténtalo más tarde."
-        ));
-      } else {
-        setEmailChangeMessage(localizeEmailChangeError(error));
+      } catch {
+        // Keep the form and explicit status check available for recovery.
       }
     } finally {
       setEmailChangeForm((form) => ({ ...form, currentPassword: "" }));
+      emailChangeInFlightRef.current = false;
       setEmailChangeBusy(false);
     }
   }
@@ -6954,11 +6961,7 @@ export default function App() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error(tx("Sign in again to continue.", "Войдите снова, чтобы продолжить.", "Увійдіть знову, щоб продовжити.", "Melden Sie sich erneut an, um fortzufahren.", "Inicia sesión de nuevo para continuar."));
       const result = await finalizePendingEmailMigration(session);
-      if (
-        result?.migrated ||
-        (!result?.pendingConfirmation &&
-          normalizeEmail(session.user?.email) === normalizeEmail(currentUser?.email))
-      ) {
+      if (result?.migrated) {
         setEmailChangePending(false);
         setEmailChangeMessage(tx(
           "Email updated. Your account history is available under the new email.",
@@ -19086,8 +19089,11 @@ export default function App() {
                       <div className="mb-4 text-[11px] font-bold uppercase tracking-[0.22em] text-white/70">
                         {tx("Change email", "Изменить email", "Змінити email", "E-Mail ändern", "Cambiar correo")}
                       </div>
-                      {emailChangePending ? (
+                      {emailChangePending && (
                         <div className="grid gap-4">
+                          <div className="break-all text-sm font-semibold text-white">
+                            {emailChangeTarget}
+                          </div>
                           <div role="status" className="text-sm leading-6 text-white/80">
                             {emailChangeMessage}
                           </div>
@@ -19099,10 +19105,10 @@ export default function App() {
                           >
                             {emailChangeBusy
                               ? tx("Checking…", "Проверяем…", "Перевіряємо…", "Wird geprüft…", "Comprobando…")
-                              : tx("I've confirmed — check status", "Я подтвердил — проверить", "Я підтвердив — перевірити", "Bestätigt — Status prüfen", "Ya confirmé — comprobar")}
+                              : tx("Check status", "Проверить статус", "Перевірити статус", "Status prüfen", "Comprobar estado")}
                           </button>
                         </div>
-                      ) : (
+                      )}
                         <div className="grid gap-3">
                           <BufferedInput
                             type="email"
@@ -19137,7 +19143,7 @@ export default function App() {
                             placeholder={tx("Current password", "Текущий пароль", "Поточний пароль", "Aktuelles Passwort", "Contraseña actual")}
                             className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50"
                           />
-                          {emailChangeMessage ? (
+                          {!emailChangePending && emailChangeMessage ? (
                             <div role="status" className="text-sm leading-6 text-white/80">
                               {emailChangeMessage}
                             </div>
@@ -19145,15 +19151,22 @@ export default function App() {
                           <button
                             type="button"
                             onClick={submitEmailChange}
-                            disabled={emailChangeBusy}
+                            disabled={emailChangeBusy || emailHistoryPending}
                             className="min-h-[44px] w-fit whitespace-nowrap rounded-full bg-white !text-black px-5 py-2.5 text-[10px] font-extrabold uppercase tracking-[0.16em] transition hover:bg-white/90 disabled:cursor-wait disabled:opacity-60 md:min-h-0 md:text-[11px]"
                           >
                             {emailChangeBusy
                               ? tx("Updating…", "Обновляем…", "Оновлюємо…", "Wird aktualisiert…", "Actualizando…")
-                              : tx("Update email", "Изменить email", "Змінити email", "E-Mail aktualisieren", "Actualizar correo")}
+                              : emailChangePending
+                                ? tx("Send confirmation", "Отправить подтверждение", "Надіслати підтвердження", "Bestätigung senden", "Enviar confirmación")
+                                : tx("Update email", "Изменить email", "Змінити email", "E-Mail aktualisieren", "Actualizar correo")}
                           </button>
+                          {!emailChangePending && emailChangeMessage && (
+                            <button type="button" onClick={retryEmailMigration} disabled={emailChangeBusy}
+                              className="w-fit rounded-full border border-white/30 bg-white/10 px-5 py-2.5 text-[11px] font-bold uppercase tracking-[0.16em] text-white disabled:opacity-60">
+                              {tx("Check status", "Проверить статус", "Перевірити статус", "Status prüfen", "Comprobar estado")}
+                            </button>
+                          )}
                         </div>
-                      )}
                     </div>
                   )}
 
