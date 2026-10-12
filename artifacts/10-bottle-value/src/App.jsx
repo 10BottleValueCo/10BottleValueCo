@@ -15849,7 +15849,7 @@ export default function App() {
                 ))}
               </div>
               {adminActiveTab === "orders" && (
-              <section className="rounded-[2rem] border border-white/30 bg-black p-5 md:p-6">
+              <section className="admin-orders-panel rounded-[2rem] border border-white/30 bg-black p-5 md:p-6">
                 {/* Stats + action buttons row */}
                 <div className="flex items-center gap-3 flex-wrap">
                   {(() => {
@@ -16066,6 +16066,9 @@ export default function App() {
                                     className="rounded-lg border border-white/15 bg-[#5a5a5a] px-2 py-[3px] text-[11px] text-white/80 outline-none hover:border-white/30 transition-colors"
                                   >
                                     <option value="">— provider —</option>
+                                    {order.paymentProvider && !["Stripe", "Merit", "CatalystPay BTC", "CatalystPay ETH", "CatalystPay USDT", "NOWPayments", "Paylio", "PayPal", "Bank Transfer", "Cash App"].includes(order.paymentProvider) && (
+                                      <option value={order.paymentProvider}>{order.paymentProvider}</option>
+                                    )}
                                     <option value="Stripe">Stripe</option>
                                     <option value="Merit">Checkout Merit</option>
                                     <option value="CatalystPay BTC">CatalystPay BTC</option>
@@ -16422,6 +16425,9 @@ export default function App() {
                                 <label className="flex flex-col gap-1 text-[11px] text-white/60">
                                   Status
                                   <select value={String(order.status || "pending").toLowerCase()} onChange={(e) => updateOrderAdminField(order.id, "status", e.target.value)} className="rounded-xl border border-white/20 bg-[#6f6f6f] px-3 py-2 text-xs text-white outline-none">
+                                    {!["pending", "checkout", "paid", "done", "refunded", "cancelled"].includes(String(order.status || "pending").toLowerCase()) && (
+                                      <option value={String(order.status).toLowerCase()}>{getAdminOrderStatusLabel(order)}</option>
+                                    )}
                                     <option value="pending">pending</option>
                                     <option value="checkout">checkout (clicked pay)</option>
                                     <option value="paid">paid</option>
@@ -22562,7 +22568,8 @@ export default function App() {
               >
                 <div
                   ref={termsSectionRef}
-                  className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[1.2rem] border border-white/20 bg-[#30343a]/95 p-5 md:rounded-[1.6rem] md:p-8"
+                  className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[1.2rem] border border-white/20 bg-[#30343a] p-5 md:rounded-[1.6rem] md:p-8"
+                  style={{ backgroundColor: "#30343a" }}
                 >
                   <div className="mb-6 flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
