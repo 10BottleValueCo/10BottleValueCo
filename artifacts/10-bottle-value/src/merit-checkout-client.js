@@ -108,7 +108,13 @@ export function createMeritApiClient({ getAccessToken, fetchImpl = globalThis.fe
     async configuration() {
       const response = await fetchImpl("/api/merit-checkout", { cache: "no-store", credentials: "same-origin" });
       const result = await response.json().catch(() => null);
-      if (response.ok && result?.ok === true && result.enabled === false) return { enabled: false };
+      if (response.ok && result?.ok === true && result.enabled === false) {
+        return {
+          enabled: false,
+          ...(typeof result.reopensAt === "string" && Number.isFinite(Date.parse(result.reopensAt))
+            ? { reopensAt: result.reopensAt } : {}),
+        };
+      }
       if (!response.ok || result?.ok !== true || typeof result.enabled !== "boolean" || result.currency !== "usd"
         || !Number.isSafeInteger(result.surchargeBps) || result.surchargeBps < 0 || result.surchargeBps > 10000) throw new Error(SESSION_ERROR);
       return { enabled: result.enabled, currency: result.currency, surchargeBps: result.surchargeBps };

@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { createMeritProvider } from './_merit-provider.js';
 import { createMeritCheckoutHandler } from './merit-checkout.js';
+import { MERIT_REOPENS_AT } from './_merit-availability.js';
 import { createMeritWebhookHandler, verifyMeritSignature } from './attestly-webhook.js';
 import { requireMeritProof } from './_merit-core.js';
 import { buildMeritQuote, meritCreditSnapshot } from './_merit-quote.js';
@@ -45,7 +46,7 @@ function checkoutFixture(options = {}) {
   const provider = { configuration: async () => { calls.push(['configuration']); return providerConfig; }, create: async args => { calls.push(['create', args]); return session; }, verify: async () => { calls.push(['verify']); return verified(); }, ...options.provider };
   const quote = options.quote || (async (body, email, opts) => { calls.push(['quote', body, email, opts]); return priced; });
   const authenticate = async () => options.customer === null ? null : options.customer || customer;
-  const handler = createMeritCheckoutHandler({ env: options.env || env, provider, store, quote, authenticate, notify: async () => {} });
+  const handler = createMeritCheckoutHandler({ env: options.env || env, provider, store, quote, authenticate, notify: async () => {}, getNow: options.getNow || (() => Date.parse(MERIT_REOPENS_AT)) });
   return { handler, calls, store, provider };
 }
 const createBody = { action: 'create', checkoutKey, otpToken: 'fixture-otp', verifiedEmail: customer.email, amountCents: 1, orderId: 'ATTACKER-ORDER', clientSecret: 'attacker-secret' };
@@ -415,4 +416,40 @@ test('old cash checkout retry cannot spend newly selected credit', async () => {
   assert.equal(result.body.session.storeCreditUsedCents, 0);
   assert.equal(result.body.session.amountCents, 10300);
   assert.deepEqual(fixture.calls.map(c => c[0]), ['find']);
+});
+
+test('Merit availability announces October 15 without contacting the provider while closed', async () => {
+  const fixture = checkoutFixture({ getNow: () => Date.parse(MERIT_REOPENS_AT) - 1 });
+  const result = await run(fixture.handler, undefined, 'GET');
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.enabled, false);
+  assert.equal(result.body.reopensAt, MERIT_REOPENS_AT);
+  assert.match(result.body.message, /October 15/);
+  assert.deepEqual(fixture.calls, []);
+});
+
+test('new Merit checkout is blocked on the server before order reservation or provider creation', async () => {
+  const fixture = checkoutFixture({ getNow: () => Date.parse(MERIT_REOPENS_AT) - 1 });
+  const result = await run(fixture.handler, createBody);
+  assert.equal(result.statusCode, 503);
+  assert.equal(result.body.code, 'MERIT_TEMPORARILY_CLOSED');
+  assert.match(result.body.error, /October 15/);
+  assert.deepEqual(fixture.calls, []);
+});
+
+test('Merit reopens at the October 15 boundary without overriding normal configuration', async () => {
+  const fixture = checkoutFixture({ getNow: () => Date.parse(MERIT_REOPENS_AT) });
+  const result = await run(fixture.handler, undefined, 'GET');
+  assert.equal(result.body.enabled, true);
+  assert.equal(result.body.reopensAt, undefined);
+  const disabled = checkoutFixture({ env: { ...env, MERIT_ENABLED: 'false' }, getNow: () => Date.parse(MERIT_REOPENS_AT) });
+  assert.equal((await run(disabled.handler, undefined, 'GET')).body.enabled, false);
+});
+
+test('closing new Merit checkout does not stop settlement of existing payments', async () => {
+  const fixture = checkoutFixture({ existing: readyAttempt, getNow: () => Date.parse(MERIT_REOPENS_AT) - 1 });
+  const result = await run(fixture.handler, { action: 'reconcile', orderId });
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.paid, true);
+  assert.ok(fixture.calls.some(c => c[0] === 'finalize'));
 });

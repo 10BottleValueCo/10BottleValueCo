@@ -10518,6 +10518,9 @@ export default function App() {
     : currentUser && storeCredit > 0 && totalWithFee > 0 && Math.round(storeCredit * 100) >= Math.round(totalWithFee * 100) ? totalWithFee : 0;
   const finalTotal = meritSelected ? meritCreditSplit.amountCents / 100 : Math.max(0, totalWithFee - storeCreditApplied);
   const stripeTemporarilyDisabled = meritConfig?.enabled !== true;
+  const meritUnavailableMessage = meritConfig?.reopensAt
+    ? tx("Opens October 15", "Откроется 15 октября", "Відкриється 15 жовтня", "Ab 15. Oktober verfügbar", "Disponible el 15 de octubre")
+    : tx("Unavailable", "Недоступно");
   const checkoutInvoice = meritSelected && meritActiveSession?.order ? meritActiveSession.order : {
     items: cart, subtotal, shipping, automaticDiscount, promoDiscount, affiliateDiscount,
     promoCode: appliedPromo?.code, shippingType: effectiveShippingType,
@@ -21829,7 +21832,7 @@ export default function App() {
                                 <path d="M2 7h24M5.5 15h5M19 14h3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
                               </svg>
                             </div>
-                            <div className={`flex-1 min-w-0 ${stripeTemporarilyDisabled ? "opacity-40" : ""}`}>
+                            <div className="flex-1 min-w-0">
                               <div className="flex h-5 items-center gap-3 whitespace-nowrap">
                                 <span className="text-[14px] font-semibold leading-5">{tx("Card", "Карта")}</span>
                                 <span className="inline-flex shrink-0 items-center gap-3">
@@ -21839,7 +21842,7 @@ export default function App() {
                               </div>
                               <div className="mt-1 flex flex-nowrap items-center gap-1.5">
                                 {stripeTemporarilyDisabled ? (
-                                  <span className="inline-flex rounded-md border border-gray-300 bg-gray-100 px-2 py-0.5 text-[11px] font-black">{tx("Unavailable", "Недоступно")}</span>
+                                  <span className="inline-flex rounded-md border border-gray-300 bg-gray-100 px-2 py-0.5 text-[11px] font-black text-black">{meritUnavailableMessage}</span>
                                 ) : (
                                   <span className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "stripe" ? "border-white/20 bg-white/15 text-white" : "border-slate-200 bg-slate-100 text-slate-700"}`}>{meritSurchargePercent}% {tx("fee", "комиссия")}</span>
                                 )}
@@ -22147,7 +22150,9 @@ export default function App() {
                                 : tx("Your store credit will be checked before payment. The card surcharge is calculated on the order total before credit.", "Кредит магазина будет проверен до оплаты. Доплата за карту рассчитывается на сумму заказа до вычета кредита.")}
                             </p>}
                             {stripeError && <p className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">{stripeError}</p>}
-                            {meritActiveSession ? (
+                            {stripeTemporarilyDisabled ? (
+                              <p role="status" className="mt-4 rounded-xl border border-slate-300 bg-slate-50 p-4 text-sm font-semibold text-black">{meritUnavailableMessage}</p>
+                            ) : meritActiveSession ? (
                               <Suspense fallback={<div className="mt-4 min-h-[190px]" aria-busy="true" />}>
                                 <MeritCheckoutPanel session={meritActiveSession} language={language.toLowerCase()}
                                   onReconcile={meritApi.reconcile} onPaid={acceptMeritPaid} onState={handleMeritState} />
