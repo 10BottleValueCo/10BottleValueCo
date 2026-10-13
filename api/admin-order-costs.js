@@ -1,5 +1,5 @@
 import { requireAdmin } from "./_require-admin.js";
-import { createDatabaseOrderCostSaver, validateCostChange } from "../artifacts/10-bottle-value/src/order-cost-overrides.js";
+import { createDatabaseOrderCostSaver, validateCostChange } from "./_order-costs-core.js";
 
 export const config = { maxDuration: 60 };
 
