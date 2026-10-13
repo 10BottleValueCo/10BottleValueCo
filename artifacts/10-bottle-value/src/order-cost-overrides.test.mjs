@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createOrderCostSaver, parseCostAmount, unitCostToLineCost } from "./order-cost-overrides.js";
+import { createDatabaseOrderCostSaver as createOrderCostSaver, parseCostAmount, unitCostToLineCost } from "./order-cost-overrides.js";
 
 const copy = value => JSON.parse(JSON.stringify(value));
 
 function storage(metadata, options = {}) {
-  let row = { id: "order-1", metadata: copy(metadata) };
+  let row = { id: "order-1", items: [{}, {}], metadata: copy(metadata) };
   let writes = 0;
   let reads = 0;
   let conflicts = 0;
@@ -19,7 +19,7 @@ function storage(metadata, options = {}) {
       let payload;
       const filters = {};
       const query = {
-        select(fields) { assert.equal(fields, "id,metadata"); return query; },
+        select(fields) { assert.ok(["id,metadata", "id,metadata,items"].includes(fields)); return query; },
         eq(field, value) { filters[field] = value; return query; },
         is(field, value) { filters[field] = value; return query; },
         update(value) { payload = value; return query; },
@@ -98,6 +98,13 @@ test("unknown cost can be saved as an override", async () => {
   assert.deepEqual(saved.metadata.items, [{ name: "Unknown" }]);
 });
 
+test("older orders with empty metadata items use the structured items column", async () => {
+  const db = storage({ status: "paid", items: [] });
+  const saved = await createOrderCostSaver(db)("order-1", { kind: "line", index: 1, amount: 25 });
+  assert.equal(saved.metadata.lineCostOverrides[1], 25);
+  assert.deepEqual(saved.metadata.items, []);
+});
+
 test("a concurrent metadata change is preserved on retry", async () => {
   const db = storage({ status: "paid", shippingType: "express" }, { conflictOnce: true, zeroRowError: true });
   await createOrderCostSaver(db)("order-1", { kind: "shipping", amount: 99.5 });
@@ -109,10 +116,10 @@ test("a concurrent metadata change is preserved on retry", async () => {
 
 test("denied updates and reads cannot report success or change local storage", async () => {
   const deniedWrite = storage({ status: "paid" }, { denyWrite: true });
-  await assert.rejects(createOrderCostSaver(deniedWrite)("order-1", { kind: "line", index: 0, amount: 25 }), /Permission denied/);
+  await assert.rejects(createOrderCostSaver(deniedWrite)("order-1", { kind: "line", index: 0, amount: 25 }), /denied.*42501/);
   assert.deepEqual(deniedWrite.snapshot.metadata, { status: "paid" });
   const deniedRead = storage({ status: "paid" }, { denyRead: true });
-  await assert.rejects(createOrderCostSaver(deniedRead)("order-1", { kind: "shipping", amount: 25 }), /Permission denied/);
+  await assert.rejects(createOrderCostSaver(deniedRead)("order-1", { kind: "shipping", amount: 25 }), /denied.*42501/);
   assert.equal(deniedRead.writes, 0);
 });
 
