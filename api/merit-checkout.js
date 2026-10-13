@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { matchesCheckoutInvoice, invoiceNumberFromUuid } from "./_invoice-number.js";
 import { isDeepStrictEqual } from "node:util";
 import { requireVerifiedCustomer } from "./_require-customer.js";
 import { MeritError, assertCheckoutOrigin, getMeritConfig, meritRuleSnapshot, publicMeritConfig, readMeritCheckoutKey } from "./_merit-core.js";
@@ -12,13 +13,12 @@ import { meritCheckoutPaused, MERIT_REOPENS_AT, MERIT_REOPEN_MESSAGE } from "./_
 const uuid = /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i;
 const record = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const pending = () => new MeritError(503, "Your checkout is being prepared. Check again using this same checkout before making another payment.", "MERIT_PREPARING");
-const orderIdFor = key => `INV-${key.replaceAll("-", "").toUpperCase()}`;
 const publicFields = ["email", "firstName", "lastName", "country", "address", "address2", "city", "state", "postalCode", "phone", "taxId", "orderNotes", "purchaserAttestation", "shippingType", "items", "subtotal", "shipping", "automaticDiscount", "promoDiscount", "promoCode", "promoFreeShipping", "ownerFreeShipping", "affiliateDiscount", "affiliateDiscountDisabled", "affiliateCode", "affiliateCommission", "customerCardSurcharge", "customerCardSurchargeBps", "cryptoDiscount", "storeCreditUsed", "storeCreditUsedCents", "orderBaseAmountCents", "cardBaseAmountCents", "total"];
 
 function validateAttempt(attempt, customer, checkoutKey) {
   if (!record(attempt) || !uuid.test(attempt.id || "") || attempt.customer_id !== customer.id
     || attempt.email !== customer.email || attempt.checkout_key !== checkoutKey
-    || attempt.order_id !== orderIdFor(checkoutKey) || !record(attempt.snapshot)
+    || !matchesCheckoutInvoice(attempt.order_id, checkoutKey) || !record(attempt.snapshot)
     || attempt.snapshot.email !== customer.email || attempt.currency !== "usd"
     || !Number.isSafeInteger(Number(attempt.amount_cents)) || Number(attempt.amount_cents) <= 0
     || Math.round(Number(attempt.snapshot.total) * 100) !== Number(attempt.amount_cents)
@@ -115,6 +115,9 @@ export function createMeritCheckoutHandler({ env = process.env, provider = creat
       }
       if (typeof reservation.created !== "boolean") throw pending();
       const attempt = validateAttempt(reservation.attempt, customer, checkoutKey);
+      if (reservation.created && attempt.order_id !== invoiceNumberFromUuid(checkoutKey)) {
+        throw new MeritError(503, "Short invoice storage is not ready. Please contact support.", "MERIT_INVOICE_SCHEMA_NOT_READY");
+      }
       const expectedSnapshot = useStoreCredit ? meritCreditSnapshot(snapshot, Number(attempt.credit_reserved_cents)) : snapshot;
       const expectedAmountCents = Math.round(expectedSnapshot.total * 100);
       if (attempt.quote_fingerprint !== fingerprint || Number(attempt.amount_cents) !== expectedAmountCents

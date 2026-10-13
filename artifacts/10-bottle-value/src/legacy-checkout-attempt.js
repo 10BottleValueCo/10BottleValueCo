@@ -1,3 +1,5 @@
+import { generateInvoiceNumber } from "../../../api/_invoice-number.js";
+
 // This cache is navigation assistance only. Orders, prices and paid state remain
 // server-authoritative. An unchanged attempt reopens its original hosted page.
 export function hostedPaymentUrl(value, provider) {
@@ -24,7 +26,7 @@ export function createLegacyAttemptManager({ cryptoApi = globalThis.crypto } = {
       const digest = await cryptoApi.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({ provider, selection, snapshot })));
       if (journey !== expectedJourney || owner !== expectedOwner) throw new Error('Your checkout changed. Review it and continue again.');
       const key = Array.from(new Uint8Array(digest), n => n.toString(16).padStart(2, '0')).join('');
-      if (!attempts.has(key)) attempts.set(key, { orderId: `INV-${cryptoApi.randomUUID().replaceAll('-', '').toUpperCase()}`, provider, owner, journey, url: null });
+      if (!attempts.has(key)) attempts.set(key, { orderId: generateInvoiceNumber(cryptoApi), provider, owner, journey, url: null });
       return attempts.get(key);
     },
     remember(attempt, url) {

@@ -32,6 +32,7 @@ import { BufferedInput, BufferedTextarea } from "./components/BufferedTextField.
 import OrderCostInput from "./components/OrderCostInput.jsx";
 import { unitCostToLineCost } from "./order-cost-overrides.js";
 import useAdminOrderCosts from "./use-admin-order-costs.js";
+import { generateInvoiceNumber, invoiceNumberFromUuid, COMPATIBLE_INVOICE_PATTERN } from "../../../api/_invoice-number.js";
 import CatalogSearchInput from "./components/CatalogSearchInput.jsx";
 import HomePage from "./components/HomePage.jsx";
 import PaymentReturnHeader from "./components/PaymentReturnHeader.jsx";
@@ -12100,10 +12101,7 @@ export default function App() {
       return;
     }
 
-    const generatedOrderNumber = `INV-${Math.random()
-      .toString(36)
-      .slice(2, 10)
-      .toUpperCase()}`;
+    const generatedOrderNumber = generateInvoiceNumber();
     const normalizedEmail = currentUser.email.trim().toLowerCase();
     setOrderNumber(generatedOrderNumber);
     setCheckoutMessage("");
@@ -12270,13 +12268,13 @@ export default function App() {
     };
     const attemptStorageKey = "tbv-store-credit-attempt";
     let orderId = storeCreditOrderAttemptRef.current;
-    if (!/^INV-[A-F0-9]{32}$/i.test(orderId || "")) {
+    if (!COMPATIBLE_INVOICE_PATTERN.test(String(orderId || "").toUpperCase())) {
       try {
         const savedOrderId = window.sessionStorage.getItem(attemptStorageKey);
-        if (/^INV-[A-F0-9]{32}$/i.test(savedOrderId || "")) orderId = savedOrderId;
+        if (COMPATIBLE_INVOICE_PATTERN.test(String(savedOrderId || "").toUpperCase())) orderId = savedOrderId;
       } catch {}
     }
-    if (!/^INV-[A-F0-9]{32}$/i.test(orderId || "")) {
+    if (!COMPATIBLE_INVOICE_PATTERN.test(String(orderId || "").toUpperCase())) {
       const secureUuid = window.crypto?.randomUUID?.();
       if (!secureUuid) {
         setCheckoutMessage(
@@ -12290,7 +12288,7 @@ export default function App() {
         );
         return;
       }
-      orderId = `INV-${secureUuid.replace(/-/g, "").toUpperCase()}`;
+      orderId = invoiceNumberFromUuid(secureUuid);
     }
     storeCreditOrderAttemptRef.current = orderId;
     try {

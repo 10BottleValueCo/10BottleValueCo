@@ -1,3 +1,4 @@
+import { COMPATIBLE_INVOICE_PATTERN } from "./_invoice-number.js";
 import { getMeritConfig, MeritError } from "./_merit-core.js";
 
 // Fixed official origin prevents request data or environment typos from sending
@@ -69,7 +70,7 @@ export function createMeritProvider({ env = process.env, fetcher = globalThis.fe
     configuration,
     async create({ amountCents, orderId, otpToken, verifiedEmail, organization }) {
       const config = await configuration();
-      if (!Number.isSafeInteger(amountCents) || amountCents <= 0 || !/^INV-[A-F\d]{32}$/.test(orderId || "")
+      if (!Number.isSafeInteger(amountCents) || amountCents <= 0 || !COMPATIBLE_INVOICE_PATTERN.test(orderId || "")
         || typeof otpToken !== "string" || !otpToken || otpToken.length > 16384
         || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(verifiedEmail || "")) throw unavailable();
       const data = await request("/api/connect/create-intent", {

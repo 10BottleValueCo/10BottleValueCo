@@ -1,3 +1,4 @@
+import { COMPATIBLE_INVOICE_PATTERN } from "./_invoice-number.js";
 import { sendPaymentConfirmationEmail } from "./_payment-confirmation-email.js";
 
 const unavailable = () => new Error("Canonical payment receipt is unavailable.");
@@ -17,7 +18,7 @@ export function buildMeritReceipt(attempt) {
   const snapshot = attempt?.snapshot;
   const amountCents = Number(attempt?.amount_cents);
   if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)
-    || !/^INV-[A-F\d]{32}$/.test(attempt.order_id || "")
+    || !COMPATIBLE_INVOICE_PATTERN.test(attempt.order_id || "")
     || !/^pi_[A-Za-z0-9]+$/.test(attempt.intent_id || "")
     || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(attempt.email || "")
     || snapshot.email !== attempt.email || attempt.currency !== "usd"

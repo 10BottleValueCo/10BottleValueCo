@@ -1,3 +1,4 @@
+import { COMPATIBLE_INVOICE_PATTERN } from "./_invoice-number.js";
 import { createHash } from "node:crypto";
 import {
   getAutomaticDiscountRate,
@@ -219,7 +220,7 @@ function readCheckoutInput(body, customerEmail) {
   }
 
   const orderId = cleanString(body.orderId, "order number", 40, true);
-  if (!/^INV-[A-F0-9]{32}$/i.test(orderId)) {
+  if (!COMPATIBLE_INVOICE_PATTERN.test(orderId.toUpperCase())) {
     throw new CheckoutError(400, "The checkout request has expired. Try again.");
   }
 

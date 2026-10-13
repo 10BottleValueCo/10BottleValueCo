@@ -1,3 +1,5 @@
+import { COMPATIBLE_INVOICE_PATTERN } from "./_invoice-number.js";
+
 // The provider adapter must populate proof from a server-to-server verification
 // response. Browser redirects, client SDK results and webhook fields alone are
 // never payment evidence for these helpers.
@@ -12,7 +14,7 @@ export class MeritError extends Error {
 
 const normalizeEmail = value => String(value || "").trim().toLowerCase();
 const uuid = /^[a-f\d]{8}-[a-f\d]{4}-4[a-f\d]{3}-[89ab][a-f\d]{3}-[a-f\d]{12}$/i;
-const orderIdPattern = /^INV-[A-F\d]{32}$/;
+const orderIdPattern = COMPATIBLE_INVOICE_PATTERN;
 
 export function readMeritCheckoutKey(value) {
   if (typeof value !== "string" || !uuid.test(value)) {

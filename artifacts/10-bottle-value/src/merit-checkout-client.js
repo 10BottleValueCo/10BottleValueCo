@@ -1,4 +1,5 @@
 import { observeMeritCodeCells } from "./merit-code-input.js";
+import { invoiceNumberFromUuid, matchesCheckoutInvoice } from "../../../api/_invoice-number.js";
 
 const SESSION_ERROR = "Secure payment is unavailable. Reload checkout and try again.";
 export const MERIT_ATTEMPT_STORAGE_KEY = "tbv-merit-checkout-attempt";
@@ -39,7 +40,7 @@ export function meritOrderIdFromCheckoutKey(checkoutKey) {
   if (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(key)) {
     throw new Error(SESSION_ERROR);
   }
-  return `INV-${key.replaceAll("-", "").toUpperCase()}`;
+  return invoiceNumberFromUuid(key);
 }
 
 export function readMeritAttempt(storage) {
@@ -125,7 +126,7 @@ export function createMeritApiClient({ getAccessToken, fetchImpl = globalThis.fe
       const order = { ...result.order?.metadata, ...result.order };
       const credit = result.session.storeCreditUsedCents ?? (payload.useStoreCredit ? null : 0);
       const cardBase = result.session.cardBaseAmountCents ?? (payload.useStoreCredit ? null : result.session.baseAmountCents);
-      if (result.order?.id !== session.orderId || !Number.isSafeInteger(result.session.baseAmountCents)
+      if (result.order?.id !== session.orderId || !matchesCheckoutInvoice(session.orderId, checkoutKey) || !Number.isSafeInteger(result.session.baseAmountCents)
         || !Number.isSafeInteger(result.session.surchargeCents) || result.session.baseAmountCents < 0 || result.session.surchargeCents < 0
         || !Number.isSafeInteger(credit) || credit < 0 || !Number.isSafeInteger(cardBase) || cardBase <= 0
         || credit + cardBase !== result.session.baseAmountCents

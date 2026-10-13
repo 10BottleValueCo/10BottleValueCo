@@ -11,11 +11,12 @@ import { MERIT_REOPENS_AT } from './_merit-availability.js';
 import { createMeritWebhookHandler, verifyMeritSignature } from './attestly-webhook.js';
 import { requireMeritProof } from './_merit-core.js';
 import { buildMeritQuote, meritCreditSnapshot } from './_merit-quote.js';
+import { invoiceNumberFromUuid } from './_invoice-number.js';
 
 const env = { MERIT_ENABLED: 'true', ATTESTLY_API_KEY: 'fixture-private-key', ATTESTLY_WEBHOOK_SECRET: 'awhsec_fixture', MERIT_MODE: 'live', MERIT_RULE_VERSION: 'fixture-v1', MERIT_CARD_SURCHARGE_BPS: '300', MERIT_CARD_SURCHARGE_SOURCE: 'Fixture customer rule', MERIT_CARD_SURCHARGE_EFFECTIVE_AT: '2026-10-08T00:00:00Z', MERIT_PROCESSOR_FEE_BPS: '750', MERIT_PROCESSOR_FEE_SOURCE: 'Fixture dashboard reported rate', MERIT_PROCESSOR_FEE_EFFECTIVE_AT: '2026-10-08T00:00:00Z' };
 const customer = { id: 'abcdefab-cdef-4abc-8abc-defabcdefabc', email: 'buyer@example.com' };
 const checkoutKey = '12345678-abcd-4abc-8abc-123456789abc';
-const orderId = 'INV-12345678ABCD4ABC8ABC123456789ABC';
+const orderId = invoiceNumberFromUuid(checkoutKey);
 const providerConfig = { publishableKey: 'pk_live_fixture', stripeAccount: 'acct_fixture', live: true };
 const session = { ...providerConfig, intentId: 'pi_fixture', clientSecret: 'pi_fixture_secret_fixture' };
 const priced = { amountCents: 10300, currency: 'usd', userPromoId: null, snapshot: { email: customer.email, items: [{ name: 'Canonical fixture item', dose: '10mg', quantity: 1, price: 100 }], subtotal: 100, shipping: 0, automaticDiscount: 0, promoDiscount: 0, affiliateDiscount: 0, total: 103, customerCardSurcharge: 3, customerCardSurchargeBps: 300, shippingType: 'standard', promoCode: '', affiliateOwnerEmail: 'private-affiliate@example.com' } };
@@ -50,6 +51,28 @@ function checkoutFixture(options = {}) {
   return { handler, calls, store, provider };
 }
 const createBody = { action: 'create', checkoutKey, otpToken: 'fixture-otp', verifiedEmail: customer.email, amountCents: 1, orderId: 'ATTACKER-ORDER', clientSecret: 'attacker-secret' };
+
+test('old UUID invoice reopens its original payment without reserving or charging again', async () => {
+  const legacyId = 'INV-' + checkoutKey.replaceAll('-', '').toUpperCase();
+  const fixture = checkoutFixture({ existing: { ...readyAttempt, order_id: legacyId } });
+  const result = await run(fixture.handler, createBody);
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.orderId, legacyId);
+  assert.equal(fixture.calls.some(call => ['reserve', 'reserveCredit', 'create', 'bind'].includes(call[0])), false);
+});
+
+test('an unmigrated reservation cannot create a new long invoice at the payment provider', async () => {
+  const fixture = checkoutFixture();
+  const reserve = fixture.store.reserve;
+  fixture.store.reserve = async params => {
+    const result = await reserve(params);
+    return { ...result, attempt: { ...result.attempt, order_id: 'INV-' + checkoutKey.replaceAll('-', '').toUpperCase() } };
+  };
+  const result = await run(fixture.handler, createBody);
+  assert.equal(result.statusCode, 503);
+  assert.equal(result.body.code, 'MERIT_INVOICE_SCHEMA_NOT_READY');
+  assert.equal(fixture.calls.some(call => call[0] === 'create'), false);
+});
 
 for (const wrong of [{}, { apiKey: 'private' }]) {
   test('missing private config is disabled without contacting provider/storage ' + JSON.stringify(wrong), async () => {

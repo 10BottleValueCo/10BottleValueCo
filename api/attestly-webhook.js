@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { COMPATIBLE_INVOICE_PATTERN } from "./_invoice-number.js";
 import { getMeritConfig, MeritError } from "./_merit-core.js";
 import { createMeritProvider } from "./_merit-provider.js";
 import { createMeritStore } from "./_merit-storage.js";
@@ -81,7 +82,7 @@ export function createMeritWebhookHandler({ env = process.env, provider = create
       if (event.type !== "payment_intent.succeeded") return res.status(200).json({ received: true });
       const data = event.data;
       if (!data || !/^pi_[A-Za-z0-9]+$/.test(data.paymentIntentId || "")
-        || !/^INV-[A-F\d]{32}$/.test(data.metadata?.orderId || "")
+        || !COMPATIBLE_INVOICE_PATTERN.test(data.metadata?.orderId || "")
         || !Number.isSafeInteger(data.amount) || data.amount <= 0 || data.currency !== "usd") throw invalid();
       const attempt = await store.findByIntent(data.paymentIntentId);
       // The webhook can arrive before bind commits. A non-2xx preserves retry.
