@@ -77,6 +77,33 @@ test("Paylio, Cash App and crypto replay one eight-character invoice per unchang
   await assert.rejects(manager.prepare("paylio", "paypal", {}, "verified-customer"), /Sign in again/);
 });
 
+test("the first payment keeps the displayed draft invoice; retries cannot replace or mutate it", async () => {
+  for (const [provider, selection, url] of [
+    ["paylio", "paypal", "https://paylio.org/fixture-paypal"],
+    ["paylio", "cashapp", "https://paylio.org/fixture-cashapp"],
+    ["catalystpay", "lightning", "https://example.com/fixture-lightning"],
+    ["nowpayments", "usdtrx", "https://nowpayments.io/fixture-crypto"],
+  ]) {
+    const manager = createLegacyAttemptManager({ cryptoApi: webcrypto });
+    const displayed = generateInvoiceNumber(webcrypto);
+    manager.begin(displayed, "buyer");
+    const first = await manager.prepare(provider, selection, { total: 297.99 }, "buyer");
+    assert.equal(first.orderId, displayed);
+    manager.remember(first, url);
+    const retry = await manager.prepare(provider, selection, { total: 297.99 }, "buyer");
+    assert.equal(retry, first);
+    assert.equal(retry.url, url);
+    const changed = await manager.prepare(provider, selection, { total: 298.99 }, "buyer");
+    assert.notEqual(changed.orderId, displayed);
+    assert.equal(first.orderId, displayed);
+    assert.equal(first.url, url);
+    const otherInvoice = generateInvoiceNumber(webcrypto);
+    manager.begin(otherInvoice, "other-buyer");
+    await assert.rejects(manager.prepare(provider, selection, {}, "buyer"), /Sign in again/);
+    assert.equal((await manager.prepare(provider, selection, {}, "other-buyer")).orderId, otherInvoice);
+  }
+});
+
 // Optional real PostgreSQL-engine check without any connection to customer data.
 // Run: node api/invoice-number.test.mjs --pglite=/absolute/path/to/pglite/dist/index.js
 const sqlModule = process.argv.find(value => value.startsWith("--pglite="))?.slice(9);

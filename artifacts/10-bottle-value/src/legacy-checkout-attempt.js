@@ -26,7 +26,15 @@ export function createLegacyAttemptManager({ cryptoApi = globalThis.crypto } = {
       const digest = await cryptoApi.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({ provider, selection, snapshot })));
       if (journey !== expectedJourney || owner !== expectedOwner) throw new Error('Your checkout changed. Review it and continue again.');
       const key = Array.from(new Uint8Array(digest), n => n.toString(16).padStart(2, '0')).join('');
-      if (!attempts.has(key)) attempts.set(key, { orderId: generateInvoiceNumber(cryptoApi), provider, owner, journey, url: null });
+      if (!attempts.has(key)) {
+        // The payment screen already issued this draft invoice. Bind its first
+        // immutable payment attempt to it instead of replacing it on Pay.
+        // Different subsequent quotes/providers still need separate attempts.
+        const orderId = attempts.size === 0 && /^INV-[A-Z0-9]{8}$/.test(journey)
+          ? journey
+          : generateInvoiceNumber(cryptoApi);
+        attempts.set(key, { orderId, provider, owner, journey, url: null });
+      }
       return attempts.get(key);
     },
     remember(attempt, url) {

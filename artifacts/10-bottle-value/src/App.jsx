@@ -21784,7 +21784,7 @@ export default function App() {
                               ? tx("Card", "Карта")
                               : paymentMethod === "cashapp"
                               ? cashAppPaymentLabel
-                              : "PayPal (US)"}
+                              : "PayPal (US) / CARDS"}
                           </div>
                         </div>
                       </div>
@@ -21891,7 +21891,7 @@ export default function App() {
                               <img src={getPreloadedDisplayImageUrl(paypalMark)} alt="" className="h-9 w-9 object-contain" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="text-[14px] font-semibold leading-tight">PayPal (US)</div>
+                              <div className="text-[14px] font-semibold leading-tight">PayPal (US) <span className="whitespace-nowrap">/ CARDS</span></div>
                               <div className="mt-1.5 flex flex-nowrap items-center gap-1.5">
                                 <span className="shrink-0 inline-flex rounded-md bg-sky-500 px-1.5 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] text-white">KYC Required</span>
                               </div>
