@@ -485,7 +485,7 @@
 @media (max-width: 767px) {
   .bpc-catalog-card__cart-action > button,
   .bpc-catalog-card__cart-action .bpc-catalog-card__cart-primary {
-    font-weight: 500 !important;
+    font-weight: 900 !important;
     letter-spacing: .03em !important;
     -webkit-text-stroke: 0;
   }
@@ -639,6 +639,12 @@
   .bpc-catalog-card--quantity-list .bpc-catalog-card__pack strong { margin-right: 2mm; }
   .bpc-catalog-card--quantity-list .bpc-catalog-card__pack.is-selected { padding-right: 2px; }
   .bpc-catalog-card--quantity-list .bpc-catalog-card__pack > span:not(.bpc-catalog-card__radio) { margin-left: 0; }
+  .bpc-catalog-card--quantity-list .bpc-catalog-card__pack[data-vials="10"] > span:not(.bpc-catalog-card__radio) {
+    font-size: 11px;
+  }
+  .bpc-catalog-card--quantity-list .bpc-catalog-card__pack.is-selected[data-vials="10"] > span:not(.bpc-catalog-card__radio) {
+    color: #000;
+  }
   .bpc-catalog-card--quantity-list .bpc-catalog-card__radio { transform: none; }
 }
 

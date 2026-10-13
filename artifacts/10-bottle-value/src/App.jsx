@@ -29,6 +29,8 @@ import { catalogProductName, matchesProductSearch, productSlug as productSlugFor
 import { buildSupportTimeline } from "./support-timeline.js";
 import BpcCatalogCard from "./components/BpcCatalogCard.jsx";
 import { BufferedInput, BufferedTextarea } from "./components/BufferedTextField.jsx";
+import OrderCostInput from "./components/OrderCostInput.jsx";
+import { createOrderCostSaver, unitCostToLineCost } from "./order-cost-overrides.js";
 import CatalogSearchInput from "./components/CatalogSearchInput.jsx";
 import HomePage from "./components/HomePage.jsx";
 import PaymentReturnHeader from "./components/PaymentReturnHeader.jsx";
@@ -4731,7 +4733,28 @@ export default function App() {
   const [chartsExpandedOrder, setChartsExpandedOrder] = useState(null);
   const [chartsFrom, setChartsFrom] = useState("");
   const [chartsTo, setChartsTo] = useState("");
-  const [lineCostEdits, setLineCostEdits] = useState({}); // { "orderId-lineIdx": draftString }
+  const persistChartsCost = useMemo(() => createOrderCostSaver(supabase), []);
+  const [chartsCostSaveErrors, setChartsCostSaveErrors] = useState({});
+  async function saveChartsCost(orderId, change) {
+    const errorKey = `${orderId}:${change.kind}:${change.index ?? ""}`;
+    try {
+      const saved = await persistChartsCost(orderId, change);
+      setAllOrders(prev => prev.map(row => row.id !== orderId ? row : {
+        ...row,
+        metadata: saved.metadata,
+        lineCostOverrides: saved.metadata.lineCostOverrides ?? {},
+        supplierShippingOverride: saved.metadata.supplierShippingOverride,
+      }));
+      setChartsCostSaveErrors(previous => {
+        const next = { ...previous };
+        delete next[errorKey];
+        return next;
+      });
+    } catch (error) {
+      setChartsCostSaveErrors(previous => ({ ...previous, [errorKey]: `Cost not saved for ${orderId}: ${error.message}` }));
+      throw error;
+    }
+  }
   const [adminAffiliates, setAdminAffiliates] = useState([]);
   const [adminAffiliatesLoading, setAdminAffiliatesLoading] = useState(false);
   const [copiedAffCode, setCopiedAffCode] = useState("");
@@ -17459,7 +17482,7 @@ export default function App() {
                 // US warehouse costs (no supplier shipping fee). Same key format.
                 const US_COST = {
                   "Tirzepatide|10mg":90,"Tirzepatide|30mg":135,"Tirzepatide|40mg":155,"Tirzepatide|60mg":210,
-                  "Retatrutide|5mg":95,"Retatrutide|10mg":120,"Retatrutide|20mg":170,"Retatrutide|30mg":210,"Retatrutide|40mg":250,"Retatrutide|50mg":295,
+                  "Retatrutide|5mg":95,"Retatrutide|10mg":120,"Retatrutide|15mg":145,"Retatrutide|20mg":170,"Retatrutide|30mg":210,"Retatrutide|40mg":250,"Retatrutide|50mg":295,
                   "GHK-CU|50mg":70,"GHK-CU|100mg":85,"GHK-Cu|50mg":70,"GHK-Cu|100mg":85,
                   "GHRP-2|5mg":85,
                   "Tesamorelin|10mg":225,"Tesamorelin|20mg":310,
@@ -17482,6 +17505,7 @@ export default function App() {
                   "KLOW|80mg":235,"Klow|80mg":235,"KLOW80|80mg":235,
                   "SS-31|10mg":126,
                   "DSIP|10mg":105,
+                  "BAC Water|10ml":50,"Bacteriostatic Water|10ml":50,
                 };
                 const CHINA_SHIP = 60; // $60 per order from China
 
@@ -17615,6 +17639,9 @@ export default function App() {
 
                 return (
                   <div className="flex flex-col gap-5">
+                    {Object.entries(chartsCostSaveErrors).map(([key, message]) => (
+                      <div key={key} role="alert" className="rounded-lg px-4 py-3 text-xs" style={{ background: "#30151b", color: "#fca5a5", border: "1px solid #7f1d1d" }}>{message}</div>
+                    ))}
                     {/* Date range filter bar */}
                     <div className="rounded-2xl px-4 py-3 flex flex-wrap items-center gap-3" style={{background:"#0d1117"}}>
                       <div className="flex gap-1.5 flex-wrap">
@@ -17729,7 +17756,8 @@ export default function App() {
                                     <tr key={rowKey+"-expand"} style={{borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
                                       <td colSpan={8} className="px-6 pb-4 pt-1">
                                         <div className="rounded-xl p-4" style={{background:"rgba(255,255,255,0.04)"}}>
-                                          <div className="text-[10px] uppercase tracking-[0.18em] mb-3" style={{color:"rgba(255,255,255,0.3)"}}>Profit Breakdown</div>
+                                          <div className="text-[10px] uppercase tracking-[0.18em] mb-1" style={{color:"rgba(255,255,255,0.3)"}}>Profit Breakdown</div>
+                                          <p className="text-[11px] mb-3" style={{color:"rgba(255,255,255,0.6)"}}>Edit costs below. Press Enter or click outside to save. Changes apply to this order only.</p>
                                           <table className="w-full text-[11px]" style={{borderCollapse:"collapse"}}>
                                             <thead>
                                               <tr style={{borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
@@ -17754,56 +17782,20 @@ export default function App() {
                                                     </td>
                                                     <td className="py-1.5 pr-4" style={{color:"rgba(255,255,255,0.6)"}}>{fmtMoney(lineSale)}</td>
                                                     <td className="py-1.5 pr-4" style={{color:ln.unitCost===null?"#fbbf24":"#f87171"}}>
-                                                      {ln.unitCost===null?"unknown":fmtMoney(ln.unitCost)}×{ln.qty}={fmtMoney(ln.lineCost)}
+                                                      <span>$</span><OrderCostInput
+                                                        value={ln.hasOverride && ln.qty > 0 ? ln.lineCost / ln.qty : ln.unitCost}
+                                                        label={`Supplier unit cost for ${ln.name} ${ln.dose}`}
+                                                        testId={`cost-unit-${o.id}-${li}`}
+                                                        onSave={amount => saveChartsCost(o.id, { kind: "line", index: li, amount: unitCostToLineCost(amount, ln.qty) })}
+                                                      /> ×{ln.qty}={ln.lineCost === null ? "—" : fmtMoney(ln.lineCost)}
                                                     </td>
                                                     <td className="py-1.5 pr-4">
-                                                      {(() => {
-                                                        const editKey = `${o.id}-${li}`;
-                                                        const isEditing = lineCostEdits[editKey] !== undefined;
-                                                        const saveLineCost = async (rawVal) => {
-                                                          const parsed = parseFloat(String(rawVal).replace(/[^0-9.]/g,""));
-                                                          setLineCostEdits(p => { const n={...p}; delete n[editKey]; return n; });
-                                                          if (isNaN(parsed)) return;
-                                                          // Save override to order metadata in Supabase + local state.
-                                                          // After Supabase load, order is spread from metadata so
-                                                          // lineCostOverrides lives at top level (not under .metadata).
-                                                          const existingOverrides = (typeof o.lineCostOverrides === "object" && o.lineCostOverrides)
-                                                            ? o.lineCostOverrides
-                                                            : (typeof o.metadata?.lineCostOverrides === "object" && o.metadata.lineCostOverrides)
-                                                            ? o.metadata.lineCostOverrides : {};
-                                                          const newOverrides = { ...existingOverrides, [li]: parsed };
-                                                          // Update top-level field in local state so UI reflects immediately
-                                                          setAllOrders(prev => prev.map(row => row.id !== o.id ? row : {
-                                                            ...row,
-                                                            lineCostOverrides: newOverrides,
-                                                          }));
-                                                          try {
-                                                            const { data: rd } = await supabase.from("orders").select("metadata").eq("id", o.id).single();
-                                                            const base = (typeof rd?.metadata === "object" && rd.metadata) ? rd.metadata : {};
-                                                            await supabase.from("orders").update({ metadata: { ...base, lineCostOverrides: newOverrides } }).eq("id", o.id);
-                                                          } catch(e) { console.error("lineCost save failed", e); }
-                                                        };
-                                                        if (isEditing) return (
-                                                          <input
-                                                            autoFocus
-                                                            type="text"
-                                                            value={lineCostEdits[editKey]}
-                                                            onChange={e => setLineCostEdits(p => ({...p, [editKey]: e.target.value}))}
-                                                            onBlur={e => saveLineCost(e.target.value)}
-                                                            onKeyDown={e => { if (e.key==="Enter") e.target.blur(); if (e.key==="Escape") setLineCostEdits(p=>{ const n={...p}; delete n[editKey]; return n; }); }}
-                                                            style={{width:"72px",background:"rgba(255,255,255,0.08)",border:"1px solid rgba(248,113,113,0.6)",borderRadius:"4px",color:"#f87171",padding:"1px 4px",fontSize:"11px",outline:"none"}}
-                                                          />
-                                                        );
-                                                        return (
-                                                          <span
-                                                            title="Click to edit"
-                                                            onClick={() => setLineCostEdits(p => ({...p, [editKey]: ln.lineCost != null ? String(ln.lineCost) : ""}))}
-                                                            style={{color: ln.hasOverride ? "#fb923c" : "#f87171", cursor:"pointer", borderBottom:"1px dashed rgba(248,113,113,0.4)", paddingBottom:"1px"}}
-                                                          >
-                                                            {ln.lineCost===null?"—":fmtMoney(ln.lineCost)}{ln.hasOverride?" ✎":""}
-                                                          </span>
-                                                        );
-                                                      })()}
+                                                      <OrderCostInput
+                                                        value={ln.lineCost}
+                                                        label={`Total supplier line cost for ${ln.name} ${ln.dose}`}
+                                                        testId={`cost-line-${o.id}-${li}`}
+                                                        onSave={amount => saveChartsCost(o.id, { kind: "line", index: li, amount })}
+                                                      />
                                                     </td>
                                                     <td className="py-1.5" style={{color:lineProfit===null?"#fbbf24":lineProfit>=0?"#16c784":"#f87171",fontWeight:600}}>
                                                       {lineProfit===null?"?":fmtMoney(lineProfit)}
@@ -17817,23 +17809,11 @@ export default function App() {
                                           <div className="mt-3 pt-3 flex flex-wrap gap-x-6 gap-y-1 text-[11px]" style={{borderTop:"1px solid rgba(255,255,255,0.06)"}}>
                                             <span style={{color:"rgba(255,255,255,0.4)",display:"inline-flex",alignItems:"center",gap:4}}>
                                               {calc.isExpress?"🚀 Express":"📦 Standard"} shipping: <span style={{color:"#f87171"}}>−$</span>
-                                              <input
-                                                type="number"
-                                                min="0"
-                                                step="1"
-                                                defaultValue={calc.supplierShipping}
-                                                key={`ship-${o.id}-${calc.supplierShipping}`}
-                                                onBlur={async (e) => {
-                                                  const val = Number(e.target.value);
-                                                  if (isNaN(val) || val < 0) return;
-                                                  setAllOrders(prev => prev.map(row => row.id !== o.id ? row : { ...row, supplierShippingOverride: val }));
-                                                  try {
-                                                    const { data: rd } = await supabase.from("orders").select("metadata").eq("id", o.id).single();
-                                                    const base = (typeof rd?.metadata === "object" && rd.metadata) ? rd.metadata : {};
-                                                    await supabase.from("orders").update({ metadata: { ...base, supplierShippingOverride: val } }).eq("id", o.id);
-                                                  } catch(err) { console.error("shipping save failed", err); }
-                                                }}
-                                                style={{width:52,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:4,color:"#f87171",fontWeight:700,padding:"1px 4px",fontSize:11,outline:"none"}}
+                                              <OrderCostInput
+                                                value={calc.supplierShipping}
+                                                label="Supplier shipping cost"
+                                                testId={`cost-shipping-${o.id}`}
+                                                onSave={amount => saveChartsCost(o.id, { kind: "shipping", amount })}
                                               />
                                               {calc.customerShipping>0&&<> / client paid: <span style={{color:"#4ade80"}}>+{fmtMoney(calc.customerShipping)}</span></>}
                                             </span>

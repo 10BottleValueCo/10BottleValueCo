@@ -185,6 +185,7 @@ export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLab
           <button
             key={choice.vials}
             type="button"
+            data-vials={choice.vials}
             aria-pressed={selectedVials === choice.vials}
             disabled={!Number.isFinite(choice.price)}
             onClick={() => setSelectedVials(choice.vials)}

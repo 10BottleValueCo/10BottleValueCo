@@ -15,7 +15,13 @@ export default function HomePage({
   getPublicImageUrl = (src) => src,
 }) {
   const [isShowingUsProducts, setIsShowingUsProducts] = useState(false);
-  const featured = isShowingUsProducts ? usWarehouseProducts : featuredProducts;
+  const feedProducts = isShowingUsProducts ? usWarehouseProducts : featuredProducts;
+  const isReconstitutionSolution = (product) =>
+    String(product.name || "").trim().toLowerCase() === "reconstitution solution";
+  const featured = [
+    ...feedProducts.filter((product) => !isReconstitutionSolution(product)),
+    ...feedProducts.filter(isReconstitutionSolution),
+  ];
   const heroFeatured = featuredProducts.slice(0, 5);
   const heroProduct = heroFeatured[0];
   const productsTrackRef = useRef(null);
