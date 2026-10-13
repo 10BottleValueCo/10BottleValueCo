@@ -1,59 +1,92 @@
 import { requireAdmin } from "./_require-admin.js";
-import { createDatabaseOrderCostSaver, validateCostChange } from "./_order-costs-core.js";
+import { validateCostChange } from "./_order-costs-core.js";
 
 export const config = { maxDuration: 60 };
+const validId = id => typeof id === "string" && /^[a-zA-Z0-9_-]{1,120}$/.test(id);
 
-// Minimal PostgREST adapter: the only writable column is order metadata.
-// Service credentials stay in this server module and are never returned.
+// Only the private corrections table and its atomic RPC are accessible here.
+// Never PATCH orders or provider payment snapshots.
 export function createCostStorageClient(base, key, fetcher = globalThis.fetch) {
-  if (!base || !key) throw Object.assign(new Error("Order storage is not configured."), { status: 503 });
+  if (!base || !key) throw Object.assign(new Error("Cost storage is not configured."), { status: 503 });
+  async function request(path, init = {}) {
+    const response = await fetcher(`${base.replace(/\/+$/, "")}/rest/v1/${path}`, {
+      ...init, redirect: "error",
+      headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      const code = /^[A-Z0-9_]+$/.test(data?.code || "") ? data.code : "STORAGE_ERROR";
+      const missing = ["42P01", "PGRST202", "PGRST205"].includes(code);
+      throw Object.assign(new Error(missing
+        ? "Cost correction storage is not ready. Complete the Supabase SQL setup."
+        : `The database could not save or load costs. [Code: ${code}]`),
+      { code, status: code === "P0002" ? 404 : code === "22023" ? 400 : 503 });
+    }
+    return data;
+  }
   return {
-    from(table) {
-      if (table !== "orders") throw new Error("Invalid cost storage table.");
-      const url = new URL(`${base.replace(/\/+$/, "")}/rest/v1/orders`);
-      let method = "GET", body;
-      const execute = async required => {
-        const response = await fetcher(url, {
-          method, redirect: "error",
-          headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json",
-            Prefer: "return=representation" },
-          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-          signal: AbortSignal.timeout(6000),
-        });
-        const data = await response.json().catch(() => null);
-        if (!response.ok) return { data: null, error: {
-          code: data?.code || `HTTP_${response.status}`, details: data?.details || "",
-        } };
-        if (!Array.isArray(data)) return { data: null, error: { code: "INVALID_RESPONSE" } };
-        if (data.length === 0 && !required) return { data: null, error: null };
-        if (data.length !== 1) return { data: null, error: {
-          code: "PGRST116", details: `The result contains ${data.length} rows`,
-        } };
-        return { data: data[0], error: null };
-      };
-      const query = {
-        select(fields) { url.searchParams.set("select", fields); return query; },
-        eq(field, value) { url.searchParams.set(field, `eq.${value}`); return query; },
-        is(field, value) { url.searchParams.set(field, `is.${value}`); return query; },
-        update(value) { method = "PATCH"; body = value; return query; },
-        single() { return execute(true); },
-        maybeSingle() { return execute(false); },
-      };
-      return query;
+    async list(cursor) {
+      const query = new URLSearchParams({
+        select: "order_id,line_cost_overrides,supplier_shipping_override,updated_at",
+        order: "order_id.asc", limit: "500",
+      });
+      if (cursor) query.set("order_id", `gt.${cursor}`);
+      const rows = await request(`order_cost_overrides?${query}`);
+      if (!Array.isArray(rows) || rows.length > 500) throw new Error("Invalid cost storage response.");
+      return { rows, nextCursor: rows.length === 500 ? rows.at(-1).order_id : null };
+    },
+    save(orderId, change, amount) {
+      return request("rpc/save_order_cost_override", { method: "POST", body: JSON.stringify({
+        p_order_id: orderId, p_kind: change.kind,
+        p_line_index: change.kind === "line" ? change.index : null, p_amount: amount,
+      }) });
     },
   };
+}
+
+export function costRowToOrder(row) {
+  if (!validId(row?.order_id) || !row.line_cost_overrides ||
+      typeof row.line_cost_overrides !== "object" || Array.isArray(row.line_cost_overrides)) {
+    throw new Error("Invalid cost storage response.");
+  }
+  const metadata = { lineCostOverrides: {} };
+  for (const [index, value] of Object.entries(row.line_cost_overrides)) {
+    if (String(Number(index)) !== index) throw new Error("Invalid saved line index.");
+    const amount = validateCostChange(row.order_id, { kind: "line", index: Number(index), amount: value });
+    if (amount !== value) throw new Error("Invalid saved line cost.");
+    metadata.lineCostOverrides[index] = amount;
+  }
+  if (row.supplier_shipping_override != null) {
+    const amount = validateCostChange(row.order_id, { kind: "shipping", amount: row.supplier_shipping_override });
+    if (amount !== Number(row.supplier_shipping_override)) throw new Error("Invalid saved shipping cost.");
+    metadata.supplierShippingOverride = amount;
+  }
+  return { id: row.order_id, metadata };
 }
 
 export function createOrderCostHandler({ authorize = requireAdmin, client } = {}) {
   return async function handler(req, res) {
     res.setHeader("Cache-Control", "private, no-store");
     res.setHeader("Vary", "Authorization");
-    if (req.method !== "POST") {
-      res.setHeader("Allow", "POST");
+    if (!["POST", "GET"].includes(req.method)) {
+      res.setHeader("Allow", "GET, POST");
       return res.status(405).json({ ok: false, error: "Method not allowed." });
     }
     if (!await authorize(req, res)) return;
     try {
+      const storage = client || createCostStorageClient(
+        process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "https://danpkqqzcptamojrnrmk.supabase.co",
+        process.env.SUPABASE_SERVICE_ROLE_KEY,
+      );
+      if (req.method === "GET") {
+        const cursor = req.query?.cursor;
+        if (cursor != null && !validId(cursor)) {
+          return res.status(400).json({ ok: false, error: "Invalid cost page cursor." });
+        }
+        const page = await storage.list(cursor);
+        return res.status(200).json({ ok: true, orders: page.rows.map(costRowToOrder), nextCursor: page.nextCursor });
+      }
       const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
       if (!body || typeof body !== "object" || Array.isArray(body) ||
           Buffer.byteLength(JSON.stringify(body)) > 2000) {
@@ -61,20 +94,14 @@ export function createOrderCostHandler({ authorize = requireAdmin, client } = {}
       }
       const { orderId, kind, index, amount } = body;
       const validated = validateCostChange(orderId, { kind, index, amount });
-      const storage = client || createCostStorageClient(
-        process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "https://danpkqqzcptamojrnrmk.supabase.co",
-        process.env.SUPABASE_SERVICE_ROLE_KEY,
-      );
-      const save = createDatabaseOrderCostSaver(storage);
-      const order = await save(orderId, { kind, index, amount: validated });
-      return res.status(200).json({ ok: true, order: { id: order.id, metadata: order.metadata } });
+      const order = costRowToOrder(await storage.save(orderId, { kind, index }, validated));
+      const persisted = kind === "line" ? order.metadata.lineCostOverrides[index] : order.metadata.supplierShippingOverride;
+      if (order.id !== orderId || persisted !== validated) throw new Error("The saved cost could not be verified.");
+      return res.status(200).json({ ok: true, order });
     } catch (error) {
       const status = error instanceof SyntaxError ? 400 : error.status || 503;
-      // Do not log metadata, customer details, authorization or provider keys.
-      console.warn("Order cost save failed", { code: error.code || "COST_SAVE_ERROR", status });
-      return res.status(status).json({ ok: false, error: status === 400
-        ? error.message
-        : error.status ? error.message : "Order cost storage is unavailable. Please retry." });
+      console.warn("Order cost storage failed", { code: error.code || "COST_STORAGE_ERROR", status });
+      return res.status(status).json({ ok: false, error: error.status ? error.message : "Cost storage is unavailable. Please retry." });
     }
   };
 }

@@ -30,7 +30,8 @@ import { buildSupportTimeline } from "./support-timeline.js";
 import BpcCatalogCard from "./components/BpcCatalogCard.jsx";
 import { BufferedInput, BufferedTextarea } from "./components/BufferedTextField.jsx";
 import OrderCostInput from "./components/OrderCostInput.jsx";
-import { createOrderCostSaver, unitCostToLineCost } from "./order-cost-overrides.js";
+import { unitCostToLineCost } from "./order-cost-overrides.js";
+import useAdminOrderCosts from "./use-admin-order-costs.js";
 import CatalogSearchInput from "./components/CatalogSearchInput.jsx";
 import HomePage from "./components/HomePage.jsx";
 import PaymentReturnHeader from "./components/PaymentReturnHeader.jsx";
@@ -4733,18 +4734,12 @@ export default function App() {
   const [chartsExpandedOrder, setChartsExpandedOrder] = useState(null);
   const [chartsFrom, setChartsFrom] = useState("");
   const [chartsTo, setChartsTo] = useState("");
-  const persistChartsCost = useMemo(() => createOrderCostSaver(supabase), []);
   const [chartsCostSaveErrors, setChartsCostSaveErrors] = useState({});
+  useEffect(() => { setChartsCostSaveErrors({}); }, [currentUser?.id, currentUser?.email]);
   async function saveChartsCost(orderId, change) {
     const errorKey = `${orderId}:${change.kind}:${change.index ?? ""}`;
     try {
-      const saved = await persistChartsCost(orderId, change);
-      setAllOrders(prev => prev.map(row => row.id !== orderId ? row : {
-        ...row,
-        metadata: saved.metadata,
-        lineCostOverrides: saved.metadata.lineCostOverrides ?? {},
-        supplierShippingOverride: saved.metadata.supplierShippingOverride,
-      }));
+      await chartsOrderCosts.saveCost(orderId, change);
       setChartsCostSaveErrors(previous => {
         const next = { ...previous };
         delete next[errorKey];
@@ -5101,6 +5096,8 @@ export default function App() {
   function isAdminUser(user = currentUser) {
     return ADMIN_EMAILS.includes(normalizeEmail(user?.email));
   }
+
+  const chartsOrderCosts = useAdminOrderCosts(supabase, page === "admin" && adminActiveTab === "charts" && isAdminUser(), currentUser?.id || currentUser?.email);
 
   function stripQuoteMarker(text) {
     return String(text || "").replace(/^\[QUOTE:([^\]]*)\]/, "").trim();
@@ -17398,6 +17395,11 @@ export default function App() {
               )}
 
               {adminActiveTab === "charts" && isAdminUser() && (() => {
+                if (chartsOrderCosts.loading) return <div role="status" className="rounded-xl bg-black p-6 text-white">Loading saved costs…</div>;
+                if (chartsOrderCosts.error) return <div role="alert" className="rounded-xl bg-black p-6 text-red-300">
+                  Saved costs could not be loaded: {chartsOrderCosts.error}
+                  <button type="button" onClick={chartsOrderCosts.reload} className="ml-3 rounded-full bg-white px-4 py-2 text-black">Retry</button>
+                </div>;
                 // ── Supplier cost tables ─────────────────────────────────────
                 // China warehouse: cost per kit (10 vials). Key = "NormalizedName|dose"
                 const CHINA_COST = {
@@ -17519,11 +17521,13 @@ export default function App() {
                   const items = Array.isArray(order.items) ? order.items : [];
                   // After loading from Supabase the order is spread from metadata,
                   // so lineCostOverrides lives at the top level, not under .metadata
-                  const overrides = (typeof order.lineCostOverrides === "object" && order.lineCostOverrides)
+                  const baseOverrides = (typeof order.lineCostOverrides === "object" && order.lineCostOverrides)
                     ? order.lineCostOverrides
                     : (typeof order.metadata?.lineCostOverrides === "object" && order.metadata.lineCostOverrides)
                     ? order.metadata.lineCostOverrides
                     : {};
+                  const correction = chartsOrderCosts.costs[order.id];
+                  const overrides = { ...baseOverrides, ...correction?.lineCostOverrides };
                   let cogs = 0;
                   let hasChinaItem = false;
                   let hasUnknown = false;
@@ -17545,7 +17549,7 @@ export default function App() {
                     return { name: publicProductName(it.name), dose: normDose(it.dose), qty, isUS, unitCost, lineCost, hasOverride, salePrice: Number(it.price||0) };
                   });
                   const isExpress = String(order.shippingType||"").toLowerCase().includes("express");
-                  const supplierShippingOverride = order.supplierShippingOverride ?? order.metadata?.supplierShippingOverride;
+                  const supplierShippingOverride = correction?.supplierShippingOverride ?? order.supplierShippingOverride ?? order.metadata?.supplierShippingOverride;
                   const supplierShipping = supplierShippingOverride != null
                     ? Number(supplierShippingOverride)
                     : hasChinaItem ? (isExpress ? 100 : 60) : 0;
