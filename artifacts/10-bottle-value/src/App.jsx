@@ -22668,7 +22668,7 @@ export default function App() {
 
             {attestationModalOpen && (
               <div
-                className="fixed inset-0 z-[10020] flex items-end justify-center bg-black/80 px-0 sm:items-center sm:px-4"
+                className="fixed inset-0 z-[10020] flex items-end justify-center bg-black/80 px-4 sm:items-center"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="purchaser-attestation-title"
@@ -22678,8 +22678,11 @@ export default function App() {
               >
                 <div
                   ref={termsSectionRef}
-                  className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[1.2rem] border border-white/20 bg-[#30343a] p-5 md:rounded-[1.6rem] md:p-8"
-                  style={{ backgroundColor: "#30343a" }}
+                  className="max-h-[92vh] w-full max-w-[58rem] overflow-y-auto rounded-[1.2rem] border border-white/20 bg-[#30343a] p-5 md:rounded-[1.6rem] md:p-8"
+                  style={{
+                    backgroundColor: "#30343a",
+                    width: "min(calc(100vw - 2rem), 58rem)",
+                  }}
                 >
                   <div className="mb-6 flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
