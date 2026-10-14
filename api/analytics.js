@@ -1,3 +1,5 @@
+import { needsEmailLoginCode } from "./_email-login-mfa.js";
+
 const ADMIN_EMAIL = "support@10bottlevalue.co";
 const ALLOWED_EVENTS = new Set([
   "page_view",
@@ -119,6 +121,7 @@ async function authenticateAdmin(authorization, config) {
   if (!response.ok) return false;
 
   const user = await response.json();
+  if (needsEmailLoginCode(user, token)) return false;
   return isRecord(user)
     && typeof user.email === "string"
     && user.email.trim().toLowerCase() === ADMIN_EMAIL;

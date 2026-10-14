@@ -11,6 +11,47 @@ tags:
   - name: health
     description: Health operations
 paths:
+  /account-email-login:
+    get:
+      operationId: getAccountEmailLogin
+      summary: Read email login verification status for the authenticated session
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Status, availability and session-scoped pending challenge
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailLoginResult"
+        "401":
+          description: Authentication required
+    post:
+      operationId: manageAccountEmailLogin
+      summary: Request or confirm email verification for setup, login or removal
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailLoginRequest"
+      responses:
+        "200":
+          description: Challenge requested or verified native Supabase session established
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailLoginResult"
+        "400":
+          description: Invalid, expired or locked verification request
+        "403":
+          description: Additional verification required
+        "429":
+          description: Verification rate limit reached
+        "503":
+          description: Verification unavailable or SQL setup required
   /healthz:
     get:
       operationId: healthCheck
@@ -25,7 +66,58 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
   schemas:
+    EmailLoginRequest:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [send, verify]
+        purpose:
+          type: string
+          enum: [enable, disable, login]
+        challengeId:
+          type: string
+          format: uuid
+        code:
+          type: string
+          pattern: '^\d{6}$'
+      required: [action, purpose]
+    EmailLoginResult:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        userId:
+          type: string
+        email:
+          type: string
+        available:
+          type: boolean
+        enabled:
+          type: boolean
+        requiresCode:
+          type: boolean
+        challenge:
+          type: [object, "null"]
+          properties:
+            id:
+              type: string
+            purpose:
+              type: string
+            expiresAt:
+              type: string
+            resendAt:
+              type: string
+          required: [id, purpose, expiresAt, resendAt]
+        session:
+          type: object
+          additionalProperties: true
+      required: [ok]
     HealthStatus:
       type: object
       properties:

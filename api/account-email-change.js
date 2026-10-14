@@ -1,3 +1,5 @@
+import { needsEmailLoginCode } from "./_email-login-mfa.js";
+
 const PENDING_FIELD = "tbv_pending_email_migration";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -57,6 +59,7 @@ async function getCustomer(req, config) {
   }
   if (!response.ok) throw new EmailChangeError(401, "Your sign-in has expired.");
   const user = await readBody(response);
+  if (needsEmailLoginCode(user, token)) throw new EmailChangeError(403, "Confirm your email login code first.");
   const id = String(user?.id || "");
   const email = normalizeEmail(user?.email);
   if (!id || !EMAIL_PATTERN.test(email)) {

@@ -5,6 +5,7 @@ import OperationsDiscounts from "./components/OperationsDiscounts.jsx";
 import OperationsPortalStudio from "./components/OperationsPortalStudio.jsx";
 import { boundedAuth, checkOperationsAccess, operationsGithubSignInUrl, sessionIdentity, signInOperations } from "./operations-auth.js";
 import "./operations-shell.css";
+import { EmailLoginPrompt } from "./components/EmailLoginControls.jsx";
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -82,7 +83,7 @@ export function OperationsApp() {
     setAccess({ key, status: "checking" });
     checkOperationsAccess(auth.session, { signal: controller.signal })
       .then(user => { if (active) setAccess({ key, status: "allowed", user }); })
-      .catch(error => { if (active) setAccess({ key, status: error.code === "denied" ? "denied" : "unavailable" }); });
+      .catch(error => { if (active) setAccess({ key, status: error.code === "email_code_required" ? "email_code_required" : error.code === "denied" ? "denied" : "unavailable" }); });
     return () => { active = false; controller.abort(); };
   }, [key, retry, signingOut]);
 
@@ -126,6 +127,7 @@ export function OperationsApp() {
   }
 
   return <div className="operations-shell">
+    {access.status === "email_code_required" && auth.session && <EmailLoginPrompt supabase={supabase} session={auth.session} onVerified={() => setRetry(v => v + 1)} onCancel={signOut} />}
     <nav className="operations-nav" aria-label="Operations"><a className="operations-brand" href="https://10bottlevalue.co/">10<span>BOTTLE</span>VALUE</a><div>
       <div className="operations-language" role="group" aria-label={t.language}>{["en", "ru"].map(code => <button type="button" key={code} aria-pressed={language === code} onClick={() => setLanguage(code)}>{code.toUpperCase()}</button>)}</div>
       {key && <button type="button" className="operations-logout" disabled={form.busy} onClick={signOut}>{form.busy ? t.busy : t.logout}</button>}

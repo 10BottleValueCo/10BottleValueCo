@@ -13,6 +13,8 @@ import { getAdminInvoiceLabel, getAdminOrderStatusLabel, getAdminPaymentProvider
 import ShippingPricesPage from "./components/ShippingPricesPage.jsx";
 import worldwideCatalogBackground from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791141018882.webp";
 import { supabase, userFromSupabase, saveAccountCheckoutDetails } from "./supabase.js";
+import { emailLoginApi } from "./email-login-client.js";
+import { EmailLoginSecurity, EmailLoginPrompt } from "./components/EmailLoginControls.jsx";
 import { useCheckoutDetails } from "./useCheckoutDetails.js";
 import { contactDetails } from "./checkout-details.js";
 import { adjustStoreCredit } from "./store-credit-admin-client.js";
@@ -4129,6 +4131,49 @@ export default function App() {
   const [activeAccountSection, setActiveAccountSection] = useState("overview");
   const [changePasswordForm, setChangePasswordForm] = useState({ newPassword: "", confirmPassword: "" });
   const [changePasswordMessage, setChangePasswordMessage] = useState("");
+  const [emailLoginPrompt, setEmailLoginPrompt] = useState(null);
+  const emailLoginIdentityRef = useRef("");
+  async function checkEmailLoginSession(session) {
+    const identity = session?.access_token || "";
+    emailLoginIdentityRef.current = identity;
+    if (!identity) { setEmailLoginPrompt(null); return false; }
+    try {
+      const status = await emailLoginApi(identity);
+      if (emailLoginIdentityRef.current !== identity) return false;
+      if (status.userId !== session.user.id) throw new Error("Your sign-in could not be verified.");
+      if (status.requiresCode) {
+        setCurrentUser(null);
+        setEmailLoginPrompt(session);
+        setPage("account");
+        return false;
+      }
+      setEmailLoginPrompt(null);
+      return true;
+    } catch (error) {
+      if (emailLoginIdentityRef.current === identity) {
+        setCurrentUser(null);
+        setAccountMessage(error.message || "Your sign-in could not be verified. Please try again.");
+      }
+      return false;
+    }
+  }
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const recheck = () => {
+      if (document.visibilityState !== "visible") return;
+      supabase.auth.getSession().then(({ data }) => {
+        if (data?.session) return checkEmailLoginSession(data.session);
+      }).catch(() => {});
+    };
+    const timer = window.setInterval(recheck, 60000);
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+  }, [currentUser?.id]);
   const emailChangeUserIdRef = useRef("");
   const emailChangeInFlightRef = useRef(false);
   const [profileForm, setProfileForm] = useState({
@@ -9725,10 +9770,14 @@ export default function App() {
       setPage("account");
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       // Don't restore a regular session while a recovery flow is active
-      if (sessionStorage.getItem("tbv-pw-recovery")) { setAuthReady(true); return; }
+      if (sessionStorage.getItem("tbv-pw-recovery")) {
+        if (session?.user) await checkEmailLoginSession(session);
+        setAuthReady(true); return;
+      }
       if (session?.user) {
+        if (!await checkEmailLoginSession(session)) { setAuthReady(true); return; }
         const user = userFromSupabase(session.user);
         setCurrentUser(user);
         setAccountForm({ email: user.email, password: "", confirmPassword: "" });
@@ -9752,6 +9801,7 @@ export default function App() {
         }
         setAuthMode("reset");
         setPage("account");
+        if (session?.user) await checkEmailLoginSession(session);
         return;
       }
       // Supabase sometimes fires SIGNED_IN right after PASSWORD_RECOVERY.
@@ -9763,12 +9813,14 @@ export default function App() {
         }
         setAuthMode("reset");
         setPage("account");
+        if (session?.user) await checkEmailLoginSession(session);
         return;
       }
       if (event === "SIGNED_IN" && requireSignupVerificationRef.current) {
         return;
       }
       if (session?.user) {
+        if (!await checkEmailLoginSession(session)) return;
         const user = userFromSupabase(session.user);
         setCurrentUser(user);
         setAccountForm({ email: user.email, password: "", confirmPassword: "" });
@@ -9779,6 +9831,8 @@ export default function App() {
           }, 0);
         }
       } else {
+        emailLoginIdentityRef.current = "";
+        setEmailLoginPrompt(null);
         setCurrentUser(null);
       }
     });
@@ -12780,6 +12834,7 @@ export default function App() {
       return;
     }
 
+    if (!await checkEmailLoginSession(signInData.session)) return;
     const loggedInUser = userFromSupabase(signInData.user);
     setCurrentUser(loggedInUser);
     syncUserPaidOrders(loggedInUser.email);
@@ -19016,6 +19071,7 @@ export default function App() {
                     ) : null}
                   </div>
 
+                  {activeAccountSection === "security" && <EmailLoginSecurity supabase={supabase} userId={currentUser?.id} />}
                   {isChangingPassword && (
                     <div id="account-security-details" className="mt-4 rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-5">
                       <div className="mb-4 text-[11px] font-bold uppercase tracking-[0.22em] text-white/70">
@@ -19746,6 +19802,21 @@ export default function App() {
                   )}
                 </AccountDashboard>
                 </Suspense>
+              ) : emailLoginPrompt ? (
+                <EmailLoginPrompt
+                  inline
+                  supabase={supabase}
+                  session={emailLoginPrompt}
+                  onVerified={() => setEmailLoginPrompt(null)}
+                  onCancel={async () => {
+                    emailLoginIdentityRef.current = "";
+                    setEmailLoginPrompt(null);
+                    setCurrentUser(null);
+                    await supabase.auth.signOut();
+                    setAuthMode("signin");
+                    setPage("account");
+                  }}
+                />
               ) : (
                 <>
                   <div className={authMode === "verify" ? "mt-2 w-full" : "relative mt-3 inline-block"}>

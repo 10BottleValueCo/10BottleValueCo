@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { needsEmailLoginCode } from "./_email-login-mfa.js";
 
 const BUCKET = "chat-images";
 const ADMIN_EMAIL = "support@10bottlevalue.co";
@@ -176,6 +177,7 @@ async function authenticateRequest(req) {
   }
 
   const user = await response.json().catch(() => null);
+  if (needsEmailLoginCode(user, token)) throw new AttachmentError(403, "Confirm your email login code first.");
   const email = String(user?.email || "").trim().toLowerCase();
   const verified = Boolean(user?.email_confirmed_at || user?.confirmed_at);
   if (!verified || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {

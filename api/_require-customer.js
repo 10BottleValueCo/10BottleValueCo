@@ -1,3 +1,5 @@
+import { enforceEmailLoginCode } from "./_email-login-mfa.js";
+
 function reject(res, status, error) {
   res.status(status).json({ ok: false, error });
   return null;
@@ -30,6 +32,7 @@ export async function requireVerifiedCustomer(req, res, { purpose = "Store Credi
     if (!response.ok) return reject(res, 401, "Your sign-in has expired.");
 
     const user = await response.json();
+    if (!enforceEmailLoginCode(user, token, res)) return null;
     const email = String(user?.email || "").trim().toLowerCase();
     const verified = Boolean(user?.email_confirmed_at);
     if (!verified || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {

@@ -1,3 +1,5 @@
+import { enforceEmailLoginCode } from "./_email-login-mfa.js";
+
 const ADMIN_EMAIL = "support@10bottlevalue.co";
 const PAGE_SIZE = 1_000;
 const MAX_PAYOUT_ROWS = 20_000;
@@ -58,6 +60,7 @@ async function requireAdmin(authorization, config, res) {
   }
 
   const user = await response.json();
+  if (!enforceEmailLoginCode(user, token, res)) return false;
   if (!isRecord(user) || !user.email_confirmed_at
     || typeof user.email !== "string" || user.email.trim().toLowerCase() !== ADMIN_EMAIL) {
     res.status(403).json({ error: "Admin access is required to manage payouts." });

@@ -1,8 +1,9 @@
 import { timingSafeEqual } from "node:crypto";
+import { enforceEmailLoginCode } from "./_email-login-mfa.js";
 
 // Authorize on the server, using Supabase's validated user response. Never use
 // browser state or user_metadata for permissions.
-export async function requireUser(req, res) {
+export async function requireUser(req, res, { allowEmailChallenge = false } = {}) {
   res.setHeader("Cache-Control", "no-store");
   const authorization = req.headers?.authorization;
   const token = typeof authorization === "string" ? authorization.match(/^Bearer\s+(\S+)$/i)?.[1] : null;
@@ -31,6 +32,7 @@ export async function requireUser(req, res) {
       res.status(401).json({ ok: false, error: "Invalid session." });
       return null;
     }
+    if (!allowEmailChallenge && !enforceEmailLoginCode(user, token, res)) return null;
     return user;
   } catch {
     res.status(503).json({ ok: false, error: "Authentication service unavailable." });

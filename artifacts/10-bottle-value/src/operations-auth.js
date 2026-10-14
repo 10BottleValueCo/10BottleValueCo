@@ -35,7 +35,10 @@ export async function checkOperationsAccess(session, { fetcher = fetch, signal, 
     const response = await fetcher("/api/admin-operations-access", {
       method: "GET", headers: { Authorization: `Bearer ${session.access_token}` }, cache: "no-store", signal: requestSignal,
     });
-    if (response.status === 401 || response.status === 403) throw new OperationsAuthError("denied");
+    if (response.status === 401 || response.status === 403) {
+      const body = await response.json().catch(() => null);
+      throw new OperationsAuthError(body?.code === "EMAIL_LOGIN_CODE_REQUIRED" ? "email_code_required" : "denied");
+    }
     if (!response.ok) throw new OperationsAuthError();
     const body = await response.json();
     if (body?.ok !== true || body.user?.id !== session.user.id

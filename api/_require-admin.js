@@ -1,3 +1,5 @@
+import { enforceEmailLoginCode } from "./_email-login-mfa.js";
+
 const SUPABASE_URL =
   process.env.VITE_SUPABASE_URL || "https://danpkqqzcptamojrnrmk.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -32,6 +34,7 @@ export async function requireAdmin(req, res) {
     if (!response.ok) return reject(res, 401, "Authentication required");
 
     const user = await response.json();
+    if (!enforceEmailLoginCode(user, match[1], res)) return false;
     const email = String(user?.email || "").trim().toLowerCase();
     const emailVerified = Boolean(user?.email_confirmed_at || user?.confirmed_at);
     if (!emailVerified || email !== ADMIN_EMAIL) {
