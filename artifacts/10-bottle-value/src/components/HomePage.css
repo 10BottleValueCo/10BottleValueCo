@@ -34,7 +34,6 @@
 .tbv-app-shell > header {
   background-color: rgba(0, 0, 0, .24);
   backdrop-filter: blur(3px);
-  transition: background-color 180ms ease, backdrop-filter 180ms ease;
 }
 
 @media (min-width: 1024px) {

@@ -4366,6 +4366,34 @@ export default function App() {
   const [shippingType, setShippingType] = useState("standard");
   const effectiveShippingType = cart.length > 0 && cart.every(i => i.fromWarehouse === "us") ? "us-warehouse" : shippingType;
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
+  useEffect(() => {
+    let lastScrolledState = null;
+    const onScroll = (event) => {
+      const scrollingElement = document.scrollingElement;
+      const pageScrollTop = Math.max(
+        window.scrollY || 0,
+        scrollingElement?.scrollTop || 0,
+        document.documentElement.scrollTop || 0,
+        document.body.scrollTop || 0
+      );
+      const target = event?.target;
+      const targetScrollTop = target instanceof HTMLElement
+        ? target.scrollTop
+        : 0;
+      const nextScrolledState = Math.max(pageScrollTop, targetScrollTop) > 24;
+      if (nextScrolledState === lastScrolledState) return;
+      lastScrolledState = nextScrolledState;
+      setIsHeaderScrolled(nextScrolledState);
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    document.addEventListener("scroll", onScroll, { capture: true, passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      document.removeEventListener("scroll", onScroll, true);
+    };
+  }, []);
   useEffect(() => {
     if (page !== "shop") return undefined;
 
@@ -14094,13 +14122,12 @@ export default function App() {
       )}
       <div
         ref={announcementBarRef}
-        className="relative md:sticky md:top-0 z-[100]"
+        className="relative md:sticky md:top-0 z-[100] bg-black"
         data-affiliate-backdrop={page === "affiliate" ? "true" : undefined}
         data-mobile-announcement="true"
-        style={usesWorldwideBackground ? catalogBackgroundStyle : undefined}
       >
         {/* Mobile: thin ticker */}
-        <div data-nosnippet className={`lg:hidden w-full overflow-hidden ${usesWorldwideBackground ? "bg-black/30 backdrop-blur-sm" : "bg-black"} px-3 py-1.5 text-[8px] font-semibold uppercase leading-[1.35] tracking-[0.06em] text-white`}>
+        <div data-nosnippet className="lg:hidden w-full overflow-hidden bg-black px-3 py-1.5 text-[8px] font-semibold uppercase leading-[1.35] tracking-[0.06em] text-white">
           <div className="mx-auto max-w-[720px]">
             <div className="shipping-announcement-viewport w-full overflow-hidden">
               <div className="shipping-announcement-track">
@@ -14121,7 +14148,7 @@ export default function App() {
           </div>
         </div>
         {/* Desktop: static row */}
-        <div data-nosnippet className={`hidden lg:flex relative z-[100] w-full ${usesWorldwideBackground ? "bg-black/30 backdrop-blur-sm" : "bg-black"} px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white items-center justify-center gap-4`}>
+        <div data-nosnippet className="hidden lg:flex relative z-[100] w-full bg-black px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white items-center justify-center gap-4">
           <span className="text-center leading-tight">{i18n(legal.ruoStrict)}</span>
           <span className="text-white/30 font-light shrink-0">|</span>
           <span className="whitespace-nowrap shrink-0">US WAREHOUSE FREE SHIPPING</span>
@@ -14228,12 +14255,23 @@ export default function App() {
           data-nosnippet
           data-home-header={page === "home" ? "true" : undefined}
           data-affiliate-header={page === "affiliate" ? "true" : undefined}
-          style={{ "--tbv-announcement-height": "32px" }}
+          data-header-scrolled={isHeaderScrolled ? "true" : undefined}
+          style={{
+            "--tbv-announcement-height": "32px",
+            backgroundColor: isHeaderScrolled && page !== "admin"
+              ? "#000"
+              : undefined,
+            boxShadow: isHeaderScrolled && page !== "admin"
+              ? "0 -8px 0 #000"
+              : undefined,
+          }}
           className={`sticky top-0 md:top-[var(--tbv-announcement-height)] z-[200] border-b border-white/20 pb-0 md:pb-[3px] ${
             page === "admin"
               ? "bg-black"
+              : isHeaderScrolled
+              ? "bg-black backdrop-blur-md"
               : pageBackdropImage || usesWorldwideBackground
-              ? "bg-black/20 backdrop-blur-md"
+              ? "bg-black/60 backdrop-blur-md"
               : "bg-[#8f8f8f]"
           }`}
         >
@@ -14324,7 +14362,7 @@ export default function App() {
               <a
                 href="/cart"
                 onClick={(event) => handlePublicPageLink(event, "cart")}
-                className={`rounded-full bg-black px-3.5 py-2 text-[12px] font-bold uppercase tracking-[0.18em] whitespace-nowrap text-white${cartHighlight ? " cart-pop" : ""}`}
+                className={`rounded-full border border-white/55 bg-black px-3.5 py-2 text-[12px] font-bold uppercase tracking-[0.18em] whitespace-nowrap text-white shadow-[0_0_0_1px_rgba(255,255,255,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70${cartHighlight ? " cart-pop" : ""}`}
                 aria-label="Cart"
               >
                 {`${t("cart")}${cartCount ? ` (${cartCount})` : ""}`}
@@ -14332,7 +14370,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setIsMobileMenuOpen(true)}
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black text-white"
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-white/55 bg-black text-white shadow-[0_0_0_1px_rgba(255,255,255,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
                 aria-label="Open menu"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
