@@ -12,4 +12,5 @@ export type EmailLoginRequestAction = typeof EmailLoginRequestAction[keyof typeo
 export const EmailLoginRequestAction = {
   send: 'send',
   verify: 'verify',
+  disable: 'disable',
 } as const;

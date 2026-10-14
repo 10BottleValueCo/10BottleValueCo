@@ -138,7 +138,7 @@ export const getManageAccountEmailLoginUrl = () => {
 }
 
 /**
- * @summary Request or confirm email verification for setup, login or removal
+ * @summary Request or confirm email verification, or disable it from an already verified session
  */
 export const manageAccountEmailLogin = async (emailLoginRequest: EmailLoginRequest, options?: Parameters<typeof customFetch>[1]): Promise<EmailLoginResult> => {
 
@@ -204,7 +204,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ManageAccountEmailLoginMutationVariables = {data: BodyType<EmailLoginRequest>}
 
     /**
- * @summary Request or confirm email verification for setup, login or removal
+ * @summary Request or confirm email verification, or disable it from an already verified session
  */
 export const useManageAccountEmailLogin = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof manageAccountEmailLogin>>, TError,ManageAccountEmailLoginMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}

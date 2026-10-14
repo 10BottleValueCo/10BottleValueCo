@@ -50,7 +50,7 @@ import vialCManifest from "./data/vialCManifest.json";
 import melanotan2VialInline from "./assets/vials/melanotan-2-mt2-10mg.webp?inline";
 import cashAppLogo from "./assets/payment-logos/cash-app.svg";
 import bitcoinLogo from "./assets/payment-logos/bitcoin.svg";
-import paypalMark from "./assets/payment-logos/paypal-mark.svg";
+import bankCardIcon from "./assets/payment-logos/bank-card.svg";
 import applePayMark from "./assets/payment-logos/apple-pay.svg";
 import applePayMarkDark from "./assets/payment-logos/apple-pay-dark.svg";
 import googlePayMark from "./assets/payment-logos/google-pay.svg";
@@ -8610,7 +8610,7 @@ export default function App() {
       });
     }
   }, [page, checkoutStep]);
-  const [paymentMethod, setPaymentMethodState] = useState("stripe");
+  const [paymentMethod, setPaymentMethodState] = useState("paylio");
   function setPaymentMethod(next) {
     if (next === paymentMethod || legacyStartLockRef.current) return;
     if (meritAttemptRef.current?.submitted || (meritAttemptRef.current?.createRequested && next !== "stripe")) { showMeritReservedAttempt(); return; }
@@ -10625,7 +10625,7 @@ export default function App() {
 
   useEffect(() => {
     if (checkoutStep === "payment" && finalTotalRef.current > 0) {
-      setPaymentMethod("stripe");
+      setPaymentMethod("paylio");
     }
   }, [checkoutStep]);
 
@@ -21855,7 +21855,7 @@ export default function App() {
                               ? tx("Card", "Карта")
                               : paymentMethod === "cashapp"
                               ? cashAppPaymentLabel
-                              : "PayPal (US) / CARDS"}
+                              : "CARDS / PayPal (US)"}
                           </div>
                         </div>
                       </div>
@@ -21917,6 +21917,7 @@ export default function App() {
                               <div className="text-[14px] font-semibold">{tx("Crypto", "Крипто", "Крипто", "Krypto", "Cripto")}</div>
                               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                                 <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "crypto" ? "bg-emerald-400/25 text-emerald-300" : "bg-emerald-500 text-white"}`}>2.5% OFF</span>
+                                <span className={`inline-flex rounded-md px-1.5 py-0.5 text-[11px] font-black uppercase tracking-[0.1em] ${paymentMethod === "crypto" ? "bg-sky-400/25 text-sky-300" : "bg-sky-500 text-white"}`}>NO KYC</span>
                               </div>
                             </div>
                             {paymentMethod === "crypto" && <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500"><svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>}
@@ -21958,13 +21959,13 @@ export default function App() {
                           <button type="button" onClick={() => setPaymentMethod("paylio")}
                             className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 ${paymentMethod === "paylio" ? "border-black bg-black text-white ring-1 ring-slate-300 shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-slate-300 bg-white text-black hover:border-slate-500 hover:shadow-[0_4px_14px_rgba(0,0,0,0.06)]"}`}
                           >
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white">
-                              <img src={getPreloadedDisplayImageUrl(paypalMark)} alt="" className="h-9 w-9 object-contain" />
+                            <div className="flex h-10 w-14 shrink-0 items-center justify-center">
+                              <img src={bankCardIcon} alt="" className="h-10 w-14 object-contain" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="text-[14px] font-semibold leading-tight">PayPal (US) <span className="whitespace-nowrap">/ CARDS</span></div>
+                              <div className="text-[14px] font-semibold leading-tight">CARDS / <span className="whitespace-nowrap">PayPal (US)</span></div>
                               <div className="mt-1.5 flex flex-nowrap items-center gap-1.5">
-                                <span className="shrink-0 inline-flex rounded-md bg-sky-500 px-1.5 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] text-white">KYC Required</span>
+                                <span className="shrink-0 inline-flex rounded-md bg-sky-500 px-1.5 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] text-white">KYC MAY BE REQUIRED</span>
                               </div>
                             </div>
                             {paymentMethod === "paylio" && <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500"><svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>}

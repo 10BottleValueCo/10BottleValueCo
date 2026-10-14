@@ -29,13 +29,13 @@ export const GetAccountEmailLoginResponse = zod.object({
 
 
 /**
- * @summary Request or confirm email verification for setup, login or removal
+ * @summary Request or confirm email verification, or disable it from an already verified session
  */
 export const manageAccountEmailLoginBodyCodeRegExp = new RegExp('^\\d{6}$');
 
 
 export const ManageAccountEmailLoginBody = zod.object({
-  "action": zod.enum(['send', 'verify']),
+  "action": zod.enum(['send', 'verify', 'disable']),
   "purpose": zod.enum(['enable', 'disable', 'login']),
   "challengeId": zod.string().uuid().optional(),
   "code": zod.string().regex(manageAccountEmailLoginBodyCodeRegExp).optional()

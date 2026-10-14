@@ -69,13 +69,21 @@ export default async function handler(req, res) {
     let body = req.body;
     if (typeof body === "string") { try { body = JSON.parse(body); } catch { body = null; } }
     const { action, purpose, challengeId, code } = body || {};
-    if (!["send", "verify"].includes(action) || !["enable", "disable", "login"].includes(purpose))
+    if (!["send", "verify", "disable"].includes(action) || !["enable", "disable", "login"].includes(purpose)
+      || (action === "disable" && purpose !== "disable"))
       throw new LoginError(400, "Invalid verification request.");
     if (!user.email_confirmed_at) throw new LoginError(403, "Confirm your account email first.");
     if (!hasPasswordOrRecoveryProof(claims)) throw new LoginError(403, "Sign in with your password first, then confirm the email code.", "EMAIL_LOGIN_PASSWORD_REQUIRED");
     if (purpose === "disable" && (!enabled || claims.aal !== "aal2")) throw new LoginError(403, "Complete email verification before disabling this protection.");
     if (purpose === "enable" && enabled) throw new LoginError(409, "Email verification is already enabled.");
     if (purpose === "login" && !enabled) throw new LoginError(409, "Email verification is not enabled for this account.");
+    if (action === "disable") {
+      // The existing password + second-factor session is sufficient. Never
+      // allow a password-only session to remove the sign-in requirement.
+      await native(c, "factors/" + state.factor.id, token, undefined, "DELETE");
+      await rpc(c, "email_login_remove_factor", { p_user: user.id, p_factor: state.factor.id });
+      return res.status(200).json({ ok: true, enabled: false });
+    }
     if (action === "send") {
       // Reserve the user's rate-limited slot before any SMTP request or factor
       // enrollment, including simultaneous requests from different sessions.

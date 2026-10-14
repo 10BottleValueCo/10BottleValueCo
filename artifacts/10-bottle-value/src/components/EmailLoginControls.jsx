@@ -183,6 +183,30 @@ export function EmailLoginSecurity({ supabase, userId }) {
     st.setCode("");
     st.setError("");
   };
+  const disable = async () => {
+    const owner = userRef.current;
+    setNote("");
+    const res = await st.run({ action: "disable", purpose: "disable" });
+    if (owner !== userRef.current) return;
+    if (!res) {
+      await load();
+      return;
+    }
+    setStatus((s) => ({ ...s, enabled: false }));
+    st.setBusy(true);
+    try {
+      const { error } = await supabase.auth.refreshSession();
+      if (error) throw error;
+      if (owner !== userRef.current) return;
+      await load();
+      if (owner === userRef.current) setNote("Email code at sign-in is off.");
+    } catch {
+      if (owner === userRef.current)
+        st.setError("Email codes are off, but your session could not be refreshed. Please sign in again.");
+    } finally {
+      if (owner === userRef.current) st.setBusy(false);
+    }
+  };
   const verify = async () => {
     const res = await st.run({ action: "verify", purpose: target, challengeId: st.challenge.id, code: st.code });
     if (!res) return;
@@ -206,7 +230,7 @@ export function EmailLoginSecurity({ supabase, userId }) {
   const switchDisabled = !available || loading || st.busy || !!target;
 
   return (
-    <div className="mt-4 rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-5">
+    <div id="account-email-login-details" className="mt-4 rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-5 uppercase">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div id="elc-label" className="text-[11px] font-bold uppercase tracking-[0.22em] text-white/70">
@@ -231,7 +255,7 @@ export function EmailLoginSecurity({ supabase, userId }) {
           aria-labelledby="elc-label"
           aria-describedby="elc-desc"
           disabled={switchDisabled}
-          onClick={() => begin(enabled ? "disable" : "enable")}
+          onClick={() => enabled ? disable() : begin("enable")}
           className={`relative mt-1 h-8 w-14 shrink-0 rounded-full border border-white/30 transition disabled:opacity-50 ${enabled ? "bg-white" : "bg-white/10"}`}
         >
           <span style={{ position: "absolute", left: 4, right: "auto", top: 4, width: 24, height: 24, borderRadius: "50%", transform: `translateX(${enabled ? 24 : 0}px)`, background: enabled ? "#000" : "#fff", transition: "transform .15s" }} />
@@ -267,6 +291,7 @@ export function EmailLoginSecurity({ supabase, userId }) {
           )}
         </div>
       ) : null}
+      {st.error && !target ? <div role="alert" className="mt-3 text-sm text-white">{st.error}</div> : null}
       {note && !target ? <div role="status" className="mt-3 text-sm text-white/80">{note}</div> : null}
     </div>
   );

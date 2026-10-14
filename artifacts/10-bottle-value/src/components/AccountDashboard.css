@@ -40,6 +40,7 @@
 }
 
 #account-shipping-details,
+#account-email-login-details,
 #account-security-details,
 #account-email-details,
 #account-orders-details {
@@ -47,6 +48,7 @@
 }
 
 .lab-account #account-shipping-details.profile-editor-open,
+.lab-account #account-email-login-details,
 .lab-account #account-security-details,
 .lab-account #account-email-details,
 .lab-account #account-orders-details {
@@ -55,6 +57,7 @@
 }
 
 .lab-account #account-shipping-details.profile-editor-open [class*="bg-black/[0.18]"],
+.lab-account #account-email-login-details [class*="bg-black/[0.18]"],
 .lab-account #account-security-details [class*="bg-black/[0.18]"],
 .lab-account #account-email-details [class*="bg-black/[0.18]"],
 .lab-account #account-orders-details [class*="bg-black/[0.18]"] {

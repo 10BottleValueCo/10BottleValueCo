@@ -28,7 +28,7 @@ paths:
           description: Authentication required
     post:
       operationId: manageAccountEmailLogin
-      summary: Request or confirm email verification for setup, login or removal
+      summary: Request or confirm email verification, or disable it from an already verified session
       security:
         - bearerAuth: []
       requestBody:
@@ -39,7 +39,7 @@ paths:
               $ref: "#/components/schemas/EmailLoginRequest"
       responses:
         "200":
-          description: Challenge requested or verified native Supabase session established
+          description: Challenge requested, verified session established, or email protection disabled
           content:
             application/json:
               schema:
@@ -76,7 +76,7 @@ components:
       properties:
         action:
           type: string
-          enum: [send, verify]
+          enum: [send, verify, disable]
         purpose:
           type: string
           enum: [enable, disable, login]

@@ -21,7 +21,7 @@ async function mocked(run, options = {}) {
   globalThis.fetch = async (url, init = {}) => {
     const path = new URL(url).pathname;
     const body = init.body ? JSON.parse(init.body) : undefined;
-    calls.push({ path, body });
+    calls.push({ path, body, method: init.method || "GET" });
     if (path === "/auth/v1/user") return json(options.user || user);
     if (path.endsWith("/email_login_state")) return options.missing ? json({ code: "PGRST202" }, 404) : json({ factor: options.noFactor ? null : { id: factorId }, challenge: null });
     if (path === "/auth/v1/factors") return json({ id: factorId, totp: { secret } });
@@ -33,7 +33,8 @@ async function mocked(run, options = {}) {
     if (path.endsWith("/email_login_factor_secret")) return json(secret);
     if (path.endsWith("/challenge")) return json({ id: challengeId });
     if (path.endsWith("/verify")) return json({ access_token: jwt("aal2"), refresh_token: "fixture-refresh", user });
-    if (path.endsWith("/" + factorId) || path.endsWith("/email_login_remove_factor")) return json({});
+    if (path.endsWith("/" + factorId)) return options.deleteFailure ? json({ error: "denied" }, 403) : json({});
+    if (path.endsWith("/email_login_remove_factor")) return options.cleanupFailure ? json({ error: "unavailable" }, 500) : json({});
     throw new Error("Unexpected request " + path);
   };
   try { await run(calls); } finally { globalThis.fetch = prior; }
@@ -109,7 +110,7 @@ for (const options of [{ badCode: true }, { wrongOwner: true }, { locked: true }
     }, options);
   });
 }
-test("disabling requires an existing aal2 session and a fresh code", async () => {
+test("legacy code-based removal still requires an existing aal2 session", async () => {
   await mocked(async calls => {
     const weak = res(); await handler(request({ action: "send", purpose: "disable" }), weak);
     assert.equal(weak.statusCode, 403);
@@ -129,6 +130,60 @@ test("email-only sign-in cannot replace the required password or obtain a mail c
     const strongButNoPassword = "fixture." + Buffer.from(JSON.stringify({ sub: userId, session_id: sessionId, aal: "aal2", amr: [{ method: "otp" }] })).toString("base64url") + ".fixture";
     assert(needsEmailLoginCode(user, strongButNoPassword));
   });
+});
+test("an already verified password session disables without sending or checking a new email code", async () => {
+  await mocked(async calls => {
+    const out = res();
+    await handler(request({ action: "disable", purpose: "disable" }, jwt("aal2")), out);
+    assert.equal(out.statusCode, 200);
+    assert.deepEqual(out.body, { ok: true, enabled: false });
+    assert(calls.some(x => x.path.endsWith("/" + factorId) && x.method === "DELETE"));
+    assert(calls.some(x => x.path.endsWith("/email_login_remove_factor") && x.body.p_user === userId && x.body.p_factor === factorId));
+    assert.equal(calls.some(x => /\/otp$|\/verify$|email_login_challenge|email_login_factor_secret/.test(x.path)), false);
+  });
+});
+test("direct disabling rejects password-only, email-only and wrong-owner sessions", async () => {
+  const emailOnly = "fixture." + Buffer.from(JSON.stringify({ sub: userId, session_id: sessionId, aal: "aal2", amr: [{ method: "otp" }] })).toString("base64url") + ".fixture";
+  for (const token of [jwt(), emailOnly, jwt("aal2", sessionId)]) {
+    await mocked(async calls => {
+      const out = res();
+      await handler(request({ action: "disable", purpose: "disable" }, token), out);
+      assert.equal(out.statusCode, token === jwt("aal2", sessionId) ? 401 : 403);
+      assert.equal(calls.some(x => x.path.endsWith("/" + factorId) || x.path.endsWith("/email_login_remove_factor") || x.path === "/auth/v1/otp"), false);
+    });
+  }
+});
+test("direct disabling cannot be used for a different purpose", async () => {
+  await mocked(async calls => {
+    const out = res();
+    await handler(request({ action: "disable", purpose: "enable" }, jwt("aal2")), out);
+    assert.equal(out.statusCode, 400);
+    assert.equal(calls.some(x => x.path.endsWith("/" + factorId)), false);
+  });
+});
+test("failed native unenrollment does not remove private protection state or report success", async () => {
+  await mocked(async calls => {
+    const out = res();
+    await handler(request({ action: "disable", purpose: "disable" }, jwt("aal2")), out);
+    assert.equal(out.statusCode, 400);
+    assert.equal(out.body.ok, false);
+    assert.equal(calls.some(x => x.path.endsWith("/email_login_remove_factor")), false);
+  }, { deleteFailure: true });
+});
+test("failed cleanup reports an explicit error; a later status request reconciles completed unenrollment", async () => {
+  await mocked(async () => {
+    const out = res();
+    await handler(request({ action: "disable", purpose: "disable" }, jwt("aal2")), out);
+    assert.equal(out.statusCode, 503);
+    assert.equal(out.body.ok, false);
+  }, { cleanupFailure: true });
+  await mocked(async calls => {
+    const out = res();
+    await handler(request(undefined, jwt("aal2")), out);
+    assert.equal(out.statusCode, 200);
+    assert.equal(out.body.enabled, false);
+    assert(calls.some(x => x.path.endsWith("/email_login_remove_factor")));
+  }, { user: { ...user, factors: [] } });
 });
 test("SQL keeps secrets service-only and gates tables, storage and security-definer Data API calls", () => {
   const sql = readFileSync(new URL("../supabase/migrations/20261014020000_email_login_mfa.sql", import.meta.url), "utf8");

@@ -24,7 +24,9 @@ Changes are staged in Replit, not published.
    password-recovery templates. No additional mail API key is required.
    Keep the Email provider's OTP length at **6 digits**.
 4. Once setup is confirmed, open **Account → Security → Email code at sign-in**.
-   Enabling and disabling require a code sent to the current verified mailbox.
+   Enabling requires a code sent to the current verified mailbox. Disabling
+   from an already verified password + second-factor session does not send
+   another code; a password-only session still cannot disable protection.
    An unsuccessful send/incorrect code never enables protection.
 5. Each fresh password sign-in then asks for an email code. Ordinary reloads of
    an already verified session do not send another code.
