@@ -10622,7 +10622,7 @@ export default function App() {
   const finalTotal = meritSelected ? meritCreditSplit.amountCents / 100 : Math.max(0, totalWithFee - storeCreditApplied);
   const stripeTemporarilyDisabled = meritConfig?.enabled !== true;
   const meritUnavailableMessage = meritConfig?.reopensAt
-    ? tx("Opens October 15", "Откроется 15 октября", "Відкриється 15 жовтня", "Ab 15. Oktober verfügbar", "Disponible el 15 de octubre")
+    ? tx("Opens October 22–25", "Откроется 22–25 октября", "Відкриється 22–25 жовтня", "Öffnet 22.–25. Oktober", "Disponible del 22 al 25 de octubre")
     : tx("Unavailable", "Недоступно");
   const checkoutInvoice = meritSelected && meritActiveSession?.order ? meritActiveSession.order : {
     items: cart, subtotal, shipping, automaticDiscount, promoDiscount, affiliateDiscount,
