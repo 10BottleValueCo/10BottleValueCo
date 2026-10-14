@@ -136,7 +136,7 @@
   margin-inline: auto;
 }
 .tbv-home__container--featured {
-  width: min(100% - 24px, 1720px);
+  width: calc(100% - clamp(24px, 4vw, 72px));
 }
 
 .tbv-home__hero {
