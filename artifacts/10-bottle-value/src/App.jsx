@@ -3924,8 +3924,12 @@ export default function App() {
     if (readProductSelection(PRODUCTS_BASE, window.location)) return "product";
     return "home";
   });
+  const researcherEntryPreview =
+    import.meta.env.DEV &&
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("researcher-entry-preview") === "1";
   const [researcherEntryAccepted, setResearcherEntryAccepted] = useState(
-    hasResearcherEntryAcceptance
+    () => !researcherEntryPreview && hasResearcherEntryAcceptance()
   );
   const [publicImagesState, setPublicImagesState] = useState("ready");
   const [publicImageRetry, setPublicImageRetry] = useState(0);
@@ -4014,6 +4018,7 @@ export default function App() {
   // loading. Keep the sticky header below its actual rendered height.
   const announcementBarRef = useRef(null);
   const stickyHeaderRef = useRef(null);
+  const appShellRef = useRef(null);
   useLayoutEffect(() => observeAnnouncementHeight(
     announcementBarRef.current,
     stickyHeaderRef.current,
@@ -4122,6 +4127,8 @@ export default function App() {
   const [emailChangePending, setEmailChangePending] = useState(false);
   const [emailChangeTarget, setEmailChangeTarget] = useState("");
   const [emailHistoryPending, setEmailHistoryPending] = useState(false);
+  const [emailConfirmationMode, setEmailConfirmationMode] = useState("");
+  const [emailConfirmationCode, setEmailConfirmationCode] = useState("");
   const [emailChangeForm, setEmailChangeForm] = useState({
     currentEmail: "",
     newEmail: "",
@@ -4207,6 +4214,8 @@ export default function App() {
       setEmailChangePending(false);
       setEmailChangeTarget("");
       setEmailHistoryPending(false);
+      setEmailConfirmationMode("");
+      setEmailConfirmationCode("");
       return;
     }
     if (currentUser?.email) {
@@ -4370,7 +4379,7 @@ export default function App() {
   const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
   useEffect(() => {
     let lastScrolledState = null;
-    const onScroll = (event) => {
+    const onScroll = () => {
       const scrollingElement = document.scrollingElement;
       const pageScrollTop = Math.max(
         window.scrollY || 0,
@@ -4378,11 +4387,7 @@ export default function App() {
         document.documentElement.scrollTop || 0,
         document.body.scrollTop || 0
       );
-      const target = event?.target;
-      const targetScrollTop = target instanceof HTMLElement
-        ? target.scrollTop
-        : 0;
-      const nextScrolledState = Math.max(pageScrollTop, targetScrollTop) > 24;
+      const nextScrolledState = pageScrollTop > 24;
       if (nextScrolledState === lastScrolledState) return;
       lastScrolledState = nextScrolledState;
       setIsHeaderScrolled(nextScrolledState);
@@ -6877,13 +6882,14 @@ export default function App() {
       setEmailChangePending(true);
       setEmailChangeTarget(result.newEmail || "");
       setEmailHistoryPending(Boolean(result.pendingMigration));
+      setEmailConfirmationMode(result.confirmationMode || "");
       setEmailChangeForm((form) => ({ ...form, newEmail: result.newEmail || form.newEmail, currentPassword: "" }));
       setEmailChangeMessage(tx(
-        "Confirmation is required. Check your new and current inboxes, including Spam. If you receive two confirmation links, open both. Your email and history will update only after confirmation.",
-        "Нужно подтверждение. Проверьте новую и текущую почту, включая «Спам». Если пришли две ссылки подтверждения, откройте обе. Email и история обновятся только после подтверждения.",
-        "Потрібне підтвердження. Перевірте нову й поточну пошту та «Спам». Якщо отримали два посилання, відкрийте обидва. Email та історія оновляться після підтвердження.",
-        "Bestätigung erforderlich. Prüfen Sie beide Postfächer und Spam. Wenn Sie zwei Bestätigungslinks erhalten, öffnen Sie beide. E-Mail und Verlauf werden erst nach Bestätigung aktualisiert.",
-        "Se necesita confirmación. Revisa ambos correos y Spam. Si recibes dos enlaces, abre ambos. El correo y el historial se actualizarán después de confirmar."
+        "This request used the previous confirmation method. Enter your current password below and send a new code to confirm only through your current email.",
+        "Этот запрос создан по старой схеме. Введите текущий пароль ниже и запросите новый код — он придёт только на текущую почту.",
+        "Цей запит створено за старою схемою. Введіть поточний пароль нижче й запросіть новий код лише на поточну пошту.",
+        "Diese Anfrage verwendet das bisherige Verfahren. Geben Sie unten Ihr aktuelles Passwort ein und senden Sie einen neuen Code nur an Ihre aktuelle E-Mail.",
+        "Esta solicitud usa el método anterior. Introduce tu contraseña actual y solicita un código nuevo solo para tu correo actual."
       ));
       if (result.pendingMigration) {
         setEmailChangeMessage(tx(
@@ -6893,6 +6899,16 @@ export default function App() {
           "Die E-Mail ist bestätigt, der Verlauf wird noch übertragen. Prüfen Sie den Status, um es erneut zu versuchen.",
           "El correo está confirmado, pero el historial sigue transfiriéndose. Comprueba el estado para reintentar."
         ));
+      } else if (result.confirmationMode === "current_email_code") {
+        setEmailChangeMessage(result.codeExpired || result.codeLocked
+          ? tx("This code is expired or locked. Enter your current password below to request a new code.", "Код истёк или заблокирован. Введите текущий пароль ниже и запросите новый код.", "Код прострочено або заблоковано. Запросіть новий код.", "Der Code ist abgelaufen oder gesperrt. Fordern Sie einen neuen an.", "El código ha caducado o está bloqueado. Solicita uno nuevo.")
+          : tx(
+            `A confirmation code was sent only to your current email: ${result.currentEmail}. Enter it below within 10 minutes. Nothing is sent to the new email. Check the new address carefully.`,
+            `Код подтверждения отправлен только на текущую почту: ${result.currentEmail}. Введите его ниже в течение 10 минут. На новый email письма не отправляются. Проверьте новый адрес внимательно.`,
+            `Код надіслано лише на поточну пошту: ${result.currentEmail}. Введіть його протягом 10 хвилин. На нову адресу листів не буде.`,
+            `Der Code wurde nur an Ihre aktuelle E-Mail gesendet: ${result.currentEmail}. Geben Sie ihn innerhalb von 10 Minuten ein. An die neue Adresse wird nichts gesendet.`,
+            `El código se envió solo al correo actual: ${result.currentEmail}. Introdúcelo en 10 minutos. No se envía nada al nuevo correo.`
+          ));
       }
       return result;
     }
@@ -6901,6 +6917,8 @@ export default function App() {
       const normalizedEmail = normalizeEmail(email);
       setEmailChangePending(false);
       setEmailHistoryPending(false);
+      setEmailConfirmationMode("");
+      setEmailConfirmationCode("");
       setCurrentUser((user) =>
         user?.id === session.user.id ? { ...user, email: normalizedEmail } : user,
       );
@@ -6945,6 +6963,9 @@ export default function App() {
 
   function localizeEmailChangeError(error) {
     const message = String(error?.message || "");
+    if (message === "The confirmation code is incorrect.") return tx("The confirmation code is incorrect.", "Неверный код подтверждения.", "Невірний код підтвердження.", "Der Bestätigungscode ist falsch.", "El código es incorrecto.");
+    if (/code has expired/.test(message)) return tx("The code has expired. Request a new one.", "Код истёк. Запросите новый.", "Код прострочено. Запросіть новий.", "Der Code ist abgelaufen. Fordern Sie einen neuen an.", "El código ha caducado. Solicita otro.");
+    if (/Too many incorrect codes/.test(message)) return tx("Too many incorrect codes. Request a new one.", "Слишком много неверных попыток. Запросите новый код.", "Забагато невірних спроб. Запросіть новий код.", "Zu viele falsche Versuche. Fordern Sie einen neuen Code an.", "Demasiados intentos incorrectos. Solicita otro código.");
     if (!message.includes("already has a balance") &&
         (error?.code === "email_exists" || /email.*(already|in use)|already.*registered|address may already/i.test(message))) {
       return tx("This email is already in use. Enter a different email.", "Этот email уже занят. Введите другой адрес.", "Цей email вже зайнятий. Введіть іншу адресу.", "Diese E-Mail wird bereits verwendet. Geben Sie eine andere ein.", "Este correo ya está en uso. Introduce otro.");
@@ -7020,7 +7041,7 @@ export default function App() {
       if (!session?.access_token) {
         throw new Error(tx("Your sign-in has expired. Sign in again.", "Срок входа истёк. Войдите снова.", "Сеанс входу завершився. Увійдіть знову.", "Ihre Anmeldung ist abgelaufen. Melden Sie sich erneut an.", "Tu sesión ha caducado. Inicia sesión de nuevo."));
       }
-      const result = await callAccountEmailChangeApi("request", {
+      const result = await callAccountEmailChangeApi("request-current", {
         currentEmail,
         newEmail,
         currentPassword: emailChangeForm.currentPassword,
@@ -7044,6 +7065,22 @@ export default function App() {
       }
     } finally {
       setEmailChangeForm((form) => ({ ...form, currentPassword: "" }));
+      emailChangeInFlightRef.current = false;
+      setEmailChangeBusy(false);
+    }
+  }
+
+  async function confirmEmailChangeCode() {
+    if (emailChangeBusy) return;
+    setEmailChangeBusy(true);
+    emailChangeInFlightRef.current = true;
+    try {
+      const { data } = await supabase.auth.getSession();
+      const result = await callAccountEmailChangeApi("confirm-current", { code: emailConfirmationCode, newEmail: emailChangeTarget }, data?.session?.access_token);
+      await finalizePendingEmailMigration(data?.session, result);
+    } catch (error) {
+      setEmailChangeMessage(localizeEmailChangeError(error));
+    } finally {
       emailChangeInFlightRef.current = false;
       setEmailChangeBusy(false);
     }
@@ -10622,7 +10659,7 @@ export default function App() {
     : currentUser && storeCredit > 0 && totalWithFee > 0 && Math.round(storeCredit * 100) >= Math.round(totalWithFee * 100) ? totalWithFee : 0;
   const finalTotal = meritSelected ? meritCreditSplit.amountCents / 100 : Math.max(0, totalWithFee - storeCreditApplied);
   const stripeTemporarilyDisabled = meritConfig?.enabled !== true;
-  const meritUnavailableMessage = meritConfig?.reopensAt
+  const meritUnavailableMessage = meritConfig?.temporarilyClosed || meritConfig?.reopensAt
     ? tx("Opens October 22–25", "Откроется 22–25 октября", "Відкриється 22–25 жовтня", "Öffnet 22.–25. Oktober", "Disponible del 22 al 25 de octubre")
     : tx("Unavailable", "Недоступно");
   const checkoutInvoice = meritSelected && meritActiveSession?.order ? meritActiveSession.order : {
@@ -12056,8 +12093,45 @@ export default function App() {
     return errors;
   }
 
+  function validateCheckoutBeforeAttestation() {
+    const syncedForm = readCheckoutSnapshot();
+    setCheckoutForm(syncedForm);
+    setCountrySearch(syncedForm.country || "");
+
+    const errors = validateCheckoutForm(syncedForm);
+    setCheckoutErrors(errors);
+    if (Object.keys(errors).length === 0) {
+      setCheckoutMessage("");
+      return true;
+    }
+
+    setCheckoutMessage(
+      tx(
+        "Please correctly fill in all required fields.",
+        "Заполните все обязательные поля корректно.",
+        "Заповніть усі обовʼязкові поля коректно.",
+        "Bitte füllen Sie alle Pflichtfelder korrekt aus.",
+        "Completa correctamente todos los campos obligatorios."
+      )
+    );
+    const firstErrorField = Object.keys(errors)[0];
+    const fieldRef = checkoutInputRefs.current[firstErrorField];
+    if (fieldRef) {
+      setTimeout(() => {
+        fieldRef.scrollIntoView({ behavior: "smooth", block: "center" });
+        fieldRef.focus();
+      }, 50);
+    } else if (formSectionRef.current) {
+      setTimeout(() => {
+        formSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 50);
+    }
+    return false;
+  }
+
   function requestCheckoutAttestation() {
     if (cart.length === 0 || hasOutOfStockInCart) return;
+    if (currentUser?.email && !validateCheckoutBeforeAttestation()) return;
     setPendingAttestationAction(
       finalTotal === 0 && storeCreditApplied > 0 ? "credits" : "checkout"
     );
@@ -13852,15 +13926,24 @@ export default function App() {
 
       {/* Contact modal */}
       {contactModalOpen && (
-        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/55 px-4 backdrop-blur-sm" onClick={() => setContactModalOpen(false)}>
-          <div
-            className="w-full max-w-2xl rounded-[1.65rem] border border-white/[0.22] bg-[#030506] shadow-[0_0_0_1px_rgba(255,255,255,0.045),0_36px_100px_rgba(0,0,0,0.78)] flex flex-col max-h-[88vh]"
-            style={{ backgroundColor: "#030506", backgroundImage: "none", opacity: 1, backdropFilter: "none", WebkitBackdropFilter: "none" }}
-            onClick={(e) => e.stopPropagation()}
-          >
+        <>
+          {appShellRef.current && createPortal(
+            <div
+              className="fixed inset-0 z-[199] bg-black/55 backdrop-blur-sm"
+              aria-hidden="true"
+              onClick={() => setContactModalOpen(false)}
+            />,
+            appShellRef.current,
+          )}
+          <div className="pointer-events-none fixed inset-0 z-[9998] flex items-center justify-center px-4">
+            <div
+              className="pointer-events-auto flex max-h-[88vh] w-full max-w-2xl flex-col rounded-[1.65rem] border-2 border-white/30 bg-[#030506] shadow-[0_0_0_1px_rgba(255,255,255,0.08),0_36px_100px_rgba(0,0,0,0.78)]"
+              style={{ backgroundColor: "#030506", backgroundImage: "none", opacity: 1, backdropFilter: "none", WebkitBackdropFilter: "none" }}
+              onClick={(e) => e.stopPropagation()}
+            >
 
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-white/[0.13] bg-[#050708] px-6 pt-6 pb-4 shrink-0" style={{ backgroundColor: "#050708" }}>
+            <div className="flex shrink-0 items-center justify-between overflow-hidden rounded-t-[1.525rem] border-b border-white/[0.13] bg-[#050708] px-6 pt-6 pb-4" style={{ backgroundColor: "#050708" }}>
               <div>
                 <div className="text-[10px] uppercase tracking-[0.28em] text-emerald-300/75">Support</div>
                 <h2 className="mt-1 text-lg font-semibold leading-tight tracking-[-0.02em] text-white">
@@ -14057,7 +14140,7 @@ export default function App() {
                     </div>
                   </div>
                 )}
-                  <div className="min-w-0 flex-1 rounded-[1.2rem] border border-white/[0.14] bg-[#080a0b] px-3.5 py-2.5 transition focus-within:border-emerald-300/45 focus-within:ring-2 focus-within:ring-emerald-300/10">
+                  <div className="min-w-0 flex-1 rounded-[1.2rem] border-2 border-white/30 bg-[#080a0b] px-3.5 py-2.5 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] transition focus-within:border-emerald-300/75 focus-within:ring-2 focus-within:ring-emerald-300/20">
                   <BufferedTextarea
                     ref={contactMessageInputRef}
                     placeholder="Write a message or paste a photo/video…"
@@ -14120,6 +14203,7 @@ export default function App() {
             </div>
           </div>
         </div>
+        </>
       )}
       <div
         ref={announcementBarRef}
@@ -14220,6 +14304,7 @@ export default function App() {
         </div>
       )}
       <div
+        ref={appShellRef}
         className={`tbv-app-shell min-h-screen bg-[#8f8f8f] text-white ${page === "home" ? "tbv-app-shell--home" : ""} ${usesWorldwideBackground ? "tbv-app-shell--catalog-background" : ""} ${pageBackdropImage ? "tbv-app-shell--photo-backdrop" : ""} ${usesInfoPageBackdrop ? "tbv-app-shell--info-background" : ""}`}
         data-affiliate-backdrop={page === "affiliate" ? "true" : undefined}
         style={
@@ -14265,6 +14350,7 @@ export default function App() {
             boxShadow: isHeaderScrolled && page !== "admin"
               ? "0 -8px 0 #000"
               : undefined,
+            transition: "none",
           }}
           className={`sticky top-0 md:top-[var(--tbv-announcement-height)] z-[200] border-b border-white/20 pb-0 md:pb-[3px] ${
             page === "admin"
@@ -14887,7 +14973,7 @@ export default function App() {
         )}
 
         {page === "product" && selectedProduct && (
-          <main className="mx-auto max-w-7xl px-4 pt-1 pb-36 md:px-10 md:pt-2 md:pb-14">
+          <main className="tbv-product-page mx-auto max-w-7xl px-4 pt-1 pb-36 md:px-10 md:pt-2 md:pb-14">
             <button
               type="button"
               onClick={() => {
@@ -19177,6 +19263,18 @@ export default function App() {
                           <div role="status" className="text-sm leading-6 text-white/80">
                             {emailChangeMessage}
                           </div>
+                          {emailConfirmationMode === "current_email_code" && !emailHistoryPending && (
+                            <div className="grid gap-3">
+                              <BufferedInput type="text" autoComplete="one-time-code" maxLength={24}
+                                value={emailConfirmationCode} onValueChange={setEmailConfirmationCode}
+                                placeholder={tx("Confirmation code from your current email", "Код из письма на текущую почту", "Код із поточної пошти", "Code aus Ihrer aktuellen E-Mail", "Código del correo actual")}
+                                className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50" />
+                              <button type="button" onClick={confirmEmailChangeCode} disabled={emailChangeBusy || !emailConfirmationCode.trim()}
+                                className="min-h-[44px] w-fit rounded-full bg-white !text-black px-5 py-2.5 text-[11px] font-extrabold uppercase tracking-[0.16em] disabled:opacity-60">
+                                {tx("Confirm email change", "Подтвердить смену email", "Підтвердити зміну email", "E-Mail-Änderung bestätigen", "Confirmar cambio de correo")}
+                              </button>
+                            </div>
+                          )}
                           <button
                             type="button"
                             onClick={retryEmailMigration}
@@ -20827,13 +20925,13 @@ export default function App() {
         )}
 
         {page === "cart" && (
-          <main className="mx-auto max-w-[1280px] px-4 pt-8 pb-28 md:px-10 md:pt-12 md:pb-16">
+          <main className="tbv-cart-page mx-auto max-w-[1280px] px-4 pt-8 pb-28 md:px-10 md:pt-12 md:pb-16">
             {/* The PayPal SDK preloads above; payment buttons mount only when selected. */}
             <div
               className={
                 checkoutStep === "payment"
                   ? "block"
-                  : "grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-6"
+                  : "grid gap-5 lg:grid-cols-[1.1fr_0.9fr] lg:gap-6"
               }
             >
               {checkoutStep === "details" && (
@@ -20860,7 +20958,7 @@ export default function App() {
                             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-4">
                               <div className="min-w-0">
                                 <div className="flex min-w-0 items-center gap-2">
-                                  <div className={`min-w-0 truncate text-[15px] font-semibold leading-tight md:text-xl ${isOOS ? "text-red-300" : "text-white"}`}>
+                                  <div className={`min-w-0 whitespace-normal break-words text-[15px] font-semibold leading-tight md:text-xl ${isOOS ? "text-red-300" : "text-white"}`}>
                                     {publicProductName(item.name)}
                                   </div>
                                   {item.fromWarehouse === "us" && (
@@ -21721,8 +21819,9 @@ export default function App() {
                                 Carrier preference (optional)
                               </div>
                               {hasUS && (
-                                <div className="mb-2 text-[10px] text-white/60 tracking-wide">
-                                  Applies to Shop Worldwide items only · US Warehouse always ships via USPS
+                                <div className="mb-2 space-y-0.5 text-[10px] text-white/60 tracking-wide">
+                                  <p>Applies to Shop Worldwide items only.</p>
+                                  <p>US Warehouse always ships via USPS.</p>
                                 </div>
                               )}
                               <div className="flex gap-2">
@@ -21847,7 +21946,7 @@ export default function App() {
                 )}
                 <div
                   ref={paymentSectionRef}
-                  className="mt-6 w-full rounded-[28px] bg-white p-4 text-black shadow-[0_20px_60px_rgba(0,0,0,0.15)] md:p-8 lg:min-w-[900px] xl:min-w-[1020px]"
+                  className="mt-6 w-full min-w-0 rounded-[28px] bg-white p-4 text-black shadow-[0_20px_60px_rgba(0,0,0,0.15)] md:p-8"
                   style={checkoutStep !== "payment" ? { position: "fixed", left: "-9999px", top: 0, visibility: "hidden", pointerEvents: "none" } : {}}
                 >
                     <div className="flex items-center justify-between gap-3">
@@ -21950,7 +22049,6 @@ export default function App() {
                           >
                             <div className="relative shrink-0">
                               <img src={getPreloadedDisplayImageUrl(bitcoinLogo)} alt="" className="h-10 w-10 object-contain" />
-                              <span className={`absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-sm px-1 py-px text-[9px] font-black uppercase tracking-[0.06em] ${paymentMethod === "crypto" ? "bg-emerald-500/40 text-emerald-200" : "bg-emerald-500 text-white"}`}>★ Best</span>
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="text-[14px] font-semibold">{tx("Crypto", "Крипто", "Крипто", "Krypto", "Cripto")}</div>
@@ -21971,7 +22069,6 @@ export default function App() {
                               >
                                 <div className="relative shrink-0">
                                   <img src={getPreloadedDisplayImageUrl(cashAppLogo)} alt="" className="h-10 w-10 rounded-xl object-contain" />
-                                  <span className={`absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-sm px-1 py-px text-[9px] font-black uppercase tracking-[0.06em] ${paymentMethod === "cashapp" ? "bg-emerald-500/40 text-emerald-200" : "bg-emerald-500 text-white"}`}>★ Best</span>
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <div className="pr-5 text-[14px] font-semibold leading-[18px]">{cashAppPaymentLabel}</div>
@@ -22124,15 +22221,6 @@ export default function App() {
                                   </span>
                                 ) : `${tx("Continue to secure card payment", "Перейти к безопасной оплате", "Перейти до безпечної оплати", "Zur sicheren Kartenzahlung", "Continuar al pago seguro con tarjeta")} ${finalTotal.toFixed(2)}$`}
                               </button>
-                              <div className="mt-3 text-center text-[12px] leading-5 text-black/40">
-                                {tx(
-                                  `Order ${formatInvoiceLabel(orderNumber)} — secure card checkout.`,
-                                  `Заказ ${formatInvoiceLabel(orderNumber)} — безопасная оплата картой.`,
-                                  `Замовлення ${formatInvoiceLabel(orderNumber)} — безпечна оплата карткою.`,
-                                  `Bestellung ${formatInvoiceLabel(orderNumber)} — sichere Kartenzahlung.`,
-                                  `Pedido ${formatInvoiceLabel(orderNumber)} — pago seguro con tarjeta.`
-                                )}
-                              </div>
                             </div>
                           </div>
                         </div>

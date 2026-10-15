@@ -112,6 +112,7 @@ export function createMeritApiClient({ getAccessToken, fetchImpl = globalThis.fe
       if (response.ok && result?.ok === true && result.enabled === false) {
         return {
           enabled: false,
+          ...(result.temporarilyClosed === true ? { temporarilyClosed: true } : {}),
           ...(typeof result.reopensAt === "string" && Number.isFinite(Date.parse(result.reopensAt))
             ? { reopensAt: result.reopensAt } : {}),
         };

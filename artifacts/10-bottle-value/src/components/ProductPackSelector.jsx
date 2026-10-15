@@ -5,6 +5,7 @@ const LABELS = {
   DE: { title: "Menge wählen", vial: "Fläschchen", vials: "Fläschchen", unavailable: "Nicht verfügbar" },
   ES: { title: "Seleccionar cantidad", vial: "vial", vials: "viales", unavailable: "No disponible" },
 };
+const displayPrice = (value) => `$${value.toFixed(2).replace(/\.00$/, "")}`;
 
 export default function ProductPackSelector({ language, price, selectedVials = 10, pricesByPack = { 10: price }, onSelectPack }) {
   const labels = LABELS[language] || LABELS.EN;
@@ -23,8 +24,8 @@ export default function ProductPackSelector({ language, price, selectedVials = 1
               disabled={!available}
               aria-pressed={selected}
               onClick={() => onSelectPack?.(count)}
-              aria-label={`${count} ${count === 1 ? labels.vial : labels.vials}${available ? `, $${packPrice.toFixed(2)}` : `, ${labels.unavailable}`}`}
-              className={`flex min-h-14 w-full items-center gap-3 rounded-2xl border px-4 text-left transition-colors ${
+              aria-label={`${count} ${count === 1 ? labels.vial : labels.vials}${available ? `, ${displayPrice(packPrice)}` : `, ${labels.unavailable}`}`}
+              className={`grid min-h-14 w-full grid-cols-[20px_minmax(0,1fr)_max-content] items-center gap-x-0.5 gap-y-4 rounded-2xl border px-4 text-left transition-colors md:gap-x-4 ${
                 selected && available
                   ? "border-white bg-white text-black shadow-[0_10px_28px_rgba(0,0,0,0.18)]"
                   : `${available ? "border-white/30 bg-white/10 text-white hover:bg-white/20" : "cursor-not-allowed border-white/15 bg-black/10 text-white/45"} ${selected ? "ring-1 ring-white/50" : ""}`
@@ -33,11 +34,11 @@ export default function ProductPackSelector({ language, price, selectedVials = 1
               <span className={`flex size-5 shrink-0 items-center justify-center rounded-full border-2 ${selected && available ? "border-black" : "border-white/40"}`} aria-hidden="true">
                 {selected && <span className={`size-2 rounded-full ${available ? "bg-black" : "bg-white/40"}`} />}
               </span>
-              <span className="flex-1 text-sm font-bold uppercase tracking-[0.09em]">
+              <span className="min-w-0 text-sm font-bold uppercase tracking-[0.09em]">
                 {count} {count === 1 ? labels.vial : labels.vials}
               </span>
               {available ? (
-                <strong className="text-lg font-extrabold tabular-nums">${packPrice.toFixed(2)}</strong>
+                <strong className="justify-self-end whitespace-nowrap pl-3.5 text-lg font-extrabold tabular-nums md:pl-0">{displayPrice(packPrice)}</strong>
               ) : (
                 <span className="text-[11px] font-semibold uppercase tracking-[0.08em]">{labels.unavailable}</span>
               )}

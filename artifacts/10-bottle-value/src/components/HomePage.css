@@ -429,7 +429,7 @@
   letter-spacing: -.04em;
   line-height: .9;
   text-transform: uppercase;
-  -webkit-text-stroke: clamp(.8px, .11vw, 1.5px) rgba(8, 13, 20, .9);
+  -webkit-text-stroke: clamp(1.5px, .2vw, 2.5px) rgba(8, 13, 20, .95);
   paint-order: stroke fill;
   text-shadow: 0 2px 5px rgba(0, 0, 0, .28);
 }
@@ -922,6 +922,19 @@
   .tbv-home__products {
     gap: 8px;
   }
+}
+
+.tbv-home__products .bpc-catalog-card--quantity-list .bpc-catalog-card__pack {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) max-content;
+  gap: 10px;
+}
+
+.tbv-home__products .bpc-catalog-card--quantity-list .bpc-catalog-card__pack > strong {
+  justify-self: end;
+  margin-left: 0;
+  padding-left: 0;
+  white-space: nowrap;
 }
 
 .tbv-home__social {

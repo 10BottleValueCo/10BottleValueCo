@@ -352,7 +352,7 @@
 .bpc-catalog-card--quantity-list .bpc-catalog-card__pack {
   display: grid;
   min-height: 43px;
-  grid-template-columns: 16px minmax(0, 1fr) auto;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
   align-items: center;
   gap: 7px;
   padding: 5px 12px;
@@ -371,6 +371,17 @@
   min-width: 0;
   margin-left: 0;
   white-space: nowrap;
+}
+
+.bpc-catalog-card--quantity-list .bpc-catalog-card__pack-status {
+  justify-self: end;
+  color: currentColor;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  opacity: .78;
+  text-align: right;
+  text-transform: uppercase;
 }
 
 .bpc-catalog-card--quantity-list .bpc-catalog-card__radio {
@@ -458,11 +469,11 @@
 
 .bpc-catalog-card__cart-action {
   container-type: inline-size;
-  width: calc(100% - 8px);
+  width: 100%;
   height: 34px;
   margin-top: auto;
-  margin-right: 4px;
-  margin-left: 4px;
+  margin-right: 0;
+  margin-left: 0;
 }
 
 .bpc-catalog-card__cart-label {
@@ -485,11 +496,10 @@
 }
 
 @media (max-width: 767px) {
-  .bpc-catalog-card__cart-action > button,
-  .bpc-catalog-card__cart-action .bpc-catalog-card__cart-primary {
-    font-weight: 900 !important;
+  .bpc-catalog-card__cart-action .bpc-catalog-card__cart-button {
+    font-weight: 700 !important;
     letter-spacing: .03em !important;
-    -webkit-text-stroke: 0;
+    -webkit-text-stroke: 0 !important;
   }
 }
 
@@ -510,11 +520,11 @@
   }
 
   .bpc-catalog-card__cart-action {
-    width: calc(100% - 16px);
+    width: 100%;
     height: 42px;
     margin-top: auto;
-    margin-right: 8px;
-    margin-left: 8px;
+    margin-right: 0;
+    margin-left: 0;
   }
 
   .bpc-catalog-card__vial {
@@ -1197,11 +1207,8 @@
 }
 
 @media (max-width: 767px) {
-  .bpc-catalog-card--quantity-list .bpc-catalog-card__cart-action > button,
-  .bpc-catalog-card__cart-action > button,
-  .bpc-catalog-card__cart-primary {
+  .bpc-catalog-card__cart-action .bpc-catalog-card__cart-button {
     font-size: 13px;
-    font-weight: 900 !important;
   }
 
   .bpc-catalog-card--quantity-list .bpc-catalog-card__pack[data-vials="10"] > span:not(.bpc-catalog-card__radio) {
@@ -1269,5 +1276,29 @@
 
   .bpc-catalog-announcement--worldwide .bpc-catalog-announcement__segment::after {
     width: 76px;
+  }
+}
+
+.bpc-catalog-card--quantity-list .bpc-catalog-card__pack {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) max-content;
+  gap: 10px;
+}
+
+.bpc-catalog-card--quantity-list .bpc-catalog-card__pack > strong {
+  justify-self: end;
+  margin-left: 0;
+  padding-left: 0;
+}
+
+@media (max-width: 767px) {
+  .bpc-catalog-card--quantity-list.bpc-catalog-card--worldwide .bpc-catalog-card__packs .bpc-catalog-card__pack,
+  .bpc-catalog-card--quantity-list.bpc-catalog-card--us-warehouse .bpc-catalog-card__packs .bpc-catalog-card__pack {
+    grid-template-columns: minmax(0, 1fr) max-content;
+  }
+
+  .bpc-catalog-card--quantity-list.bpc-catalog-card--worldwide .bpc-catalog-card__packs .bpc-catalog-card__pack > .bpc-catalog-card__radio,
+  .bpc-catalog-card--quantity-list.bpc-catalog-card--us-warehouse .bpc-catalog-card__packs .bpc-catalog-card__pack > .bpc-catalog-card__radio {
+    display: none;
   }
 }

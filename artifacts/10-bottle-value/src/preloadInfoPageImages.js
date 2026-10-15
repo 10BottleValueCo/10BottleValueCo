@@ -6,7 +6,7 @@ const shippingCards = [
   "shipping/shipping-express.jpg",
 ];
 const affiliateVials = [
-  "vials-c/tb-500-bpc-157-3ab3e8693952.webp",
+  "vials-c/mots-c-ead676f909ff.webp",
   "vials-c/bpc-157-4a596acd979f.webp",
   "vials-c/retatrutide-glp-3-0efb04b0071d.webp",
 ];

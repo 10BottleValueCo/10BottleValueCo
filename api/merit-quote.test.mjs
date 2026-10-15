@@ -253,7 +253,7 @@ for (const audience of ['__PUBLIC__', EMAIL]) test(`private ${audience==='__PUBL
   const id='33333333-3333-4333-8333-333333333333';
   const db=service(url => url.searchParams.get('email')===`eq.${audience}`?[{id,email:audience,code:'CARD5',rate:.05,used:false,active:true,revision:2}]:[]);
   const result=await quote(fixture({promoCode:'CARD5',promoDiscount:999}),EMAIL,{...db.options,surchargeBps:300});
-  assert.equal(result.promoDiscountCents,695);assert.equal(result.amountCents,17720);assert.equal(result.snapshot.discountRule.revision,2);
+   assert.equal(result.promoDiscountCents,695);assert.equal(result.amountCents,17720);assert.equal(result.snapshot.discountRule.revision,2);
   assert.equal(result.userPromoId,audience==='__PUBLIC__'?null:id);
 });
 

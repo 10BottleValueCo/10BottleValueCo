@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import handler from "./account-email-change.js";
+import { createEmailChallenge, CURRENT_EMAIL_MODE } from "./_current-email-confirmation.js";
 
 const CURRENT_EMAIL = "person@example.org";
 const NEW_EMAIL = "person.new@example.org";
@@ -20,12 +21,14 @@ function withTestEnvironment(t, fetchMock) {
     "SUPABASE_ANON_KEY",
     "VITE_SUPABASE_ANON_KEY",
     "SUPABASE_SERVICE_ROLE_KEY",
+    "RESEND_API_KEY",
   ];
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   for (const key of keys) delete process.env[key];
   process.env.SUPABASE_URL = "https://supabase.test";
   process.env.SUPABASE_ANON_KEY = "test-anon-key";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key";
+  process.env.RESEND_API_KEY = "test-email-key";
 
   const previousFetch = globalThis.fetch;
   globalThis.fetch = fetchMock;
@@ -66,7 +69,7 @@ function mockRes() {
   };
 }
 
-function createSupabaseMock({ authEmail = CURRENT_EMAIL, adminEmail = CURRENT_EMAIL, pending = null, newEmail = pending?.to, updateError = null, silentReject = false, timeoutAfterUpdate = false, migrateError = false } = {}) {
+function createSupabaseMock({ authEmail = CURRENT_EMAIL, adminEmail = CURRENT_EMAIL, pending = null, newEmail = pending?.mode === CURRENT_EMAIL_MODE ? null : pending?.to, updateError = null, silentReject = false, timeoutAfterUpdate = false, migrateError = false, mailError = false, occupied = false } = {}) {
   const calls = [];
   let adminUser = {
     id: USER_ID,
@@ -80,6 +83,12 @@ function createSupabaseMock({ authEmail = CURRENT_EMAIL, adminEmail = CURRENT_EM
     const method = options.method || "GET";
     calls.push({ url, method, body: options.body ? JSON.parse(options.body) : null });
 
+    if (url.hostname === "api.resend.com") {
+      return makeResponse(mailError ? { error: "rejected" } : { id: "mock-mail" }, mailError ? 503 : 200);
+    }
+    if (url.pathname === "/auth/v1/admin/users") {
+      return makeResponse({ users: occupied ? [{ id: "another-user", email: NEW_EMAIL }] : [] });
+    }
     if (url.pathname.endsWith("/auth/v1/user")) {
       if (method === "PUT") {
         if (updateError) return makeResponse(updateError.data, updateError.status);
@@ -105,6 +114,7 @@ function createSupabaseMock({ authEmail = CURRENT_EMAIL, adminEmail = CURRENT_EM
           else metadata[key] = value;
         }
         adminUser = { ...adminUser, ...update, app_metadata: metadata };
+        if (update.email) adminUser.new_email = null;
         return makeResponse({ user: adminUser });
       }
     }
@@ -232,11 +242,11 @@ test("unauthenticated email changes are rejected", async (t) => {
 });
 
 const emailRequest = (newEmail = NEW_EMAIL) => makeRequest({
-  action: "request", currentEmail: CURRENT_EMAIL, newEmail, currentPassword: "correct-password",
+  action: "request-current", currentEmail: CURRENT_EMAIL, newEmail, currentPassword: "correct-password",
 });
 
 test("a rejected occupied address leaves no false confirmation reservation", async (t) => {
-  const mock = createSupabaseMock({ updateError: { status: 422, data: { code: "email_exists" } } });
+  const mock = createSupabaseMock({ occupied: true });
   withTestEnvironment(t, mock.fetchMock);
   const res = mockRes();
   await handler(emailRequest(), res);
@@ -246,14 +256,15 @@ test("a rejected occupied address leaves no false confirmation reservation", asy
   assert.equal(mock.calls.some(c => c.method === "PATCH"), false);
 });
 
-test("provider success without a pending new email is not claimed as a sent confirmation", async (t) => {
-  const mock = createSupabaseMock({ silentReject: true });
+test("rejected delivery is not claimed as a sent confirmation", async (t) => {
+  const mock = createSupabaseMock({ mailError: true });
   withTestEnvironment(t, mock.fetchMock);
   const res = mockRes();
   await handler(emailRequest(), res);
-  assert.equal(res.statusCode, 409);
-  assert.match(res.body.error, /not started/);
-  assert.equal(mock.getAdminUser().app_metadata.tbv_pending_email_migration, undefined);
+  assert.equal(res.statusCode, 503);
+  assert.match(res.body.error, /Could not send/);
+  assert.equal(mock.getAdminUser().app_metadata.tbv_pending_email_migration.delivery, "failed");
+  assert.equal(mock.getAdminUser().app_metadata.tbv_pending_email_migration.codeHash, null);
 });
 
 test("a genuine confirmation returns its destination and leaves all history untouched", async (t) => {
@@ -291,14 +302,14 @@ test("a different destination can replace an unconfirmed request without waiting
   const res = mockRes();
   await handler(emailRequest(), res);
   assert.equal(res.statusCode, 200);
-  assert.equal(mock.getAdminUser().new_email, NEW_EMAIL);
+  assert.equal(mock.getAdminUser().new_email, null);
   assert.equal(mock.getAdminUser().app_metadata.tbv_pending_email_migration.to, NEW_EMAIL);
   assert.equal(mock.calls.some(c => c.method === "PATCH"), false);
 });
 
 test("rejected replacement preserves the previous valid migration", async (t) => {
   const pending = { from: CURRENT_EMAIL, to: "previous@example.org", createdAt: new Date().toISOString() };
-  const mock = createSupabaseMock({ pending, updateError: { status: 422, data: { code: "email_exists" } } });
+  const mock = createSupabaseMock({ pending, occupied: true });
   withTestEnvironment(t, mock.fetchMock);
   const res = mockRes();
   await handler(emailRequest(), res);
@@ -307,8 +318,8 @@ test("rejected replacement preserves the previous valid migration", async (t) =>
 });
 
 test("a rejected resend is not masked by the previous pending state", async (t) => {
-  const pending = { from: CURRENT_EMAIL, to: NEW_EMAIL, createdAt: new Date().toISOString() };
-  const mock = createSupabaseMock({ pending, updateError: { status: 429, data: { code: "over_email_send_rate_limit" } } });
+  const pending = { mode: CURRENT_EMAIL_MODE, from: CURRENT_EMAIL, to: NEW_EMAIL, createdAt: new Date().toISOString() };
+  const mock = createSupabaseMock({ pending });
   withTestEnvironment(t, mock.fetchMock);
   const res = mockRes();
   await handler(emailRequest(), res);
@@ -317,14 +328,15 @@ test("a rejected resend is not masked by the previous pending state", async (t) 
   assert.deepEqual(mock.getAdminUser().app_metadata.tbv_pending_email_migration, pending);
 });
 
-test("a timeout after acceptance is reconciled using the actual provider state", async (t) => {
-  const mock = createSupabaseMock({ timeoutAfterUpdate: true });
+test("a current-mail request never calls the two-mailbox Supabase update endpoint", async (t) => {
+  const mock = createSupabaseMock();
   withTestEnvironment(t, mock.fetchMock);
   const res = mockRes();
   await handler(emailRequest(), res);
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.pendingConfirmation, true);
   assert.equal(mock.getAdminUser().app_metadata.tbv_pending_email_migration.to, NEW_EMAIL);
+  assert.equal(mock.calls.some(c => c.url.pathname === "/auth/v1/user" && c.method === "PUT"), false);
 });
 
 test("wrong password cannot send an email-change request", async (t) => {
@@ -356,4 +368,135 @@ test("failed history migration remains retryable without losing its reservation"
   await handler(makeRequest({ action: "finalize" }), res);
   assert.equal(res.statusCode, 503);
   assert.deepEqual(mock.getAdminUser().app_metadata.tbv_pending_email_migration, pending);
+});
+
+function sentChallenge(userId = USER_ID) {
+  const challenge = createEmailChallenge("test-service-role-key", userId, CURRENT_EMAIL, NEW_EMAIL);
+  return { code: challenge.code, pending: { ...challenge.pending, delivery: "sent" } };
+}
+
+test("confirmation email is sent only to the authenticated current email, never the new email", async (t) => {
+  const mock = createSupabaseMock();
+  withTestEnvironment(t, mock.fetchMock);
+  const res = mockRes();
+  await handler(emailRequest(), res);
+  const emails = mock.calls.filter(c => c.url.hostname === "api.resend.com");
+  assert.equal(emails.length, 1);
+  assert.equal(emails[0].body.to, CURRENT_EMAIL);
+  assert.equal(emails[0].body.bcc, undefined);
+  assert.equal(emails[0].body.cc, undefined);
+  assert.match(emails[0].body.text, /person.new@example.org/);
+  const code = /Confirmation code: ([A-F0-9]{16})/.exec(emails[0].body.text)?.[1];
+  assert.ok(code);
+  assert.equal(JSON.stringify(mock.getAdminUser().app_metadata).includes(code), false);
+  assert.equal(JSON.stringify(res.body).includes(code), false);
+  assert.equal(res.body.currentEmail, CURRENT_EMAIL);
+  assert.equal(res.body.confirmationMode, CURRENT_EMAIL_MODE);
+  assert.equal(mock.getAdminUser().email, CURRENT_EMAIL);
+});
+
+test("only the correct current-mailbox code changes auth email and preserves history", async (t) => {
+  const { code, pending } = sentChallenge();
+  const mock = createSupabaseMock({ pending });
+  withTestEnvironment(t, mock.fetchMock);
+  const res = mockRes();
+  await handler(makeRequest({ action: "confirm-current", code, newEmail: NEW_EMAIL }), res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.migrated, true);
+  assert.equal(mock.getAdminUser().email, NEW_EMAIL);
+  assert.equal(mock.getAdminUser().app_metadata.tbv_pending_email_migration, undefined);
+  assert.deepEqual(mock.getAdminUser().app_metadata.providers, ["email"]);
+  assert.equal(mock.calls.filter(c => c.url.hostname === "api.resend.com").length, 0);
+  assert.equal(mock.calls.filter(c => c.method === "PATCH").length, 5);
+});
+
+test("an incorrect code cannot update email or migrate any history", async (t) => {
+  const { pending } = sentChallenge();
+  const mock = createSupabaseMock({ pending });
+  withTestEnvironment(t, mock.fetchMock);
+  const res = mockRes();
+  await handler(makeRequest({ action: "confirm-current", code: "invalid", newEmail: NEW_EMAIL }), res);
+  assert.equal(res.statusCode, 400);
+  assert.equal(mock.getAdminUser().email, CURRENT_EMAIL);
+  assert.equal(mock.getAdminUser().app_metadata.tbv_pending_email_migration.attempts, 1);
+  assert.equal(mock.calls.some(c => c.method === "PATCH"), false);
+});
+
+test("five incorrect code attempts lock confirmation, including a later correct code", async (t) => {
+  const { code, pending } = sentChallenge();
+  const mock = createSupabaseMock({ pending });
+  withTestEnvironment(t, mock.fetchMock);
+  for (let i = 0; i < 5; i++) await handler(makeRequest({ action: "confirm-current", code: "invalid", newEmail: NEW_EMAIL }), mockRes());
+  const res = mockRes();
+  await handler(makeRequest({ action: "confirm-current", code, newEmail: NEW_EMAIL }), res);
+  assert.equal(res.statusCode, 429);
+  assert.equal(mock.getAdminUser().email, CURRENT_EMAIL);
+});
+
+test("an expired code cannot update email", async (t) => {
+  const { code, pending } = sentChallenge();
+  pending.expiresAt = new Date(Date.now() - 1000).toISOString();
+  const mock = createSupabaseMock({ pending });
+  withTestEnvironment(t, mock.fetchMock);
+  const res = mockRes();
+  await handler(makeRequest({ action: "confirm-current", code, newEmail: NEW_EMAIL }), res);
+  assert.equal(res.statusCode, 410);
+  assert.equal(mock.getAdminUser().email, CURRENT_EMAIL);
+});
+
+test("code proof is bound to the authenticated user, not merely the destination", async (t) => {
+  const { code, pending } = sentChallenge("another-user");
+  const mock = createSupabaseMock({ pending });
+  withTestEnvironment(t, mock.fetchMock);
+  const res = mockRes();
+  await handler(makeRequest({ action: "confirm-current", code, newEmail: NEW_EMAIL }), res);
+  assert.equal(res.statusCode, 400);
+  assert.equal(mock.getAdminUser().email, CURRENT_EMAIL);
+});
+
+test("missing mail configuration fails explicitly without changing auth or creating a reservation", async (t) => {
+  const mock = createSupabaseMock();
+  withTestEnvironment(t, mock.fetchMock);
+  delete process.env.RESEND_API_KEY;
+  const res = mockRes();
+  await handler(emailRequest(), res);
+  assert.equal(res.statusCode, 503);
+  assert.equal(mock.getAdminUser().app_metadata.tbv_pending_email_migration, undefined);
+  assert.equal(mock.getAdminUser().email, CURRENT_EMAIL);
+});
+
+test("older cached clients are told to reload instead of sending to a new mailbox", async (t) => {
+  const mock = createSupabaseMock();
+  withTestEnvironment(t, mock.fetchMock);
+  const req = emailRequest();
+  req.body.action = "request";
+  const res = mockRes();
+  await handler(req, res);
+  assert.equal(res.statusCode, 409);
+  assert.match(res.body.error, /Reload/);
+  assert.equal(mock.calls.some(c => c.url.hostname === "api.resend.com" || c.method === "PUT"), false);
+});
+
+test("current-mailbox status exposes no code hash or nonce and never migrates before proof", async (t) => {
+  const { pending } = sentChallenge();
+  const mock = createSupabaseMock({ pending });
+  withTestEnvironment(t, mock.fetchMock);
+  const res = mockRes();
+  await handler(makeRequest({ action: "finalize" }), res);
+  assert.equal(res.body.pendingConfirmation, true);
+  assert.equal(res.body.confirmationMode, CURRENT_EMAIL_MODE);
+  assert.equal(res.body.codeHash, undefined);
+  assert.equal(res.body.nonce, undefined);
+  assert.equal(mock.calls.some(c => c.method === "PATCH"), false);
+});
+
+test("confirmation must match the destination displayed in the active request", async (t) => {
+  const { code, pending } = sentChallenge();
+  const mock = createSupabaseMock({ pending });
+  withTestEnvironment(t, mock.fetchMock);
+  const res = mockRes();
+  await handler(makeRequest({ action: "confirm-current", code, newEmail: "different@example.org" }), res);
+  assert.equal(res.statusCode, 409);
+  assert.equal(mock.getAdminUser().email, CURRENT_EMAIL);
+  assert.equal(mock.calls.some(c => c.method === "PATCH"), false);
 });

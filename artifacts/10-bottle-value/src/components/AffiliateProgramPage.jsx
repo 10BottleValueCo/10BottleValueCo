@@ -155,11 +155,11 @@ export default function AffiliateProgramPage({
       image: "commission-photo.jpg",
       title: tx("10% COMMISSION", "10% КОМИССИИ", "10% КОМІСІЇ", "10% PROVISION", "10% DE COMISIÓN"),
       copy: tx(
-        "Earn on eligible tracked orders from customers you refer.",
-        "Получайте комиссию с подходящих заказов привлечённых вами клиентов.",
-        "Отримуйте комісію з відповідних замовлень залучених вами клієнтів.",
-        "Verdienen Sie an qualifizierten erfassten Bestellungen geworbener Kunden.",
-        "Gana con los pedidos aptos registrados de los clientes que refieras.",
+        "Earn from completed referral orders.",
+        "Получайте комиссию с выполненных заказов.",
+        "Отримуйте комісію з виконаних замовлень.",
+        "Verdienen Sie an abgeschlossenen Bestellungen.",
+        "Gana con pedidos completados.",
       ),
       href: "#how-it-works",
     },
@@ -168,11 +168,11 @@ export default function AffiliateProgramPage({
       image: "lifetime-earnings-photo.jpg",
       title: tx("LIFETIME ATTRIBUTION", "ПОЖИЗНЕННАЯ АТРИБУЦИЯ", "ДОВІЧНА АТРИБУЦІЯ", "LEBENSLANGE ZUORDNUNG", "ATRIBUCIÓN DE POR VIDA"),
       copy: tx(
-        "Each customer you refer stays attributed to your code for life. You earn 10% commission on every order they place. Commission is credited only for completed orders.",
-        "Каждый привлечённый вами клиент навсегда закрепляется за вашим кодом. Вы получаете 10% комиссии с каждого его заказа. Комиссия начисляется только за выполненные заказы.",
-        "Кожен залучений вами клієнт назавжди закріплюється за вашим кодом. Ви отримуєте 10% комісії з кожного його замовлення. Комісію нараховують лише за виконані замовлення.",
-        "Jeder von Ihnen geworbene Kunde bleibt dauerhaft Ihrem Code zugeordnet. Sie erhalten 10 % Provision auf jede Bestellung dieses Kunden. Provision wird nur für abgeschlossene Bestellungen gutgeschrieben.",
-        "Cada cliente que refieras quedará vinculado a tu código para siempre. Recibirás una comisión del 10 % por cada pedido que realice. La comisión solo se acredita por pedidos completados.",
+        "Customers stay linked to your code for life. You earn 10% of every order they place.",
+        "Клиенты навсегда закрепляются за вашим кодом. Вы получаете 10% от суммы каждого их заказа.",
+        "Клієнти назавжди закріплюються за вашим кодом. Ви отримуєте 10% від суми кожного їхнього замовлення.",
+        "Kunden bleiben dauerhaft Ihrem Code zugeordnet. Sie erhalten 10 % des Werts jeder ihrer Bestellungen.",
+        "Los clientes quedan vinculados a tu código de por vida. Ganas el 10 % del valor de cada pedido que realicen.",
       ),
       href: "#affiliate-faq",
     },
@@ -181,11 +181,11 @@ export default function AffiliateProgramPage({
       image: "creators.jpg",
       title: tx("CREATOR PARTNERS", "АВТОРЫ И ПАРТНЁРЫ", "АВТОРИ Й ПАРТНЕРИ", "CREATOR-PARTNER", "CREADORES SOCIOS"),
       copy: tx(
-        "We consider applications from creators with audiences of every size—small and large. Everyone can become part of 10BottleValueCo.",
-        "Мы рассматриваем заявки от авторов с любой аудиторией — и небольшой, и большой. Каждый может стать частью 10BottleValueCo.",
-        "Ми розглядаємо заявки від авторів з аудиторією будь-якого розміру — і невеликою, і великою. Кожен може стати частиною 10BottleValueCo.",
-        "Wir berücksichtigen Bewerbungen von Creators mit jeder Reichweite – klein oder groß. Alle können Teil von 10BottleValueCo werden.",
-        "Consideramos solicitudes de creadores con audiencias de cualquier tamaño, pequeñas o grandes. Todos pueden formar parte de 10BottleValueCo.",
+        "Small or large, every audience is welcome.",
+        "Принимаем авторов с любой аудиторией.",
+        "Приймаємо авторів з будь-якою аудиторією.",
+        "Creator jeder Reichweite sind willkommen.",
+        "Cualquier tamaño de audiencia es bienvenido.",
       ),
       href: "#affiliate-apply",
     },
@@ -292,7 +292,7 @@ export default function AffiliateProgramPage({
         <div className="relative z-10 flex flex-col items-start justify-center px-6 pb-2 pt-8 sm:px-9 sm:pt-10 lg:px-12 lg:py-12">
           <h1
             id="affiliate-title"
-            className="max-w-[690px] text-[clamp(2rem,4vw,4.5rem)] font-black uppercase leading-[0.9] tracking-[-0.055em] text-white sm:text-[clamp(2.5rem,5.5vw,5.5rem)]"
+            className="affiliate-program-title max-w-[690px] text-[clamp(2rem,4vw,4.5rem)] font-black uppercase leading-[0.9] tracking-[-0.055em] text-white sm:text-[clamp(2.5rem,5.5vw,5.5rem)]"
           >
             {tx("EARN", "ЗАРАБАТЫВАЙТЕ", "ЗАРОБЛЯЙТЕ", "VERDIENEN", "GANA")}{" "}
             <span className="text-white">10%</span>
@@ -301,11 +301,11 @@ export default function AffiliateProgramPage({
           </h1>
           <p className="affiliate-program-description mt-5 max-w-[520px] text-sm leading-relaxed text-white sm:text-base lg:text-lg">
             {tx(
-              "Partner with 10BottleValueCo and earn by sharing research products with your audience. Your referrals save 5% on their first purchase.",
-              "Станьте партнёром 10BottleValueCo и рассказывайте своей аудитории о наших продуктах для исследований. Ваши клиенты получат скидку 5% на первую покупку.",
-              "Станьте партнером 10BottleValueCo та розповідайте своїй аудиторії про наші продукти для досліджень. Ваші клієнти отримають знижку 5% на першу покупку.",
-              "Werden Sie Partner von 10BottleValueCo und teilen Sie Forschungsprodukte mit Ihrer Zielgruppe. Geworbene Kunden erhalten 5% Rabatt auf ihren ersten Einkauf.",
-              "Colabora con 10BottleValueCo y comparte productos de investigación con tu audiencia. Tus referidos obtienen un 5% de descuento en su primera compra.",
+              <>Partner with <span className="normal-case">10BottleValueCo</span> and earn by sharing research products with your audience. Your referrals save 5% on their first purchase.</>,
+              <>Станьте партнёром <span className="normal-case">10BottleValueCo</span> и рассказывайте своей аудитории о наших продуктах для исследований. Ваши клиенты получат скидку 5% на первую покупку.</>,
+              <>Станьте партнером <span className="normal-case">10BottleValueCo</span> та розповідайте своїй аудиторії про наші продукти для досліджень. Ваші клієнти отримають знижку 5% на першу покупку.</>,
+              <>Werden Sie Partner von <span className="normal-case">10BottleValueCo</span> und teilen Sie Forschungsprodukte mit Ihrer Zielgruppe. Geworbene Kunden erhalten 5% Rabatt auf ihren ersten Einkauf.</>,
+              <>Colabora con <span className="normal-case">10BottleValueCo</span> y comparte productos de investigación con tu audiencia. Tus referidos obtienen un 5% de descuento en su primera compra.</>,
             )}
           </p>
           <div className="mt-7 flex w-full flex-wrap items-center gap-3 pb-7 lg:pb-0">
@@ -327,11 +327,11 @@ export default function AffiliateProgramPage({
         >
           <div className="relative z-10 mx-auto flex h-full min-h-[250px] max-w-[600px] items-end justify-center gap-0 px-4 pb-[5%] sm:min-h-[330px] lg:min-h-[370px] lg:px-2">
             <img
-              src={publicImage("vials-c/tb-500-bpc-157-3ab3e8693952.webp")}
-              data-original-src={`${base}vials-c/tb-500-bpc-157-3ab3e8693952.webp`}
+              src={publicImage("vials-c/mots-c-ead676f909ff.webp")}
+              data-original-src={`${base}vials-c/mots-c-ead676f909ff.webp`}
               alt=""
               aria-hidden="true"
-              className="relative z-[1] h-[58%] max-h-[285px] w-[28%] translate-x-8 object-contain drop-shadow-[0_20px_22px_rgba(0,0,0,.55)] sm:translate-x-12 lg:translate-x-16"
+              className="relative z-[1] h-[74%] max-h-[340px] w-[34%] translate-x-5 object-contain drop-shadow-[0_20px_22px_rgba(0,0,0,.55)] sm:h-[58%] sm:max-h-[285px] sm:w-[28%] sm:translate-x-12 lg:translate-x-16"
               loading="eager"
               fetchPriority="high"
               decoding="async"
@@ -342,7 +342,7 @@ export default function AffiliateProgramPage({
               data-original-src={`${base}vials-c/bpc-157-4a596acd979f.webp`}
               alt=""
               aria-hidden="true"
-              className="relative z-[2] h-[78%] max-h-[380px] w-[34%] object-contain drop-shadow-[0_24px_28px_rgba(0,0,0,.65)]"
+              className="relative z-[2] h-[94%] max-h-[440px] w-[40%] object-contain drop-shadow-[0_24px_28px_rgba(0,0,0,.65)] sm:h-[78%] sm:max-h-[380px] sm:w-[34%]"
               loading="eager"
               fetchPriority="high"
               decoding="async"
@@ -353,7 +353,7 @@ export default function AffiliateProgramPage({
               data-original-src={`${base}vials-c/retatrutide-glp-3-0efb04b0071d.webp`}
               alt=""
               aria-hidden="true"
-              className="relative z-[1] h-[62%] max-h-[310px] w-[28%] -translate-x-8 object-contain drop-shadow-[0_20px_22px_rgba(0,0,0,.55)] sm:-translate-x-12 lg:-translate-x-16"
+              className="relative z-[1] h-[78%] max-h-[360px] w-[34%] -translate-x-5 object-contain drop-shadow-[0_20px_22px_rgba(0,0,0,.55)] sm:h-[62%] sm:max-h-[310px] sm:w-[28%] sm:-translate-x-12 lg:-translate-x-16"
               loading="eager"
               fetchPriority="high"
               decoding="async"
@@ -365,12 +365,12 @@ export default function AffiliateProgramPage({
 
       <section
         aria-label={tx("Affiliate benefits", "Преимущества партнёрства", "Переваги партнерства", "Affiliate-Vorteile", "Ventajas de afiliación")}
-        className="relative z-20 -mt-2 grid grid-cols-2 overflow-hidden rounded-xl border border-white/10 bg-[#27292d] shadow-[0_10px_26px_rgba(0,0,0,.16)] md:grid-cols-4"
+        className="affiliate-surface affiliate-surface--benefits relative z-20 -mt-2 grid grid-cols-1 overflow-hidden rounded-xl border border-white/10 shadow-[0_10px_26px_rgba(0,0,0,.16)] sm:grid-cols-2 md:grid-cols-4"
       >
         {benefits.map((benefit, index) => (
           <div
             key={benefit.title}
-            className={`flex min-h-[112px] items-start gap-3 px-4 py-5 sm:px-5 sm:py-6 ${index > 0 ? "border-l border-white/10" : ""} ${index > 1 ? "border-t border-white/10 md:border-t-0" : ""}`}
+            className={`flex min-h-[112px] items-start gap-3 border-b border-white/10 px-4 py-5 last:border-b-0 sm:px-5 sm:py-6 md:border-b-0 ${index % 2 === 1 ? "sm:border-l" : ""} ${index > 1 ? "sm:border-t sm:border-b-0 md:border-t-0" : ""} ${index > 0 ? "md:border-l" : ""}`}
           >
             <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#2878ff]/15 text-[#5595ff]">
               <FeatureIcon kind={benefit.icon} />
@@ -395,7 +395,7 @@ export default function AffiliateProgramPage({
           <a
             key={story.id}
             href={story.href}
-            className="relative isolate flex min-h-[220px] flex-col justify-start overflow-hidden rounded-xl border border-white/10 bg-[#11151c] p-5 shadow-[0_9px_24px_rgba(0,0,0,.17)] sm:p-6"
+            className="affiliate-story-card relative isolate flex min-h-[220px] flex-col justify-start overflow-hidden rounded-xl border border-white/10 bg-[#11151c] p-5 shadow-[0_9px_24px_rgba(0,0,0,.17)] sm:p-6"
           >
             <>
               <img
@@ -410,23 +410,24 @@ export default function AffiliateProgramPage({
               />
               <div
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(4,8,14,.92)_0%,rgba(4,8,14,.68)_42%,rgba(4,8,14,.1)_100%),linear-gradient(0deg,rgba(4,8,14,.64)_0%,rgba(4,8,14,.04)_70%)]"
+                className="affiliate-story-card__shade pointer-events-none absolute inset-0 -z-10"
               />
             </>
-            <span className="mb-3 text-[10px] font-black uppercase tracking-[0.15em] text-[#78aaff]">
-              {tx("PARTNER BENEFIT", "ПРЕИМУЩЕСТВО ПАРТНЁРА", "ПЕРЕВАГА ПАРТНЕРА", "PARTNERVORTEIL", "VENTAJA PARA SOCIOS")}
-            </span>
-            <h2 className="text-lg font-black uppercase leading-tight text-white sm:text-xl">
-              {story.title}
-            </h2>
-            <p className="mt-2 max-w-[38rem] text-xs leading-relaxed text-white/75 sm:text-sm">
-              {story.copy}
-            </p>
+            <div className="affiliate-story-card__copy relative z-10 max-w-[84%]">
+              <h2 className="text-lg font-black uppercase leading-tight text-white sm:text-xl">
+                {story.title}
+              </h2>
+              {story.copy && (
+                <p className={`mt-2 text-xs leading-relaxed sm:text-sm ${story.id === "creators" ? "max-w-[14rem]" : "max-w-[38rem]"}`}>
+                  {story.copy}
+                </p>
+              )}
+            </div>
           </a>
         ))}
       </section>
 
-      <section id="how-it-works" className="mt-5 w-full rounded-xl border border-white/10 bg-[#292929] px-4 py-4 shadow-[0_9px_24px_rgba(0,0,0,.14)] sm:px-5 sm:py-5">
+      <section id="how-it-works" className="affiliate-surface affiliate-surface--steps mt-5 w-full rounded-xl border border-white/10 px-4 py-4 shadow-[0_9px_24px_rgba(0,0,0,.14)] sm:px-5 sm:py-5">
         <div className="grid gap-3 md:grid-cols-[minmax(130px,.7fr)_repeat(3,minmax(0,1fr))] md:items-center md:gap-0 md:divide-x md:divide-white/10">
           <div className="md:pr-3 lg:pr-4">
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#8db5ff]">
@@ -470,7 +471,7 @@ export default function AffiliateProgramPage({
           <h2 className="max-w-[560px] text-2xl font-black uppercase leading-tight text-white sm:text-3xl">
             {tx("WHO CAN APPLY?", "КТО МОЖЕТ ПОДАТЬ ЗАЯВКУ?", "ХТО МОЖЕ ПОДАТИ ЗАЯВКУ?", "WER KANN SICH BEWERBEN?", "¿QUIÉN PUEDE POSTULARSE?")}
           </h2>
-          <p className="mt-3 max-w-[620px] text-sm leading-relaxed text-white/75">
+          <p className="relative z-10 mt-3 mr-auto w-[44%] max-w-[20rem] text-sm leading-relaxed text-white/75">
             {tx(
               "Creators with audiences of any size can apply.",
               "Подать заявку может любой автор с аудиторией любого размера.",
@@ -481,7 +482,7 @@ export default function AffiliateProgramPage({
           </p>
         </div>
 
-        <div className="flex flex-col justify-center gap-3 rounded-xl border border-white/10 bg-[#292929] p-4 shadow-[0_8px_22px_rgba(0,0,0,.12)] sm:p-5">
+        <div className="affiliate-surface affiliate-surface--email flex flex-col justify-center gap-3 rounded-xl border border-white/10 p-4 shadow-[0_8px_22px_rgba(0,0,0,.12)] sm:p-5">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.14em] text-white">
               {tx("APPLY VIA EMAIL", "ПОДАЙТЕ ЗАЯВКУ ПО EMAIL", "ПОДАЙТЕ ЗАЯВКУ ЕЛЕКТРОННОЮ ПОШТОЮ", "BEWERBUNG PER E-MAIL", "SOLICITA POR CORREO")}
@@ -506,7 +507,7 @@ export default function AffiliateProgramPage({
         </div>
       </section>
 
-      <section className="mt-6 rounded-xl border border-white/10 bg-[#292929] px-4 py-6 shadow-[0_9px_24px_rgba(0,0,0,.14)] sm:px-5 sm:py-8">
+      <section className="affiliate-surface affiliate-surface--faq mt-6 rounded-xl border border-white/10 px-4 py-6 shadow-[0_9px_24px_rgba(0,0,0,.14)] sm:px-5 sm:py-8">
         <div className="flex flex-col justify-between gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-end">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-[#8db5ff]">

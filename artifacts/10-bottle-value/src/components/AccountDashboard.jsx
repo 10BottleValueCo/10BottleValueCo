@@ -167,7 +167,7 @@ export default function AccountDashboard({
             <>
           <section className="lab-panel lab-orders" id="account-orders-preview">
             <div className="lab-panel__heading">
-              <h2>{tx("Your Orders", "Ваши заказы", "Ваші замовлення", "Ihre Bestellungen", "Tus pedidos")}</h2>
+              <h2>{tx("My Orders", "Мои заказы", "Мої замовлення", "Meine Bestellungen", "Mis pedidos")}</h2>
               <button
                 className="lab-orders__refresh"
                 type="button"

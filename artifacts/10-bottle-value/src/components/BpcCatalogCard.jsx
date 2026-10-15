@@ -6,13 +6,14 @@ import { observeCatalogTitle } from "../catalog-title-layout.js";
 
 const PACK_SIZES = [1, 5, 10];
 const displayDose = (value) => value.replace(/\s+each\b/gi, "").trim().toUpperCase();
+const displayPrice = (value) => `$${value.toFixed(2).replace(/\.00$/, "")}`;
 
 const LABELS = {
-  EN: { dosage: "Dosage", quantity: "Select Quantity", perVial: "per vial", vial: "Vial", vials: "Vials", add: "Add to Cart", outOfStock: "Out of stock" },
-  RU: { dosage: "Дозировка", quantity: "Выберите количество", perVial: "на флакон", vial: "Флакон", vials: "Флаконов", add: "В корзину", outOfStock: "Нет в наличии" },
-  UA: { dosage: "Дозування", quantity: "Оберіть кількість", perVial: "на флакон", vial: "Флакон", vials: "Флаконів", add: "До кошика", outOfStock: "Немає в наявності" },
-  DE: { dosage: "Dosierung", quantity: "Menge wählen", perVial: "pro Fläschchen", vial: "Fläschchen", vials: "Fläschchen", add: "In den Warenkorb", outOfStock: "Nicht verfügbar" },
-  ES: { dosage: "Dosis", quantity: "Seleccionar cantidad", perVial: "por vial", vial: "Vial", vials: "Viales", add: "Añadir al carrito", outOfStock: "Agotado" },
+  EN: { dosage: "Dosage", quantity: "Select Quantity", perVial: "per vial", vial: "Vial", vials: "Vials", add: "Add to Cart", outOfStock: "Out of stock", unavailable: "Unavailable" },
+  RU: { dosage: "Дозировка", quantity: "Выберите количество", perVial: "на флакон", vial: "Флакон", vials: "Флаконов", add: "В корзину", outOfStock: "Нет в наличии", unavailable: "Недоступно" },
+  UA: { dosage: "Дозування", quantity: "Оберіть кількість", perVial: "на флакон", vial: "Флакон", vials: "Флаконів", add: "До кошика", outOfStock: "Немає в наявності", unavailable: "Недоступно" },
+  DE: { dosage: "Dosierung", quantity: "Menge wählen", perVial: "pro Fläschchen", vial: "Fläschchen", vials: "Fläschchen", add: "In den Warenkorb", outOfStock: "Nicht verfügbar", unavailable: "Nicht verfügbar" },
+  ES: { dosage: "Dosis", quantity: "Seleccionar cantidad", perVial: "por vial", vial: "Vial", vials: "Viales", add: "Añadir al carrito", outOfStock: "Agotado", unavailable: "No disponible" },
 };
 
 export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLabel, pricesByDose, renderVial, onAddToCart, onDecrementCart, getCartQuantity, isOutOfStock, onOpenProduct, getBadges, catalogStyle = false, worldwideStyle = false, usWarehouseStyle = false }) {
@@ -195,9 +196,12 @@ export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLab
             <span>{choice.vials} {choice.vials === 1 ? labels.vial : labels.vials}</span>
             {Number.isFinite(choice.price) && (
               <strong>
-                <span className="md:hidden">${choice.price.toFixed(2).replace(/\.00$/, "")}</span>
-                <span className="hidden md:inline">${choice.price.toFixed(2)}</span>
+                <span className="md:hidden">{displayPrice(choice.price)}</span>
+                <span className="hidden md:inline">{displayPrice(choice.price)}</span>
               </strong>
+            )}
+            {!Number.isFinite(choice.price) && (
+              <span className="bpc-catalog-card__pack-status">{labels.unavailable}</span>
             )}
           </button>
         ))}
@@ -211,7 +215,7 @@ export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLab
             <button type="button" className="flex items-center justify-center bg-black px-3 py-2 text-white hover:bg-black/80 transition-colors md:px-5" onClick={() => onDecrementCart(selection)} aria-label={`− 1 ${name} ${dose}, ${selectedVials} ${labels.vials}`}>
               <span aria-hidden="true" className="select-none text-[14px] font-black leading-none">−</span>
             </button>
-            <button type="button" className="bpc-catalog-card__cart-primary flex flex-1 items-center justify-center gap-1 bg-white px-2 py-2 text-[11px] font-black uppercase tracking-[0.06em] text-black hover:bg-white/90 transition-none md:px-5 md:text-[14px] md:tracking-[0.16em]" onClick={add}>
+            <button type="button" className="bpc-catalog-card__cart-primary bpc-catalog-card__cart-button flex flex-1 items-center justify-center gap-1 bg-white px-2 py-2 text-[11px] font-bold uppercase tracking-[0.06em] text-black hover:bg-white/90 transition-none md:px-5 md:text-[14px] md:tracking-[0.16em]" onClick={add}>
               <span className="bpc-catalog-card__cart-label whitespace-nowrap">
                 {labels.add}
                 {cartQuantity > 1 && <span className="bpc-catalog-card__cart-count ml-1 tracking-normal">×{cartQuantity}</span>}
@@ -219,7 +223,7 @@ export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLab
             </button>
           </div>
         ) : (
-          <button type="button" className="flex h-full w-full items-center justify-center rounded-full border border-black bg-white px-3 text-[11px] font-black uppercase tracking-[0.06em] whitespace-nowrap text-black shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:bg-white/90 disabled:opacity-50 disabled:cursor-not-allowed md:px-5 md:text-[14px] md:tracking-[0.16em]" disabled={!Number.isFinite(selectedPack?.price)} onClick={add}>
+          <button type="button" className="bpc-catalog-card__cart-button flex h-full w-full items-center justify-center rounded-full border border-black bg-white px-3 text-[11px] font-bold uppercase tracking-[0.06em] whitespace-nowrap text-black shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:bg-white/90 disabled:opacity-50 disabled:cursor-not-allowed md:px-5 md:text-[14px] md:tracking-[0.16em]" disabled={!Number.isFinite(selectedPack?.price)} onClick={add}>
             {labels.add}
           </button>
         )}

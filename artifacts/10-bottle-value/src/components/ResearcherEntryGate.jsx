@@ -74,7 +74,8 @@ export default function ResearcherEntryGate({ onAccept }) {
       <section
         aria-labelledby="researcher-entry-title"
         aria-modal="true"
-        className="my-auto w-full max-w-[620px] rounded-[22px] border border-white/20 bg-[#555]/95 px-5 py-6 text-white uppercase shadow-[0_28px_90px_rgba(0,0,0,0.55)] sm:px-9 sm:py-8"
+        className="my-auto w-full max-w-[620px] rounded-[22px] border border-white/20 bg-[#555] px-5 py-6 text-white uppercase shadow-[0_28px_90px_rgba(0,0,0,0.55)] sm:px-9 sm:py-8"
+        style={{ backgroundColor: "#555555" }}
         role="dialog"
       >
         <div className="mb-6 text-center">
@@ -187,8 +188,9 @@ export default function ResearcherEntryGate({ onAccept }) {
 
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
               <button
-                className="min-h-12 flex-1 rounded-lg bg-white px-5 py-3 text-sm font-bold uppercase text-[#292929] transition hover:bg-white/90 disabled:cursor-not-allowed disabled:bg-white/30 disabled:text-white/50"
+                className="min-h-12 flex-1 rounded-lg bg-white px-5 py-3 text-sm font-bold uppercase text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:bg-white/30 disabled:text-white/50"
                 disabled={!canEnter}
+                style={canEnter ? { color: "#111111" } : undefined}
                 type="submit"
               >
                 Enter site

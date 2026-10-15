@@ -49,6 +49,7 @@
 
 html {
   overflow-y: scroll;
+  overflow-x: clip;
   scrollbar-gutter: stable;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -69,11 +70,146 @@ body,
 }
 
 body {
+  overflow-x: clip;
   font-family: ui-sans-serif, system-ui, sans-serif;
   background: #8f8f8f;
   color: #ffffff;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Keep the two stacked announcement/navigation bars in normal document flow
+   at every width. The desktop ticker can wrap; ResizeObserver feeds its real
+   height to the sticky navigation row. */
+@media (min-width: 1024px) {
+  [data-mobile-announcement] > div[data-nosnippet]:last-child {
+    flex-wrap: nowrap;
+    gap: clamp(4px, 0.65vw, 12px);
+    min-width: 0;
+    padding-inline: clamp(6px, 0.8vw, 14px);
+    font-size: clamp(7px, 0.62vw, 11px);
+    letter-spacing: clamp(0.01em, 0.065vw, 0.12em);
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .tbv-app-shell > header > div:first-child {
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    padding-top: 10px !important;
+  }
+
+  .tbv-app-shell > header > div:first-child > a {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  .tbv-app-shell > header > div:first-child > nav {
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 2px;
+  }
+}
+
+@media (max-width: 1023px) {
+  .tbv-app-shell > header > div:first-child {
+    min-width: 0;
+    gap: 8px;
+    padding-top: 10px !important;
+  }
+
+  .tbv-app-shell > header > div:first-child > a {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .tbv-app-shell > header > div:first-child > a span {
+    font-size: clamp(13px, 4vw, 18px) !important;
+    letter-spacing: .015em !important;
+  }
+
+  .tbv-app-shell > header > div:first-child > a img {
+    height: clamp(30px, 9vw, 42px) !important;
+    flex: 0 0 auto;
+  }
+
+  .tbv-app-shell > header > div:first-child > div.ml-auto {
+    flex: 0 0 auto;
+    gap: 6px;
+  }
+}
+
+@media (max-width: 359px) {
+  .tbv-app-shell > header > div:first-child {
+    padding-inline: 10px !important;
+    gap: 5px;
+  }
+
+  .tbv-app-shell > header > div:first-child > a span {
+    font-size: 12px !important;
+  }
+
+  .tbv-app-shell > header > div:first-child > div.ml-auto > a {
+    padding-inline: 9px !important;
+    font-size: 10px !important;
+    letter-spacing: .08em !important;
+  }
+
+  .tbv-app-shell > header > div:first-child > div.ml-auto > button {
+    width: 34px !important;
+    height: 34px !important;
+  }
+}
+
+/* Constrain long unbroken strings and nested grids to their available track. */
+.tbv-app-shell main,
+.tbv-app-shell section,
+.tbv-app-shell article,
+.tbv-app-shell [role="dialog"] {
+  min-width: 0;
+}
+
+.tbv-app-shell input,
+.tbv-app-shell select,
+.tbv-app-shell textarea {
+  max-width: 100%;
+}
+
+.tbv-app-shell [class*="grid-cols-"] {
+  min-width: 0;
+}
+
+.tbv-app-shell [role="dialog"] > :not([aria-hidden="true"]) {
+  max-width: 100%;
+}
+
+@media (max-width: 767px) {
+  .tbv-product-page > .grid,
+  .tbv-product-page > .grid > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .tbv-cart-page .bpc-catalog-surface--worldwide {
+    min-width: 0;
+    padding-inline: clamp(12px, 4vw, 20px);
+  }
+
+  .tbv-cart-page .bpc-catalog-surface--worldwide .whitespace-nowrap {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 379px) {
+  .tbv-cart-page .grid.grid-cols-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tbv-cart-page .bpc-catalog-surface--worldwide {
+    padding-inline: 12px;
+  }
 }
 
 .tbv-app-shell--catalog-background {

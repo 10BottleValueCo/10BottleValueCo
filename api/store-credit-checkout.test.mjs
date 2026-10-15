@@ -432,7 +432,7 @@ test('public promo can fund full credit only at the private verified amount',asy
   if(String(url).endsWith('/auth/v1/user'))return authResponse();
   if(String(url).includes('/rest/v1/orders?'))return orderLookupResponse();
   if(String(url).includes('/rest/v1/user_promos?'))return makeResponse(new URL(url).searchParams.get('email')==='eq.__PUBLIC__'?[{id:'33333333-3333-4333-8333-333333333333',email:'__PUBLIC__',code:'CARD5',rate:.05,used:false,revision:2}]:[]);
-  if(String(url).endsWith('/rest/v1/rpc/checkout_store_credit')){const body=JSON.parse(options.body);assert.equal(body.p_user_promo_id,null);assert.equal(body.p_order.promoDiscount,6.95);assert.equal(body.p_order.discountRule.revision,2);assert.equal(body.p_store_credit_used,172.04);return makeResponse({ok:true,orderId:ORDER_ID,order:body.p_order,balance:20,replayed:false});}
+   if(String(url).endsWith('/rest/v1/rpc/checkout_store_credit')){const body=JSON.parse(options.body);assert.equal(body.p_user_promo_id,null);assert.equal(body.p_order.promoDiscount,6.95);assert.equal(body.p_order.discountRule.revision,2);assert.equal(body.p_store_credit_used,172.04);return makeResponse({ok:true,orderId:ORDER_ID,order:body.p_order,balance:20,replayed:false});}
   throw new Error('Unexpected request');
  });
  const res=mockRes();await handler(makeRequest(makeCheckout({promoCode:'CARD5',storeCreditUsed:172.04})),res);assert.equal(res.statusCode,200);

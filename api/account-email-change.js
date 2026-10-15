@@ -1,3 +1,4 @@
+import { CURRENT_EMAIL_MODE, EMAIL_RESEND_INTERVAL_MS, MAX_CODE_ATTEMPTS, createEmailChallenge, currentEmailStatus, emailCodeMatches, sendCurrentEmailCode } from "./_current-email-confirmation.js";
 import { needsEmailLoginCode } from "./_email-login-mfa.js";
 
 const PENDING_FIELD = "tbv_pending_email_migration";
@@ -84,6 +85,10 @@ async function adminRequest(config, userId, method = "GET", body) {
     throw new EmailChangeError(503, "Email changes are temporarily unavailable.");
   }
   if (!response.ok) {
+    const error = await readBody(response);
+    if (error?.code === "email_exists" || /already.*(registered|exists)/i.test(String(error?.msg || error?.message || ""))) {
+      throw new EmailChangeError(409, "This email is already used by another account. Enter a different email.");
+    }
     throw new EmailChangeError(503, "Email changes are temporarily unavailable.");
   }
   const result = await readBody(response);
@@ -189,7 +194,7 @@ async function clearPending(config, userId, expected) {
   await adminRequest(config, userId, "PUT", { app_metadata: { [PENDING_FIELD]: null } });
 }
 
-async function prepare(req, config, customer, body, replace = false) {
+async function prepare(req, config, customer, body, replace = false, checkAuthEmail = false) {
   const currentEmail = normalizeEmail(body.currentEmail);
   const newEmail = normalizeEmail(body.newEmail);
   if (currentEmail !== customer.email) {
@@ -212,7 +217,7 @@ async function prepare(req, config, customer, body, replace = false) {
   if (existing) {
     const stale =
       normalizeEmail(user.email) === normalizeEmail(existing.from) &&
-      !normalizeEmail(user.new_email);
+      !normalizeEmail(user.new_email) && existing.mode !== CURRENT_EMAIL_MODE;
     if (stale) {
       await clearPending(config, customer.id, existing);
       existing = null;
@@ -226,6 +231,7 @@ async function prepare(req, config, customer, body, replace = false) {
   }
 
   await assertNoUniqueConflicts(config, newEmail);
+  if (checkAuthEmail) await assertAuthEmailAvailable(config, customer, newEmail);
   const pending = {
     from: customer.email,
     to: newEmail,
@@ -233,61 +239,6 @@ async function prepare(req, config, customer, body, replace = false) {
   };
   await setPending(config, user, pending);
   return { ok: true, prepared: true, ...(replace ? { previousPending: existing || null, pending } : {}) };
-}
-
-async function requestEmailChange(req, config, customer, body) {
-  const reservation = await prepare(req, config, customer, body, true);
-  let failure;
-  let rejected = false;
-  try {
-    const response = await fetch(`${config.url}/auth/v1/user`, {
-      method: "PUT",
-      headers: {
-        apikey: config.anonKey,
-        Authorization: `Bearer ${customer.token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ email: reservation.pending.to }),
-      signal: AbortSignal.timeout(10000),
-    });
-    const result = await readBody(response);
-    if (!response.ok) {
-      rejected = true;
-      const taken = result?.code === "email_exists" ||
-        /already.*(registered|exists|use)|email.*taken/i.test(String(result?.msg || result?.message || result?.error_description || ""));
-      const limited = response.status === 429;
-      failure = new EmailChangeError(
-        taken ? 409 : limited ? 429 : 503,
-        taken ? "This email is already used by another account. Enter a different email."
-          : limited ? "Too many email requests. Wait a few minutes and try again."
-          : "Could not send the confirmation email. Please try again.",
-      );
-    }
-  } catch {
-    failure = new EmailChangeError(503, "Could not verify whether the confirmation email was sent. Check status or try again.");
-  }
-  // Read the provider's actual state, not just our reservation. This also
-  // reconciles a timeout after Supabase accepted the request.
-  const user = await adminRequest(config, customer.id);
-  if (normalizeEmail(user.email) === reservation.pending.to ||
-      (!rejected && normalizeEmail(user.new_email) === reservation.pending.to)) {
-    try {
-      return await finalize(config, customer, req);
-    } catch (error) {
-      if (normalizeEmail(user.email) === reservation.pending.to &&
-          error instanceof EmailChangeError && error.status >= 500) {
-        return { ok: true, migrated: false, pendingMigration: true, newEmail: reservation.pending.to };
-      }
-      throw error;
-    }
-  }
-  const latest = user?.app_metadata?.[PENDING_FIELD];
-  if (latest?.createdAt === reservation.pending.createdAt &&
-      normalizeEmail(latest.to) === reservation.pending.to) {
-    if (reservation.previousPending) await setPending(config, user, reservation.previousPending);
-    else await clearPending(config, customer.id, reservation.pending);
-  }
-  throw failure || new EmailChangeError(409, "The email change was not started. The address may already be in use. Enter a different email.");
 }
 
 async function cancel(config, customer) {
@@ -302,6 +253,97 @@ async function cancel(config, customer) {
   }
   await clearPending(config, customer.id, pending);
   return { ok: true, cancelled: true };
+}
+
+async function assertAuthEmailAvailable(config, customer, email) {
+  for (let page = 1; page <= 10; page++) {
+    let response;
+    try {
+      const params = new URLSearchParams({ filter: email, per_page: "1000", page: String(page) });
+      response = await fetch(`${config.url}/auth/v1/admin/users?${params}`, {
+        headers: serviceHeaders(config.serviceKey), signal: AbortSignal.timeout(8000),
+      });
+    } catch {
+      throw new EmailChangeError(503, "Could not check the new email. Please try again.");
+    }
+    const data = await readBody(response);
+    if (!response.ok || !Array.isArray(data?.users)) throw new EmailChangeError(503, "Could not check the new email. Please try again.");
+    if (data.users.some(user => user.id !== customer.id && normalizeEmail(user.email) === email)) {
+      throw new EmailChangeError(409, "This email is already used by another account. Enter a different email.");
+    }
+    if (data.users.length < 1000) return;
+  }
+  throw new EmailChangeError(503, "Could not check the new email. Please try again.");
+}
+
+async function requestCurrentEmailCode(req, config, customer, body) {
+  if (!process.env.RESEND_API_KEY) throw new EmailChangeError(503, "Confirmation emails are temporarily unavailable.");
+  const before = await adminRequest(config, customer.id);
+  const previous = before?.app_metadata?.[PENDING_FIELD];
+  if (previous?.mode === CURRENT_EMAIL_MODE && Date.now() - Date.parse(previous.createdAt) < EMAIL_RESEND_INTERVAL_MS) {
+    throw new EmailChangeError(429, "Too many email requests. Wait a minute and try again.");
+  }
+  const reservation = await prepare(req, config, customer, body, true, true);
+  // Retire older two-mailbox links before creating the current-mailbox proof.
+  if (before.new_email) {
+    await adminRequest(config, customer.id, "PUT", { email: customer.email, email_confirm: true });
+    const latest = await adminRequest(config, customer.id);
+    if (normalizeEmail(latest.new_email)) {
+      await setPending(config, latest, reservation.previousPending);
+      throw new EmailChangeError(409, "The previous email-confirmation links could not be retired. Contact support.");
+    }
+  }
+  const { pending, code } = createEmailChallenge(config.serviceKey, customer.id, customer.email, reservation.pending.to);
+  await setPending(config, { id: customer.id }, pending);
+  try {
+    await sendCurrentEmailCode(pending, code);
+  } catch {
+    // Preserve the rate-limit timestamp but never claim delivery succeeded.
+    await setPending(config, { id: customer.id }, { ...pending, delivery: "failed", codeHash: null });
+    throw new EmailChangeError(503, "Could not send the confirmation email. Please try again.");
+  }
+  const latest = await adminRequest(config, customer.id);
+  if (normalizeEmail(latest.email) !== customer.email ||
+      latest.app_metadata?.[PENDING_FIELD]?.nonce !== pending.nonce) {
+    throw new EmailChangeError(409, "This request was replaced. Check status before continuing.");
+  }
+  await setPending(config, { id: customer.id }, { ...pending, delivery: "sent" });
+  return currentEmailStatus({ ...pending, delivery: "sent" });
+}
+
+async function confirmCurrentEmailCode(config, customer, req, body) {
+  const user = await adminRequest(config, customer.id);
+  const pending = user?.app_metadata?.[PENDING_FIELD];
+  if (!pending || pending.mode !== CURRENT_EMAIL_MODE) throw new EmailChangeError(409, "Request a new confirmation code.");
+  if (normalizeEmail(user.email) === normalizeEmail(pending.to)) return finalize(config, customer, req);
+  if (normalizeEmail(user.email) !== normalizeEmail(pending.from) || customer.email !== normalizeEmail(pending.from)) {
+    throw new EmailChangeError(409, "Your account email changed. Reload and try again.");
+  }
+  if (normalizeEmail(body.newEmail) !== normalizeEmail(pending.to)) {
+    throw new EmailChangeError(409, "This code is for a different email-change request. Check status or request a new code.");
+  }
+  const state = currentEmailStatus(pending);
+  if (!state.confirmationSent) throw new EmailChangeError(409, "Request a new confirmation code.");
+  if (state.codeExpired) throw new EmailChangeError(410, "The confirmation code has expired. Request a new code.");
+  if (state.codeLocked) throw new EmailChangeError(429, "Too many incorrect codes. Request a new code.");
+  if (!emailCodeMatches(config.serviceKey, customer.id, pending, body.code)) {
+    await setPending(config, user, { ...pending, attempts: Number(pending.attempts || 0) + 1 });
+    throw new EmailChangeError(400, "The confirmation code is incorrect.");
+  }
+  await assertNoUniqueConflicts(config, pending.to);
+  await assertAuthEmailAvailable(config, customer, pending.to);
+  await adminRequest(config, customer.id, "PUT", {
+    email: pending.to, email_confirm: true,
+    app_metadata: { [PENDING_FIELD]: pending },
+  });
+  try {
+    return await finalize(config, customer, req);
+  } catch (error) {
+    if (error instanceof EmailChangeError && error.status >= 500) {
+      return { ok: true, migrated: false, pendingMigration: true, newEmail: pending.to };
+    }
+    throw error;
+  }
 }
 
 async function transferEmailRows(config, from, to) {
@@ -330,6 +372,7 @@ async function finalize(config, customer, req) {
   const adminEmail = normalizeEmail(user.email);
   if (adminEmail !== to) {
     if (adminEmail === from) {
+      if (pending.mode === CURRENT_EMAIL_MODE) return currentEmailStatus(pending);
       if (normalizeEmail(user.new_email) === to) {
         return { ok: true, migrated: false, pendingConfirmation: true, newEmail: to };
       }
@@ -360,7 +403,9 @@ export default async function handler(req, res) {
         : {};
 
     let result;
-    if (body.action === "request") result = await requestEmailChange(req, config, customer, body);
+    if (body.action === "request-current") result = await requestCurrentEmailCode(req, config, customer, body);
+    else if (body.action === "confirm-current") result = await confirmCurrentEmailCode(config, customer, req, body);
+    else if (body.action === "request") throw new EmailChangeError(409, "Reload this page to confirm the change using only your current email.");
     else if (body.action === "prepare") result = await prepare(req, config, customer, body);
     else if (body.action === "cancel") result = await cancel(config, customer);
     else if (body.action === "finalize") result = await finalize(config, customer, req);

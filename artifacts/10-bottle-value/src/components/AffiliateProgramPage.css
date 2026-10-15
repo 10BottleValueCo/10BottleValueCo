@@ -2,10 +2,52 @@
   position: relative;
 }
 
+.affiliate-program-page .affiliate-surface {
+  background-color: rgba(7, 10, 15, .93) !important;
+  border-color: rgba(255, 255, 255, .16) !important;
+  box-shadow:
+    0 16px 38px rgba(0, 0, 0, .34),
+    inset 0 1px 0 rgba(255, 255, 255, .045);
+  -webkit-backdrop-filter: blur(14px) saturate(.78);
+  backdrop-filter: blur(14px) saturate(.78);
+}
+
+.affiliate-program-page .affiliate-surface--benefits {
+  background-color: rgba(7, 10, 15, .95) !important;
+}
+
+.affiliate-program-page .affiliate-surface--faq .divide-y > * + * {
+  border-color: rgba(255, 255, 255, .13);
+}
+
+.affiliate-story-card__shade {
+  background:
+    linear-gradient(90deg, rgba(4, 8, 14, .74) 0%, rgba(4, 8, 14, .58) 40%, rgba(4, 8, 14, .2) 66%, rgba(4, 8, 14, 0) 84%),
+    linear-gradient(0deg, rgba(4, 8, 14, .4) 0%, rgba(4, 8, 14, .04) 68%);
+}
+
+.affiliate-story-card__copy {
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, .98),
+    0 0 12px rgba(0, 0, 0, .75);
+}
+
+.affiliate-story-card__copy p {
+  color: rgba(255, 255, 255, .96);
+}
+
 .affiliate-program-hero {
   background:
     radial-gradient(ellipse at 77% 40%, rgba(37, 99, 235, .2), transparent 43%),
     linear-gradient(112deg, rgba(11, 18, 32, .72) 0%, rgba(16, 27, 46, .62) 55%, rgba(9, 17, 30, .68) 100%);
+}
+
+.affiliate-program-title {
+  -webkit-text-stroke: 1.25px rgba(0, 0, 0, .72);
+  paint-order: stroke fill;
+  text-shadow:
+    0 2px 4px rgba(0, 0, 0, .9),
+    0 0 10px rgba(0, 0, 0, .55);
 }
 
 .affiliate-program-description {

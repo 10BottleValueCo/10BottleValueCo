@@ -53,7 +53,7 @@ function sessionResponse(attempt) {
   };
 }
 
-export function createMeritCheckoutHandler({ env = process.env, provider = createMeritProvider({ env }), store = createMeritStore({ env }), authenticate = requireVerifiedCustomer, quote = buildMeritQuote, notify = payload => sendMeritReceipt(payload, { env }), getNow = Date.now } = {}) {
+export function createMeritCheckoutHandler({ env = process.env, provider = createMeritProvider({ env }), store = createMeritStore({ env }), authenticate = requireVerifiedCustomer, quote = buildMeritQuote, notify = payload => sendMeritReceipt(payload, { env }) } = {}) {
   return async function handler(req, res) {
     res.setHeader("Cache-Control", "private, no-store");
     res.setHeader("Vary", "Authorization");
