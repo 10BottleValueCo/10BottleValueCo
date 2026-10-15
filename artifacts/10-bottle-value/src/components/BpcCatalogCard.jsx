@@ -7,6 +7,7 @@ import { observeCatalogTitle } from "../catalog-title-layout.js";
 const PACK_SIZES = [1, 5, 10];
 const displayDose = (value) => value.replace(/\s+each\b/gi, "").trim().toUpperCase();
 const displayPrice = (value) => `$${value.toFixed(2).replace(/\.00$/, "")}`;
+const displayPerVialAmount = (total, vials) => (total / vials).toFixed(1).replace(/\.0$/, "");
 
 const LABELS = {
   EN: { dosage: "Dosage", quantity: "Select Quantity", perVial: "per vial", vial: "Vial", vials: "Vials", add: "Add to Cart", outOfStock: "Out of stock", unavailable: "Unavailable" },
@@ -36,6 +37,7 @@ export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLab
   const idPrefix = useId().replace(/:/g, "");
   const labels = LABELS[language] || LABELS.EN;
   const packs = PACK_SIZES.map((vials) => ({ vials, price: pricesByDose[dose]?.[vials] ?? null }));
+  const tenVialPack = packs.find((choice) => choice.vials === 10);
   const selectedPack = packs.find((choice) => choice.vials === selectedVials);
   const selection = { dose, vials: selectedVials, price: selectedPack?.price };
   const cartQuantity = Number.isFinite(selectedPack?.price) ? getCartQuantity(selection) : 0;
@@ -101,6 +103,15 @@ export default function BpcCatalogCard({ id, language, name = "BPC-157", noteLab
       <button type="button" className="bpc-catalog-card__product-link" aria-label={`${name} ${displayDose(dose)}`} onClick={open}>
         <div className="bpc-catalog-card__vial">
           {renderVial(dose)}
+          {Number.isFinite(tenVialPack?.price) && (
+            <span className={`bpc-catalog-card__per-vial${badges.us ? " bpc-catalog-card__per-vial--us" : ""}`} aria-hidden="true">
+              <strong>
+                <span className="bpc-catalog-card__per-vial-dollar">$</span>
+                {displayPerVialAmount(tenVialPack.price, tenVialPack.vials)}
+              </strong>
+              <span className="bpc-catalog-card__per-vial-unit">{labels.perVial}</span>
+            </span>
+          )}
           <span className="bpc-catalog-card__badges">
             {badges.hot && <span className="bpc-catalog-card__badge bpc-catalog-card__badge--top"><Trophy size={11} strokeWidth={2.5} aria-hidden="true" />Top</span>}
             {badges.sale && <span className="bpc-catalog-card__badge bpc-catalog-card__badge--sale">Sale</span>}

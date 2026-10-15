@@ -96,6 +96,54 @@
   overflow: hidden;
 }
 
+.bpc-catalog-card__per-vial {
+  position: absolute;
+  top: 14px;
+  right: 4px;
+  z-index: 1;
+  display: none;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 4px;
+  color: #fff;
+  text-align: right;
+  pointer-events: none;
+}
+
+.bpc-catalog-card__per-vial > strong {
+  display: inline;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+  letter-spacing: -.02em;
+  line-height: 1;
+}
+
+.bpc-catalog-card__per-vial-dollar {
+  display: inline-block;
+  transform: scaleY(1.2);
+  transform-origin: center;
+}
+
+.bpc-catalog-card__per-vial-unit {
+  display: inline;
+  font-size: 9.9px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.bpc-catalog-card__per-vial--us {
+  top: 34px;
+}
+
+@media (min-width: 768px) {
+  .bpc-catalog-card__per-vial {
+    display: inline-flex;
+  }
+}
+
 .bpc-catalog-card__title {
   position: relative;
   margin: 4px 0 0;
