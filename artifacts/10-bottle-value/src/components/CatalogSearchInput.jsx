@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const SEARCH_COMMIT_DELAY_MS = 160;
 
@@ -9,13 +9,25 @@ export default function CatalogSearchInput({
   clearLabel,
 }) {
   const [draft, setDraft] = useState(value);
+  const lastParentValueRef = useRef(value);
 
   useEffect(() => {
+    // A product click can update the search value outside this input. Sync that
+    // selection instead of sending the older draft back and clearing it.
+    if (value !== lastParentValueRef.current) {
+      lastParentValueRef.current = value;
+      setDraft(value);
+      return undefined;
+    }
+
     if (draft === value) return undefined;
 
     // Keep the text currently being typed local. A delayed parent update from
     // an earlier debounce must not overwrite a newer keystroke.
-    const timeout = window.setTimeout(() => onSearch(draft), SEARCH_COMMIT_DELAY_MS);
+    const timeout = window.setTimeout(() => {
+      lastParentValueRef.current = draft;
+      onSearch(draft);
+    }, SEARCH_COMMIT_DELAY_MS);
     return () => window.clearTimeout(timeout);
   }, [draft, onSearch, value]);
 
