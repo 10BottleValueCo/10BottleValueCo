@@ -8,7 +8,7 @@ import { createMeritProvider } from "./_merit-provider.js";
 import { createMeritStore } from "./_merit-storage.js";
 import { reconcileMeritOrder } from "./_merit-reconcile.js";
 import { sendMeritReceipt } from "./_merit-receipt.js";
-import { meritCheckoutPaused, MERIT_REOPENS_AT, MERIT_REOPEN_MESSAGE } from "./_merit-availability.js";
+import { meritCheckoutPaused, MERIT_REOPEN_MESSAGE } from "./_merit-availability.js";
 
 const uuid = /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i;
 const record = value => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -61,7 +61,7 @@ export function createMeritCheckoutHandler({ env = process.env, provider = creat
     const config = getMeritConfig(env);
     try {
       if (req.method === "GET") {
-        if (meritCheckoutPaused(getNow())) return res.status(200).json({ ok: true, enabled: false, reopensAt: MERIT_REOPENS_AT, message: MERIT_REOPEN_MESSAGE });
+        if (meritCheckoutPaused(env)) return res.status(200).json({ ok: true, enabled: false, temporarilyClosed: true, message: MERIT_REOPEN_MESSAGE });
         if (!config.enabled) return res.status(200).json(publicMeritConfig(config));
         try { await Promise.all([provider.configuration(), store.ready()]); }
         catch { return res.status(200).json({ ok: true, enabled: false }); }
@@ -79,7 +79,7 @@ export function createMeritCheckoutHandler({ env = process.env, provider = creat
         return res.status(200).json(await reconcileMeritOrder({ orderId: req.body.orderId, customerId: customer.id, provider, store, notify }));
       }
       if (req.body.action !== "create") throw new MeritError(400, "Checkout action is invalid.", "MERIT_INVALID_REQUEST");
-      if (meritCheckoutPaused(getNow())) throw new MeritError(503, MERIT_REOPEN_MESSAGE, "MERIT_TEMPORARILY_CLOSED");
+      if (meritCheckoutPaused(env)) throw new MeritError(503, MERIT_REOPEN_MESSAGE, "MERIT_TEMPORARILY_CLOSED");
       if (!config.enabled) throw new MeritError(503, "Card checkout is unavailable.");
       const checkoutKey = readMeritCheckoutKey(req.body.checkoutKey);
       // Check this before re-quoting: a personal promo is already consumed by
