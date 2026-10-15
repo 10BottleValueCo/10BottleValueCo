@@ -177,7 +177,7 @@ const PRODUCT_ROWS = [
   ["CJC-1295","5 mg",319,null,"us","with/d",false],
   ["CJC-1295","10 mg",299,null,"us","no/d",false],
   ["PT-141","10 mg",119,null,"us","",false],
-  ["BAC Water","10 ml",29,null,"us","",false],
+  ["BAC Water","10 ml",49.99,44.99,"us","",false],
 ];
 
 export const PRODUCTS = PRODUCT_ROWS.map(

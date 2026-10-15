@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { PRODUCTS, findCatalogProduct, validateAndPriceItems } from "./_catalog.js";
+import { legacyCheckoutQuote } from "./_legacy-checkout-quote.js";
 import { normalizePackCount, normalizeWarehouse, resolveWarehouseOffer } from "../shared/warehouse-offer.js";
 
 const item = overrides => ({ name: "BPC-157", dose: "10 mg", quantity: 1, ...overrides });
@@ -158,6 +159,26 @@ test("new US warehouse offers stay available at the supplied prices", () => {
       `${name} ${dose} uses the requested checkout price`,
     );
   }
+});
+
+test("US Reconstitution Solution checkout quote matches its storefront price", () => {
+  const quote = validateAndPriceItems([{
+    name: "BAC Water",
+    dose: "10 ml",
+    quantity: 1,
+    fromWarehouse: "us",
+  }]);
+  assert.equal(quote.subtotal, 49.99);
+  assert.equal(quote.usSubtotal, 49.99);
+  assert.equal(quote.pricedItems[0].price, 49.99);
+});
+
+test("legacy US checkout total matches the displayed Reconstitution Solution total", async () => {
+  const quote = await legacyCheckoutQuote({
+    items: [{ name: "BAC Water", dose: "10 ml", quantity: 1, fromWarehouse: "us" }],
+    shippingType: "standard",
+  }, "", { crypto: false });
+  assert.equal(quote.total, 49.99);
 });
 
 test("prices stay authoritative and product option aliases retain their existing meaning", () => {
