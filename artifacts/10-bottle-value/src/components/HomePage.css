@@ -139,6 +139,12 @@
   width: calc(100% - clamp(24px, 4vw, 72px));
 }
 
+@media (min-width: 1024px) {
+  .tbv-home__container--featured {
+    width: calc(100% - 3cm);
+  }
+}
+
 .tbv-home__hero {
   position: relative;
   display: block;
@@ -818,6 +824,45 @@
 .tbv-home__products[data-dragging="true"] { cursor: grabbing; }
 .tbv-home__products img { -webkit-user-drag: none; }
 .tbv-home__product-slot { min-width: 0; }
+.tbv-home__products-shell { position: relative; }
+.tbv-home__products-scroll-button { display: none; }
+
+@media (min-width: 1024px) {
+  .tbv-home__products-scroll-button {
+    position: absolute;
+    top: calc(50% - 7px);
+    z-index: 2;
+    display: grid;
+    width: 40px;
+    height: 40px;
+    place-items: center;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, .86);
+    border-radius: 50%;
+    color: #fff;
+    background: rgba(0, 0, 0, .84);
+    box-shadow: 0 5px 16px rgba(0, 0, 0, .42);
+    backdrop-filter: blur(6px);
+    cursor: pointer;
+    touch-action: none;
+  }
+  .tbv-home__products-scroll-button--left {
+    left: -.75cm;
+    transform: translate(-50%, -50%);
+  }
+  .tbv-home__products-scroll-button--right {
+    right: -.75cm;
+    transform: translate(50%, -50%);
+  }
+  .tbv-home__products-scroll-button:not(:disabled):hover {
+    color: #000;
+    background: #fff;
+  }
+  .tbv-home__products-scroll-button:focus-visible {
+    outline: 3px solid #fff;
+    outline-offset: 3px;
+  }
+}
 
 @media (max-width: 767px) {
   .tbv-home__products .bpc-catalog-card--quantity-list .bpc-catalog-card__pack[data-vials="10"] > span:not(.bpc-catalog-card__radio) {

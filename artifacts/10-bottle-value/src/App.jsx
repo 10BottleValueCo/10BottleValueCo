@@ -3100,7 +3100,8 @@ const PRODUCTS_BASE = [
     },
     {
       name: "BAC Water",
-      price: 29,
+      price: 49.99,
+      usPriceBase: 44.99,
       dose: "10 ml",
       total: "100 ml total",
       note: "10 vial kit (10 vials included)",

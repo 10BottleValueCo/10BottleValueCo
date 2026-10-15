@@ -1,5 +1,5 @@
 import "./HomePage.css";
-import { ArrowRight, RefreshCw, UserRound } from "lucide-react";
+import { ArrowLeft, ArrowRight, RefreshCw, UserRound } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import PeptigrityMark from "./PeptigrityMark.jsx";
 
@@ -27,7 +27,13 @@ export default function HomePage({
   const productsTrackRef = useRef(null);
   const productsDragRef = useRef(null);
   const suppressProductsClickRef = useRef(false);
+  const productsArrowHoldRef = useRef(null);
+  const suppressProductsArrowClickRef = useRef(false);
   const [isDraggingProducts, setIsDraggingProducts] = useState(false);
+  const [productsScrollState, setProductsScrollState] = useState({
+    canScrollLeft: false,
+    canScrollRight: false,
+  });
 
   const copy = {
     headlineOne: tx(
@@ -48,6 +54,8 @@ export default function HomePage({
     showUsProductsShort: tx("Switch to US", "В США", "У США", "Zu US", "A EE. UU."),
     showWorldwideProductsShort: tx("Switch to global", "В МИР", "У СВІТ", "Weltweit", "Global"),
     showAllProducts: tx("Show all products", "Показать все товары", "Показати всі товари", "Alle Produkte anzeigen", "Mostrar todos los productos"),
+    scrollProductsLeft: tx("Scroll products left", "Листать товары влево", "Гортати товари вліво", "Produkte nach links scrollen", "Desplazar productos a la izquierda"),
+    scrollProductsRight: tx("Scroll products right", "Листать товары вправо", "Гортати товари вправо", "Produkte nach rechts scrollen", "Desplazar productos a la derecha"),
     register: tx("Register", "Регистрация", "Реєстрація", "Registrieren", "Registrarse"),
     socialTitle: tx("Our social channels", "Наши социальные сети", "Наші соціальні мережі", "Unsere Social-Media-Kanäle", "Nuestras redes sociales"),
     reviews: tx("4.6 · 23 reviews", "4,6 · 23 отзыва", "4,6 · 23 відгуки", "4,6 · 23 Bewertungen", "4,6 · 23 reseñas"),
@@ -68,6 +76,66 @@ export default function HomePage({
     productsDragRef.current = null;
     setIsDraggingProducts(false);
   }, [isShowingUsProducts]);
+
+  useEffect(() => {
+    const track = productsTrackRef.current;
+    if (!track) {
+      setProductsScrollState({ canScrollLeft: false, canScrollRight: false });
+      return undefined;
+    }
+
+    const updateScrollState = () => {
+      const maxScrollLeft = Math.max(0, track.scrollWidth - track.clientWidth);
+      const nextState = {
+        canScrollLeft: track.scrollLeft > 2,
+        canScrollRight: maxScrollLeft - track.scrollLeft > 2,
+      };
+      setProductsScrollState((current) => (
+        current.canScrollLeft === nextState.canScrollLeft
+        && current.canScrollRight === nextState.canScrollRight
+          ? current
+          : nextState
+      ));
+    };
+
+    updateScrollState();
+    track.addEventListener("scroll", updateScrollState, { passive: true });
+    window.addEventListener("resize", updateScrollState, { passive: true });
+
+    let resizeObserver = null;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(updateScrollState);
+      resizeObserver.observe(track);
+      track.querySelectorAll(".tbv-home__product-slot").forEach((slot) => {
+        resizeObserver.observe(slot);
+      });
+    }
+
+    return () => {
+      track.removeEventListener("scroll", updateScrollState);
+      window.removeEventListener("resize", updateScrollState);
+      resizeObserver?.disconnect();
+    };
+  }, [featured.length, isShowingUsProducts, productsReady]);
+
+  useEffect(() => {
+    const finishOnPointerRelease = (event) => {
+      const hold = productsArrowHoldRef.current;
+      if (!hold || hold.pointerId !== event.pointerId) return;
+      stopProductsArrowHold(event.type === "pointerup");
+    };
+    const stopOnWindowBlur = () => stopProductsArrowHold(false);
+
+    window.addEventListener("pointerup", finishOnPointerRelease);
+    window.addEventListener("pointercancel", finishOnPointerRelease);
+    window.addEventListener("blur", stopOnWindowBlur);
+    return () => {
+      window.removeEventListener("pointerup", finishOnPointerRelease);
+      window.removeEventListener("pointercancel", finishOnPointerRelease);
+      window.removeEventListener("blur", stopOnWindowBlur);
+      stopProductsArrowHold(false);
+    };
+  }, []);
 
   const publicImage = (path) =>
     getPublicImageUrl(`${import.meta.env.BASE_URL}${path}`);
@@ -178,6 +246,92 @@ export default function HomePage({
     event.preventDefault();
     event.stopPropagation();
     suppressProductsClickRef.current = false;
+  }
+
+  function scrollProducts(direction) {
+    const track = productsTrackRef.current;
+    if (!track) return;
+
+    const firstCard = track.querySelector(".tbv-home__product-slot");
+    const gap = Number.parseFloat(window.getComputedStyle(track).columnGap) || 0;
+    const distance = firstCard
+      ? firstCard.getBoundingClientRect().width + gap
+      : Math.max(track.clientWidth * 0.8, 1);
+
+    track.scrollBy({ left: direction * distance, behavior: "smooth" });
+  }
+
+  function stopProductsArrowHold(scrollIfTapped = false) {
+    const hold = productsArrowHoldRef.current;
+    if (!hold) return;
+
+    window.clearTimeout(hold.delayTimer);
+    if (hold.frameId != null) window.cancelAnimationFrame(hold.frameId);
+    productsArrowHoldRef.current = null;
+
+    if (scrollIfTapped && !hold.started) scrollProducts(hold.direction);
+
+    suppressProductsArrowClickRef.current = true;
+    window.setTimeout(() => {
+      suppressProductsArrowClickRef.current = false;
+    }, 0);
+  }
+
+  function startProductsArrowHold(event, direction) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (productsArrowHoldRef.current) stopProductsArrowHold(false);
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const hold = {
+      direction,
+      pointerId: event.pointerId,
+      started: false,
+      delayTimer: null,
+      frameId: null,
+      lastFrameTime: null,
+    };
+    productsArrowHoldRef.current = hold;
+
+    hold.delayTimer = window.setTimeout(() => {
+      if (productsArrowHoldRef.current !== hold) return;
+      hold.started = true;
+
+      const scrollContinuously = (time) => {
+        if (productsArrowHoldRef.current !== hold) return;
+        const track = productsTrackRef.current;
+        if (!track) {
+          stopProductsArrowHold(false);
+          return;
+        }
+
+        const maxScrollLeft = Math.max(0, track.scrollWidth - track.clientWidth);
+        const distanceToEdge = direction > 0
+          ? maxScrollLeft - track.scrollLeft
+          : track.scrollLeft;
+        if (distanceToEdge <= 1) {
+          stopProductsArrowHold(false);
+          return;
+        }
+
+        const elapsed = hold.lastFrameTime == null
+          ? 16
+          : Math.min(time - hold.lastFrameTime, 40);
+        hold.lastFrameTime = time;
+        track.scrollLeft += direction * Math.min(30, elapsed * 0.75);
+        hold.frameId = window.requestAnimationFrame(scrollContinuously);
+      };
+
+      hold.frameId = window.requestAnimationFrame(scrollContinuously);
+    }, 180);
+  }
+
+  function handleProductsArrowClick(direction, event) {
+    if (suppressProductsArrowClickRef.current) {
+      event.preventDefault();
+      suppressProductsArrowClickRef.current = false;
+      return;
+    }
+    scrollProducts(direction);
   }
 
   return (
@@ -341,37 +495,66 @@ export default function HomePage({
               </button>
             </div>
           </div>
-          <div
-            ref={productsTrackRef}
-            className="tbv-home__products"
-            role="region"
-            aria-label={isShowingUsProducts ? copy.usVariants : copy.variants}
-            tabIndex={0}
-            data-testid="list-home-featured-products"
-            data-dragging={isDraggingProducts ? "true" : undefined}
-            onPointerDown={handleProductsPointerDown}
-            onPointerMove={handleProductsPointerMove}
-            onPointerUp={finishProductsPointer}
-            onPointerCancel={finishProductsPointer}
-            onClickCapture={preventClickAfterProductsDrag}
-          >
-            {featured.length ? featured.map((product, index) => (
-              <div className="tbv-home__product-slot" key={`${product.id ?? product.name}-${product.dose ?? index}`} data-testid={`card-featured-product-${product.id ?? index}`}>
-                {product.card}
-              </div>
-            )) : (
-              <div className="tbv-home__empty" data-testid="empty-home-featured-products">
-                {isShowingUsProducts
-                  ? tx(
-                    "US Warehouse products are being prepared. Visit the US shop to browse the catalog.",
-                    "Товары со склада США готовятся. Откройте магазин США, чтобы посмотреть каталог.",
-                    "Товари зі складу США готуються. Відкрийте магазин США, щоб переглянути каталог.",
-                    "US-Lager-Produkte werden vorbereitet. Im US-Shop können Sie den Katalog ansehen.",
-                    "Los productos del almacén de EE. UU. se están preparando. Visita la tienda US para ver el catálogo."
-                  )
-                  : copy.empty}
-              </div>
+          <div className="tbv-home__products-shell">
+            {productsScrollState.canScrollLeft && (
+                <button
+                  type="button"
+                  className="tbv-home__products-scroll-button tbv-home__products-scroll-button--left"
+                  aria-label={copy.scrollProductsLeft}
+                  aria-controls="tbv-home-featured-products-track"
+                  data-testid="button-home-featured-scroll-left"
+                  onPointerDown={(event) => startProductsArrowHold(event, -1)}
+                  onClick={(event) => handleProductsArrowClick(-1, event)}
+                >
+                  <ArrowLeft size={20} strokeWidth={2.4} aria-hidden="true" />
+                </button>
             )}
+            {productsScrollState.canScrollRight && (
+                <button
+                  type="button"
+                  className="tbv-home__products-scroll-button tbv-home__products-scroll-button--right"
+                  aria-label={copy.scrollProductsRight}
+                  aria-controls="tbv-home-featured-products-track"
+                  data-testid="button-home-featured-scroll-right"
+                  onPointerDown={(event) => startProductsArrowHold(event, 1)}
+                  onClick={(event) => handleProductsArrowClick(1, event)}
+                >
+                  <ArrowRight size={20} strokeWidth={2.4} aria-hidden="true" />
+                </button>
+            )}
+            <div
+              id="tbv-home-featured-products-track"
+              ref={productsTrackRef}
+              className="tbv-home__products"
+              role="region"
+              aria-label={isShowingUsProducts ? copy.usVariants : copy.variants}
+              tabIndex={0}
+              data-testid="list-home-featured-products"
+              data-dragging={isDraggingProducts ? "true" : undefined}
+              onPointerDown={handleProductsPointerDown}
+              onPointerMove={handleProductsPointerMove}
+              onPointerUp={finishProductsPointer}
+              onPointerCancel={finishProductsPointer}
+              onClickCapture={preventClickAfterProductsDrag}
+            >
+              {featured.length ? featured.map((product, index) => (
+                <div className="tbv-home__product-slot" key={`${product.id ?? product.name}-${product.dose ?? index}`} data-testid={`card-featured-product-${product.id ?? index}`}>
+                  {product.card}
+                </div>
+              )) : (
+                <div className="tbv-home__empty" data-testid="empty-home-featured-products">
+                  {isShowingUsProducts
+                    ? tx(
+                      "US Warehouse products are being prepared. Visit the US shop to browse the catalog.",
+                      "Товары со склада США готовятся. Откройте магазин США, чтобы посмотреть каталог.",
+                      "Товари зі складу США готуються. Відкрийте магазин США, щоб переглянути каталог.",
+                      "US-Lager-Produkte werden vorbereitet. Im US-Shop können Sie den Katalog ansehen.",
+                      "Los productos del almacén de EE. UU. se están preparando. Visita la tienda US para ver el catálogo."
+                    )
+                    : copy.empty}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </section>
