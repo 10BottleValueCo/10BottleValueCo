@@ -11661,11 +11661,11 @@ export default function App() {
     if (pinnedAffiliateCode && matchedAffiliate && normalizedCode !== pinnedAffiliateCode) {
       setPromoMessage(
         tx(
-          `Your account is permanently linked to affiliate code ${pinnedAffiliateCode}.`,
-          `Ваш аккаунт навсегда привязан к коду партнёра ${pinnedAffiliateCode}.`,
-          `Ваш обліковий запис назавжди прив’язаний до партнерського коду ${pinnedAffiliateCode}.`,
-          `Ihr Konto ist dauerhaft mit dem Affiliate-Code ${pinnedAffiliateCode} verknüpft.`,
-          `Tu cuenta está vinculada permanentemente al código de afiliado ${pinnedAffiliateCode}.`
+          "This affiliate code cannot be changed.",
+          "Этот партнёрский код нельзя изменить.",
+          "Цей партнерський код не можна змінити.",
+          "Dieser Affiliate-Code kann nicht geändert werden.",
+          "Este código de afiliado no se puede cambiar."
         )
       );
       return;
@@ -11816,11 +11816,11 @@ export default function App() {
     if (pinnedAffiliateCode && resolvedAffiliateCode === pinnedAffiliateCode) {
       setPromoMessage(
         tx(
-          `Your account is permanently linked to affiliate code ${pinnedAffiliateCode}.`,
-          `Ваш аккаунт навсегда привязан к коду партнёра ${pinnedAffiliateCode}.`,
-          `Ваш обліковий запис назавжди прив’язаний до партнерського коду ${pinnedAffiliateCode}.`,
-          `Ihr Konto ist dauerhaft mit dem Affiliate-Code ${pinnedAffiliateCode} verknüpft.`,
-          `Tu cuenta está vinculada permanentemente al código de afiliado ${pinnedAffiliateCode}.`
+          "This affiliate code cannot be changed.",
+          "Этот партнёрский код нельзя изменить.",
+          "Цей партнерський код не можна змінити.",
+          "Dieser Affiliate-Code kann nicht geändert werden.",
+          "Este código de afiliado no se puede cambiar."
         )
       );
       return;
@@ -21333,17 +21333,6 @@ export default function App() {
                           {promoMessage}
                         </div>
                       )}
-                      {pinnedAffiliateCode && (
-                        <div role="status" className="w-full text-xs leading-5 text-white/80">
-                          {tx(
-                            `Your account is permanently linked to affiliate code ${pinnedAffiliateCode}.`,
-                            `Ваш аккаунт навсегда привязан к коду партнёра ${pinnedAffiliateCode}.`,
-                            `Ваш обліковий запис назавжди прив’язаний до партнерського коду ${pinnedAffiliateCode}.`,
-                            `Ihr Konto ist dauerhaft mit dem Affiliate-Code ${pinnedAffiliateCode} verknüpft.`,
-                            `Tu cuenta está vinculada permanentemente al código de afiliado ${pinnedAffiliateCode}.`
-                          )}
-                        </div>
-                      )}
                       {resolvedAffiliateCode && !appliedPromo && !affiliateDiscountDisabled && (
                         <div role="status" className="w-full text-xs leading-5 text-white/80">
                           {!currentUser?.email
@@ -21356,7 +21345,7 @@ export default function App() {
                                   ? tx("Affiliate codes can only be applied before your first paid order. Your account is already linked, or has already completed an order.", "Партнёрский код можно применить только до первого оплаченного заказа. Аккаунт уже привязан к партнёру или заказ уже был оплачен.", "Партнерський код можна застосувати лише до першого оплаченого замовлення. Обліковий запис уже прив’язаний або замовлення вже було оплачене.", "Affiliate-Codes können nur vor der ersten bezahlten Bestellung angewendet werden. Ihr Konto ist bereits verknüpft oder hat schon bestellt.", "Los códigos de afiliado solo se pueden aplicar antes del primer pedido pagado. La cuenta ya está vinculada o ya completó un pedido.")
                                 : isFirstTimeAffiliateBuyer
                                   ? tx("Your 5% first-order discount is confirmed. The largest eligible discount applies.", "Скидка 5% на первый заказ подтверждена. Применяется наибольшая доступная скидка.", "Знижку 5% на перше замовлення підтверджено. Застосовується найбільша доступна знижка.", "Ihr Erstbestellungsrabatt von 5% ist bestätigt. Es gilt der höchste verfügbare Rabatt.", "Tu descuento del 5% está confirmado. Se aplica el mayor descuento disponible.")
-                                  : tx("Referral code active. The 5% discount applies to your first paid order only.", "Партнёрский код активен. Скидка 5% действует только на первый оплаченный заказ.", "Партнерський код активний. Знижка 5% діє лише на перше оплачене замовлення.", "Empfehlungscode aktiv. Der Rabatt von 5% gilt nur für Ihre erste bezahlte Bestellung.", "Código activo. El descuento del 5% solo se aplica al primer pedido pagado.")}
+                                  : null}
                         </div>
                       )}
                     </div>
