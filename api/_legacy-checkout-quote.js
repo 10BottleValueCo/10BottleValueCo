@@ -18,6 +18,7 @@ export async function legacyCheckoutQuote(body, email, { crypto = false, custome
   const code = String(body.affiliateCode || '').trim().toUpperCase();
   if (code || customerId) {
     affiliate = await verifyAffiliateQuote({ code, email, customerId, disabled: !!promoDiscount || body.affiliateDiscountDisabled === true,
+      ignoreUnattributedRepeatBuyerCode: true,
       supabaseUrl: sbUrl, serviceRoleKey: sbKey, rules: process.env.MERIT_AFFILIATE_RULES_JSON });
   }
   const auto = discountAmount(subtotal, getAutomaticDiscountRate(subtotal));

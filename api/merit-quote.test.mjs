@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildMeritQuote, meritCreditSnapshot, MeritQuoteError } from "./_merit-quote.js";
+import { verifyAffiliateQuote } from "./_affiliate-quote.js";
 
 const EMAIL = "buyer@example.org";
 const fixture = overrides => ({
@@ -303,14 +304,27 @@ test('verified referral calculates first-order discount and frozen commission fr
 test('referral keeps larger volume discount, and never gives repeat buyers a first-order discount', async () => {
   const large = await quote({ ...withQuantity(10), affiliateCode: 'PARTNER' }, EMAIL, affiliateDb().options);
   assert.equal(large.affiliateDiscountCents, 0); assert.equal(large.automaticDiscountCents, 13900);
+  const repeatBuyerDb = affiliateDb({ purchases: [{ id: 'prior', metadata: {} }] });
+  const ignoredReferral = await quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL, repeatBuyerDb.options);
+  assert.equal(ignoredReferral.snapshot.affiliateCode, '');
+  assert.equal(ignoredReferral.snapshot.affiliateCommission, 0);
+  assert.equal(ignoredReferral.affiliateDiscountCents, 0);
   await assert.rejects(
-    quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL, affiliateDb({ purchases: [{ id: 'prior', metadata: {} }] }).options),
-    isError(409, 'MERIT_AFFILIATE_FIRST_ORDER_ONLY'),
+    verifyAffiliateQuote({
+      code: 'PARTNER',
+      email: EMAIL,
+      customerId: repeatBuyerDb.options.customerId,
+      supabaseUrl: repeatBuyerDb.options.supabaseUrl,
+      serviceRoleKey: repeatBuyerDb.options.serviceRoleKey,
+      rules: repeatBuyerDb.options.affiliateRules,
+      fetcher: repeatBuyerDb.options.fetcher,
+    }),
+    error => error?.status === 409 && error?.code === 'MERIT_AFFILIATE_FIRST_ORDER_ONLY',
   );
-  await assert.rejects(
-    quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL, affiliateDb({ purchases: [{ id: 'prior', metadata: { affiliateCode: 'ORIGINAL' } }] }).options),
-    isError(409, 'MERIT_AFFILIATE_LOCKED'),
-  );
+  const existingAttributionDb = affiliateDb({ purchases: [{ id: 'prior', metadata: { affiliateCode: 'ORIGINAL' } }] });
+  const laterReferral = await quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL, existingAttributionDb.options);
+  assert.equal(laterReferral.snapshot.affiliateCode, 'ORIGINAL');
+  assert.equal(laterReferral.snapshot.affiliateCommission, 13.9);
   const linked = await quote(fixture(), EMAIL, affiliateDb({ purchases: [{ id: 'prior', metadata: { affiliateCode: 'ORIGINAL' } }] }).options);
   assert.equal(linked.affiliateDiscountCents, 0);
   assert.equal(linked.snapshot.affiliateCode, 'ORIGINAL');
@@ -365,8 +379,7 @@ test('a later order cannot introduce attribution after the first paid order had 
   const plain = await quote(fixture(), EMAIL, db.options);
   assert.equal(plain.snapshot.affiliateCode, '');
   assert.equal(plain.snapshot.affiliateCommission, 0);
-  await assert.rejects(
-    quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL, db.options),
-    isError(409, 'MERIT_AFFILIATE_FIRST_ORDER_ONLY'),
-  );
+  const laterLink = await quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL, db.options);
+  assert.equal(laterLink.snapshot.affiliateCode, '');
+  assert.equal(laterLink.snapshot.affiliateCommission, 0);
 });

@@ -126,7 +126,7 @@ export default async function handler(req, res, checkoutBody) {
     let verified;
     try {
       verified = await verifyAffiliateQuote({ code: finalAffiliateCode, email: finalEmail, customerId: access.identity.id,
-        disabled: !wantsAffiliateDiscount, supabaseUrl: SB_URL,
+        disabled: !wantsAffiliateDiscount, ignoreUnattributedRepeatBuyerCode: true, supabaseUrl: SB_URL,
         serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
         rules: process.env.MERIT_AFFILIATE_RULES_JSON });
     } catch (error) {

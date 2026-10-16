@@ -91,6 +91,7 @@ export default async function handler(req, res) {
       email,
       customerId: access.identity.id,
       disabled: Boolean(promoDiscount) || affiliateDiscountDisabled === true,
+      ignoreUnattributedRepeatBuyerCode: true,
       supabaseUrl: SB_URL,
       serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
       rules: process.env.MERIT_AFFILIATE_RULES_JSON,

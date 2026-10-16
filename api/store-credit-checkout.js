@@ -312,6 +312,7 @@ async function verifyAffiliate({ code, email, customerId, disabled }) {
       email,
       customerId,
       disabled,
+      ignoreUnattributedRepeatBuyerCode: true,
       supabaseUrl: url,
       serviceRoleKey: key,
       rules: process.env.MERIT_AFFILIATE_RULES_JSON,

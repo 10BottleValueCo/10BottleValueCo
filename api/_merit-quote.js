@@ -179,6 +179,7 @@ export async function buildMeritQuote(body, verifiedEmail, options = {}) {
     try {
       affiliate = await verifyAffiliateQuote({ code: input.affiliateCode, email: input.email, customerId: options.customerId,
         disabled: input.affiliateDiscountDisabled || Boolean(input.promoCode),
+        ignoreUnattributedRepeatBuyerCode: true,
         supabaseUrl: options.supabaseUrl, serviceRoleKey: options.serviceRoleKey,
         rules: options.affiliateRules, fetcher: options.fetcher });
     } catch (error) {

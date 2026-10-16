@@ -10567,7 +10567,14 @@ export default function App() {
         });
         const result = await response.json().catch(() => ({}));
         if (cancelled) return;
-        if (response.status === 409 && ["MERIT_AFFILIATE_FIRST_ORDER_ONLY", "MERIT_AFFILIATE_LOCKED"].includes(result?.code)) {
+        if (response.status === 409 && result?.code === "MERIT_AFFILIATE_FIRST_ORDER_ONLY") {
+          setAffiliateEligibility({ key: affiliateEligibilityKey, status: "first_order_only", discountBps: 0 });
+          if (resolvedAffiliateCode && resolvedAffiliateCode !== pinnedAffiliateCode) {
+            clearSelectedAffiliateCode();
+          }
+          return;
+        }
+        if (response.status === 409 && result?.code === "MERIT_AFFILIATE_LOCKED") {
           setAffiliateEligibility({ key: affiliateEligibilityKey, status: "first_order_only", discountBps: 0 });
           return;
         }
@@ -11752,6 +11759,58 @@ export default function App() {
           )
         );
         return;
+      }
+
+      if (currentUser?.email) {
+        try {
+          const headers = await legacyCheckoutHeaders(supabase, currentUser.email);
+          const response = await fetch("/api/affiliate-eligibility", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ code: normalizedCode }),
+          });
+          const eligibility = await response.json().catch(() => ({}));
+          if (requestId !== promoApplyRequestRef.current) return;
+          if (response.status === 409 && eligibility?.code === "MERIT_AFFILIATE_FIRST_ORDER_ONLY") {
+            setPromoMessage(
+              tx(
+                "Affiliate codes are only available before your first paid order.",
+                "Партнёрский код можно применить только до первого оплаченного заказа.",
+                "Партнерський код можна застосувати лише до першого оплаченого замовлення.",
+                "Affiliate-Codes sind nur vor der ersten bezahlten Bestellung verfügbar.",
+                "Los códigos de afiliado solo están disponibles antes del primer pedido pagado."
+              )
+            );
+            return;
+          }
+          if (response.status === 409 && eligibility?.code === "MERIT_AFFILIATE_LOCKED") {
+            setPromoMessage(
+              tx(
+                "A different affiliate code is already linked to this account.",
+                "К этому аккаунту уже привязан другой партнёрский код.",
+                "До цього облікового запису вже прив’язаний інший партнерський код.",
+                "Mit diesem Konto ist bereits ein anderer Affiliate-Code verknüpft.",
+                "Esta cuenta ya está vinculada a otro código de afiliado."
+              )
+            );
+            return;
+          }
+          if (!response.ok || eligibility?.ok !== true || eligibility.code !== normalizedCode) {
+            throw new Error("Affiliate eligibility could not be confirmed.");
+          }
+        } catch {
+          if (requestId !== promoApplyRequestRef.current) return;
+          setPromoMessage(
+            tx(
+              "Could not verify this affiliate code right now. Please try again.",
+              "Не удалось проверить партнёрский код. Попробуйте ещё раз.",
+              "Не вдалося перевірити партнерський код. Спробуйте ще раз.",
+              "Der Affiliate-Code konnte gerade nicht geprüft werden. Bitte versuchen Sie es erneut.",
+              "No se pudo verificar este código de afiliado. Inténtalo de nuevo."
+            )
+          );
+          return;
+        }
       }
 
       setAppliedPromo(null);

@@ -24,7 +24,7 @@ export function readAffiliateRules(value) {
     effectiveFrom: rule.effectiveFrom, effectiveUntil: rule.effectiveUntil || null,
     firstOrderDiscountBps: rule.firstOrderDiscountBps, commissionBps: rule.commissionBps, approvalMode: rule.approvalMode || 'allowlist', approvedCodes: [...new Set(rule.approvedCodes || [])] };
 }
-export async function verifyAffiliateQuote({ code, email, customerId, disabled = false, supabaseUrl, serviceRoleKey, rules, fetcher = fetch }) {
+export async function verifyAffiliateQuote({ code, email, customerId, disabled = false, ignoreUnattributedRepeatBuyerCode = false, supabaseUrl, serviceRoleKey, rules, fetcher = fetch }) {
   code = String(code || '').trim().toUpperCase();
   email = String(email || '').trim().toLowerCase();
   if (code && !/^[A-Z0-9_-]{1,64}$/.test(code)) throw new AffiliateQuoteError(409);
@@ -86,10 +86,13 @@ export async function verifyAffiliateQuote({ code, email, customerId, disabled =
   const orderCode = purchases.code;
   const lockedCode = savedCode || orderCode;
   if (code && purchases.firstPaid && !lockedCode) {
+    if (ignoreUnattributedRepeatBuyerCode) {
+      return { code: '', ownerEmail: '', discountBps: 0, commissionBps: 0, rule: null, locked: false };
+    }
     throw new AffiliateQuoteError(409, 'MERIT_AFFILIATE_FIRST_ORDER_ONLY',
       'An affiliate code can only be applied to your first paid order. This account already has a paid order.');
   }
-  if (code && lockedCode && code !== lockedCode) {
+  if (code && lockedCode && code !== lockedCode && !ignoreUnattributedRepeatBuyerCode) {
     throw new AffiliateQuoteError(409, 'MERIT_AFFILIATE_LOCKED',
       'This account is already linked to a different affiliate code.');
   }
