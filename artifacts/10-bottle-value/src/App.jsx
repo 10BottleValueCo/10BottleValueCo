@@ -14,6 +14,7 @@ import ShippingPricesPage from "./components/ShippingPricesPage.jsx";
 import worldwideCatalogBackground from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791141018882.webp";
 import { supabase, userFromSupabase, saveAccountCheckoutDetails } from "./supabase.js";
 import { emailLoginApi } from "./email-login-client.js";
+import { issueAffiliateAccess } from "./affiliate-profile-admin.js";
 import { EmailLoginSecurity, EmailLoginPrompt } from "./components/EmailLoginControls.jsx";
 import { useCheckoutDetails } from "./useCheckoutDetails.js";
 import { contactDetails } from "./checkout-details.js";
@@ -4933,6 +4934,7 @@ export default function App() {
   const [issueAffEmail, setIssueAffEmail] = useState("");
   const [issueAffCode, setIssueAffCode] = useState("");
   const [issueAffMessage, setIssueAffMessage] = useState("");
+  const [issueAffBusy, setIssueAffBusy] = useState(false);
   const [revokeAffEmail, setRevokeAffEmail] = useState("");
   const [revokeAffMessage, setRevokeAffMessage] = useState("");
   const [updateAvailable, setUpdateAvailable] = useState(false);
@@ -11977,31 +11979,34 @@ export default function App() {
   }
 
   async function issueAffiliateProfile() {
-    const email = issueAffEmail.trim().toLowerCase();
-    const code = issueAffCode.trim().toUpperCase();
-    if (!email || !code) {
-      setIssueAffMessage("Fill in email and code.");
-      window.setTimeout(() => setIssueAffMessage(""), 4000);
+    if (issueAffBusy) return;
+    if (!isAdminUser()) {
+      setIssueAffMessage("Error: Administrator access required.");
       return;
     }
+    const email = issueAffEmail.trim().toLowerCase();
+    const code = issueAffCode.trim().toUpperCase();
+    setIssueAffBusy(true);
+    setIssueAffMessage("");
     try {
-      const { error } = await supabase.from("affiliates").upsert({
-        email: email,
-        code: code,
-        active: true,
+      const result = await issueAffiliateAccess({
+        client: supabase,
+        email,
+        code,
+        confirmRestore: ({ code: existingCode, email: nextEmail }) => window.confirm(
+          `Reactivate ${existingCode} for ${nextEmail}? Existing orders and commission history will remain attached to this code and will be visible to this account.`
+        ),
       });
-      if (error) {
-        setIssueAffMessage(`Error: ${error.message}`);
-      } else {
-        setIssueAffMessage(`✓ Affiliate ${code} issued to ${email}`);
-        setIssueAffEmail("");
-        setIssueAffCode("");
-        loadAffiliateProfilesFromSupabase();
-      }
+      if (result.cancelled) return;
+      setIssueAffMessage(`✓ Affiliate ${result.code} ${result.restored ? "restored" : "issued"} to ${result.email}`);
+      setIssueAffEmail("");
+      setIssueAffCode("");
+      await loadAffiliateProfilesFromSupabase();
     } catch (e) {
-      setIssueAffMessage("Error. Try again.");
+      setIssueAffMessage(`Error: ${e.message || "Could not save affiliate access."}`);
+    } finally {
+      setIssueAffBusy(false);
     }
-    window.setTimeout(() => setIssueAffMessage(""), 6000);
   }
 
   async function revokeAffiliateProfile() {
@@ -17439,14 +17444,14 @@ export default function App() {
                 <div className="mt-6 rounded-[1.6rem] border border-white/15 bg-black p-6">
                   <div className="text-[11px] uppercase tracking-[0.24em] text-white/60">Issue Affiliate</div>
                   <h2 className="mt-2 text-xl font-semibold text-white">Grant affiliate access</h2>
-                  <p className="mt-1 text-xs text-white/60">Creates an affiliate record in Supabase. The user's affiliate link and dashboard will become active immediately after they refresh.</p>
+                  <p className="mt-1 text-xs text-white/60">Creates affiliate access or restores an inactive code after confirmation. Existing order and commission history is preserved. The dashboard becomes available after the user refreshes.</p>
                   <div className="mt-5 grid gap-3 md:grid-cols-[1fr_auto_auto]">
-                    <input type="email" placeholder="user@email.com" value={issueAffEmail} onChange={(e) => setIssueAffEmail(e.target.value)} className="rounded-2xl border border-white/20 bg-black/10 px-4 py-3 text-sm text-white placeholder:text-white/50 outline-none" />
-                    <input type="text" placeholder="CODE (e.g. JOHN20)" value={issueAffCode} onChange={(e) => setIssueAffCode(e.target.value.toUpperCase())} className="rounded-2xl border border-white/20 bg-black/10 px-4 py-3 text-sm text-white placeholder:text-white/50 outline-none uppercase" />
-                    <button type="button" onClick={issueAffiliateProfile} className="rounded-2xl bg-white px-5 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-black transition hover:bg-white/90 whitespace-nowrap">Issue</button>
+                    <input data-testid="input-affiliate-owner-email" type="email" placeholder="user@email.com" disabled={issueAffBusy} value={issueAffEmail} onChange={(e) => setIssueAffEmail(e.target.value)} className="rounded-2xl border border-white/20 bg-black/10 px-4 py-3 text-sm text-white placeholder:text-white/50 outline-none" />
+                    <input data-testid="input-affiliate-code" type="text" placeholder="CODE (e.g. JOHN20)" disabled={issueAffBusy} value={issueAffCode} onChange={(e) => setIssueAffCode(e.target.value.toUpperCase())} className="rounded-2xl border border-white/20 bg-black/10 px-4 py-3 text-sm text-white placeholder:text-white/50 outline-none uppercase" />
+                    <button data-testid="button-issue-affiliate" type="button" onClick={issueAffiliateProfile} disabled={issueAffBusy} className="rounded-2xl bg-white px-5 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-black transition hover:bg-white/90 whitespace-nowrap">{issueAffBusy ? "Saving…" : "Issue"}</button>
                   </div>
                   {issueAffMessage && (
-                    <div className={`mt-3 rounded-xl px-4 py-3 text-sm ${issueAffMessage.startsWith("✓") ? "bg-emerald-500/15 text-emerald-300" : "bg-red-500/15 text-red-300"}`}>{issueAffMessage}</div>
+                    <div data-testid="status-affiliate-issue" role="status" className={`mt-3 rounded-xl px-4 py-3 text-sm ${issueAffMessage.startsWith("✓") ? "bg-emerald-500/15 text-emerald-300" : "bg-red-500/15 text-red-300"}`}>{issueAffMessage}</div>
                   )}
                 </div>
                 <div className="mt-6 rounded-[1.6rem] border border-red-500/20 bg-black p-6">

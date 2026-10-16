@@ -118,11 +118,14 @@ test("affiliate history is scoped to the verified owner and removes private orde
       });
     }
     if (url.pathname.endsWith("/rest/v1/affiliates")) {
-      assert.equal(url.searchParams.get("email"), `eq.${AFFILIATE_EMAIL}`);
+      assert.equal(
+        url.searchParams.get("email"),
+        "imatch.^[[:space:]]*affiliate@example\\.org[[:space:]]*$",
+      );
       return makeResponse([
         {
           code: "AFF-ONE",
-          email: AFFILIATE_EMAIL,
+          email: "Affiliate@Example.org",
           active: true,
           created_at: "2026-01-01T00:00:00.000Z",
         },

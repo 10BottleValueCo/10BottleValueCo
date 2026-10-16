@@ -1,5 +1,6 @@
 import { affiliateCodeFilter } from "./_affiliate-quote.js";
 import { requireVerifiedCustomer } from "./_require-customer.js";
+import { affiliateEmailFilter } from "./_affiliate-quote.js";
 
 const PAGE_SIZE = 100;
 const MAX_OFFSET = 100000;
@@ -121,7 +122,7 @@ function pagedParams(select, filters, offset) {
 async function getAffiliate(email, requestLog) {
   const params = new URLSearchParams({
     select: "code,email,active,created_at",
-    email: `eq.${email}`,
+    email: affiliateEmailFilter(email),
     limit: "2",
   });
   const rows = await supabaseGet(`affiliates?${params.toString()}`, requestLog);
