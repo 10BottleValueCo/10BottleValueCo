@@ -11813,6 +11813,22 @@ export default function App() {
 
   function removePromoCode() {
     promoApplyRequestRef.current += 1;
+    if (appliedPromo) {
+      const removedCode = appliedPromo.code;
+      setAppliedPromo(null);
+      setPromoInput(removedCode);
+      setPromoMessage(
+        tx(
+          "Promo code removed. You can reapply it anytime.",
+          "Промокод снят. Вы можете применить его снова.",
+          "Промокод знято. Ви можете застосувати його знову.",
+          "Promocode entfernt. Sie können ihn jederzeit erneut anwenden.",
+          "Código eliminado. Puedes volver a aplicarlo cuando quieras."
+        )
+      );
+      setTimeout(() => setPromoMessage(""), 5000);
+      return;
+    }
     if (pinnedAffiliateCode && resolvedAffiliateCode === pinnedAffiliateCode) {
       setPromoMessage(
         tx(
@@ -11835,22 +11851,6 @@ export default function App() {
           "Безкоштовну доставку знято.",
           "Kostenloser Versand entfernt.",
           "Envío gratuito eliminado."
-        )
-      );
-      setTimeout(() => setPromoMessage(""), 5000);
-      return;
-    }
-    if (appliedPromo) {
-      const removedCode = appliedPromo.code;
-      setAppliedPromo(null);
-      setPromoInput(removedCode);
-      setPromoMessage(
-        tx(
-          "Promo code removed. You can reapply it anytime.",
-          "Промокод снят. Вы можете применить его снова.",
-          "Промокод знято. Ви можете застосувати його знову.",
-          "Promocode entfernt. Sie können ihn jederzeit erneut anwenden.",
-          "Código eliminado. Puedes volver a aplicarlo cuando quieras."
         )
       );
       setTimeout(() => setPromoMessage(""), 5000);
