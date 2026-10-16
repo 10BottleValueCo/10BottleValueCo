@@ -15,7 +15,7 @@ export default async function handler(req, res) {
       supabaseUrl: process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
       serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
       rules: process.env.MERIT_AFFILIATE_RULES_JSON });
-    return res.status(200).json({ ok: true, code, discountBps: affiliate.discountBps });
+    return res.status(200).json({ ok: true, code: affiliate.code, locked: Boolean(affiliate.locked), discountBps: affiliate.discountBps });
   } catch (error) {
     const known = error instanceof AffiliateQuoteError;
     return res.status(known ? error.status : 503).json({ ok: false,

@@ -7,6 +7,7 @@ import {
   getAutomaticDiscountRate,
 } from "./_catalog.js";
 import { verifyPromoCode } from "./_promo.js";
+import { AffiliateQuoteError, verifyAffiliateQuote } from "./_affiliate-quote.js";
 
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
@@ -40,6 +41,7 @@ export default async function handler(req, res) {
       promoCode = "",
       affiliateDiscount: clientAffiliateDiscount = 0,
       affiliateCode = "",
+      affiliateDiscountDisabled = false,
       storeCreditUsed = 0,
       metadata = {},
     } = req.body || {};
@@ -70,12 +72,19 @@ export default async function handler(req, res) {
       }
     }
 
+    const affiliate = await verifyAffiliateQuote({
+      code: affiliateCode,
+      email,
+      customerId: access.identity.id,
+      disabled: Boolean(promoDiscount) || affiliateDiscountDisabled === true,
+      supabaseUrl: SB_URL,
+      serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+      rules: process.env.MERIT_AFFILIATE_RULES_JSON,
+    });
+    const verifiedAffiliateDiscount = Math.round(subtotal * (affiliate.discountBps || 0) / 10000 * 100) / 100;
     let affiliateDiscount = 0;
-    if (!promoDiscount && String(affiliateCode || "").trim() && Number(clientAffiliateDiscount) > 0) {
-      const impliedRate = Number(clientAffiliateDiscount) / (subtotal || 1);
-      affiliateDiscount = impliedRate <= 0.05
-        ? Math.min(Number(clientAffiliateDiscount), subtotal)
-        : Math.round(subtotal * 0.05 * 100) / 100;
+    if (!promoDiscount && verifiedAffiliateDiscount > 0 && Number(clientAffiliateDiscount) > 0) {
+      affiliateDiscount = Math.min(verifiedAffiliateDiscount, Number(clientAffiliateDiscount));
     }
 
     const finalAutomaticDiscount = promoDiscount > 0 || affiliateDiscount > 0 ? 0 : automaticDiscount;
@@ -99,7 +108,10 @@ export default async function handler(req, res) {
       ...(typeof metadata === "object" && metadata !== null ? metadata : {}),
       orderId: String(orderId),
       email: String(email || ""),
-      affiliateCode: String(affiliateCode || ""),
+      affiliateCode: String(affiliate.code || ""),
+      affiliateAttributionCode: String(affiliate.code || ""),
+      affiliateOwnerEmail: String(affiliate.ownerEmail || ""),
+      affiliateCommission: String((subtotal * (affiliate.commissionBps || 0) / 10000).toFixed(2)),
       shippingType: String(shippingType),
       total: String(Number(amount).toFixed(2)),
       subtotal: String(Number(subtotal).toFixed(2)),
@@ -126,6 +138,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ clientSecret: intent.client_secret, verifiedAmount: amount });
   } catch (err) {
+    if (err instanceof AffiliateQuoteError) return res.status(err.status).json({ code: err.code, error: err.message });
     if (err?.code === "PROMO_LOOKUP_UNAVAILABLE") return res.status(503).json({ code: err.code, error: err.message });
     console.error("create-payment-intent error:", err.message);
     return res.status(500).json({ error: err.message || "Failed to create payment intent" });

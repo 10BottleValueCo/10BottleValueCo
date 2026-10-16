@@ -271,12 +271,12 @@ export default async function handler(req, res) {
       }
 
       const affCode = String(
-        prevMeta.affiliateCode || session.metadata?.affiliateCode || ""
+        session.metadata?.affiliateAttributionCode || session.metadata?.affiliateCode || prevMeta.affiliateAttributionCode || prevMeta.affiliateCode || ""
       )
         .trim()
         .toUpperCase();
 
-      let ownerEmail = prevMeta.affiliateOwnerEmail || "";
+      let ownerEmail = session.metadata?.affiliateOwnerEmail || prevMeta.affiliateOwnerEmail || "";
       if (!ownerEmail && affCode) {
         const affRow = await sbSelectOne("affiliates", `code=eq.${encodeURIComponent(affCode)}&select=email`);
         if (affRow?.email) ownerEmail = String(affRow.email).trim().toLowerCase();
@@ -298,7 +298,10 @@ export default async function handler(req, res) {
         paymentProvider: "Stripe",
         paymentId,
         paidAt,
+        affiliateCode: affCode,
+        affiliateAttributionCode: affCode,
         affiliateOwnerEmail: ownerEmail,
+        affiliateCommission: commission,
       };
 
       // Determine best items source.
@@ -471,11 +474,11 @@ export default async function handler(req, res) {
         });
       }
 
-      const affCode = String(prevMeta.affiliateCode || intent.metadata?.affiliateCode || "")
+      const affCode = String(intent.metadata?.affiliateAttributionCode || intent.metadata?.affiliateCode || prevMeta.affiliateAttributionCode || prevMeta.affiliateCode || "")
         .trim()
         .toUpperCase();
 
-      let ownerEmail = prevMeta.affiliateOwnerEmail || "";
+      let ownerEmail = intent.metadata?.affiliateOwnerEmail || prevMeta.affiliateOwnerEmail || "";
       if (!ownerEmail && affCode) {
         const affRow = await sbSelectOne("affiliates", `code=eq.${encodeURIComponent(affCode)}&select=email`);
         if (affRow?.email) ownerEmail = String(affRow.email).trim().toLowerCase();
@@ -490,7 +493,10 @@ export default async function handler(req, res) {
         paymentProvider: "Stripe",
         paymentId,
         paidAt,
+        affiliateCode: affCode,
+        affiliateAttributionCode: affCode,
         affiliateOwnerEmail: ownerEmail,
+        affiliateCommission: commission,
       };
 
       const orderItems =

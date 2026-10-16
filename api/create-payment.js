@@ -120,7 +120,7 @@ export default async function handler(req, res) {
         affiliateDiscount: Number(finalAffiliateDiscount),
         cryptoDiscount: Number(cryptoDiscount),
         storeCreditUsed: 0,
-        affiliateCode: String(affiliateCode || "").trim().toUpperCase(),
+        affiliateCode: affiliateAttributionCode || "",
         affiliateOwnerEmail, affiliateAttributionCode, affiliateCommission, affiliateRuleVersion, affiliateQuoteVersion: "server-referral-v1",
         shippingType: String(shippingType),
         items: pricedItems,

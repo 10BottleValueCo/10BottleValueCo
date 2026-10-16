@@ -147,17 +147,6 @@ function normalizeInput(body, verifiedEmail) {
 export async function buildMeritQuote(body, verifiedEmail, options = {}) {
   const input = normalizeInput(body, verifiedEmail);
   let affiliate = null;
-  if (input.affiliateCode) {
-    try {
-      affiliate = await verifyAffiliateQuote({ code: input.affiliateCode, email: input.email, customerId: options.customerId,
-        disabled: input.affiliateDiscountDisabled || Boolean(input.promoCode),
-        supabaseUrl: options.supabaseUrl, serviceRoleKey: options.serviceRoleKey,
-        rules: options.affiliateRules, fetcher: options.fetcher });
-    } catch (error) {
-      if (!(error instanceof AffiliateQuoteError)) throw error;
-      throw new MeritQuoteError(error.status, error.message, error.code);
-    }
-  }
   const surchargeBps = options.surchargeBps ?? 0;
   if (!Number.isSafeInteger(surchargeBps) || surchargeBps < 0 || surchargeBps > 10000) {
     throw new MeritQuoteError(503, "Card surcharge configuration is unavailable.", "MERIT_QUOTE_UNAVAILABLE");
@@ -185,6 +174,17 @@ export async function buildMeritQuote(body, verifiedEmail, options = {}) {
       throw new MeritQuoteError(503, "Promo code validation is temporarily unavailable. Please try again.", "MERIT_PROMO_UNAVAILABLE");
     }
     if (!promo) throw new MeritQuoteError(409, "This promo code is no longer available for this checkout. Remove it or contact support before paying.", "MERIT_PROMO_UNVERIFIED");
+  }
+  if (input.affiliateCode || options.customerId) {
+    try {
+      affiliate = await verifyAffiliateQuote({ code: input.affiliateCode, email: input.email, customerId: options.customerId,
+        disabled: input.affiliateDiscountDisabled || Boolean(input.promoCode),
+        supabaseUrl: options.supabaseUrl, serviceRoleKey: options.serviceRoleKey,
+        rules: options.affiliateRules, fetcher: options.fetcher });
+    } catch (error) {
+      if (!(error instanceof AffiliateQuoteError)) throw error;
+      throw new MeritQuoteError(error.status, error.message, error.code);
+    }
   }
   const automaticRate = getAutomaticDiscountRate(priced.subtotal);
   const affiliateRate = (affiliate?.discountBps || 0) / 10000;

@@ -11,7 +11,7 @@ import {
   getAutomaticDiscountRate,
 } from "./_catalog.js";
 import { verifyPromoCode } from "./_promo.js";
-import { AffiliateQuoteError, verifyAffiliateQuote, affiliateEmailFilter } from "./_affiliate-quote.js";
+import { AffiliateQuoteError, verifyAffiliateQuote } from "./_affiliate-quote.js";
 import { summarizePaylioResponse } from "./_paylio-diagnostics.js";
 
 const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
@@ -117,41 +117,32 @@ export default async function handler(req, res, checkoutBody) {
 
     let affiliateDiscount = 0;
     const finalAffiliateCode = String(affiliateCode || affiliate_code || "").trim().toUpperCase();
-    const affiliateCandidates = await paylioStorage(`affiliate_customers?${new URLSearchParams({email: affiliateEmailFilter(finalEmail), select: "email,affiliate_code", limit: "100"})}`);
-    if (!Array.isArray(affiliateCandidates) || affiliateCandidates.length >= 100 || affiliateCandidates.some(row => typeof row?.email !== "string")) throw new PaylioError("PAYLIO_ATTRIBUTION_UNAVAILABLE");
-    const affiliateRows = affiliateCandidates.filter(row => row.email.trim().toLowerCase() === finalEmail.trim().toLowerCase());
-    if (affiliateRows.length > 1) throw new PaylioError("PAYLIO_ATTRIBUTION_UNAVAILABLE");
-    const inheritedCode = affiliateRows.length
-      ? String(affiliateRows[0].affiliate_code || "").trim().toUpperCase() : "";
-    if (affiliateRows.length && !inheritedCode) throw new PaylioError("PAYLIO_ATTRIBUTION_UNAVAILABLE");
     let affiliateAttributionCode = "";
     let affiliateRuleVersion = null;
     let commissionRate = 0;
-    const wantsAffiliateDiscount = !promoDiscount && finalAffiliateCode && Number(clientAffiliateDiscount) > 0;
+    const wantsAffiliateDiscount = !promoDiscount && Number(clientAffiliateDiscount) > 0;
     // Validate both entered and inherited owners before reserving a new payment.
     // A saved attribution row cannot authorize inactive, unknown or self commission.
-    if (finalAffiliateCode || inheritedCode) {
-      let verified;
-      try {
-        verified = await verifyAffiliateQuote({ code: finalAffiliateCode || inheritedCode, email: finalEmail, customerId: access.identity.id,
-          disabled: !wantsAffiliateDiscount, supabaseUrl: SB_URL,
-          serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
-          rules: process.env.MERIT_AFFILIATE_RULES_JSON });
-      } catch (error) {
-        if (!(error instanceof AffiliateQuoteError)) throw error;
-        return res.status(error.status === 409 ? 400 : 503).json({
-          code: error.status === 409 ? "PAYLIO_AFFILIATE_UNAVAILABLE" : "PAYLIO_ELIGIBILITY_UNAVAILABLE",
-          error: error.status === 409
-            ? "Payment has not started. This referral is unavailable. Remove the entered code; if the problem remains, contact support or choose Card."
-            : "Payment has not started. Referral verification is temporarily unavailable. Please try again.",
-        });
-      }
-      affiliateAttributionCode = verified.code;
-      affiliateRuleVersion = verified.rule.version;
-      commissionRate = verified.commissionBps / 10000;
-      affiliateDiscount = verified.discountBps
-        ? discountAmount(subtotal, verified.discountBps / 10000) : 0;
+    let verified;
+    try {
+      verified = await verifyAffiliateQuote({ code: finalAffiliateCode, email: finalEmail, customerId: access.identity.id,
+        disabled: !wantsAffiliateDiscount, supabaseUrl: SB_URL,
+        serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+        rules: process.env.MERIT_AFFILIATE_RULES_JSON });
+    } catch (error) {
+      if (!(error instanceof AffiliateQuoteError)) throw error;
+      return res.status(error.status === 409 ? 400 : 503).json({
+        code: error.status === 409 ? "PAYLIO_AFFILIATE_UNAVAILABLE" : "PAYLIO_ELIGIBILITY_UNAVAILABLE",
+        error: error.status === 409
+          ? "Payment has not started. This referral is unavailable. Remove the entered code; if the problem remains, contact support or choose Card."
+          : "Payment has not started. Referral verification is temporarily unavailable. Please try again.",
+      });
     }
+    affiliateAttributionCode = verified.code;
+    affiliateRuleVersion = verified.rule?.version || null;
+    commissionRate = verified.commissionBps / 10000;
+    affiliateDiscount = verified.discountBps
+      ? discountAmount(subtotal, verified.discountBps / 10000) : 0;
 
     const finalAutomaticDiscount = promoDiscount > 0 || affiliateDiscount > automaticDiscount ? 0 : automaticDiscount;
     const finalAffiliateDiscount = promoDiscount > 0 || automaticDiscount >= affiliateDiscount ? 0 : affiliateDiscount;
@@ -190,7 +181,7 @@ export default async function handler(req, res, checkoutBody) {
       ...address, orderId: finalOrderId, email: finalEmail, total: Number(safeAmount),
       subtotal, shipping, automaticDiscount: finalAutomaticDiscount, promoDiscount, discountRule,
       promoCode: promoDiscount > 0 ? String(promoCode).trim().toUpperCase() : "", promoUsageRequired,
-      affiliateDiscount: finalAffiliateDiscount, affiliateCode: finalAffiliateCode,
+      affiliateDiscount: finalAffiliateDiscount, affiliateCode: affiliateAttributionCode,
       affiliateAttributionCode,
       affiliateCommission: discountAmount(subtotal, commissionRate), affiliateRuleVersion,
       shippingType: shippingType === "express" ? "express" : "standard",

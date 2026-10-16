@@ -16,8 +16,10 @@ export async function legacyCheckoutQuote(body, email, { crypto = false, custome
   }
   let affiliate = null;
   const code = String(body.affiliateCode || '').trim().toUpperCase();
-  if (code) affiliate = await verifyAffiliateQuote({ code, email, customerId, disabled: !!promoDiscount || body.affiliateDiscountDisabled === true,
-    supabaseUrl: sbUrl, serviceRoleKey: sbKey, rules: process.env.MERIT_AFFILIATE_RULES_JSON });
+  if (code || customerId) {
+    affiliate = await verifyAffiliateQuote({ code, email, customerId, disabled: !!promoDiscount || body.affiliateDiscountDisabled === true,
+      supabaseUrl: sbUrl, serviceRoleKey: sbKey, rules: process.env.MERIT_AFFILIATE_RULES_JSON });
+  }
   const auto = discountAmount(subtotal, getAutomaticDiscountRate(subtotal));
   const referral = discountAmount(subtotal, (affiliate?.discountBps || 0) / 10000);
   const finalAutomaticDiscount = promoDiscount || referral > auto ? 0 : auto;
@@ -28,7 +30,7 @@ export async function legacyCheckoutQuote(body, email, { crypto = false, custome
   const cryptoDiscount = crypto ? discountAmount(beforeCrypto, 0.025) : 0;
   const total = money(beforeCrypto - cryptoDiscount);
   return { pricedItems, subtotal, regularSubtotal, promoDiscount, discountRule, finalAutomaticDiscount, finalAffiliateDiscount,
-    shipping, cryptoDiscount, total, affiliateCode: code, affiliateAttributionCode: affiliate?.code || '',
+    shipping, cryptoDiscount, total, affiliateCode: affiliate?.code || '', affiliateAttributionCode: affiliate?.code || '',
     affiliateOwnerEmail: affiliate?.ownerEmail || '', affiliateCommission: discountAmount(subtotal, (affiliate?.commissionBps || 0) / 10000),
     affiliateRuleVersion: affiliate?.rule.version || null };
 }

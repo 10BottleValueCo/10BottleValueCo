@@ -78,7 +78,14 @@ function withTestEnvironment(t, fetchMock) {
   process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key";
 
   const previousFetch = globalThis.fetch;
-  globalThis.fetch = fetchMock;
+  globalThis.fetch = async (url, options = {}) => {
+    const parsed = new URL(String(url));
+    if (parsed.pathname.endsWith("/rest/v1/affiliate_customers")) return makeResponse([]);
+    if (parsed.pathname.endsWith("/rest/v1/affiliates")) return makeResponse([]);
+    if (parsed.pathname.endsWith("/rest/v1/orders")
+      && parsed.searchParams.get("select") === "id,email,user_id,status,paid_at,metadata") return makeResponse([]);
+    return fetchMock(url, options);
+  };
   t.after(() => {
     globalThis.fetch = previousFetch;
     for (const key of keys) {
@@ -352,8 +359,8 @@ for (const override of [{ promoCode: "DYNAMIC10" }, { affiliateCode: "AFFILIATE"
     });
     const res = mockRes();
     await handler(makeRequest(makeCheckout(override)), res);
-    assert.equal(res.statusCode, 409);
-    assert.match(res.body.error, /needs verification|unavailable/);
+    assert.equal(res.statusCode, override.affiliateCode ? 503 : 409);
+    assert.match(res.body.error, override.affiliateCode ? /temporarily unavailable/i : /unavailable/i);
     assert.equal(calls.length, override.promoCode ? 4 : 2);
   });
 }

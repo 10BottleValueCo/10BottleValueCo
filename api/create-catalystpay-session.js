@@ -74,7 +74,8 @@ export default async function handler(req, res, checkoutBody) {
 
     if (!order_id) return res.status(400).json({ error: "Missing order_id" });
 
-    if (access.order.metadata?.catalystpay_invoice_id && String(affiliateCode || "").trim().toUpperCase() !== String(access.order.metadata.affiliateCode || "").trim().toUpperCase())
+    if (access.order.metadata?.catalystpay_invoice_id && String(affiliateCode || "").trim()
+      && String(affiliateCode).trim().toUpperCase() !== String(access.order.metadata.affiliateCode || "").trim().toUpperCase())
       return res.status(409).json({ code: "PAYMENT_BINDING_CONFLICT", error: "This payment has already started. Restore its original referral or contact support." });
 
     const quote = await legacyCheckoutQuote(body, customer_email, { crypto: false, customerId: access.identity.id });
@@ -121,7 +122,7 @@ export default async function handler(req, res, checkoutBody) {
     const reservedOrder = await reserveLegacyInvoice(access.order, "catalystpay", price_amount, {
       total: price_amount, subtotal, shipping, automaticDiscount: finalAutomaticDiscount, promoDiscount, discountRule,
       promoCode: String(promoCode || ""), affiliateDiscount: finalAffiliateDiscount, cryptoDiscount: cryptoDiscountAmount,
-      storeCreditUsed: 0, affiliateCode: String(affiliateCode || "").trim().toUpperCase(), affiliateOwnerEmail,
+      storeCreditUsed: 0, affiliateCode: affiliateAttributionCode || "", affiliateOwnerEmail,
       affiliateAttributionCode, affiliateCommission, affiliateRuleVersion, affiliateQuoteVersion: "server-referral-v1",
       shippingType, items: pricedItems,
       ...Object.fromEntries(["firstName", "lastName", "country", "address", "address2", "city", "state", "postalCode", "phone", "taxId", "orderNotes"]

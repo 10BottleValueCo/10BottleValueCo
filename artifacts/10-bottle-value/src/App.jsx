@@ -4293,6 +4293,7 @@ export default function App() {
   const affiliateLoadRequestRef = useRef(0);
   const [affiliatePaidOut, setAffiliatePaidOut] = useState(0);
   const [activeAffiliateCode, setActiveAffiliateCode] = useState("");
+  const [pinnedAffiliateCode, setPinnedAffiliateCode] = useState("");
   const [affiliateCodeRemoved, setAffiliateCodeRemoved] = useState(() => {
     try { return sessionStorage.getItem("tbv-affiliate-removed") === "true"; } catch { return false; }
   });
@@ -10522,6 +10523,33 @@ export default function App() {
   const resolvedAffiliateCode = getResolvedAffiliateCode();
   const affiliateEligibilityKey = `${normalizeEmail(currentUser?.email)}:${resolvedAffiliateCode}`;
   useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    setPinnedAffiliateCode("");
+    if (!currentUser?.id || !currentUser?.email) return () => controller.abort();
+    (async () => {
+      try {
+        const headers = await legacyCheckoutHeaders(supabase, currentUser.email);
+        const response = await fetch("/api/affiliate-attribution", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({}),
+          signal: controller.signal,
+        });
+        const result = await response.json().catch(() => ({}));
+        if (cancelled || !response.ok || result?.ok !== true || result.locked !== true || !result.code) return;
+        const code = String(result.code).trim().toUpperCase();
+        if (!/^[A-Z0-9_-]{1,64}$/.test(code)) return;
+        setPinnedAffiliateCode(code);
+        selectAffiliateCode(code);
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [currentUser?.id, currentUser?.email]);
+  useEffect(() => {
     if (!resolvedAffiliateCode) { setAffiliateEligibility(null); return; }
     if (!currentUser?.email) {
       setAffiliateEligibility({ key: affiliateEligibilityKey, status: "signed_out", discountBps: 0 });
@@ -10539,6 +10567,10 @@ export default function App() {
         });
         const result = await response.json().catch(() => ({}));
         if (cancelled) return;
+        if (response.status === 409 && ["MERIT_AFFILIATE_FIRST_ORDER_ONLY", "MERIT_AFFILIATE_LOCKED"].includes(result?.code)) {
+          setAffiliateEligibility({ key: affiliateEligibilityKey, status: "first_order_only", discountBps: 0 });
+          return;
+        }
         if (!response.ok || result?.ok !== true || result.code !== resolvedAffiliateCode
           || ![0, 500].includes(result.discountBps)) throw new Error("Referral eligibility unavailable");
         setAffiliateEligibility({ key: affiliateEligibilityKey, status: "ready", discountBps: result.discountBps });
@@ -11626,6 +11658,19 @@ export default function App() {
       }
     }
 
+    if (pinnedAffiliateCode && matchedAffiliate && normalizedCode !== pinnedAffiliateCode) {
+      setPromoMessage(
+        tx(
+          `Your account is permanently linked to affiliate code ${pinnedAffiliateCode}.`,
+          `Ваш аккаунт навсегда привязан к коду партнёра ${pinnedAffiliateCode}.`,
+          `Ваш обліковий запис назавжди прив’язаний до партнерського коду ${pinnedAffiliateCode}.`,
+          `Ihr Konto ist dauerhaft mit dem Affiliate-Code ${pinnedAffiliateCode} verknüpft.`,
+          `Tu cuenta está vinculada permanentemente al código de afiliado ${pinnedAffiliateCode}.`
+        )
+      );
+      return;
+    }
+
     if (!promo && !matchedAffiliate && !matchedUserPromo) {
       setPromoMessage(
         tx(
@@ -11768,6 +11813,18 @@ export default function App() {
 
   function removePromoCode() {
     promoApplyRequestRef.current += 1;
+    if (pinnedAffiliateCode && resolvedAffiliateCode === pinnedAffiliateCode) {
+      setPromoMessage(
+        tx(
+          `Your account is permanently linked to affiliate code ${pinnedAffiliateCode}.`,
+          `Ваш аккаунт навсегда привязан к коду партнёра ${pinnedAffiliateCode}.`,
+          `Ваш обліковий запис назавжди прив’язаний до партнерського коду ${pinnedAffiliateCode}.`,
+          `Ihr Konto ist dauerhaft mit dem Affiliate-Code ${pinnedAffiliateCode} verknüpft.`,
+          `Tu cuenta está vinculada permanentemente al código de afiliado ${pinnedAffiliateCode}.`
+        )
+      );
+      return;
+    }
     if (ownerFreeShippingActive) {
       setOwnerFreeShippingActive(false);
       setPromoInput("OWNERFREESHIP");
@@ -21265,7 +21322,7 @@ export default function App() {
                           {t("apply")}
                         </button>
                       </div>
-                      {(ownerFreeShippingActive || appliedPromo || (resolvedAffiliateCode && !affiliateDiscountDisabled)) && (
+                      {(ownerFreeShippingActive || appliedPromo || (resolvedAffiliateCode && !affiliateDiscountDisabled && !pinnedAffiliateCode)) && (
                         <button type="button" onClick={removePromoCode}
                           className="shrink-0 rounded-full border border-white/30 px-3 py-2 text-xs text-white hover:bg-white/10">
                           {tx("Remove code", "Убрать код", "Прибрати код", "Code entfernen", "Quitar código")}
@@ -21276,6 +21333,17 @@ export default function App() {
                           {promoMessage}
                         </div>
                       )}
+                      {pinnedAffiliateCode && (
+                        <div role="status" className="w-full text-xs leading-5 text-white/80">
+                          {tx(
+                            `Your account is permanently linked to affiliate code ${pinnedAffiliateCode}.`,
+                            `Ваш аккаунт навсегда привязан к коду партнёра ${pinnedAffiliateCode}.`,
+                            `Ваш обліковий запис назавжди прив’язаний до партнерського коду ${pinnedAffiliateCode}.`,
+                            `Ihr Konto ist dauerhaft mit dem Affiliate-Code ${pinnedAffiliateCode} verknüpft.`,
+                            `Tu cuenta está vinculada permanentemente al código de afiliado ${pinnedAffiliateCode}.`
+                          )}
+                        </div>
+                      )}
                       {resolvedAffiliateCode && !appliedPromo && !affiliateDiscountDisabled && (
                         <div role="status" className="w-full text-xs leading-5 text-white/80">
                           {!currentUser?.email
@@ -21284,6 +21352,8 @@ export default function App() {
                               ? tx("Checking your referral discount…", "Проверяем партнёрскую скидку…", "Перевіряємо партнерську знижку…", "Empfehlungsrabatt wird geprüft…", "Comprobando tu descuento…")
                               : affiliateEligibility.status === "unavailable"
                                 ? <>{tx("We could not confirm this referral. Retry or remove the code before paying.", "Не удалось подтвердить партнёрский код. Повторите проверку или уберите код перед оплатой.", "Не вдалося підтвердити партнерський код. Повторіть перевірку або приберіть код перед оплатою.", "Der Empfehlungscode konnte nicht bestätigt werden. Erneut prüfen oder vor der Zahlung entfernen.", "No pudimos confirmar el código. Reintenta o quítalo antes de pagar.")} <button type="button" className="underline" onClick={() => setAffiliateEligibilityRefresh(value => value + 1)}>{tx("Retry", "Повторить", "Повторити", "Erneut versuchen", "Reintentar")}</button></>
+                                : affiliateEligibility.status === "first_order_only"
+                                  ? tx("Affiliate codes can only be applied before your first paid order. Your account is already linked, or has already completed an order.", "Партнёрский код можно применить только до первого оплаченного заказа. Аккаунт уже привязан к партнёру или заказ уже был оплачен.", "Партнерський код можна застосувати лише до першого оплаченого замовлення. Обліковий запис уже прив’язаний або замовлення вже було оплачене.", "Affiliate-Codes können nur vor der ersten bezahlten Bestellung angewendet werden. Ihr Konto ist bereits verknüpft oder hat schon bestellt.", "Los códigos de afiliado solo se pueden aplicar antes del primer pedido pagado. La cuenta ya está vinculada o ya completó un pedido.")
                                 : isFirstTimeAffiliateBuyer
                                   ? tx("Your 5% first-order discount is confirmed. The largest eligible discount applies.", "Скидка 5% на первый заказ подтверждена. Применяется наибольшая доступная скидка.", "Знижку 5% на перше замовлення підтверджено. Застосовується найбільша доступна знижка.", "Ihr Erstbestellungsrabatt von 5% ist bestätigt. Es gilt der höchste verfügbare Rabatt.", "Tu descuento del 5% está confirmado. Se aplica el mayor descuento disponible.")
                                   : tx("Referral code active. The 5% discount applies to your first paid order only.", "Партнёрский код активен. Скидка 5% действует только на первый оплаченный заказ.", "Партнерський код активний. Знижка 5% діє лише на перше оплачене замовлення.", "Empfehlungscode aktiv. Der Rabatt von 5% gilt nur für Ihre erste bezahlte Bestellung.", "Código activo. El descuento del 5% solo se aplica al primer pedido pagado.")}

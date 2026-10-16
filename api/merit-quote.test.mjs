@@ -267,6 +267,7 @@ function affiliateDb({ affiliate = { code: 'PARTNER', email: 'partner@example.or
     throw new Error('Unexpected table');
   });
   db.options.affiliateRules = affiliateRules;
+  db.options.customerId = "11111111-1111-4111-8111-111111111111";
   return db;
 }
 test('verified referral calculates first-order discount and frozen commission from private rules', async () => {
@@ -282,11 +283,17 @@ test('verified referral calculates first-order discount and frozen commission fr
 test('referral keeps larger volume discount, and never gives repeat buyers a first-order discount', async () => {
   const large = await quote({ ...withQuantity(10), affiliateCode: 'PARTNER' }, EMAIL, affiliateDb().options);
   assert.equal(large.affiliateDiscountCents, 0); assert.equal(large.automaticDiscountCents, 13900);
-  for (const row of [{ id: 'prior', metadata: {} }, { id: 'prior', metadata: { affiliateCode: 'ORIGINAL' } }]) {
-    const result = await quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL, affiliateDb({ purchases: [row] }).options);
-    assert.equal(result.affiliateDiscountCents, 0);
-    assert.equal(result.snapshot.affiliateCode, row.metadata.affiliateCode || 'PARTNER');
-  }
+  await assert.rejects(
+    quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL, affiliateDb({ purchases: [{ id: 'prior', metadata: {} }] }).options),
+    isError(409, 'MERIT_AFFILIATE_FIRST_ORDER_ONLY'),
+  );
+  await assert.rejects(
+    quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL, affiliateDb({ purchases: [{ id: 'prior', metadata: { affiliateCode: 'ORIGINAL' } }] }).options),
+    isError(409, 'MERIT_AFFILIATE_LOCKED'),
+  );
+  const linked = await quote(fixture(), EMAIL, affiliateDb({ purchases: [{ id: 'prior', metadata: { affiliateCode: 'ORIGINAL' } }] }).options);
+  assert.equal(linked.affiliateDiscountCents, 0);
+  assert.equal(linked.snapshot.affiliateCode, 'ORIGINAL');
   const disabled = await quote(fixture({ affiliateCode: 'PARTNER', affiliateDiscountDisabled: true }), EMAIL, affiliateDb().options);
   assert.equal(disabled.affiliateDiscountCents, 0);
 });
@@ -317,4 +324,29 @@ test('historical attribution must resolve to an approved active non-self owner',
   }
   await assert.rejects(quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL,
     affiliateDb({ attribution: [{ affiliate_code: 'UNLISTED' }] }).options), isError(409));
+});
+
+test('paid order attribution is recovered when the next checkout has no code', async () => {
+  const db = affiliateDb({ purchases: [
+    { id: 'first-order', metadata: { affiliateAttributionCode: 'ORIGINAL' } },
+    { id: 'later-order', metadata: { affiliateAttributionCode: 'PARTNER' } },
+  ] });
+  const result = await quote(fixture(), EMAIL, db.options);
+  assert.equal(result.snapshot.affiliateCode, 'ORIGINAL');
+  assert.equal(result.affiliateDiscountCents, 0);
+  assert.equal(result.snapshot.affiliateCommission, 13.9);
+});
+
+test('a later order cannot introduce attribution after the first paid order had no affiliate code', async () => {
+  const db = affiliateDb({ purchases: [
+    { id: 'first-order', metadata: {} },
+    { id: 'later-order', metadata: { affiliateAttributionCode: 'ORIGINAL' } },
+  ] });
+  const plain = await quote(fixture(), EMAIL, db.options);
+  assert.equal(plain.snapshot.affiliateCode, '');
+  assert.equal(plain.snapshot.affiliateCommission, 0);
+  await assert.rejects(
+    quote(fixture({ affiliateCode: 'PARTNER' }), EMAIL, db.options),
+    isError(409, 'MERIT_AFFILIATE_FIRST_ORDER_ONLY'),
+  );
 });

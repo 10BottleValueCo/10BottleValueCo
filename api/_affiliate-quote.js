@@ -1,10 +1,10 @@
 // Server-only referral verification. Rates and provenance are private release
 // configuration; browser totals, owner email and commission are never authority.
 export class AffiliateQuoteError extends Error {
-  constructor(status = 503, code = status === 409 ? 'MERIT_AFFILIATE_UNAVAILABLE' : 'MERIT_AFFILIATE_LOOKUP_UNAVAILABLE') {
-    super(status === 409
+  constructor(status = 503, code = status === 409 ? 'MERIT_AFFILIATE_UNAVAILABLE' : 'MERIT_AFFILIATE_LOOKUP_UNAVAILABLE', message) {
+    super(message || (status === 409
       ? 'This referral code is unavailable for this checkout. Remove the code or contact support before paying.'
-      : 'Referral verification is temporarily unavailable. Please try again.');
+      : 'Referral verification is temporarily unavailable. Please try again.'));
     this.status = status; this.code = code;
   }
 }
@@ -27,10 +27,11 @@ export function readAffiliateRules(value) {
 export async function verifyAffiliateQuote({ code, email, customerId, disabled = false, supabaseUrl, serviceRoleKey, rules, fetcher = fetch }) {
   code = String(code || '').trim().toUpperCase();
   email = String(email || '').trim().toLowerCase();
-  const rule = readAffiliateRules(rules);
-  const approved = value => rule.approvalMode === 'active_registry' || rule.approvedCodes.includes(value);
+  if (code && !/^[A-Z0-9_-]{1,64}$/.test(code)) throw new AffiliateQuoteError(409);
+  let rule = code ? readAffiliateRules(rules) : null;
+  const approved = value => !rule || rule.approvalMode === 'active_registry' || rule.approvedCodes.includes(value);
+  if (code && !approved(code)) throw new AffiliateQuoteError(409);
   if (!supabaseUrl || !serviceRoleKey) throw new AffiliateQuoteError();
-  if (!/^[A-Z0-9_-]{1,64}$/.test(code) || !approved(code)) throw new AffiliateQuoteError(409);
   async function rows(table, params) {
     try {
       const res = await fetcher(`${supabaseUrl.replace(/\/+$/, '')}/rest/v1/${table}?${new URLSearchParams(params)}`, {
@@ -57,9 +58,19 @@ export async function verifyAffiliateQuote({ code, email, customerId, disabled =
     for (let offset = 0; offset < 1000; offset += 100) {
       const batch = await rows('orders', { ...identityFilter, select: 'id,email,user_id,status,paid_at,metadata', order: 'created_at.asc,id.asc', limit: '100', offset: String(offset) });
       if (batch.some(row => !row || typeof row.id !== 'string' || (row.email !== null && typeof row.email !== 'string') || typeof row.status !== 'string')) throw new AffiliateQuoteError();
-      const paid = batch.find(row => isOwner(row) && (paidStates.has(row.status.trim().toLowerCase()) || (row.paid_at && Number.isFinite(Date.parse(row.paid_at)))));
-      if (paid) return [paid];
-      if (batch.length < 100) return [];
+      const firstPaid = batch.find(row => isOwner(row)
+        && (paidStates.has(row.status.trim().toLowerCase()) || (row.paid_at && Number.isFinite(Date.parse(row.paid_at)))));
+      if (firstPaid) {
+        const metadata = firstPaid.metadata && typeof firstPaid.metadata === 'object' && !Array.isArray(firstPaid.metadata)
+          ? firstPaid.metadata
+          : typeof firstPaid.metadata === 'string' ? (() => { try { return JSON.parse(firstPaid.metadata); } catch { return null; } })() : null;
+        const historicalCode = String(metadata?.affiliateAttributionCode || metadata?.affiliateCode || '').trim().toUpperCase();
+        return {
+          firstPaid,
+          code: /^[A-Z0-9_-]{1,64}$/.test(historicalCode) ? historicalCode : '',
+        };
+      }
+      if (batch.length < 100) return { firstPaid: null, code: '' };
     }
     throw new AffiliateQuoteError();
   }
@@ -68,7 +79,26 @@ export async function verifyAffiliateQuote({ code, email, customerId, disabled =
     if (batch.length >= 100 || batch.some(row => !row || typeof row.email !== 'string')) throw new AffiliateQuoteError();
     return batch.filter(row => row.email.trim().toLowerCase() === email);
   }
-  const [affiliates, attribution, purchases] = await Promise.all([affiliateRows(code), previousAttribution(), previousPurchase()]);
+  const [attribution, purchases] = await Promise.all([previousAttribution(), previousPurchase()]);
+  if (attribution.length > 1 || attribution.some(row => !/^[A-Z0-9_-]{1,64}$/i.test(row.affiliate_code || ''))) throw new AffiliateQuoteError();
+  if (purchases.firstPaid && (!purchases.firstPaid.id || typeof purchases.firstPaid.id !== 'string')) throw new AffiliateQuoteError();
+  const savedCode = String(attribution[0]?.affiliate_code || '').trim().toUpperCase();
+  const orderCode = purchases.code;
+  const lockedCode = savedCode || orderCode;
+  if (code && purchases.firstPaid && !lockedCode) {
+    throw new AffiliateQuoteError(409, 'MERIT_AFFILIATE_FIRST_ORDER_ONLY',
+      'An affiliate code can only be applied to your first paid order. This account already has a paid order.');
+  }
+  if (code && lockedCode && code !== lockedCode) {
+    throw new AffiliateQuoteError(409, 'MERIT_AFFILIATE_LOCKED',
+      'This account is already linked to a different affiliate code.');
+  }
+  const effectiveCode = lockedCode || code;
+  if (!effectiveCode) return { code: '', ownerEmail: '', discountBps: 0, commissionBps: 0, rule: null, locked: false };
+  if (!rule) rule = readAffiliateRules(rules);
+  const isApproved = value => rule.approvalMode === 'active_registry' || rule.approvedCodes.includes(value);
+  if (!/^[A-Z0-9_-]{1,64}$/.test(effectiveCode) || !isApproved(effectiveCode)) throw new AffiliateQuoteError(409);
+  const affiliates = await affiliateRows(effectiveCode);
   function verifyOwner(records, selectedCode) {
     if (records.length > 1 || records.some(row => !row || typeof row !== 'object')) throw new AffiliateQuoteError();
     const selected = records[0];
@@ -77,20 +107,11 @@ export async function verifyAffiliateQuote({ code, email, customerId, disabled =
       || selected.email.trim().toLowerCase() === email) throw new AffiliateQuoteError(409);
     return selected.email.trim().toLowerCase();
   }
-  let ownerEmail = verifyOwner(affiliates, code);
-  if (attribution.length > 1 || attribution.some(row => !/^[A-Z0-9_-]{1,64}$/i.test(row.affiliate_code || ''))) throw new AffiliateQuoteError();
-  let attributionCode = String(attribution[0]?.affiliate_code || code).trim().toUpperCase();
-  // Card referrals already recorded in a protected paid order retain their owner
-  // even before a separate legacy affiliate ledger is populated.
-  if (purchases.length > 1 || purchases.some(row => typeof row.id !== 'string' || !row.id)) throw new AffiliateQuoteError();
-  const previousCode = String(purchases[0]?.metadata?.affiliateCode || '').trim().toUpperCase();
-  if (!attribution.length && /^[A-Z0-9_-]{1,64}$/.test(previousCode || '')) attributionCode = previousCode;
-  if (!approved(attributionCode)) throw new AffiliateQuoteError(409);
-  // Historical metadata and attribution rows are evidence of a proposed owner,
-  // never authority to pay an unknown, inactive or self-referring account.
-  if (attributionCode !== code) ownerEmail = verifyOwner(await affiliateRows(attributionCode), attributionCode);
-  return { code: attributionCode, ownerEmail, discountBps: disabled || purchases.length ? 0 : rule.firstOrderDiscountBps,
-    commissionBps: rule.commissionBps, rule };
+  // A paid order is the durable attribution record. It takes priority over any
+  // later code entered by the customer, and can be found by account id or email.
+  const ownerEmail = verifyOwner(affiliates, effectiveCode);
+  return { code: effectiveCode, ownerEmail, discountBps: disabled || purchases.firstPaid ? 0 : rule.firstOrderDiscountBps,
+    commissionBps: rule.commissionBps, rule, locked: Boolean(lockedCode) };
 }
 
 // Escape SQL LIKE wildcards: a literal underscore must never match another code.

@@ -7,6 +7,7 @@ import {
 } from "./_catalog.js";
 import { verifyPromoCode, PromoLookupError } from "./_promo.js";
 import { requireVerifiedCustomer } from "./_require-customer.js";
+import { AffiliateQuoteError, verifyAffiliateQuote } from "./_affiliate-quote.js";
 
 const EXPRESS_COUNTRIES = new Set([
   "United States",
@@ -303,9 +304,23 @@ async function verifyPromo({ code, email, subtotal }) {
   }
 }
 
-async function verifyAffiliate({ code }) {
-  if (!code) return null;
-  throw new CheckoutError(409, "This affiliate code needs verification before Store Credit checkout. Remove the code or contact support.");
+async function verifyAffiliate({ code, email, customerId, disabled }) {
+  const { url, key } = getSupabaseConfig();
+  try {
+    const result = await verifyAffiliateQuote({
+      code,
+      email,
+      customerId,
+      disabled,
+      supabaseUrl: url,
+      serviceRoleKey: key,
+      rules: process.env.MERIT_AFFILIATE_RULES_JSON,
+    });
+    return result.code ? { ...result, firstTimeBuyer: result.discountBps > 0 } : null;
+  } catch (error) {
+    if (error instanceof AffiliateQuoteError) throw new CheckoutError(error.status, error.message);
+    throw error;
+  }
 }
 
 function errorForRpcCode(code) {
@@ -409,6 +424,8 @@ async function handler(req, res) {
     const affiliate = await verifyAffiliate({
       code: input.affiliateCode,
       email: customer.email,
+      customerId: customer.id,
+      disabled: Boolean(input.affiliateDiscountDisabled || promo.rate),
     });
 
     const automaticRate = getAutomaticDiscountRate(subtotal);
@@ -498,7 +515,7 @@ async function handler(req, res) {
       affiliateCode: affiliate?.code || "",
       affiliateOwnerEmail: affiliate?.ownerEmail || "",
       affiliateCommission: affiliate
-        ? roundMoney(subtotal * 0.1)
+        ? roundMoney(subtotal * affiliate.commissionBps / 10000)
         : 0,
       items: pricedItems,
       checkoutFingerprint: input.checkoutFingerprint,
