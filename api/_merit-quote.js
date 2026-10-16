@@ -113,7 +113,7 @@ function normalizeInput(body, verifiedEmail) {
   }
   const promoCode = cleanString(body.promoCode || "", "promo code", 80).toUpperCase();
   const affiliateCode = cleanString(body.affiliateCode || "", "affiliate code", 80).toUpperCase();
-  if ((promoCode && !/^[A-Z0-9_-]+$/.test(promoCode)) || (affiliateCode && !/^[A-Z0-9_-]+$/.test(affiliateCode))) {
+  if ((promoCode && !/^[A-Z0-9._-]+$/.test(promoCode)) || (affiliateCode && !/^[A-Z0-9_-]+$/.test(affiliateCode))) {
     throw new MeritQuoteError(400, "That promo or affiliate code is not valid.");
   }
   const purchaserAttestation = {};

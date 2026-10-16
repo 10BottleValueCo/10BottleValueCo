@@ -57,7 +57,7 @@ test("public lookup returns only the requested code and rate", async (t) => {
     assert.equal(options.headers.Authorization, "Bearer test-service-role-key");
     return response([
       {
-        code: "SPRING-10",
+        code: "BEST.PRICES",
         rate: 0.1,
         email: "__PUBLIC__",
         id: "33333333-3333-4333-8333-333333333333", used: false,
@@ -66,16 +66,16 @@ test("public lookup returns only the requested code and rate", async (t) => {
   });
 
   const res = mockRes();
-  await handler(makeRequest({ query: { code: " spring-10 " } }), res);
+  await handler(makeRequest({ query: { code: " best.prices " } }), res);
 
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.body, {
     ok: true,
-    promo: { code: "SPRING-10", rate: 0.1, minimumSubtotal: 0, startsAt: null, endsAt: null },
+    promo: { code: "BEST.PRICES", rate: 0.1, minimumSubtotal: 0, startsAt: null, endsAt: null },
   });
   assert.equal(requestedUrl.searchParams.get("select"), "*");
   assert.equal(requestedUrl.searchParams.get("email"), "eq.__PUBLIC__");
-  assert.equal(requestedUrl.searchParams.get("code"), "eq.SPRING-10");
+  assert.equal(requestedUrl.searchParams.get("code"), "eq.BEST.PRICES");
   assert.equal(requestedUrl.searchParams.get("used"), "eq.false");
   assert.equal(requestedUrl.searchParams.get("limit"), "2");
   assert.equal(res.headers["Cache-Control"], "no-store");

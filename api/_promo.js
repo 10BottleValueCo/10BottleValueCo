@@ -5,7 +5,7 @@ export const STATIC_PROMO_CODES = Object.freeze({
   REVIEW10: { rate: 0.1, freeShipping: false },
   OWNERFREESHIP: { rate: 0, freeShipping: true, emailLock: "support@10bottlevalue.co" },
 });
-const CODE = /^[A-Z0-9_-]{1,80}$/;
+const CODE = /^[A-Z0-9._-]{1,80}$/;
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const emailKey = value => String(value || "").trim().toLowerCase();
 

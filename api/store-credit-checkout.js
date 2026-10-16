@@ -183,7 +183,7 @@ function readCheckoutInput(body, customerEmail) {
 
   const promoCode = cleanString(body.promoCode || "", "promo code", 80)
     .toUpperCase();
-  if (promoCode && !/^[A-Z0-9_-]+$/.test(promoCode)) {
+  if (promoCode && !/^[A-Z0-9._-]+$/.test(promoCode)) {
     throw new CheckoutError(400, "That promo code is not valid.");
   }
   const affiliateCode = cleanString(

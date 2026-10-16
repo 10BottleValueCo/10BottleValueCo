@@ -188,6 +188,26 @@ test("static promo supersedes automatic discount and owner shipping stays owner-
   assert.equal((await quote(fixture({ ownerFreeShipping: true }), "support@10bottlevalue.co")).amountCents, 13900);
 });
 
+test("public promo codes containing periods are verified by checkout", async () => {
+  const db = service(parsed =>
+    parsed.searchParams.get("email") === "eq.__PUBLIC__"
+      ? [{
+          id: "33333333-3333-4333-8333-333333333333",
+          code: "BEST.PRICES",
+          rate: 0.1,
+          email: "__PUBLIC__",
+          used: false,
+          active: true,
+          minimum_subtotal_cents: 0,
+        }]
+      : [],
+  );
+  const result = await quote(fixture({ promoCode: "best.prices" }), EMAIL, db.options);
+  assert.equal(result.snapshot.promoCode, "BEST.PRICES");
+  assert.ok(result.promoDiscountCents > 0);
+  assert.equal(db.calls[1].url.searchParams.get("code"), "eq.BEST.PRICES");
+});
+
 test("malformed private promo rows are rejected without granting a discount", async () => {
   for (const promoCode of ["PERSONAL", "SALE", "toString", "constructor"]) {
     const db = service(() => [{ id: "forged", email: EMAIL, code: promoCode, rate: 1, used: false }]);

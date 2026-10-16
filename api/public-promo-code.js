@@ -1,5 +1,5 @@
 import { promoRows, promoFromRow } from "./_promo.js";
-const CODE_PATTERN = /^[A-Z0-9_-]{1,80}$/;
+const CODE_PATTERN = /^[A-Z0-9._-]{1,80}$/;
 
 class PromoCodeError extends Error {
   constructor(status, message) {

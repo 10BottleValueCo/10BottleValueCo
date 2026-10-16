@@ -347,7 +347,7 @@ test("insufficient credit is surfaced without reporting a completed order", asyn
   assert.match(res.body.error, /no longer covers/i);
 });
 
-for (const override of [{ promoCode: "DYNAMIC10" }, { affiliateCode: "AFFILIATE" }]) {
+for (const override of [{ promoCode: "DYNAMIC10" }, { promoCode: "BEST.PRICES" }, { affiliateCode: "AFFILIATE" }]) {
   test(`untrusted dynamic discount cannot fund full-credit checkout: ${Object.keys(override)[0]}`, async (t) => {
     const calls = [];
     withTestEnvironment(t, async (url) => {

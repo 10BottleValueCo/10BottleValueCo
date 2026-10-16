@@ -11,7 +11,7 @@ export function discountInput(body) {
   const minimum = Number(body.minimumSubtotal || 0);
   const title = String(body.title || '').trim();
   if ((id !== null && !UUID.test(id)) || (id && (!Number.isSafeInteger(revision) || revision < 1)) || (!id && revision !== null)
-    || !/^[A-Z0-9_-]{1,80}$/.test(code) || ['REVIEW10', 'OWNERFREESHIP'].includes(code)
+    || !/^[A-Z0-9._-]{1,80}$/.test(code) || ['REVIEW10', 'OWNERFREESHIP'].includes(code)
     || !['public', 'personal'].includes(body.audience)
     || (email !== '__PUBLIC__' && (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))
     || !Number.isFinite(rate) || rate <= 0 || rate > 1 || typeof body.active !== 'boolean' || title.length > 120
