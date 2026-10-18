@@ -21052,7 +21052,7 @@ export default function App() {
               className={
                 checkoutStep === "payment"
                   ? "block"
-                  : "grid gap-5 lg:grid-cols-[1.1fr_0.9fr] lg:gap-6"
+                  : "grid min-w-0 gap-5 xl:grid-cols-[1.1fr_0.9fr] xl:gap-6"
               }
             >
               {checkoutStep === "details" && (
