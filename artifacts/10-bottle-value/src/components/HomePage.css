@@ -506,12 +506,17 @@
 }
 
 @media (min-width: 641px) and (max-width: 1279px) {
+  .tbv-home__hero--reference {
+    height: auto;
+    min-height: 0;
+    aspect-ratio: auto;
+  }
   .tbv-home__hero-reference-content {
     top: 21%;
-    width: 36.5%;
+    width: 34%;
   }
   .tbv-home__hero--reference h1 {
-    font-size: clamp(26px, 4.2vw, 54px);
+    font-size: clamp(24px, 3.55vw, 46px);
     line-height: .94;
   }
   .tbv-home__hero-reference-content .tbv-home__hero-reference-actions {
@@ -530,15 +535,28 @@
     width: auto;
     min-height: clamp(34px, 3.3vw, 42px);
     justify-content: center;
-    gap: clamp(3px, .42vw, 7px);
-    padding-inline: clamp(5px, .75vw, 11px);
-    font-size: clamp(7px, 1vw, 11px);
-    letter-spacing: .025em;
+    gap: clamp(2px, .3vw, 4px);
+    padding-inline: clamp(3px, .45vw, 7px);
+    font-size: clamp(7px, .9vw, 9px);
+    letter-spacing: .01em;
+  }
+  .tbv-home__hero-reference-action .tbv-home__button-icon--flag {
+    width: clamp(13px, 1.5vw, 16px);
+    height: auto;
+  }
+  .tbv-home__hero--reference .tbv-home__arrow {
+    font-size: clamp(9px, 1vw, 12px);
   }
   .tbv-home__hero--reference .tbv-home__hero-register-action {
     flex: none;
     width: max-content;
     align-self: center;
+  }
+}
+
+@media (min-width: 1280px) and (max-width: 1535px) {
+  .tbv-home__hero--reference .tbv-home__hero-reference-action {
+    padding-inline: clamp(12px, 1.1vw, 18px);
   }
 }
 
