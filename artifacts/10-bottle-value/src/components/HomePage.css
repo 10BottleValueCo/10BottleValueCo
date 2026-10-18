@@ -506,17 +506,17 @@
 }
 
 @media (min-width: 641px) and (max-width: 1279px) {
-  .tbv-home__hero--reference {
+  .tbv-home__hero.tbv-home__hero--reference {
     height: auto;
     min-height: 0;
     aspect-ratio: auto;
   }
   .tbv-home__hero-reference-content {
-    top: 21%;
-    width: 34%;
+    top: 28%;
+    width: 40%;
   }
   .tbv-home__hero--reference h1 {
-    font-size: clamp(24px, 3.55vw, 46px);
+    font-size: clamp(30px, 5.2vw, 62px);
     line-height: .94;
   }
   .tbv-home__hero-reference-content .tbv-home__hero-reference-actions {
@@ -551,6 +551,11 @@
     flex: none;
     width: max-content;
     align-self: center;
+    min-width: clamp(108px, 15vw, 154px);
+    min-height: clamp(40px, 4.6vw, 48px);
+    gap: clamp(6px, .8vw, 10px);
+    padding-inline: clamp(12px, 1.6vw, 18px);
+    font-size: clamp(10px, 1.3vw, 14px);
   }
 }
 
