@@ -21046,7 +21046,7 @@ export default function App() {
         )}
 
         {page === "cart" && (
-          <main className="tbv-cart-page mx-auto max-w-[1280px] px-4 pt-8 pb-28 md:px-10 md:pt-12 md:pb-16">
+          <main className="tbv-cart-page mx-auto max-w-[1280px] px-4 pt-8 pb-28 md:px-10 md:pt-12 xl:pb-16">
             {/* The PayPal SDK preloads above; payment buttons mount only when selected. */}
             <div
               className={
@@ -22856,13 +22856,13 @@ export default function App() {
               </div>
             </div>
             {checkoutStep === "details" && cart.length > 0 && (
-              <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/20 bg-black/80 px-4 py-3 backdrop-blur-md md:hidden">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-[10px] uppercase tracking-[0.22em] text-white/60">
+              <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/20 bg-black/80 px-3 py-2.5 backdrop-blur-md sm:px-4 sm:py-3 xl:hidden">
+                <div className="flex items-center justify-between gap-2 sm:gap-3">
+                  <div className="shrink-0">
+                    <div className="text-[9px] uppercase tracking-[0.16em] text-white/60 sm:text-[10px] sm:tracking-[0.22em]">
                       {t("total")}
                     </div>
-                    <div className="text-[18px] font-semibold leading-tight text-white">
+                    <div className="whitespace-nowrap text-[16px] font-semibold leading-tight text-white sm:text-[18px]">
                       {formatPricePrecise(finalTotal)}
                     </div>
                   </div>
@@ -22870,7 +22870,7 @@ export default function App() {
                     type="button"
                     onClick={requestCheckoutAttestation}
                     disabled={cart.length === 0 || hasOutOfStockInCart}
-                    className="shrink-0 rounded-full bg-white px-5 py-3 text-[13px] font-bold uppercase tracking-[0.22em] text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:bg-white/50 disabled:text-black/50"
+                    className="max-w-[calc(100vw-116px)] shrink-0 whitespace-nowrap rounded-full bg-white px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:bg-white/50 disabled:text-black/50 sm:max-w-none sm:px-5 sm:py-3 sm:text-[13px] sm:tracking-[0.22em]"
                   >
                     {t("proceedCheckout")}
                   </button>
