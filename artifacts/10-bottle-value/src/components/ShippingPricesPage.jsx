@@ -176,7 +176,7 @@ export default function ShippingPricesPage({
 
       <section aria-label={tx("Shipping options", "Варианты доставки", "Варіанти доставки")} className="grid gap-3 sm:gap-4 lg:grid-cols-3 2xl:gap-6">
         <article
-          className="relative flex min-h-[238px] flex-col justify-between overflow-hidden rounded-2xl border border-white/15 bg-slate-950 bg-cover bg-center p-4 shadow-[0_12px_30px_rgba(0,0,0,.28)] transition-colors duration-300 hover:border-white/30 sm:min-h-[224px] sm:p-4 xl:min-h-[248px] xl:p-5 2xl:min-h-[280px] 2xl:p-6"
+          className="relative flex min-h-[238px] flex-col justify-between overflow-hidden rounded-2xl border border-white/15 bg-slate-950 bg-cover bg-center p-4 shadow-[0_12px_30px_rgba(0,0,0,.28)] sm:min-h-[224px] sm:p-4 xl:min-h-[248px] xl:p-5 2xl:min-h-[280px] 2xl:p-6"
           style={shippingBackground("shipping-warehouse", "warehouse")}
         >
           <div className="relative z-10 flex items-center gap-3">
@@ -222,7 +222,7 @@ export default function ShippingPricesPage({
         </article>
 
         <article
-          className="relative flex min-h-[238px] flex-col overflow-hidden rounded-2xl border border-white/15 bg-slate-950 bg-cover bg-center p-4 shadow-[0_12px_30px_rgba(0,0,0,.28)] transition-colors duration-300 hover:border-white/30 sm:min-h-[224px] sm:p-4 xl:min-h-[248px] xl:p-5 2xl:min-h-[280px] 2xl:p-6"
+          className="relative flex min-h-[238px] flex-col overflow-hidden rounded-2xl border border-white/15 bg-slate-950 bg-cover bg-center p-4 shadow-[0_12px_30px_rgba(0,0,0,.28)] sm:min-h-[224px] sm:p-4 xl:min-h-[248px] xl:p-5 2xl:min-h-[280px] 2xl:p-6"
           style={shippingBackground("shipping-worldwide")}
         >
           <div className="relative z-10 flex items-center gap-3">
@@ -250,13 +250,9 @@ export default function ShippingPricesPage({
         </article>
 
         <article
-          className="relative flex min-h-[238px] flex-col overflow-hidden rounded-2xl border border-[#202024] bg-slate-950 p-4 shadow-[0_12px_30px_rgba(0,0,0,.28)] transition-colors duration-300 hover:border-white/30 sm:min-h-[224px] sm:p-4 xl:min-h-[248px] xl:p-5 2xl:min-h-[280px] 2xl:p-6"
+          className="relative flex min-h-[238px] flex-col overflow-hidden rounded-2xl border-0 bg-slate-950 bg-cover bg-center p-4 shadow-[0_12px_30px_rgba(0,0,0,.28)] sm:min-h-[224px] sm:p-4 xl:min-h-[248px] xl:p-5 2xl:min-h-[280px] 2xl:p-6"
+          style={shippingBackground("shipping-express")}
         >
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-[2px] z-0 rounded-[14px] bg-cover bg-center"
-            style={shippingBackground("shipping-express")}
-          />
           <div className="relative z-10 flex items-center gap-3">
             <IconBadge tone="amber"><Zap size={21} strokeWidth={2.2} /></IconBadge>
             <div>

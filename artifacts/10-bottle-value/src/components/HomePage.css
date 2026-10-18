@@ -516,7 +516,8 @@
     width: 40%;
   }
   .tbv-home__hero--reference h1 {
-    font-size: clamp(30px, 5.2vw, 62px);
+    font-size: clamp(40px, 5.5vw, 58px);
+    letter-spacing: -.055em;
     line-height: .94;
   }
   .tbv-home__hero-reference-content .tbv-home__hero-reference-actions {
@@ -551,11 +552,11 @@
     flex: none;
     width: max-content;
     align-self: center;
-    min-width: clamp(108px, 15vw, 154px);
+    min-width: 0;
     min-height: clamp(40px, 4.6vw, 48px);
-    gap: clamp(6px, .8vw, 10px);
-    padding-inline: clamp(12px, 1.6vw, 18px);
-    font-size: clamp(10px, 1.3vw, 14px);
+    gap: clamp(5px, .65vw, 8px);
+    padding-inline: clamp(8px, 1vw, 14px);
+    font-size: clamp(10px, 1.2vw, 12px);
   }
 }
 
