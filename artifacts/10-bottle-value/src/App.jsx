@@ -46,7 +46,7 @@ import ProductPackSelector from "./components/ProductPackSelector.jsx";
 import { productSelectionFromProduct, readProductSelection, productSelectionUrl, resolveSelectedProduct, toStorefrontOffer } from "./product-selection.js";
 import UsFlag from "./components/UsFlag.jsx";
 import ResearcherEntryGate, { hasResearcherEntryAcceptance } from "./components/ResearcherEntryGate.jsx";
-import PeptigrityMark from "./components/PeptigrityMark.jsx";
+import SocialChannels from "./components/SocialChannels.jsx";
 import vialCManifest from "./data/vialCManifest.json";
 import melanotan2VialInline from "./assets/vials/melanotan-2-mt2-10mg.webp?inline";
 import cashAppLogo from "./assets/payment-logos/cash-app.svg";
@@ -676,43 +676,6 @@ function AffiliatePayoutEditor({ saving, onSave, onCancel }) {
     }
   } catch (_) {}
 })();
-
-const SOCIAL_ICONS = {
-  Trustpilot: (
-    <img
-      src="https://api.iconify.design/simple-icons:trustpilot.svg?color=%2300b67a"
-      alt="Trustpilot"
-      className="w-[70px] h-[70px] object-contain"
-      draggable={false}
-    />
-  ),
-  X: (
-    <div style={{width:70,height:70,borderRadius:"50%",background:"#000",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-      <img
-        src="https://api.iconify.design/simple-icons:x.svg?color=%23ffffff"
-        alt="X"
-        style={{width:38,height:38}}
-        draggable={false}
-      />
-    </div>
-  ),
-  TikTok: (
-    <img
-      src="https://api.iconify.design/logos:tiktok-icon.svg"
-      alt="TikTok"
-      className="w-[50px] h-[50px] object-contain "
-      draggable={false}
-    />
-  ),
-  Instagram: (
-    <img
-      src="https://www.svgrepo.com/show/303145/instagram-2-1-logo.svg"
-      alt="Instagram"
-      className="w-[60px] h-[60px] object-contain"
-      draggable={false}
-    />
-  ),
-};
 
 const heroIcons = {
   vials: (
@@ -1374,53 +1337,41 @@ function TrackOrderPage({ t, supabase, currentUser }) {
   );
 }
 
-function ContactPage({ copySupportEmail, copiedEmail, t, language, onNewMessage }) {
-  const socialLinks = [
-    {
-      name: "X",
-      icon: SOCIAL_ICONS.X,
-      url: "https://x.com/10BottleValueCo",
-      sub: "1200+ followers",
-    },
-    {
-      name: "Trustpilot",
-      icon: SOCIAL_ICONS.Trustpilot,
-      url: "https://www.trustpilot.com/review/10bottlevalue.co",
-      rating: { score: 4.6, count: 23 },
-    },
-  ];
-  const socialCardClassName =
-    "group relative z-20 flex min-h-[190px] w-full flex-col items-center justify-center rounded-[1.25rem] border border-white/15 bg-black/65 px-5 py-5 shadow-[0_10px_28px_rgba(0,0,0,0.32)] transition duration-300 hover:border-white/25 hover:bg-black/75";
-
+function ContactPage({ copySupportEmail, copiedEmail, t, tx, language, onNewMessage }) {
   return (
     <main className="mx-auto max-w-7xl px-4 pt-4 pb-8 md:px-10 md:pt-14 md:pb-20">
-      <section className="rounded-[1.6rem] border border-white/20 bg-black/40 px-5 py-10 text-center shadow-[0_10px_30px_rgba(0,0,0,0.06)] md:rounded-[2.5rem] md:px-12 md:py-14">
+      <section className="rounded-[1.6rem] border border-white/20 bg-black/50 px-5 py-10 text-center shadow-[0_10px_30px_rgba(0,0,0,0.06)] md:rounded-[2.5rem] md:px-12 md:py-14">
         <h1 className="mt-3 text-3xl font-semibold uppercase tracking-[0.12em] text-white md:mt-5 md:text-5xl">
           {t("getInTouch")}
         </h1>
 
         <p className="mx-auto mt-6 max-w-2xl text-[12px] leading-7 tracking-[0.18em] uppercase text-white/80 md:text-[13px]">
           {language === "RU"
-            ? "По вопросам заказов, продуктов, партнёрской программы или общим вопросам свяжитесь с нами напрямую по email."
+            ? "По вопросам заказов, продуктов, партнёрской программы или общим вопросам напишите нам по email или отправьте сообщение прямо на сайте."
             : language === "UA"
-            ? "З питань замовлень, продуктів, партнерської програми або загальних запитів звʼяжіться з нами напряму через email."
+            ? "З питань замовлень, продуктів, партнерської програми або загальних запитів напишіть нам на email або надішліть повідомлення прямо на сайті."
             : language === "DE"
-            ? "Bei Fragen zu Bestellungen, Produkten, Affiliate-Anfragen oder allgemeinen Anliegen kontaktieren Sie uns direkt per E-Mail."
+            ? "Bei Fragen zu Bestellungen, Produkten, Affiliate-Anfragen oder allgemeinen Anliegen schreiben Sie uns per E-Mail oder direkt hier auf der Website."
             : language === "ES"
-            ? "Para soporte de pedidos, preguntas sobre productos, solicitudes de afiliado o consultas generales, contactenos directamente por email."
-            : "For order support, product questions, affiliate requests, or general inquiries, contact us directly by email."}
+            ? "Para soporte de pedidos, preguntas sobre productos, solicitudes de afiliado o consultas generales, contáctanos por email o envíanos un mensaje directamente en este sitio."
+            : "For order support, product questions, affiliate requests, or general inquiries, contact us by email or send us a message directly on this site."}
         </p>
 
-        <div className="mx-auto mt-8 max-w-xl rounded-[1.5rem] border border-white/20 bg-black/40 px-5 py-6 shadow-[0_14px_35px_rgba(0,0,0,0.12)] md:mt-10 md:rounded-[2rem] md:px-7 md:py-8">
+        <div className="mx-auto mt-8 max-w-xl rounded-[1.5rem] border border-white/20 bg-black/50 px-5 py-6 shadow-[0_14px_35px_rgba(0,0,0,0.12)] md:mt-10 md:rounded-[2rem] md:px-7 md:py-8">
           <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-white">
             {t("emailSupport")}
           </div>
-          <a
-            href="mailto:support@10bottlevalue.co"
-            className="mt-4 block w-full text-center text-[14px] font-semibold uppercase tracking-[0.12em] text-white transition hover:text-white sm:text-[18px] md:text-[24px]"
+          <button
+            type="button"
+            onClick={copySupportEmail}
+            aria-live="polite"
+            title={tx("Click to copy email", "Нажмите, чтобы скопировать email", "Натисніть, щоб скопіювати email", "Klicken, um die E-Mail zu kopieren", "Haz clic para copiar el email")}
+            className="mt-4 block w-full cursor-copy text-center text-[14px] font-semibold uppercase tracking-[0.12em] text-white transition hover:text-white/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white sm:text-[18px] md:text-[24px]"
           >
-            SUPPORT@10BOTTLEVALUE.CO
-          </a>
+            {copiedEmail
+              ? tx("Copied!", "Скопировано!", "Скопійовано!", "Kopiert!", "¡Copiado!")
+              : "SUPPORT@10BOTTLEVALUE.CO"}
+          </button>
           <div className="mx-auto mt-6 h-px w-20 bg-white/30" />
           <div className="mt-6 text-[12px] uppercase tracking-[0.22em] text-white">
             {t("responseTime")}
@@ -1443,98 +1394,7 @@ function ContactPage({ copySupportEmail, copiedEmail, t, language, onNewMessage 
         </div>
       </section>
 
-      <section className="mt-2 px-5 py-10 text-center md:mt-5 md:px-0 md:py-14">
-        <h2 className="text-[18px] uppercase tracking-[0.28em] text-white/80 md:text-[28px]">
-          {language === "RU"
-            ? "НАШИ СОЦИАЛЬНЫЕ КАНАЛЫ"
-            : language === "UA"
-            ? "НАШІ СОЦІАЛЬНІ КАНАЛИ"
-            : language === "DE"
-            ? "Unsere Social-Media-Kanäle"
-            : language === "ES"
-            ? "Nuestros canales sociales"
-            : "Our Social Channels"}
-        </h2>
-
-        <div className="mx-auto mt-8 grid w-full max-w-[1180px] grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 md:mt-14">
-          {socialLinks.map((item) => {
-            const inner = (
-              <>
-                <div className={`flex h-14 w-14 items-center justify-center rounded-full bg-white/10 shadow-[0_14px_30px_rgba(0,0,0,0.12)] transition-all duration-300 ${item.disabled ? "opacity-40" : "group-hover:bg-white/20 group-hover:scale-110"}`}>
-                  {SOCIAL_ICONS[item.name] || item.icon}
-                </div>
-                <div className={`mt-3 text-[11px] uppercase tracking-[0.2em] transition ${item.disabled ? "text-white/40" : "text-white/80 group-hover:text-white"}`}>
-                  {item.name === "X" ? "X (Twitter)" : item.name}
-                </div>
-                {item.rating && (
-                  <div className="mt-2 flex flex-col items-center gap-1">
-                    <div className="flex items-center gap-[3px]">
-                      {[1,2,3,4].map(i => (
-                        <div key={i} className="flex h-5 w-5 items-center justify-center rounded-[3px]" style={{background:"#00b67a"}}>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
-                            <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z"/>
-                          </svg>
-                        </div>
-                      ))}
-                      <div className="relative flex h-5 w-5 items-center justify-center overflow-hidden rounded-[3px]">
-                        <div className="absolute inset-0 flex">
-                          <div className="h-full w-1/2" style={{background:"#00b67a"}}/>
-                          <div className="h-full w-1/2" style={{background:"#dcdce6"}}/>
-                        </div>
-                        <svg className="relative z-10" width="12" height="12" viewBox="0 0 24 24" fill="white">
-                          <path d="M12 2l2.9 8.7H23l-7.4 5.4 2.8 8.6L12 19.4l-6.4 5.3 2.8-8.6L2 10.7h8.1z"/>
-                        </svg>
-                      </div>
-                    </div>
-                    <div className="text-[10px] font-semibold tracking-wide text-white">{item.rating.score} <span className="font-normal text-white">· {item.rating.count} {language === "RU" ? "отзывов" : language === "UA" ? "відгуків" : language === "DE" ? "Bewertungen" : language === "ES" ? "reseñas" : "reviews"}</span></div>
-                  </div>
-                )}
-                {item.sub && (
-                  <div className="mt-2 text-[10px] uppercase tracking-wide text-white">
-                    {item.sub}
-                  </div>
-                )}
-                <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-white/25 px-3 py-1.5 text-[8px] font-bold uppercase tracking-[0.16em] text-white/90 transition group-hover:border-white/45 group-hover:bg-white/5">
-                  {item.name === "Trustpilot"
-                    ? language === "RU" ? "Читать отзывы" : language === "UA" ? "Читати відгуки" : language === "DE" ? "Bewertungen lesen" : language === "ES" ? "Leer reseñas" : "Read reviews"
-                    : language === "RU" ? "Подписаться" : language === "UA" ? "Підписатися" : language === "DE" ? "Folgen" : language === "ES" ? "Seguir" : "Follow us"}
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
-                  </svg>
-                </div>
-              </>
-            );
-            return item.disabled ? (
-              <div key={item.name} className={`${socialCardClassName} cursor-not-allowed opacity-50`} aria-label={item.name}>
-                {inner}
-              </div>
-            ) : (
-              <a key={item.name} href={item.url} target="_blank" rel="noopener noreferrer" className={`${socialCardClassName} cursor-pointer`} aria-label={item.name}>
-                {inner}
-              </a>
-            );
-          })}
-          <div
-            data-testid="card-peptigrity"
-            className={`${socialCardClassName} cursor-default`}
-          >
-            <PeptigrityMark />
-            <div className="mt-3 text-[11px] uppercase tracking-[0.2em] text-white/80">
-              Peptigrity
-            </div>
-            <a
-              href="https://peptigrity.com/add/review?shopId=279"
-              target="_blank"
-              rel="noopener noreferrer"
-              data-testid="link-peptigrity-review"
-              className="mt-3 inline-flex min-h-[34px] items-center gap-2 rounded-full border border-white/25 px-4 py-2 text-[8px] font-bold uppercase tracking-[0.12em] text-white/90 transition hover:border-white/45 hover:bg-white/5"
-            >
-              REVIEW US ON PEPTERGITY
-              <ArrowRight size={11} aria-hidden="true" />
-            </a>
-          </div>
-        </div>
-      </section>
+      <SocialChannels tx={tx} testIdPrefix="contact" contactLayout />
     </main>
   );
 }
@@ -4290,8 +4150,11 @@ export default function App() {
   const [affiliateCommissionLoading, setAffiliateCommissionLoading] = useState(false);
   const [affiliateOrdersError, setAffiliateOrdersError] = useState(false);
   const [affiliatePayoutError, setAffiliatePayoutError] = useState(false);
+  const [affiliateRefreshError, setAffiliateRefreshError] = useState(false);
   const [affiliateDataCode, setAffiliateDataCode] = useState("");
   const affiliateLoadRequestRef = useRef(0);
+  const affiliateDataLoadTimesRef = useRef(new Map());
+  const affiliateDataInFlightRef = useRef(new Map());
   const [affiliatePaidOut, setAffiliatePaidOut] = useState(0);
   const [activeAffiliateCode, setActiveAffiliateCode] = useState("");
   const [pinnedAffiliateCode, setPinnedAffiliateCode] = useState("");
@@ -4300,14 +4163,23 @@ export default function App() {
   });
   const affiliateSelectionVersionRef = useRef(0);
 
-  function readAffiliateCodeFromBrowser() {
+  function readAffiliateCodeFromUrl() {
     if (typeof window === "undefined") return "";
     try {
       const params = new URLSearchParams(window.location.search || "");
       let encoded = "";
       try { encoded = params.get("s") ? atob(params.get("s")) : ""; } catch {}
-      const candidate = String(localStorage.getItem("tbv-active-affiliate") || encoded || params.get("c")
-        || params.get("via") || params.get("ref") || params.get("affiliate") || "").trim().toUpperCase();
+      const candidate = String(encoded || params.get("c") || params.get("via") || params.get("ref")
+        || params.get("affiliate") || "").trim().toUpperCase();
+      return /^[A-Z0-9_-]{1,64}$/.test(candidate) ? candidate : "";
+    } catch { return ""; }
+  }
+
+  function readAffiliateCodeFromBrowser() {
+    if (typeof window === "undefined") return "";
+    try {
+      const candidate = readAffiliateCodeFromUrl()
+        || String(localStorage.getItem("tbv-active-affiliate") || "").trim().toUpperCase();
       return /^[A-Z0-9_-]{1,64}$/.test(candidate) ? candidate : "";
     } catch { return ""; }
   }
@@ -9122,33 +8994,38 @@ export default function App() {
     return result.promo || null;
   }
 
-  async function loadAffiliateCommissionOrders(affiliateCode) {
+  async function loadAffiliateCommissionOrders(affiliateCode, { force = false } = {}) {
     const codeUpper = String(affiliateCode || "").trim().toUpperCase();
     if (!codeUpper) return;
 
+    const cachedAt = affiliateDataLoadTimesRef.current.get(codeUpper) || 0;
+    const hasCachedDataForCode = affiliateDataCode === codeUpper && cachedAt > 0;
+    if (!force && hasCachedDataForCode && cachedAt && Date.now() - cachedAt < 60_000) {
+      return;
+    }
+    if (!force && affiliateDataInFlightRef.current.has(codeUpper)) return;
+
     const requestId = ++affiliateLoadRequestRef.current;
-    setAffiliateDataCode("");
-    setAffiliateCommissionOrders([]);
-    setAffiliatePaidOut(0);
+    affiliateDataInFlightRef.current.set(codeUpper, requestId);
+    if (!hasCachedDataForCode) {
+      setAffiliateDataCode("");
+      setAffiliateCommissionOrders([]);
+      setAffiliatePaidOut(0);
+    }
     setAffiliateCommissionLoading(true);
     setAffiliateOrdersError(false);
     setAffiliatePayoutError(false);
+    setAffiliateRefreshError(false);
 
+    let affiliateDataLoaded = false;
     try {
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (sessionError) throw sessionError;
       if (!session?.access_token) throw new Error("Sign in to load affiliate orders.");
 
-      const ledgerRows = [];
-      const codeColumnOrders = [];
-      const codeMetadataOrders = [];
-      let pageOffset = 0;
-      let hasMore = true;
-      let totalPaidOut = 0;
-      let payoutReadFailed = false;
-      while (hasMore) {
+      const readPage = async (offset) => {
         const response = await fetch(
-          `/api/affiliate-account?orders=1&offset=${pageOffset}`,
+          `/api/affiliate-account?orders=1&offset=${offset}`,
           { headers: { Authorization: `Bearer ${session.access_token}` } }
         );
         const result = await response.json().catch(() => ({}));
@@ -9158,17 +9035,49 @@ export default function App() {
         if (String(result?.affiliate?.code || "").trim().toUpperCase() !== codeUpper) {
           throw new Error("Affiliate profile changed while loading its order history.");
         }
+        return result;
+      };
+
+      const pageResults = [await readPage(0)];
+      let nextOffset = 100;
+      while (pageResults[pageResults.length - 1].hasMore === true) {
+        if (nextOffset > 100000) {
+          throw new Error("Affiliate order history exceeds the supported limit.");
+        }
+        const offsets = Array.from({ length: 3 }, (_, index) => nextOffset + index * 100)
+          .filter((offset) => offset <= 100000);
+        const batch = await Promise.all(offsets.map(async (offset) => {
+          try {
+            return { result: await readPage(offset) };
+          } catch (error) {
+            return { error };
+          }
+        }));
+        const finalPageIndex = batch.findIndex(
+          (page) => !page.error && page.result.hasMore !== true
+        );
+        const neededPages = finalPageIndex === -1 ? batch : batch.slice(0, finalPageIndex + 1);
+        const failedPage = neededPages.find((page) => page.error);
+        if (failedPage) throw failedPage.error;
+        pageResults.push(...neededPages.map((page) => page.result));
+        if (finalPageIndex !== -1) break;
+        const lastOffset = offsets[offsets.length - 1];
+        if (lastOffset >= 100000) {
+          throw new Error("Affiliate order history exceeds the supported limit.");
+        }
+        nextOffset = lastOffset + 100;
+      }
+
+      const ledgerRows = [];
+      const codeColumnOrders = [];
+      const codeMetadataOrders = [];
+      const firstPage = pageResults[0];
+      const payoutReadFailed = firstPage.payoutsTotal == null;
+      const totalPaidOut = Number(firstPage.payoutsTotal) || 0;
+      for (const result of pageResults) {
         ledgerRows.push(...(Array.isArray(result.ledgerRows) ? result.ledgerRows : []));
         codeColumnOrders.push(...(Array.isArray(result.codeColumnOrders) ? result.codeColumnOrders : []));
         codeMetadataOrders.push(...(Array.isArray(result.codeMetadataOrders) ? result.codeMetadataOrders : []));
-        if (pageOffset === 0) {
-          payoutReadFailed = result.payoutsTotal == null;
-          totalPaidOut = Number(result.payoutsTotal) || 0;
-        }
-        hasMore = result.hasMore === true;
-        if (!hasMore) break;
-        pageOffset += 100;
-        if (pageOffset > 100000) throw new Error("Affiliate order history exceeds the supported limit.");
       }
       if (requestId === affiliateLoadRequestRef.current) {
         setAffiliatePaidOut(totalPaidOut);
@@ -9354,17 +9263,26 @@ export default function App() {
       if (requestId === affiliateLoadRequestRef.current) {
         setAffiliateCommissionOrders(commissionRows);
         setAffiliateOrdersError(false);
+        affiliateDataLoadTimesRef.current.set(codeUpper, Date.now());
+        affiliateDataLoaded = true;
       }
     } catch (error) {
       console.error("Failed to load affiliate commission orders", error);
       if (requestId === affiliateLoadRequestRef.current) {
-        setAffiliateCommissionOrders([]);
-        setAffiliateOrdersError(true);
-        setAffiliatePayoutError(true);
+        if (hasCachedDataForCode) {
+          setAffiliateRefreshError(true);
+        } else {
+          setAffiliateCommissionOrders([]);
+          setAffiliateOrdersError(true);
+          setAffiliatePayoutError(true);
+        }
       }
     } finally {
+      if (affiliateDataInFlightRef.current.get(codeUpper) === requestId) {
+        affiliateDataInFlightRef.current.delete(codeUpper);
+      }
       if (requestId === affiliateLoadRequestRef.current) {
-        setAffiliateDataCode(codeUpper);
+        if (affiliateDataLoaded || !hasCachedDataForCode) setAffiliateDataCode(codeUpper);
         setAffiliateCommissionLoading(false);
       }
     }
@@ -9887,6 +9805,26 @@ export default function App() {
       }
       if (event === "SIGNED_IN" && requireSignupVerificationRef.current) {
         return;
+      }
+      if (event === "SIGNED_OUT") {
+        const freshUrlCode = readAffiliateCodeFromUrl();
+        setPinnedAffiliateCode("");
+        setAffiliateCodeRemoved(false);
+        setAffiliateDiscountDisabled(false);
+        setAffiliateManuallyApplied(false);
+        if (freshUrlCode) {
+          setActiveAffiliateCode(freshUrlCode);
+          try {
+            sessionStorage.removeItem("tbv-affiliate-removed");
+            localStorage.setItem("tbv-active-affiliate", freshUrlCode);
+          } catch {}
+        } else {
+          setActiveAffiliateCode("");
+          try {
+            sessionStorage.removeItem("tbv-affiliate-removed");
+            localStorage.removeItem("tbv-active-affiliate");
+          } catch {}
+        }
       }
       if (session?.user) {
         if (!await checkEmailLoginSession(session)) return;
@@ -10602,10 +10540,7 @@ export default function App() {
     : null;
 
   useEffect(() => {
-    if (
-      currentAffiliateProfile?.code &&
-      (isAffiliatePanelOpen || (page === "account" && activeAccountSection === "affiliate"))
-    ) {
+    if (currentAffiliateProfile?.code && (isAffiliatePanelOpen || page === "account")) {
       loadAffiliateCommissionOrders(currentAffiliateProfile.code);
     }
   }, [isAffiliatePanelOpen, page, activeAccountSection, currentAffiliateProfile?.code]);
@@ -13993,7 +13928,6 @@ export default function App() {
 
   const navigateAccountSection = (section) => {
     setActiveAccountSection(section);
-    if (section === "affiliate") loadAffiliateProfilesFromSupabase({ silent: true });
     if (section === "messages") {
       setContactModalOpen(false);
       setReplyPreview(null);
@@ -15261,11 +15195,11 @@ export default function App() {
                     </div>
                   );
                 })()}
-                <fieldset className="mt-4" aria-describedby={selectedProductUnavailable ? "warehouse-availability" : undefined}>
-                  <legend className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/60">
-                    {tx("Warehouse", "Склад", "Склад", "Lager", "Almacén")}
-                  </legend>
-                  <div className="mt-2 flex flex-wrap gap-2">
+                <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2" role="group" aria-label={tx("Warehouse:", "Склад:", "Склад:", "Lager:", "Almacén:")} aria-describedby={selectedProductUnavailable ? "warehouse-availability" : undefined}>
+                  <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/60">
+                    {tx("Warehouse:", "Склад:", "Склад:", "Lager:", "Almacén:")}
+                  </span>
+                  <div className="flex flex-wrap gap-2">
                     {[["worldwide", "WORLDWIDE"], ["us", "US"]].map(([warehouse, label]) => {
                       const active = productSelection.warehouse === warehouse;
                       const offer = resolveSelectedProduct(products, { ...productSelection, warehouse });
@@ -15292,7 +15226,7 @@ export default function App() {
                         : tx("out of stock at this warehouse.", "нет в наличии на этом складе.", "немає в наявності на цьому складі.", "in diesem Lager ausverkauft.", "agotado en este almacén.")}
                     </p>
                   )}
-                </fieldset>
+                </div>
                 {(() => {
                   const isUs = selectedProductIsUs;
                   const variants = products.filter(p =>
@@ -15707,6 +15641,7 @@ export default function App() {
             copySupportEmail={copySupportEmail}
             copiedEmail={copiedEmail}
             t={t}
+            tx={tx}
             language={language}
             onNewMessage={() => { if (currentUser?.email) setContactForm((f) => ({ ...f, email: f.email || currentUser.email })); setContactComposeOpen(true); setContactModalOpen(true); }}
           />
@@ -18835,10 +18770,11 @@ export default function App() {
                       : 0
                   }
                   affiliateLoading={
-                    affiliateCommissionLoading ||
                     affiliateDataCode !==
                       String(currentAffiliateProfile?.code || "").trim().toUpperCase()
                   }
+                  affiliateRefreshing={affiliateCommissionLoading}
+                  affiliateRefreshError={affiliateRefreshError}
                   affiliateOrdersError={
                     affiliateDataCode ===
                     String(currentAffiliateProfile?.code || "").trim().toUpperCase() &&
@@ -18856,7 +18792,7 @@ export default function App() {
                   }
                   onRefreshAffiliate={() => {
                     if (currentAffiliateProfile?.code) {
-                      loadAffiliateCommissionOrders(currentAffiliateProfile.code);
+                      loadAffiliateCommissionOrders(currentAffiliateProfile.code, { force: true });
                     }
                   }}
                   onCopyAffiliateLink={() =>
@@ -19810,7 +19746,7 @@ export default function App() {
                                 else next.add(order.id);
                                 return next;
                               })}
-                              className="w-full px-5 py-4 text-left hover:bg-white/[0.16] transition-colors duration-150"
+                              className="account-order-toggle w-full px-5 py-4 text-left transition-colors duration-150"
                             >
                               <div className="flex items-start justify-between gap-2">
                                 <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -20276,7 +20212,7 @@ export default function App() {
                         setAccountPromoCodeInput("");
                       }}
                       aria-pressed={authMode === "signin"}
-                      className={`inline-flex min-h-[64px] items-center justify-center rounded-full px-8 py-4 text-[11px] font-bold uppercase tracking-[0.22em] transition-colors sm:min-h-[72px] sm:px-10 ${
+                      className={`inline-flex min-h-[64px] items-center justify-center rounded-full px-8 py-4 text-sm font-bold uppercase tracking-[0.22em] transition-colors sm:min-h-[72px] sm:px-10 sm:text-base ${
                         authMode === "signin"
                           ? "min-w-[176px] bg-black text-white shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
                           : "min-w-[176px] border border-white/25 bg-white/[0.04] text-white hover:bg-white/[0.08]"
@@ -20301,7 +20237,7 @@ export default function App() {
                         setAccountPromoCodeInput("");
                       }}
                       aria-pressed={authMode === "create"}
-                      className={`inline-flex min-h-[64px] items-center justify-center rounded-full px-8 py-4 text-[11px] font-bold uppercase tracking-[0.22em] transition-colors sm:min-h-[72px] sm:px-10 ${
+                      className={`inline-flex min-h-[64px] items-center justify-center rounded-full px-8 py-4 text-sm font-bold uppercase tracking-[0.22em] transition-colors sm:min-h-[72px] sm:px-10 sm:text-base ${
                         authMode === "create"
                           ? "min-w-[260px] bg-black text-white shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
                           : "min-w-[260px] border border-white/25 bg-white/[0.04] text-white hover:bg-white/[0.08]"
@@ -22069,7 +22005,7 @@ export default function App() {
                 )}
                 <div
                   ref={paymentSectionRef}
-                  className="mt-6 w-full min-w-0 rounded-[28px] bg-white p-4 text-black shadow-[0_20px_60px_rgba(0,0,0,0.15)] md:p-8"
+                  className="mt-6 w-full min-w-0 rounded-[28px] bg-white p-3 text-black shadow-[0_20px_60px_rgba(0,0,0,0.15)] sm:p-4 md:p-8"
                   style={checkoutStep !== "payment" ? { position: "fixed", left: "-9999px", top: 0, visibility: "hidden", pointerEvents: "none" } : {}}
                 >
                     <div className="flex items-center justify-between gap-3">
@@ -22138,7 +22074,7 @@ export default function App() {
                             type="button"
                             disabled={stripeTemporarilyDisabled}
                             onClick={() => { if (stripeTemporarilyDisabled) return; setPaymentMethod("stripe"); requestAnimationFrame(() => { const el = choosePaymentMethodRef.current; if (!el) return; window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - 130), behavior: "auto" }); }); }}
-                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 ${stripeTemporarilyDisabled ? "border-slate-300 bg-slate-50 cursor-not-allowed" : paymentMethod === "stripe" ? "border-black bg-black text-white ring-1 ring-slate-300 shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-slate-300 bg-white text-black hover:border-slate-500 hover:shadow-[0_4px_14px_rgba(0,0,0,0.06)]"}`}
+                            className={`relative flex min-w-0 min-h-[80px] md:h-[80px] items-center gap-2.5 rounded-2xl border px-3 py-3 md:gap-3.5 md:px-4 md:py-1 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 ${stripeTemporarilyDisabled ? "border-slate-300 bg-slate-50 cursor-not-allowed" : paymentMethod === "stripe" ? "border-black bg-black text-white ring-1 ring-slate-300 shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-slate-300 bg-white text-black hover:border-slate-500 hover:shadow-[0_4px_14px_rgba(0,0,0,0.06)]"}`}
                           >
                             <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${stripeTemporarilyDisabled ? "bg-slate-100 text-slate-400" : "bg-slate-800 text-white"}`}>
                               <svg width="27" height="21" viewBox="0 0 28 22" fill="none" aria-hidden="true">
@@ -22147,14 +22083,14 @@ export default function App() {
                               </svg>
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="flex h-5 items-center gap-3 whitespace-nowrap">
-                                <span className="text-[14px] font-semibold leading-5">{tx("Card", "Карта")}</span>
-                                <span className="inline-flex shrink-0 items-center gap-3">
+                              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 md:h-5 md:flex-nowrap md:gap-3 md:whitespace-nowrap">
+                                <span className="shrink-0 whitespace-nowrap text-[14px] font-semibold leading-5">{tx("Card", "Карта")}</span>
+                                <span className="inline-flex shrink-0 items-center gap-2 md:gap-3">
                                   <img src={paymentMethod === "stripe" && !stripeTemporarilyDisabled ? applePayMarkDark : applePayMark} alt="Apple Pay" width="43" height="18" className="h-[18px] w-[43px] object-contain" />
                                   <img src={paymentMethod === "stripe" && !stripeTemporarilyDisabled ? googlePayMarkDark : googlePayMark} alt="Google Pay" width="46" height="18" className="h-[18px] w-[46px] object-contain" />
                                 </span>
                               </div>
-                              <div className="mt-1 flex flex-nowrap items-center gap-1.5">
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                 {stripeTemporarilyDisabled ? (
                                   <span className="inline-flex rounded-md border border-gray-300 bg-gray-100 px-2 py-0.5 text-[11px] font-black text-black">{meritUnavailableMessage}</span>
                                 ) : (
@@ -22168,7 +22104,7 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => { setPaymentMethod("crypto"); requestAnimationFrame(() => { const el = choosePaymentMethodRef.current; if (!el) return; window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - 130), behavior: "auto" }); }); }}
-                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 ${paymentMethod === "crypto" ? "border-black bg-black text-white ring-1 ring-slate-300 shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-slate-300 bg-white text-black hover:border-slate-500 hover:shadow-[0_4px_14px_rgba(0,0,0,0.06)]"}`}
+                            className={`relative flex min-w-0 min-h-[80px] md:h-[80px] items-center gap-2.5 rounded-2xl border px-3 py-3 md:gap-3.5 md:px-4 md:py-1 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 ${paymentMethod === "crypto" ? "border-black bg-black text-white ring-1 ring-slate-300 shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-slate-300 bg-white text-black hover:border-slate-500 hover:shadow-[0_4px_14px_rgba(0,0,0,0.06)]"}`}
                           >
                             <div className="relative shrink-0">
                               <img src={getPreloadedDisplayImageUrl(bitcoinLogo)} alt="" className="h-10 w-10 object-contain" />
@@ -22188,7 +22124,7 @@ export default function App() {
                             const cashAppEnabled = !cashAppOverLimit;
                             return cashAppEnabled ? (
                               <button type="button" onClick={() => setPaymentMethod("cashapp")}
-                                className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 ${paymentMethod === "cashapp" ? "border-black bg-black text-white ring-1 ring-slate-300 shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-slate-300 bg-white text-black hover:border-slate-500 hover:shadow-[0_4px_14px_rgba(0,0,0,0.06)]"}`}
+                                className={`relative flex min-w-0 min-h-[80px] md:h-[80px] items-center gap-2.5 rounded-2xl border px-3 py-3 md:gap-3.5 md:px-4 md:py-1 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 ${paymentMethod === "cashapp" ? "border-black bg-black text-white ring-1 ring-slate-300 shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-slate-300 bg-white text-black hover:border-slate-500 hover:shadow-[0_4px_14px_rgba(0,0,0,0.06)]"}`}
                               >
                                 <div className="relative shrink-0">
                                   <img src={getPreloadedDisplayImageUrl(cashAppLogo)} alt="" className="h-10 w-10 rounded-xl object-contain" />
@@ -22202,7 +22138,7 @@ export default function App() {
                                 {paymentMethod === "cashapp" && <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500"><svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>}
                               </button>
                             ) : (
-                              <button type="button" disabled className="relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 md:py-1 text-left cursor-not-allowed">
+                              <button type="button" disabled className="relative flex min-w-0 min-h-[80px] md:h-[80px] items-center gap-2.5 rounded-2xl border border-slate-300 bg-slate-50 px-3 py-3 md:gap-3.5 md:px-4 md:py-1 text-left cursor-not-allowed">
                                 <img src={getPreloadedDisplayImageUrl(cashAppLogo)} alt="" className="h-10 w-10 shrink-0 rounded-xl object-contain opacity-40" />
                                 <div className="flex-1 min-w-0">
                                   <div className="text-[14px] font-semibold leading-[18px] text-black/30">{cashAppPaymentLabel}</div>
@@ -22216,15 +22152,15 @@ export default function App() {
 
                           {/* M4 — Paylio */}
                           <button type="button" onClick={() => setPaymentMethod("paylio")}
-                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 ${paymentMethod === "paylio" ? "border-black bg-black text-white ring-1 ring-slate-300 shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-slate-300 bg-white text-black hover:border-slate-500 hover:shadow-[0_4px_14px_rgba(0,0,0,0.06)]"}`}
+                            className={`relative flex min-w-0 min-h-[80px] md:h-[80px] items-center gap-2.5 rounded-2xl border px-3 py-3 md:gap-3.5 md:px-4 md:py-1 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 ${paymentMethod === "paylio" ? "border-black bg-black text-white ring-1 ring-slate-300 shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-slate-300 bg-white text-black hover:border-slate-500 hover:shadow-[0_4px_14px_rgba(0,0,0,0.06)]"}`}
                           >
-                            <div className="flex h-10 w-14 shrink-0 items-center justify-center">
-                              <img src={bankCardIcon} alt="" className="h-10 w-14 object-contain" />
+                            <div className="flex h-10 w-11 shrink-0 items-center justify-center sm:w-14">
+                              <img src={bankCardIcon} alt="" className="h-10 w-11 object-contain sm:w-14" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="text-[14px] font-semibold leading-tight">CARDS / <span className="whitespace-nowrap">PayPal (US)</span></div>
-                              <div className="mt-1.5 flex flex-nowrap items-center gap-1.5">
-                                <span className="shrink-0 inline-flex rounded-md bg-sky-500 px-1.5 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] text-white">KYC MAY BE REQUIRED</span>
+                              <div className="min-w-0 text-[14px] font-semibold leading-tight">CARDS / <span className="whitespace-normal break-words md:whitespace-nowrap">PayPal (US)</span></div>
+                              <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
+                                <span className="inline-flex max-w-full whitespace-normal break-words rounded-md bg-sky-500 px-1.5 py-0.5 text-center text-[10px] font-black leading-tight text-white sm:text-[11px]">KYC MAY BE REQUIRED</span>
                               </div>
                             </div>
                             {paymentMethod === "paylio" && <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500"><svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>}
@@ -22232,7 +22168,7 @@ export default function App() {
 
                           {/* M5 — Wire */}
                           <button type="button" onClick={() => setPaymentMethod("wire")}
-                            className={`relative flex min-h-[80px] md:h-[80px] items-center gap-3.5 rounded-2xl border px-4 py-3 md:py-1 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 ${paymentMethod === "wire" ? "border-black bg-black text-white ring-1 ring-slate-300 shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-slate-300 bg-white text-black hover:border-slate-500 hover:shadow-[0_4px_14px_rgba(0,0,0,0.06)]"}`}
+                            className={`relative flex min-w-0 min-h-[80px] md:h-[80px] items-center gap-2.5 rounded-2xl border px-3 py-3 md:gap-3.5 md:px-4 md:py-1 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 ${paymentMethod === "wire" ? "border-black bg-black text-white ring-1 ring-slate-300 shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-slate-300 bg-white text-black hover:border-slate-500 hover:shadow-[0_4px_14px_rgba(0,0,0,0.06)]"}`}
                           >
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl overflow-hidden" style={{background:"#1e293b"}}>
                               <svg width="22" height="22" viewBox="0 0 22 22" fill="none">

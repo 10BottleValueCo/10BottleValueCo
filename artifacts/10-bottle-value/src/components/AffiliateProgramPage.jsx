@@ -322,10 +322,10 @@ export default function AffiliateProgramPage({
 
         <div className="affiliate-program-hero-shelf pointer-events-none absolute bottom-[8%] right-[-3%] z-[1] h-11 w-[59%] -skew-y-2 border-y border-[#b9c5db]/20 bg-gradient-to-b from-[#93a3c2]/20 via-[#2b3b55]/90 to-[#111b2a] shadow-[0_-5px_22px_rgba(40,90,190,.1)] lg:right-[-7%]" />
         <div
-          className="relative min-h-[250px] overflow-hidden sm:min-h-[330px] lg:absolute lg:inset-y-0 lg:right-0 lg:w-[54%]"
+          className="affiliate-program-hero-products relative min-h-[250px] overflow-hidden sm:min-h-[330px] lg:absolute lg:inset-y-0 lg:right-0 lg:w-[54%]"
           aria-label={tx("Featured 10BottleValueCo products", "Продукты 10BottleValueCo", "Продукти 10BottleValueCo", "Produkte von 10BottleValueCo", "Productos de 10BottleValueCo")}
         >
-          <div className="relative z-10 mx-auto flex h-full min-h-[250px] max-w-[600px] items-end justify-center gap-0 px-4 pb-[5%] sm:min-h-[330px] lg:min-h-[370px] lg:px-2">
+          <div className="affiliate-program-hero-vials relative z-10 mx-auto flex h-full min-h-[250px] max-w-[600px] items-end justify-center gap-0 px-4 pb-[5%] sm:min-h-[330px] lg:min-h-[370px] lg:px-2">
             <img
               src={publicImage("vials-c/mots-c-ead676f909ff.webp")}
               data-original-src={`${base}vials-c/mots-c-ead676f909ff.webp`}
@@ -365,12 +365,12 @@ export default function AffiliateProgramPage({
 
       <section
         aria-label={tx("Affiliate benefits", "Преимущества партнёрства", "Переваги партнерства", "Affiliate-Vorteile", "Ventajas de afiliación")}
-        className="affiliate-surface affiliate-surface--benefits relative z-20 -mt-2 grid grid-cols-1 overflow-hidden rounded-xl border border-white/10 shadow-[0_10px_26px_rgba(0,0,0,.16)] sm:grid-cols-2 md:grid-cols-4"
+        className="affiliate-surface affiliate-surface--benefits relative z-20 -mt-2 grid grid-cols-1 overflow-hidden rounded-xl border border-white/10 shadow-[0_10px_26px_rgba(0,0,0,.16)] sm:grid-cols-2 lg:grid-cols-4"
       >
         {benefits.map((benefit, index) => (
           <div
             key={benefit.title}
-            className={`flex min-h-[112px] items-start gap-3 border-b border-white/10 px-4 py-5 last:border-b-0 sm:px-5 sm:py-6 md:border-b-0 ${index % 2 === 1 ? "sm:border-l" : ""} ${index > 1 ? "sm:border-t sm:border-b-0 md:border-t-0" : ""} ${index > 0 ? "md:border-l" : ""}`}
+            className={`flex min-h-[112px] items-start gap-3 border-b border-white/10 px-4 py-5 last:border-b-0 sm:px-5 sm:py-6 lg:border-b-0 ${index % 2 === 1 ? "sm:border-l" : ""} ${index > 1 ? "sm:border-t sm:border-b-0 lg:border-t-0" : ""} ${index > 0 ? "lg:border-l" : ""}`}
           >
             <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#2878ff]/15 text-[#5595ff]">
               <FeatureIcon kind={benefit.icon} />

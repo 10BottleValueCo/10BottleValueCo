@@ -53,6 +53,8 @@ export default function AffiliateAccountPanel({
   orders = [],
   paidOut = 0,
   loading = false,
+  refreshing = loading,
+  refreshError = false,
   payoutError = false,
   ordersError = false,
   affiliateLink = "",
@@ -132,18 +134,29 @@ export default function AffiliateAccountPanel({
           className="lab-affiliate-panel__refresh"
           type="button"
           onClick={onRefresh}
-          disabled={loading}
-          aria-busy={loading}
+          disabled={refreshing}
+          aria-busy={refreshing}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M20 7v5h-5M4 17v-5h5" />
             <path d="M5.6 9A7 7 0 0 1 18.3 6.7L20 12M4 12l1.7 5.3A7 7 0 0 0 18.4 15" />
           </svg>
-          {loading
+          {refreshing
             ? tx("Loading…", "Загрузка…", "Завантаження…", "Wird geladen…", "Cargando…")
             : tx("Refresh", "Обновить", "Оновити", "Aktualisieren", "Actualizar")}
         </button>
       </header>
+      {refreshError && (
+        <p className="lab-affiliate-refresh-error" role="status">
+          {tx(
+            "Could not refresh right now. Showing the last loaded data.",
+            "Не удалось обновить данные. Показана последняя загруженная версия.",
+            "Не вдалося оновити дані. Показано останню завантажену версію.",
+            "Aktualisierung fehlgeschlagen. Die zuletzt geladenen Daten werden angezeigt.",
+            "No se pudo actualizar. Se muestran los últimos datos cargados.",
+          )}
+        </p>
+      )}
 
       <div className="lab-affiliate-code-card">
         <div className="lab-affiliate-code-card__details">

@@ -9,7 +9,7 @@ import cartoon08 from "@assets/generated_images/avatar-cartoon-08-dark.webp";
 import cartoon09 from "@assets/generated_images/avatar-cartoon-09-dark.webp";
 import cartoon10 from "@assets/generated_images/avatar-cartoon-10-dark.webp";
 import cartoon11 from "@assets/generated_images/avatar-cartoon-11-dark.webp";
-import cartoon12 from "@assets/generated_images/avatar-cartoon-12-dark.webp";
+import cartoon12 from "@assets/generated_images/avatar-cartoon-12-final.png";
 import serious01 from "@assets/generated_images/avatar-serious-01.webp";
 import serious02 from "@assets/generated_images/avatar-serious-02.webp";
 import serious03 from "@assets/generated_images/avatar-serious-03.webp";

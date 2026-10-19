@@ -63,6 +63,8 @@ export default function AccountDashboard({
   affiliateOrders = [],
   affiliatePaidOut = 0,
   affiliateLoading = false,
+  affiliateRefreshing = false,
+  affiliateRefreshError = false,
   affiliateOrdersError = false,
   affiliatePayoutError = false,
   affiliateLink = "",
@@ -593,6 +595,8 @@ export default function AccountDashboard({
               orders={affiliateOrders}
               paidOut={affiliatePaidOut}
               loading={affiliateLoading}
+              refreshing={affiliateRefreshing}
+              refreshError={affiliateRefreshError}
               ordersError={affiliateOrdersError}
               payoutError={affiliatePayoutError}
               affiliateLink={affiliateLink}

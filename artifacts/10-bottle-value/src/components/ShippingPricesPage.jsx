@@ -286,12 +286,12 @@ export default function ShippingPricesPage({
           {shippingBenefits.map(({ id, Icon, tone, title, description, contact }) => (
             <article
               key={id}
-              className={`flex min-w-0 items-start gap-3 bg-[#101214] p-3 sm:p-4 ${id === "support" ? "sm:col-span-2 lg:col-span-1" : ""}`}
+              className={`flex min-w-0 items-start gap-3 bg-[#101214] p-3 sm:p-4 ${id === "support" ? "shipping-benefit-support sm:col-span-2 lg:col-span-1" : ""}`}
             >
               <IconBadge tone={tone}>
                 <Icon size={19} strokeWidth={2} />
               </IconBadge>
-              <div className="min-w-0">
+              <div className={`min-w-0 ${id === "support" ? "shipping-benefit-support__content" : ""}`}>
                 <h3 className="text-xs font-extrabold leading-tight tracking-wide text-white">{title}</h3>
                 <p className="mt-1 text-[11px] leading-snug text-white/70 sm:text-xs">{description}</p>
                 {contact && (

@@ -13,3 +13,19 @@
     linear-gradient(180deg, rgba(9, 13, 18, .48), rgba(9, 13, 18, .62)),
     var(--shipping-prices-background) center / cover no-repeat;
 }
+
+@media (min-width: 640px) and (max-width: 1023.98px) {
+  .shipping-benefit-support {
+    flex-direction: column;
+    align-items: center;
+    padding-block: 1.5rem;
+    text-align: center;
+  }
+
+  .shipping-benefit-support__content {
+    display: flex;
+    max-width: 46rem;
+    flex-direction: column;
+    align-items: center;
+  }
+}

@@ -348,3 +348,9 @@ img {
   transform: none !important;
   filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.55)) !important;
 }
+
+@media (hover: hover) and (pointer: fine) {
+  .account-order-toggle:hover {
+    background-color: rgb(255 255 255 / 0.16);
+  }
+}

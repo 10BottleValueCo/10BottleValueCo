@@ -375,14 +375,14 @@ export function EmailLoginPrompt({ supabase, session, onVerified, onCancel, inli
         .email-login-prompt{position:fixed;inset:0;z-index:12000;display:flex;align-items:center;justify-content:center;overflow:auto;background:#0b0b0d;padding:16px;color:#fff}
         .email-login-prompt>[role=dialog]{box-sizing:border-box;width:100%;max-width:448px;border:1px solid #ffffff33;border-radius:26px;background:#17171b;padding:24px;color:#fff}
         .email-login-prompt input{box-sizing:border-box;width:100%;padding:12px 16px;border:1px solid #ffffff33;border-radius:16px;background:#101014;color:#fff;font-size:18px;text-align:center;letter-spacing:.3em}
-        .email-login-prompt button{box-sizing:border-box;min-height:44px;margin-top:12px;padding:10px 20px;border:1px solid #ffffff55;border-radius:30px;background:#fff;color:#000;font-weight:700;cursor:pointer}
+        .email-login-prompt button{box-sizing:border-box;min-height:44px;margin-top:12px;padding:10px 20px;border:1px solid #ffffff55;border-radius:30px;background:#fff;color:#000;font-size:15px;line-height:1.3;font-weight:700;cursor:pointer}
         .email-login-prompt button:disabled{opacity:.5;cursor:default}
         .email-login-prompt p{line-height:1.6;overflow-wrap:anywhere}
         .email-login-prompt p,.email-login-prompt label,.email-login-prompt [role=status],.email-login-prompt [role=alert]{text-transform:uppercase;letter-spacing:.06em}
         .email-login-prompt .email-login-address{text-transform:none;letter-spacing:normal}
         .email-login-prompt .email-login-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:12px}
-        .email-login-prompt .email-login-enter{background:#fff;color:#000!important;border-color:#fff;font-size:13px;font-weight:800;letter-spacing:.16em;min-height:64px;margin-top:0;box-shadow:0 6px 24px #0003}
-        .email-login-prompt .email-login-resend,.email-login-prompt .email-login-cancel{background:#000;color:#fff!important;border:1px solid #000;font-weight:700;min-height:64px}
+        .email-login-prompt .email-login-enter{background:#fff;color:#000!important;border-color:#fff;font-size:16px;font-weight:800;letter-spacing:.12em;min-height:64px;margin-top:0;box-shadow:0 6px 24px #0003}
+        .email-login-prompt .email-login-resend,.email-login-prompt .email-login-cancel{background:#000;color:#fff!important;border:1px solid #000;font-size:15px;font-weight:700;min-height:64px}
         .email-login-prompt .email-login-resend{margin-top:0}
         .email-login-prompt .email-login-cancel{margin-top:16px}
         .email-login-prompt button:not(:disabled):hover{filter:brightness(.9)}
@@ -393,10 +393,10 @@ export function EmailLoginPrompt({ supabase, session, onVerified, onCancel, inli
         .email-login-prompt--inline h2{font-size:clamp(28px,5vw,60px);font-weight:600;letter-spacing:-.04em;line-height:1.15;margin-top:12px}
         .email-login-prompt--inline p{margin-top:20px;margin-bottom:28px;font-size:14px;font-weight:600;line-height:1.8}
         .email-login-prompt--inline label{font-size:12px;font-weight:700;line-height:1.7}
-        .email-login-prompt--inline [role=status],.email-login-prompt--inline [role=alert]{font-size:11px;line-height:1.7}
+        .email-login-prompt--inline [role=status],.email-login-prompt--inline [role=alert]{font-size:13px;line-height:1.7}
         .email-login-prompt--inline input{min-height:80px;text-align:left;background:rgba(255,255,255,.04);border-radius:24px;font-size:24px;letter-spacing:.4em;padding:20px 24px}
         .email-login-prompt--inline input:focus{border-color:#ffffff99;outline:none;box-shadow:0 0 0 3px #ffffff0d}
-        .email-login-prompt--inline button{min-height:60px;background:#000;color:#fff!important;border-color:transparent;letter-spacing:.15em;text-transform:uppercase;font-size:11px}
+        .email-login-prompt--inline button{min-height:60px;background:#000;color:#fff!important;border-color:transparent;letter-spacing:.1em;text-transform:uppercase;font-size:15px;line-height:1.3}
         .email-login-prompt--inline .email-login-cancel{width:calc(50% - 6px)}
         @media(max-width:480px){.email-login-prompt--inline .email-login-cancel{width:100%}}
       `}</style>
