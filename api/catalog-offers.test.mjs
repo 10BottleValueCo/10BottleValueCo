@@ -6,6 +6,33 @@ import { normalizePackCount, normalizeWarehouse, resolveWarehouseOffer } from ".
 
 const item = overrides => ({ name: "BPC-157", dose: "10 mg", quantity: 1, ...overrides });
 
+const worldwideOnlySupplierRows = [
+  ["TB-500", "10 mg"],
+  ["Retatrutide / GLP-3", "15 mg"],
+  ["Tirzepatide / GLP-2", "15 mg"],
+  ["Semax", "5 mg"],
+  ["Selank", "5 mg"],
+  ["Glutathione", "600 mg"],
+  ["Glutathione", "1500 mg"],
+];
+
+test("supplier stock updates do not create US offers or borrow worldwide prices", () => {
+  for (const [name, dose, noteLabel = ""] of worldwideOnlySupplierRows) {
+    const selection = { name, dose, noteLabel, quantity: 1 };
+    assert.ok(findCatalogProduct(selection), `${name} ${dose} remains in the worldwide catalog`);
+    assert.doesNotThrow(() => validateAndPriceItems([selection]));
+    assert.equal(
+      findCatalogProduct({ ...selection, fromWarehouse: "us" }),
+      null,
+      `${name} ${dose} must not gain an unapproved US offer`,
+    );
+    assert.throws(
+      () => validateAndPriceItems([{ ...selection, fromWarehouse: "us" }]),
+      /no longer available/,
+    );
+  }
+});
+
 test("shared offer resolution requires the same product, strength, option, pack and warehouse", () => {
   const catalog = [
     { name: "Example", dose: "5 mg", noteLabel: "A", price: 11 },
@@ -58,10 +85,32 @@ test("missing or sold-out exact warehouse offers never borrow a different streng
   assert.throws(() => validateAndPriceItems([item({ name: "AOD", dose: "10 mg", fromWarehouse: "us" })]), /no longer available/);
   const retatrutide = { name: "Retatrutide / GLP-3", dose: "5 mg", quantity: 1 };
   assert.equal(validateAndPriceItems([retatrutide]).subtotal, 109);
-  assert.throws(() => validateAndPriceItems([{ ...retatrutide, fromWarehouse: "us" }]), /out of stock/);
+  for (const dose of ["5 mg", "20 mg", "40 mg"]) {
+    assert.throws(
+      () => validateAndPriceItems([{
+        name: "Retatrutide / GLP-3",
+        dose,
+        quantity: 1,
+        fromWarehouse: "us",
+      }]),
+      /out of stock/,
+      `US Retatrutide ${dose} cannot be checked out`,
+    );
+  }
+  for (const dose of ["50 mg", "60 mg"]) {
+    assert.doesNotThrow(
+      () => validateAndPriceItems([{
+        name: "Retatrutide / GLP-3",
+        dose,
+        quantity: 1,
+        fromWarehouse: "us",
+      }]),
+      `US Retatrutide ${dose} can be checked out`,
+    );
+  }
 });
 
-test("US warehouse stock follows the supplied count threshold and excludes GLOW", () => {
+test("US stock matches the supplied warehouse table and cutoff; GLOW70 stays excluded", () => {
   const usOffer = (name, dose, noteLabel = "") =>
     PRODUCTS.find(
       (product) =>
@@ -71,41 +120,80 @@ test("US warehouse stock follows the supplied count threshold and excludes GLOW"
         (product.noteLabel ?? "") === noteLabel,
     );
 
-  for (const [name, dose] of [
-    ["Retatrutide / GLP-3", "10 mg"],
-    ["Retatrutide / GLP-3", "20 mg"],
-    ["Retatrutide / GLP-3", "30 mg"],
-    ["Retatrutide / GLP-3", "40 mg"],
-  ]) {
-    assert.equal(usOffer(name, dose)?.outOfStock, true, `${name} ${dose} is below 40 units`);
-  }
-
-  for (const [name, dose] of [
-    ["Retatrutide / GLP-3", "15 mg"],
-    ["Retatrutide / GLP-3", "50 mg"],
-    ["Retatrutide / GLP-3", "60 mg"],
-    ["Tirzepatide / GLP-2", "40 mg"],
-    ["MOTS-C", "40 mg"],
-    ["KLOW80", "80 mg"],
-    ["Ipamorelin", "5 mg"],
-    ["Glutathione", "600 mg"],
-    ["Glutathione", "1500 mg"],
-    ["NAD+", "1000 mg"],
-    ["5-Amino-1MQ", "50 mg"],
-  ]) {
-    const product = usOffer(name, dose);
+  const inventoryRows = [
+    ["GHK-CU", "50 mg", 180],
+    ["GHK-CU", "100 mg", 169],
+    ["Retatrutide / GLP-3", "60 mg", 163],
+    ["Retatrutide / GLP-3", "10 mg", 69],
+    ["Retatrutide / GLP-3", "15 mg", 164],
+    ["Retatrutide / GLP-3", "20 mg", 0],
+    ["Retatrutide / GLP-3", "30 mg", 60],
+    ["BPC-157", "10 mg", 137],
+    ["BPC-157", "5 mg", 187],
+    ["Glutathione", "600 mg", 197],
+    ["Glutathione", "1500 mg", 151],
+    ["KLOW80", "80 mg", 86],
+    ["Tirzepatide / GLP-2", "10 mg", 139],
+    ["Tirzepatide / GLP-2", "30 mg", 134],
+    ["Tirzepatide / GLP-2", "60 mg", 157],
+    ["MOTS-C", "10 mg", 158],
+    ["MOTS-C", "20 mg", 72],
+    ["MOTS-C", "40 mg", 183],
+    ["Tesamorelin", "10 mg", 110],
+    ["Tesamorelin", "20 mg", 154],
+    ["Selank", "5 mg", 194],
+    ["Selank", "10 mg", 180],
+    ["Melanotan-1", "10 mg", 195],
+    ["MOTS-C", "10 mg", 193],
+    ["Semax", "5 mg", 194],
+    ["Semax", "10 mg", 131],
+    ["TB-500 + BPC-157", "10 mg", 177],
+    ["TB-500 + BPC-157", "20 mg", 171],
+    ["CJC-1295 + Ipamorelin", "10 mg each", 106, "no/d"],
+    ["NAD+", "500 mg", 162],
+    ["NAD+", "1000 mg", 164],
+    ["Ipamorelin", "5 mg", 185],
+    ["TB-500", "10 mg", 181],
+    ["5-Amino-1MQ", "50 mg", 185],
+    ["SS-31", "10 mg", 170],
+    ["CJC-1295", "5 mg", 199, "with/d"],
+    ["PT-141", "10 mg", 157],
+    ["KPV", "5 mg", 186],
+    ["CJC-1295", "10 mg", 195, "no/d"],
+    ["BAC Water", "10 ml", 344],
+    ["Tirzepatide / GLP-2", "15 mg", 173],
+    ["Retatrutide / GLP-3", "40 mg", 31],
+    ["Retatrutide / GLP-3", "50 mg", 175],
+    ["Tirzepatide / GLP-2", "20 mg", 163],
+    ["Tirzepatide / GLP-2", "40 mg", 174],
+    ["Tirzepatide / GLP-2", "50 mg", 180],
+  ];
+  const expectedInStock = new Set();
+  for (const [name, dose, count, noteLabel = ""] of inventoryRows) {
+    const product = usOffer(name, dose, noteLabel);
+    const hasNoApprovedUsOffer = worldwideOnlySupplierRows.some(
+      ([worldwideName, worldwideDose, worldwideNoteLabel = ""]) =>
+        name === worldwideName && dose === worldwideDose && noteLabel === worldwideNoteLabel,
+    );
+    if (hasNoApprovedUsOffer) {
+      assert.equal(product, undefined, `${name} ${dose} must not be added from the supplier table`);
+      continue;
+    }
     assert.ok(product, `${name} ${dose} has a US offer`);
-    assert.equal(product.outOfStock ?? false, false, `${name} ${dose} is in stock`);
+    assert.equal(
+      Boolean(product.outOfStock),
+      count < 50,
+      `${name} ${dose} with ${count} units follows the 50-unit cutoff`,
+    );
+    if (count > 50) expectedInStock.add(`${name}|${dose}|${noteLabel}`);
   }
 
-  for (const [name, dose] of [
-    ["DSIP", "10 mg"],
-    ["HCG", "5000 iu"],
-    ["HCG", "10000 iu"],
-    ["Epitalon", "10 mg"],
-  ]) {
-    assert.equal(usOffer(name, dose)?.outOfStock, true, `${name} ${dose} is absent or mismatched`);
-  }
+  const actualInStock = new Set(
+    PRODUCTS
+      .filter((product) => product.warehouse === "us" && !product.outOfStock)
+      .map((product) => `${product.name}|${product.dose}|${product.noteLabel ?? ""}`),
+  );
+  assert.deepEqual([...actualInStock].sort(), [...expectedInStock].sort(), "unlisted US offers remain out of stock");
 
   const cjcIpaUs = usOffer("CJC-1295 + Ipamorelin", "10 mg each", "no/d");
   assert.ok(cjcIpaUs, "CJC + IPA has an exact US offer");
@@ -120,7 +208,7 @@ test("US warehouse stock follows the supplied count threshold and excludes GLOW"
     }]).usSubtotal,
     239,
   );
-  assert.equal(PRODUCTS.some((product) => /glow/i.test(product.name)), false);
+  assert.equal(PRODUCTS.some((product) => /glow70/i.test(product.name)), false, "GLOW70 still needs a storefront price");
 });
 
 test("server rejects unsupported packs and preserves old ten-vial snapshot shape", () => {
@@ -142,19 +230,28 @@ test("new US warehouse offers stay available at the supplied prices", () => {
     ["Tesamorelin", "20 mg", 515],
     ["Melanotan-1", "10 mg", 135],
     ["KPV", "5 mg", 125],
+    ["NAD+", "1000 mg", 283],
+    ["BPC-157", "5 mg", 133],
+    ["Tirzepatide / GLP-2", "20 mg", 189],
+    ["Tirzepatide / GLP-2", "50 mg", 309],
+    ["5-Amino-1MQ", "50 mg", 249],
+    ["CJC-1295", "5 mg", 329, "with/d"],
+    ["CJC-1295", "10 mg", 315, "no/d"],
+    ["PT-141", "10 mg", 165],
   ];
 
-  for (const [name, dose, expectedPrice] of additions) {
+  for (const [name, dose, expectedPrice, noteLabel = ""] of additions) {
     const offer = PRODUCTS.find(
       (product) =>
         product.name === name &&
         product.dose === dose &&
-        product.warehouse === "us",
+        product.warehouse === "us" &&
+        (product.noteLabel ?? "") === noteLabel,
     );
     assert.ok(offer, `${name} ${dose} has a US offer`);
     assert.equal(offer.outOfStock ?? false, false, `${name} ${dose} is in stock`);
     assert.equal(
-      validateAndPriceItems([{ name, dose, quantity: 1, fromWarehouse: "us" }]).usSubtotal,
+      validateAndPriceItems([{ name, dose, noteLabel, quantity: 1, fromWarehouse: "us" }]).usSubtotal,
       expectedPrice,
       `${name} ${dose} uses the requested checkout price`,
     );
