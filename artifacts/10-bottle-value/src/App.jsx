@@ -5337,6 +5337,47 @@ export default function App() {
     void uploadAndSendAttachment(file, sendFn);
   }
 
+  function getSupportAttachmentFileName(file, attachmentDetails) {
+    const fileName = typeof file?.name === "string" ? file.name.trim() : "";
+    if (fileName) return fileName;
+
+    const extensionByType = {
+      "application/pdf": "pdf",
+      "application/msword": "doc",
+      "application/vnd.ms-excel": "xls",
+      "application/vnd.ms-powerpoint": "ppt",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+      "application/vnd.oasis.opendocument.spreadsheet": "ods",
+      "application/vnd.oasis.opendocument.text": "odt",
+      "application/rtf": "rtf",
+      "image/avif": "avif",
+      "image/bmp": "bmp",
+      "image/gif": "gif",
+      "image/heic": "heic",
+      "image/heif": "heif",
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/svg+xml": "svg",
+      "image/tiff": "tif",
+      "image/webp": "webp",
+      "text/csv": "csv",
+      "text/plain": "txt",
+      "video/3gpp": "3gp",
+      "video/mp4": "mp4",
+      "video/mpeg": "mpeg",
+      "video/ogg": "ogv",
+      "video/quicktime": "mov",
+      "video/webm": "webm",
+      "video/x-m4v": "m4v",
+      "video/x-matroska": "mkv",
+      "video/x-msvideo": "avi",
+    };
+    const extension = extensionByType[attachmentDetails?.contentType] || "bin";
+    return `pasted-attachment-${Date.now()}.${extension}`;
+  }
+
   async function uploadAndSendAttachment(file, sendFn) {
     if (!currentUser?.email) {
       setUserInboxError("Sign in to send support messages.");
@@ -5348,6 +5389,7 @@ export default function App() {
       return;
     }
     if (file.size > 100 * 1024 * 1024) { alert('Attachment must be under 100 MB'); return; }
+    const fileName = getSupportAttachmentFileName(file, attachmentDetails);
     if (chatAttachmentUploadingRef.current) return;
     chatAttachmentUploadingRef.current = true;
     setChatAttachmentUploading(true);
@@ -5368,7 +5410,7 @@ export default function App() {
           credentials: "same-origin",
           headers: uploadHeaders,
           body: JSON.stringify({
-            fileName: file.name,
+            fileName,
             contentType: attachmentDetails.contentType,
             size: file.size,
           }),
@@ -5398,7 +5440,7 @@ export default function App() {
         ...previous,
         [uploadDetails.path]: previewUrl,
       }));
-      await sendFn(uploadDetails.path, file.name, attachmentDetails.isFile, attachmentDetails.isVideo);
+      await sendFn(uploadDetails.path, fileName, attachmentDetails.isFile, attachmentDetails.isVideo);
     } catch (err) {
       alert('Upload failed: ' + err.message);
     } finally {
@@ -18829,6 +18871,9 @@ export default function App() {
                       onTyping={() => broadcastTyping("user")}
                       onSend={(message) => sendContactMessage(message)}
                       onSendAttachment={(file) => uploadAndSendAttachment(file, sendAttachmentAsUserMessage)}
+                      onPasteAttachment={(event) =>
+                        handleSupportAttachmentPaste(event, sendAttachmentAsUserMessage)
+                      }
                       onRetry={() => loadUserInbox(false, true)}
                       renderMessageContent={renderMsgContent}
                       messageDomId={chatMsgDomId}

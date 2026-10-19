@@ -81,6 +81,7 @@ export default function AccountMessages({
   onTyping = () => {},
   onSend = () => {},
   onSendAttachment = () => {},
+  onPasteAttachment = () => {},
   onRetry = () => {},
   renderMessageContent,
   messageDomId,
@@ -323,6 +324,7 @@ export default function AccountMessages({
               onValueChange={onDraftChange}
               onImmediateInput={handleDraftImmediateInput}
               onKeyDown={handleKeyDown}
+              onPaste={onPasteAttachment}
               placeholder="How can we help?"
               rows={2}
               maxLength={1000}
