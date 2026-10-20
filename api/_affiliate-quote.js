@@ -106,8 +106,11 @@ export async function verifyAffiliateQuote({ code, email, customerId, disabled =
     if (records.length > 1 || records.some(row => !row || typeof row !== 'object')) throw new AffiliateQuoteError();
     const selected = records[0];
     if (!selected || String(selected.code || '').trim().toUpperCase() !== selectedCode || selected.active !== true
-      || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(selected.email || '')
-      || selected.email.trim().toLowerCase() === email) throw new AffiliateQuoteError(409);
+      || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(selected.email || '')) throw new AffiliateQuoteError(409);
+    if (selected.email.trim().toLowerCase() === email) {
+      throw new AffiliateQuoteError(409, 'MERIT_AFFILIATE_SELF_REFERRAL',
+        'You cannot use your own affiliate code.');
+    }
     return selected.email.trim().toLowerCase();
   }
   // A paid order is the durable attribution record. It takes priority over any

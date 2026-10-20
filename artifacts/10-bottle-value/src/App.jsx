@@ -11721,17 +11721,10 @@ export default function App() {
     if (matchedAffiliate) {
       if (
         currentUser?.email &&
-        matchedAffiliate.ownerEmail === currentUser.email
+        String(matchedAffiliate.ownerEmail || "").trim().toLowerCase() ===
+          currentUser.email.trim().toLowerCase()
       ) {
-        setPromoMessage(
-          tx(
-            "You cannot use your own affiliate code.",
-            "Вы не можете использовать собственный партнёрский код.",
-            "Ви не можете використовувати власний партнерський код.",
-            "Sie können Ihren eigenen Affiliate-Code nicht verwenden.",
-            "No puedes usar tu propio código de afiliado."
-          )
-        );
+        setPromoMessage("You cannot use your own affiliate code.");
         return;
       }
 
@@ -11758,6 +11751,10 @@ export default function App() {
           });
           const eligibility = await response.json().catch(() => ({}));
           if (requestId !== promoApplyRequestRef.current) return;
+          if (response.status === 409 && eligibility?.code === "MERIT_AFFILIATE_SELF_REFERRAL") {
+            setPromoMessage("You cannot use your own affiliate code.");
+            return;
+          }
           if (response.status === 409 && eligibility?.code === "MERIT_AFFILIATE_FIRST_ORDER_ONLY") {
             setPromoMessage(
               tx(

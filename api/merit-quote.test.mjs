@@ -301,6 +301,19 @@ test('verified referral calculates first-order discount and frozen commission fr
   assert.equal(result.snapshot.affiliateRule, undefined);
   assert.equal(result.amountCents, 17204);
 });
+test('own affiliate codes return an explicit English error after normalizing owner email', async () => {
+  const db = affiliateDb({ affiliate: { code: 'PARTNER', email: EMAIL.toUpperCase(), active: true } });
+  await assert.rejects(verifyAffiliateQuote({
+    code: 'PARTNER', email: EMAIL,
+    customerId: db.options.customerId,
+    supabaseUrl: db.options.supabaseUrl,
+    serviceRoleKey: db.options.serviceRoleKey,
+    rules: db.options.affiliateRules,
+    fetcher: db.options.fetcher,
+  }), error => error.status === 409
+    && error.code === 'MERIT_AFFILIATE_SELF_REFERRAL'
+    && error.message === 'You cannot use your own affiliate code.');
+});
 test('referral keeps larger volume discount, and never gives repeat buyers a first-order discount', async () => {
   const large = await quote({ ...withQuantity(10), affiliateCode: 'PARTNER' }, EMAIL, affiliateDb().options);
   assert.equal(large.affiliateDiscountCents, 0); assert.equal(large.automaticDiscountCents, 13900);
