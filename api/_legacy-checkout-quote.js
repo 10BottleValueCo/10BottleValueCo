@@ -33,7 +33,7 @@ export async function legacyCheckoutQuote(body, email, { crypto = false, custome
   return { pricedItems, subtotal, regularSubtotal, promoDiscount, discountRule, finalAutomaticDiscount, finalAffiliateDiscount,
     shipping, cryptoDiscount, total, affiliateCode: affiliate?.code || '', affiliateAttributionCode: affiliate?.code || '',
     affiliateOwnerEmail: affiliate?.ownerEmail || '', affiliateCommission: discountAmount(subtotal, (affiliate?.commissionBps || 0) / 10000),
-    affiliateRuleVersion: affiliate?.rule.version || null };
+    affiliateRuleVersion: affiliate?.rule?.version || null };
 }
 
 // This check runs before a reservation, quote write or provider invoice creation.
