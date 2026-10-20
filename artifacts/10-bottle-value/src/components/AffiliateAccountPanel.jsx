@@ -205,10 +205,6 @@ export default function AffiliateAccountPanel({
           <span>{tx("Commission earned", "Начислено комиссий", "Нараховано комісій", "Verdiente Provision", "Comisiones generadas")}</span>
           <strong>{ordersError ? "—" : loading ? "…" : money(formatPrice, pendingEarnings + releasedEarnings)}</strong>
         </article>
-        <article className="lab-affiliate-stat">
-          <span>{tx("Pending", "Ожидает разблокировки", "Очікує розблокування", "Ausstehend", "Pendiente")}</span>
-          <strong>{ordersError ? "—" : loading ? "…" : money(formatPrice, pendingEarnings)}</strong>
-        </article>
         <article className="lab-affiliate-stat lab-affiliate-stat--available">
           <span>{tx("Available balance", "Доступно к выплате", "Доступно до виплати", "Verfügbares Guthaben", "Saldo disponible")}</span>
           <strong>{ordersError || payoutError ? "—" : loading ? "…" : money(formatPrice, availableBalance)}</strong>
