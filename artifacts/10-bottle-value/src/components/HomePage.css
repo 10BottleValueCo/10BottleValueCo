@@ -48,16 +48,20 @@
   .tbv-app-shell > header > div:first-child > a img {
     height: 59px !important;
   }
+
+  .tbv-app-shell--home > header[data-home-header="true"] > div:first-child {
+    padding-top: 9px !important;
+  }
 }
 
 @media (min-width: 1280px) {
   .tbv-app-shell--home {
-    --home-header-height: 80px;
+    --home-header-height: 71px;
     position: relative;
   }
 
   .tbv-app-shell--home > header[data-home-header="true"] > div:first-child {
-    padding-top: 17px !important;
+    padding-top: 9px !important;
   }
 
   .tbv-app-shell--home > header[data-home-header="true"] > div:first-child > a img {
@@ -80,33 +84,13 @@
 
 @media (min-width: 1024px) and (max-width: 1535px) {
   .tbv-app-shell--home {
-    --home-header-height: 82px;
+    --home-header-height: 71px;
     position: relative;
   }
 
   .tbv-app-shell--home > header[data-home-header="true"] {
     margin-bottom: calc(-1 * var(--home-header-height));
     border-bottom-color: rgba(255, 255, 255, .24);
-  }
-
-  .tbv-app-shell--home > header[data-home-header="true"] > div:first-child {
-    min-height: 0;
-    gap: 6px;
-    padding: 6px 14px 0 !important;
-  }
-
-  .tbv-app-shell--home > header[data-home-header="true"] > div:first-child > a {
-    flex: 0 0 auto;
-    gap: 2px;
-  }
-
-  .tbv-app-shell--home > header[data-home-header="true"] > div:first-child > a img {
-    height: 43px !important;
-  }
-
-  .tbv-app-shell--home > header[data-home-header="true"] > div:first-child > a span {
-    font-size: 18px !important;
-    letter-spacing: .04em !important;
   }
 
   .tbv-app-shell--home > [data-home-cookie="true"] {
