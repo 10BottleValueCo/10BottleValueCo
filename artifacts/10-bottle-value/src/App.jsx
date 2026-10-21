@@ -5131,8 +5131,16 @@ export default function App() {
     const requestItems = [];
     const seen = new Set();
     for (const message of [...userInboxMessages, ...adminMessages]) {
-      const messageId = Number(message?.id);
-      if (!Number.isSafeInteger(messageId) || messageId < 1) continue;
+      const rawMessageId = message?.id;
+      const messageId = typeof rawMessageId === "string"
+        ? rawMessageId.trim()
+        : Number.isSafeInteger(rawMessageId) && rawMessageId > 0
+          ? String(rawMessageId)
+          : "";
+      if (
+        !/^[1-9]\d{0,19}$/.test(messageId) &&
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(messageId)
+      ) continue;
       for (const field of ["message", "admin_reply"]) {
         for (const path of getChatAttachmentReferences(message?.[field])) {
           const key = `${messageId}:${field}:${path}`;
@@ -17266,7 +17274,7 @@ export default function App() {
                                                 const key = `${entry.messageId}:${entry.field}:${path}`;
                                                 if (seenAttachments.has(key)) continue;
                                                 seenAttachments.add(key);
-                                                attachmentRequests.push({ path, messageId: Number(entry.messageId), field: entry.field });
+                                                attachmentRequests.push({ path, messageId: entry.messageId, field: entry.field });
                                               }
                                             });
                                             const exportAttachmentUrls = {};

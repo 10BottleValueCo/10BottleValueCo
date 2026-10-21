@@ -361,6 +361,35 @@ test("signed-in customers can sign only paths in their own support message", asy
   );
 });
 
+test("attachment access preserves UUID support-message IDs", async (t) => {
+  const messageId = "d290f1ee-6c54-4b01-90e6-d701748f0851";
+  const calls = [];
+  withEnvironment(t, async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (String(url).endsWith("/auth/v1/user")) return verifiedUserResponse();
+    assert.ok(serviceHeaders(options));
+    if (String(url).includes("/rest/v1/contact_messages?")) {
+      return response([{ id: messageId, email: USER_EMAIL, message: "[IMAGE:" + OBJECT_PATH + "]", admin_reply: null }]);
+    }
+    if (String(url).endsWith("/storage/v1/object/sign/chat-images")) {
+      return response([{ path: OBJECT_PATH, signedURL: "/object/sign/chat-images/" + OBJECT_PATH + "?token=uuid-message-read-token" }]);
+    }
+    throw new Error("Unexpected request: " + url);
+  });
+
+  const res = mockResponse();
+  await handleSupportAttachmentAccess(
+    request({ attachments: [{ path: OBJECT_PATH, messageId, field: "message" }] },
+      { headers: { authorization: "Bearer verified-user-token" } }),
+    res,
+  );
+
+  assert.equal(res.statusCode, 200);
+  assert.match(res.body.attachments[0].url, /uuid-message-read-token/);
+  const lookup = calls.find((call) => String(call.url).includes("/rest/v1/contact_messages?"));
+  assert.equal(new URL(lookup.url).searchParams.get("id"), "in.(" + messageId + ")");
+});
+
 test("customers cannot sign an attachment from another email's message", async (t) => {
   let readSigningCalls = 0;
   withEnvironment(t, async (url, options = {}) => {

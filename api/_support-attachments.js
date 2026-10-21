@@ -428,11 +428,11 @@ function readAttachmentInputs(body) {
       throw new AttachmentError(400, "An attachment reference is invalid.");
     }
     const messageId =
-      item.messageId === undefined ? undefined : Number(item.messageId);
+      item.messageId === undefined ? undefined : normalizeMessageId(item.messageId);
     const field = item.field;
     if (
       (messageId !== undefined &&
-        (!Number.isSafeInteger(messageId) || messageId < 1)) ||
+        !messageId) ||
       (field !== undefined && field !== "message" && field !== "admin_reply")
     ) {
       throw new AttachmentError(400, "An attachment reference is invalid.");
@@ -444,6 +444,15 @@ function readAttachmentInputs(body) {
       field,
     };
   });
+}
+
+function normalizeMessageId(value) {
+  const id = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
+  if (/^[1-9]\d{0,19}$/.test(id)) return id;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    return id;
+  }
+  return null;
 }
 
 async function getMessageRows(ids) {
@@ -588,7 +597,7 @@ export async function handleSupportAttachmentAccess(req, res) {
       }
       const ids = [...new Set(items.map((item) => item.messageId))];
       const rows = await getMessageRows(ids);
-      const rowById = new Map(rows.map((row) => [Number(row.id), row]));
+      const rowById = new Map(rows.map((row) => [String(row.id), row]));
 
       for (const item of items) {
         const row = rowById.get(item.messageId);
