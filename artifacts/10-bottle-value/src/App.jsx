@@ -17251,24 +17251,53 @@ export default function App() {
                                           const dlTimeline = [];
                                           sorted.forEach(m => {
                                             const isOut = m.message === "[Admin initiated message]";
-                                            if (!isOut) dlTimeline.push({ type: "in", ts: m.created_at, text: m.message });
-                                            if (m.admin_reply || isOut) dlTimeline.push({ type: "out", ts: m.replied_at || m.created_at, text: isOut ? (m.message.replace("[Admin initiated message]","").trim() || m.admin_reply || "") : m.admin_reply });
+                                            if (!isOut) dlTimeline.push({ type: "in", ts: m.created_at, text: m.message, messageId: m.id, field: "message" });
+                                            if (m.admin_reply || isOut) dlTimeline.push({ type: "out", ts: m.replied_at || m.created_at, text: isOut ? (m.message.replace("[Admin initiated message]","").trim() || m.admin_reply || "") : m.admin_reply, messageId: m.id, field: isOut ? "admin_reply" : "admin_reply" });
                                           });
                                           dlTimeline.sort((a, b) => new Date(a.ts) - new Date(b.ts));
-                                          const lines = [
-                                            `Conversation with: ${email}`,
-                                            `Exported: ${new Date().toLocaleString()}`,
-                                            "─".repeat(60), "",
-                                            ...dlTimeline.map(e => {
-                                              const who = e.type === "in" ? email : "Support";
-                                              const time = new Date(e.ts).toLocaleString();
-                                              return `[${time}] ${who}:\n${e.text}\n`;
-                                            })
-                                          ];
-                                          // Generate PDF using jsPDF
                                           const loadAndExport = async () => {
                                             if (!window.jspdf) {
                                               await new Promise((res, rej) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+                                            }
+                                            const attachmentRequests = [];
+                                            const seenAttachments = new Set();
+                                            dlTimeline.forEach(entry => {
+                                              for (const path of getChatAttachmentReferences(entry.text)) {
+                                                const key = `${entry.messageId}:${entry.field}:${path}`;
+                                                if (seenAttachments.has(key)) continue;
+                                                seenAttachments.add(key);
+                                                attachmentRequests.push({ path, messageId: Number(entry.messageId), field: entry.field });
+                                              }
+                                            });
+                                            const exportAttachmentUrls = {};
+                                            if (attachmentRequests.length) {
+                                              const {
+                                                data: { session },
+                                                error: sessionError,
+                                              } = await supabase.auth.getSession();
+                                              if (sessionError || !session?.access_token) {
+                                                throw new Error("Sign in again to export chat photos.");
+                                              }
+                                              for (let offset = 0; offset < attachmentRequests.length; offset += 100) {
+                                                const response = await fetch("/api/support-attachments/access-urls", {
+                                                  method: "POST",
+                                                  credentials: "same-origin",
+                                                  headers: {
+                                                    "Content-Type": "application/json",
+                                                    Authorization: `Bearer ${session.access_token}`,
+                                                  },
+                                                  body: JSON.stringify({ attachments: attachmentRequests.slice(offset, offset + 100) }),
+                                                });
+                                                const result = await response.json().catch(() => null);
+                                                if (!response.ok) {
+                                                  throw new Error(result?.error || "Could not load chat attachments for export.");
+                                                }
+                                                for (const attachment of result?.attachments || []) {
+                                                  if (typeof attachment?.reference === "string" && typeof attachment?.url === "string") {
+                                                    exportAttachmentUrls[attachment.reference] = attachment.url;
+                                                  }
+                                                }
+                                              }
                                             }
                                             const { jsPDF } = window.jspdf;
                                             const doc = new jsPDF({ unit: "mm", format: "a4" });
@@ -17279,6 +17308,37 @@ export default function App() {
                                             let y = margin;
                                             const addPage = () => { doc.addPage(); y = margin; };
                                             const checkY = (h) => { if (y + h > pageH - margin) addPage(); };
+                                            const toPdfImage = async (url) => {
+                                              const response = await fetch(url, { mode: "cors", credentials: "omit" });
+                                              if (!response.ok) throw new Error("Photo could not be downloaded.");
+                                              const blob = await response.blob();
+                                              const objectUrl = URL.createObjectURL(blob);
+                                              try {
+                                                const image = await new Promise((resolve, reject) => {
+                                                  const element = new Image();
+                                                  element.onload = () => resolve(element);
+                                                  element.onerror = () => reject(new Error("Photo format is not supported in PDF."));
+                                                  element.src = objectUrl;
+                                                });
+                                                const maxEdge = 1600;
+                                                const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth, image.naturalHeight));
+                                                const canvas = document.createElement("canvas");
+                                                canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+                                                canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+                                                const context = canvas.getContext("2d");
+                                                if (!context) throw new Error("Could not prepare photo for PDF.");
+                                                context.fillStyle = "#fff";
+                                                context.fillRect(0, 0, canvas.width, canvas.height);
+                                                context.drawImage(image, 0, 0, canvas.width, canvas.height);
+                                                return {
+                                                  data: canvas.toDataURL("image/jpeg", 0.88),
+                                                  width: image.naturalWidth,
+                                                  height: image.naturalHeight,
+                                                };
+                                              } finally {
+                                                URL.revokeObjectURL(objectUrl);
+                                              }
+                                            };
                                             // Header
                                             doc.setFillColor(20, 20, 20);
                                             doc.rect(0, 0, pageW, 22, "F");
@@ -17301,13 +17361,55 @@ export default function App() {
                                             doc.line(margin, y, pageW - margin, y);
                                             y += 6;
                                             // Messages
-                                            dlTimeline.forEach(entry => {
+                                            for (const entry of dlTimeline) {
                                               const isSupport = entry.type === "out";
                                               const who = isSupport ? "Support" : email;
                                               const time = new Date(entry.ts).toLocaleString();
-                                              const text = entry.text || "";
-                                              const wrappedText = doc.splitTextToSize(text, maxW - 6);
-                                              const bubbleH = wrappedText.length * 5 + 12;
+                                              const photoBlocks = [];
+                                              const sourceText = extractQuoteSnippet(entry.text) !== null ? stripQuoteMarker(entry.text) : (entry.text || "");
+                                              const text = sourceText.replace(/\[IMAGE:([^\]]+)\]|\[VIDEO:([^\]]+)\]|\[FILE:([^:\]]+):([^\]]*)\]/g, (tag, imagePath, videoPath, filePath, encodedName) => {
+                                                if (imagePath) {
+                                                  photoBlocks.push({ type: "image", path: imagePath });
+                                                  return "";
+                                                }
+                                                if (videoPath) return "[Video attachment]";
+                                                if (filePath) {
+                                                  let fileName = encodedName || "attachment";
+                                                  try { fileName = decodeURIComponent(fileName); } catch {}
+                                                  return `[File attachment: ${fileName}]`;
+                                                }
+                                                return tag;
+                                              }).trim();
+                                              for (const photo of photoBlocks) {
+                                                const url = exportAttachmentUrls[photo.path];
+                                                if (!url) {
+                                                  photo.label = "Photo attachment (could not be loaded)";
+                                                  continue;
+                                                }
+                                                try {
+                                                  photo.image = await toPdfImage(url);
+                                                } catch {
+                                                  photo.label = "Photo attachment (could not be embedded in PDF)";
+                                                }
+                                              }
+                                              const wrappedText = text ? doc.splitTextToSize(text, maxW - 8) : [];
+                                              const textHeight = wrappedText.length * 4.5;
+                                              const imageSizes = photoBlocks.map(photo => {
+                                                if (!photo.image) return { width: 0, height: 5, label: photo.label || "Photo attachment unavailable" };
+                                                const maxImageW = maxW - 12;
+                                                const maxImageH = 82;
+                                                const scale = Math.min(maxImageW / photo.image.width, maxImageH / photo.image.height);
+                                                return {
+                                                  width: photo.image.width * scale,
+                                                  height: photo.image.height * scale,
+                                                  data: photo.image.data,
+                                                };
+                                              });
+                                              const attachmentHeight = imageSizes.reduce((total, image) => total + image.height + 3, 0);
+                                              const fileTextHeight = text.split("\n").filter(Boolean).length > wrappedText.length
+                                                ? text.split("\n").filter(Boolean).length * 4.5
+                                                : 0;
+                                              const bubbleH = Math.max(18, textHeight + fileTextHeight + attachmentHeight + 16);
                                               checkY(bubbleH + 4);
                                               // Bubble background
                                               if (isSupport) {
@@ -17325,16 +17427,31 @@ export default function App() {
                                               doc.setFont("helvetica", "normal");
                                               doc.setTextColor(160, 160, 160);
                                               doc.text(time, bx + maxW - 4, y + 6, { align: "right" });
-                                              // Message text
+                                              // Message text and photo attachments
                                               doc.setFontSize(9);
                                               doc.setFont("helvetica", "normal");
                                               doc.setTextColor(30, 30, 30);
-                                              doc.text(wrappedText, bx + 4, y + 12);
+                                              let contentY = y + 12;
+                                              if (wrappedText.length) {
+                                                doc.text(wrappedText, bx + 4, contentY);
+                                                contentY += textHeight + 2;
+                                              }
+                                              imageSizes.forEach(image => {
+                                                if (image.data) {
+                                                  doc.addImage(image.data, "JPEG", bx + 4, contentY, image.width, image.height);
+                                                  contentY += image.height + 3;
+                                                } else {
+                                                  doc.setTextColor(110, 110, 110);
+                                                  doc.text(image.label, bx + 4, contentY);
+                                                  doc.setTextColor(30, 30, 30);
+                                                  contentY += 7;
+                                                }
+                                              });
                                               y += bubbleH + 4;
-                                            });
+                                            }
                                             doc.save(`chat-${email}-${new Date().toISOString().slice(0,10)}.pdf`);
                                           };
-                                          loadAndExport();
+                                          loadAndExport().catch(error => alert(`Could not export chat: ${error.message || "Please try again."}`));
                                         }} className="flex items-center gap-1.5 text-[10px] text-white/30 hover:text-sky-300 transition-colors">
                                           <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                                           Download chat
