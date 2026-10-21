@@ -11758,11 +11758,11 @@ export default function App() {
           if (response.status === 409 && eligibility?.code === "MERIT_AFFILIATE_FIRST_ORDER_ONLY") {
             setPromoMessage(
               tx(
-                "Affiliate codes are only available before your first paid order.",
-                "Партнёрский код можно применить только до первого оплаченного заказа.",
-                "Партнерський код можна застосувати лише до першого оплаченого замовлення.",
-                "Affiliate-Codes sind nur vor der ersten bezahlten Bestellung verfügbar.",
-                "Los códigos de afiliado solo están disponibles antes del primer pedido pagado."
+                "Affiliate codes can only be applied before your first paid order. Your account is already linked, or has already completed an order.",
+                "Партнёрский код можно применить только до первого оплаченного заказа. Аккаунт уже привязан к партнёру или заказ уже был оплачен.",
+                "Партнерський код можна застосувати лише до першого оплаченого замовлення. Обліковий запис уже прив’язаний або замовлення вже було оплачене.",
+                "Affiliate-Codes können nur vor der ersten bezahlten Bestellung angewendet werden. Ihr Konto ist bereits verknüpft oder hat schon bestellt.",
+                "Los códigos de afiliado solo se pueden aplicar antes del primer pedido pagado. La cuenta ya está vinculada o ya completó un pedido."
               )
             );
             return;
@@ -21383,7 +21383,7 @@ export default function App() {
                           {promoMessage}
                         </div>
                       )}
-                      {resolvedAffiliateCode && !appliedPromo && !affiliateDiscountDisabled && (
+                      {resolvedAffiliateCode && !appliedPromo && !affiliateDiscountDisabled && affiliateEligibility?.status !== "first_order_only" && (
                         <div role="status" className="w-full text-xs leading-5 text-white/80">
                           {!currentUser?.email
                             ? tx("Sign in to confirm your first-order discount.", "Войдите, чтобы подтвердить скидку на первый заказ.", "Увійдіть, щоб підтвердити знижку на перше замовлення.", "Melden Sie sich an, um Ihren Erstbestellungsrabatt zu bestätigen.", "Inicia sesión para confirmar tu descuento del primer pedido.")

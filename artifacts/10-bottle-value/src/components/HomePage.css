@@ -758,6 +758,15 @@
     font-size: clamp(10px, 3vw, 11px);
     letter-spacing: .02em;
   }
+  .tbv-home__hero-reference-shop-actions .tbv-home__hero-reference-action:nth-child(2) {
+    gap: 5px;
+    padding-inline: 5px;
+  }
+  .tbv-home__hero-reference-shop-actions .tbv-home__hero-reference-action:nth-child(2) .tbv-home__button-icon--flag {
+    width: 15px;
+    height: auto;
+    flex-basis: 15px;
+  }
   .tbv-home__hero--reference .tbv-home__arrow { font-size: 12px; }
   .tbv-home__hero--localized {
     aspect-ratio: auto;
@@ -1182,6 +1191,14 @@
   .tbv-home__social-star { width: 30px; height: 30px; font-size: 19px; }
   .tbv-home__social-meta { margin-top: 10px; font-size: 13px; }
   .tbv-home__social-button { min-height: 42px; margin-top: 18px; padding-inline: 19px; font-size: 11px; }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .tbv-home__social-link--peptigrity {
+    grid-column: 1 / -1;
+    justify-self: center;
+    width: calc((100% - clamp(20px, 2.4vw, 34px)) / 2);
+  }
 }
 
 @media (min-width: 1024px) {
