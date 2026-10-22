@@ -4753,6 +4753,8 @@ export default function App() {
   const chatAttachmentUploadingRef = useRef(false);
   const [chatLightboxUrl, setChatLightboxUrl] = useState(null);
   const [chatAttachmentUrls, setChatAttachmentUrls] = useState({});
+  const [chatAttachmentErrors, setChatAttachmentErrors] = useState({});
+  const [chatAttachmentRetryVersion, setChatAttachmentRetryVersion] = useState(0);
   const chatAttachmentObjectUrlsRef = useRef(new Set());
   const chatAttachmentIdentityRef = useRef(currentUser?.email?.toLowerCase() || "");
   useEffect(() => () => {
@@ -4770,6 +4772,7 @@ export default function App() {
     }
     chatAttachmentObjectUrlsRef.current.clear();
     setChatAttachmentUrls({});
+    setChatAttachmentErrors({});
   }, [currentUser?.email]);
   const [adminIsTyping, setAdminIsTyping] = useState(false);
   const [userIsTyping, setUserIsTyping] = useState(false);
@@ -5159,15 +5162,32 @@ export default function App() {
     if (!requestItems.length) return undefined;
 
     let loading = false;
+    const setAttachmentErrors = (items, message) => {
+      if (!active) return;
+      setChatAttachmentErrors((previous) => {
+        const next = { ...previous };
+        for (const item of items) next[item.path] = message;
+        return next;
+      });
+    };
     async function loadPrivateAttachmentUrls() {
       if (loading || !active || document.visibilityState !== "visible") return;
       loading = true;
       try {
+      setChatAttachmentErrors((previous) => {
+        const next = { ...previous };
+        for (const item of requestItems) delete next[item.path];
+        return next;
+      });
       const {
         data: { session },
         error: sessionError,
       } = await supabase.auth.getSession();
-      if (!active || sessionError || !session?.access_token) return;
+      if (!active) return;
+      if (sessionError || !session?.access_token) {
+        setAttachmentErrors(requestItems, "Sign in again to load this photo.");
+        return;
+      }
 
       for (let offset = 0; offset < requestItems.length; offset += 100) {
         const batch = requestItems.slice(offset, offset + 100);
@@ -5180,9 +5200,16 @@ export default function App() {
           },
           body: JSON.stringify({ attachments: batch }),
         });
-        if (!response.ok) continue;
         const result = await response.json().catch(() => null);
+        if (!response.ok) {
+          setAttachmentErrors(
+            batch,
+            result?.error || "Could not load photo (HTTP " + response.status + ").",
+          );
+          continue;
+        }
         if (!active || !Array.isArray(result?.attachments)) continue;
+        const loadedReferences = new Set();
         setChatAttachmentUrls((previous) => {
           const next = { ...previous };
           for (const attachment of result.attachments) {
@@ -5191,7 +5218,16 @@ export default function App() {
               typeof attachment?.url === "string"
             ) {
               next[attachment.reference] = attachment.url;
+              loadedReferences.add(attachment.reference);
             }
+          }
+          return next;
+        });
+        setChatAttachmentErrors((previous) => {
+          const next = { ...previous };
+          for (const item of batch) {
+            if (loadedReferences.has(item.path)) delete next[item.path];
+            else next[item.path] = "The server did not return an access link.";
           }
           return next;
         });
@@ -5203,6 +5239,10 @@ export default function App() {
 
     loadPrivateAttachmentUrls().catch((error) => {
       console.error("Support attachment links could not be refreshed:", error);
+      setAttachmentErrors(
+        requestItems,
+        error?.message || "Could not connect to the attachment service.",
+      );
     });
     const refreshWhenVisible = () => {
       loadPrivateAttachmentUrls().catch((error) => {
@@ -5218,7 +5258,7 @@ export default function App() {
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [chatAttachmentRequestKey, currentUser?.email]);
+  }, [chatAttachmentRequestKey, chatAttachmentRetryVersion, currentUser?.email]);
 
   function renderMsgContent(text, messageId, field = "message") {
     if (!text) return null;
@@ -5270,8 +5310,35 @@ export default function App() {
       const imgM = part.match(/^\[IMAGE:(.+)\]$/);
       if (imgM) {
         const attachmentUrl = chatAttachmentUrls[imgM[1]] || "";
+        const attachmentError = chatAttachmentErrors[imgM[1]];
+        if (!attachmentUrl) {
+          return (
+            <div key={i} className="mt-1.5 rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-xs text-white/70">
+              <span>{attachmentError || "Loading photo…"}</span>
+              {attachmentError && (
+                <button
+                  type="button"
+                  onClick={() => setChatAttachmentRetryVersion((version) => version + 1)}
+                  className="ml-2 font-bold text-sky-300 underline underline-offset-2"
+                >
+                  Retry
+                </button>
+              )}
+            </div>
+          );
+        }
         return (
-          <img key={i} src={attachmentUrl || undefined} alt="" className="mt-1.5 max-w-[240px] max-h-[200px] rounded-xl object-cover cursor-pointer block" onClick={attachmentUrl ? () => setChatLightboxUrl(attachmentUrl) : undefined} />
+          <img key={i} src={attachmentUrl} alt="Support chat attachment" className="mt-1.5 max-w-[240px] max-h-[200px] rounded-xl object-cover cursor-pointer block" onClick={() => setChatLightboxUrl(attachmentUrl)} onError={() => {
+            setChatAttachmentUrls((previous) => {
+              const next = { ...previous };
+              delete next[imgM[1]];
+              return next;
+            });
+            setChatAttachmentErrors((previous) => ({
+              ...previous,
+              [imgM[1]]: "The photo link expired or the file could not be opened.",
+            }));
+          }} />
         );
       }
       const videoM = part.match(/^\[VIDEO:(.+)\]$/);
