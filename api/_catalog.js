@@ -176,6 +176,7 @@ const PRODUCT_ROWS = [
 const US_WAREHOUSE_IN_STOCK_OFFERS = new Set([
   "GHK-CU|50 mg",
   "GHK-CU|100 mg",
+  "HCG|5000 iu",
   "Retatrutide / GLP-3|10 mg",
   "Retatrutide / GLP-3|30 mg",
   "Retatrutide / GLP-3|50 mg",

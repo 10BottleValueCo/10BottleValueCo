@@ -188,6 +188,11 @@ test("US stock matches the supplied warehouse table and cutoff; GLOW70 stays exc
     if (count > 50) expectedInStock.add(`${name}|${dose}|${noteLabel}`);
   }
 
+  const explicitlyRestoredHcg = usOffer("HCG", "5000 iu");
+  assert.ok(explicitlyRestoredHcg, "HCG 5000 IU has an exact US offer");
+  assert.equal(explicitlyRestoredHcg.outOfStock ?? false, false, "HCG 5000 IU was explicitly restored");
+  expectedInStock.add("HCG|5000 iu|");
+
   const actualInStock = new Set(
     PRODUCTS
       .filter((product) => product.warehouse === "us" && !product.outOfStock)
@@ -256,6 +261,17 @@ test("new US warehouse offers stay available at the supplied prices", () => {
       `${name} ${dose} uses the requested checkout price`,
     );
   }
+});
+
+test("explicitly restored US HCG 5000 IU can be checked out at its catalog price", () => {
+  const quote = validateAndPriceItems([{
+    name: "HCG",
+    dose: "5000 iu",
+    quantity: 1,
+    fromWarehouse: "us",
+  }]);
+  assert.equal(quote.usSubtotal, 209);
+  assert.equal(quote.pricedItems[0].price, 209);
 });
 
 test("US Reconstitution Solution checkout quote matches its storefront price", () => {
