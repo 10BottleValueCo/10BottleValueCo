@@ -37,7 +37,16 @@ export async function legacyCheckoutQuote(body, email, { crypto = false, custome
 }
 
 // This check runs before a reservation, quote write or provider invoice creation.
-export function assertExpectedTotal(expected, total) {
+export function assertExpectedTotal(expected, total, legacyReviewedTotal) {
+  // Older Paylio storefronts send their displayed total as amount rather than
+  // expectedTotal. Compare that request amount with the independent server quote,
+  // never the quote itself or a stored total that may have changed since review.
+  // An explicitly supplied invalid/different expectedTotal must not be hidden.
+  if (expected === undefined) {
+    expected = typeof legacyReviewedTotal === 'string' && /^\d+(?:\.\d+)?$/.test(legacyReviewedTotal.trim())
+      ? Number(legacyReviewedTotal)
+      : legacyReviewedTotal;
+  }
   if (typeof expected !== 'number' || !Number.isFinite(expected) || expected <= 0) {
     throw Object.assign(new Error('Refresh the page to review the current checkout total before paying.'), { status: 409, code: 'CHECKOUT_REFRESH_REQUIRED' });
   }

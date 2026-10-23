@@ -171,7 +171,7 @@ export default async function handler(req, res, checkoutBody) {
       return res.status(400).json({ error: "Order total must be greater than zero." });
     }
 
-    assertExpectedTotal(body.expectedTotal, amount);
+    assertExpectedTotal(body.expectedTotal, amount, body.amount);
     const safeAmount = amount.toFixed(2);
     const baseUrl = process.env.BASE_URL || "https://10bottlevalue.co";
     const source = access.order.metadata || {};

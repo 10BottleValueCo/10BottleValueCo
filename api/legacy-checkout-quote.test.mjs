@@ -2,6 +2,25 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { legacyCheckoutQuote, assertExpectedTotal } from "./_legacy-checkout-quote.js";
 
+test("legacy request amounts remain subject to independent server price comparison", () => {
+  for (const legacyAmount of [1012.4, "1012.40"]) {
+    assert.doesNotThrow(() => assertExpectedTotal(undefined, 1012.4, legacyAmount));
+    assert.throws(() => assertExpectedTotal(undefined, 1013.4, legacyAmount),
+      error => error.status === 409 && error.code === "CHECKOUT_QUOTE_CHANGED" && error.total === 1013.4);
+  }
+  assert.doesNotThrow(() => assertExpectedTotal(1012.4, 1012.4));
+  assert.throws(() => assertExpectedTotal(1000, 1012.4, 1012.4),
+    error => error.code === "CHECKOUT_QUOTE_CHANGED");
+  for (const expected of [null, "1012.40", 0, -1, NaN, Infinity, true, {}]) {
+    assert.throws(() => assertExpectedTotal(expected, 1012.4, 1012.4),
+      error => error.status === 409 && error.code === "CHECKOUT_REFRESH_REQUIRED");
+  }
+  for (const legacyAmount of [undefined, null, "", " ", "not-money", "1e3", "0x10", 0, -1, NaN, Infinity, true, {}, []]) {
+    assert.throws(() => assertExpectedTotal(undefined, 1012.4, legacyAmount),
+      error => error.status === 409 && error.code === "CHECKOUT_REFRESH_REQUIRED");
+  }
+});
+
 test("signed-in checkout without affiliate rules preserves the reported crypto total", async (t) => {
   const originalFetch = globalThis.fetch;
   const originalUrl = process.env.VITE_SUPABASE_URL;
