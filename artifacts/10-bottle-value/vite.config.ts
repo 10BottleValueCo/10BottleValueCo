@@ -73,6 +73,9 @@ const publishedSiteProxy: ProxyOptions = {
     ) {
       return requestPath;
     }
+    if (pathname.startsWith('/coa-cjc-ipa-5mg-each')) {
+      return requestPath;
+    }
     if (pathname === '/site' || pathname.startsWith('/site/')) {
       return undefined;
     }

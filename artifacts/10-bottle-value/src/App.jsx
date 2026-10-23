@@ -2403,6 +2403,8 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       noteLabel: "no/d",
       marketPrice: 81.99,
+      coaImages: ["coa-cjc-ipa-5mg-each-p1.jpg"],
+      coaPdf: "coa-cjc-ipa-5mg-each.pdf",
     },
     {
       name: "CJC-1295 + Ipamorelin",
@@ -2413,6 +2415,8 @@ const PRODUCTS_BASE = [
       note: "10 vial kit (10 vials included)",
       noteLabel: "no/d",
       warehouse: "us",
+      coaImages: ["coa-cjc-ipa-5mg-each-p1.jpg"],
+      coaPdf: "coa-cjc-ipa-5mg-each.pdf",
     },
     {
       name: "Survodutide",
