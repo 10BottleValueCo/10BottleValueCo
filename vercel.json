@@ -170,6 +170,10 @@
       "destination": "/api/wordpress-preview?path=/"
     },
     {
+      "source": "/wordpresspreview/:path*/",
+      "destination": "/api/wordpress-preview?path=/:path*/"
+    },
+    {
       "source": "/wordpresspreview/:path*",
       "destination": "/api/wordpress-preview?path=/:path*"
     },

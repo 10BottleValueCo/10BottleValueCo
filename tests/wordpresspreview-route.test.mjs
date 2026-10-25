@@ -5,7 +5,7 @@ import server from '../wordpress-preview-server/server.cjs';
 const config=JSON.parse(readFileSync(new URL('../vercel.json',import.meta.url),'utf8'));
 test('anonymous preview routes execute server WordPress before SPA fallback',()=>{
  const routes=config.rewrites.filter(r=>r.source.startsWith('/wordpresspreview'));
- assert.deepEqual(routes.map(r=>r.destination),['/api/wordpress-preview?path=/','/api/wordpress-preview?path=/','/api/wordpress-preview?path=/:path*']);
+ assert.deepEqual(routes.map(r=>r.destination),['/api/wordpress-preview?path=/','/api/wordpress-preview?path=/','/api/wordpress-preview?path=/:path*/','/api/wordpress-preview?path=/:path*']);
  assert.ok(config.rewrites.indexOf(routes[0])<config.rewrites.findIndex(r=>r.destination==='/index.html'));
 });
 test('only isolated runtime files are explicitly included for preview function',()=>{
