@@ -74,23 +74,46 @@
     {
       "source": "/operations(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "private, no-store" },
-        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
+        {
+          "key": "Cache-Control",
+          "value": "private, no-store"
+        },
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        }
       ]
     },
     {
       "source": "/(.*)",
-      "has": [{ "type": "host", "value": "operations.10bottlevalue.co" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "operations.10bottlevalue.co"
+        }
+      ],
       "headers": [
-        { "key": "Cache-Control", "value": "private, no-store" },
-        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
+        {
+          "key": "Cache-Control",
+          "value": "private, no-store"
+        },
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        }
       ]
     },
     {
       "source": "/wordpresspreview/",
       "headers": [
-        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
-        { "key": "Cache-Control", "value": "no-store" }
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        }
       ]
     },
     {
@@ -110,7 +133,12 @@
   "rewrites": [
     {
       "source": "/",
-      "has": [{ "type": "host", "value": "operations.10bottlevalue.co" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "operations.10bottlevalue.co"
+        }
+      ],
       "destination": "/operations.html"
     },
     {
@@ -135,19 +163,26 @@
     },
     {
       "source": "/wordpresspreview",
-      "destination": "/wordpresspreview/index.html"
+      "destination": "/api/wordpress-preview?path=/"
     },
     {
       "source": "/wordpresspreview/",
-      "destination": "/wordpresspreview/index.html"
+      "destination": "/api/wordpress-preview?path=/"
     },
     {
       "source": "/wordpresspreview/:path*",
-      "destination": "/wordpresspreview/:path*"
+      "destination": "/api/wordpress-preview?path=/:path*"
     },
     {
       "source": "/((?!api/|wordpresspreview/|wordpresspreview$).*)",
       "destination": "/index.html"
     }
-  ]
+  ],
+  "functions": {
+    "api/wordpress-preview.js": {
+      "includeFiles": "wordpress-preview-server/**",
+      "maxDuration": 60,
+      "memory": 2048
+    }
+  }
 }
