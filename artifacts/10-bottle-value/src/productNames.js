@@ -1,10 +1,27 @@
-const legacySlugNames = {
-  semaglutide: "GLP-1-S",
-  "tirzepatide / glp-2": "GLP-2-T",
-  tirzepatide: "GLP-2-T",
-  "retatrutide / glp-3": "GLP-3-R",
-  retatrutide: "GLP-3-R",
-  "cagrilintide + semaglutide": "Cagrilintide + GLP-1-S",
+// Keep prior customer-facing names searchable and addressable after restoring
+// compound names. Catalog selectors and stored order items retain their identity.
+const compoundNames = {
+  semaglutide: "Semaglutide",
+  "glp-1-s": "Semaglutide",
+  "glp sg-1": "Semaglutide",
+  "tirzepatide / glp-2": "Tirzepatide",
+  tirzepatide: "Tirzepatide",
+  "glp-2-t": "Tirzepatide",
+  "glp tz-2": "Tirzepatide",
+  "retatrutide / glp-3": "Retatrutide",
+  retatrutide: "Retatrutide",
+  "glp-3-r": "Retatrutide",
+  "glp rt-3": "Retatrutide",
+  "cagrilintide + semaglutide": "Cagrilintide + Semaglutide",
+  "cagrilintide + glp-1-s": "Cagrilintide + Semaglutide",
+  "cagrilintide + glp sg-1": "Cagrilintide + Semaglutide",
+};
+
+const compoundAliases = {
+  Semaglutide: ["Semaglutide", "GLP-1-S", "GLP SG-1"],
+  Tirzepatide: ["Tirzepatide", "Tirzepatide / GLP-2", "GLP-2-T", "GLP TZ-2"],
+  Retatrutide: ["Retatrutide", "Retatrutide / GLP-3", "GLP-3-R", "GLP RT-3"],
+  "Cagrilintide + Semaglutide": ["Cagrilintide + Semaglutide", "Cagrilintide + GLP-1-S", "Cagrilintide + GLP SG-1"],
 };
 
 const labelNames = {
@@ -14,12 +31,6 @@ const labelNames = {
   "melanotan 2": "MT-2",
   "bac water": "Reconstitution Solution",
   "ara290 (cibinetide)": "ARA290",
-  "cagrilintide + semaglutide": "Cagrilintide + GLP SG-1",
-  semaglutide: "GLP SG-1",
-  "tirzepatide / glp-2": "GLP TZ-2",
-  tirzepatide: "GLP TZ-2",
-  "retatrutide / glp-3": "GLP RT-3",
-  retatrutide: "GLP RT-3",
   epitalon: "Epithalon",
 };
 
@@ -49,7 +60,8 @@ const catalogNames = {
 
 export function publicProductName(name) {
   const original = String(name || "");
-  return labelNames[original.trim().toLowerCase()] || original;
+  const key = original.trim().toLowerCase();
+  return compoundNames[key] || labelNames[key] || original;
 }
 
 export function catalogProductName(name) {
@@ -58,10 +70,24 @@ export function catalogProductName(name) {
 }
 
 export function productSlug(product, legacy = false) {
+  const original = String(product.name || "");
   const name = legacy
-    ? product.name
-    : legacySlugNames[String(product.name || "").trim().toLowerCase()] || product.name;
-  return `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${product.dose.toLowerCase().replace(/\s+/g, "")}`;
+    ? original
+    : compoundNames[original.trim().toLowerCase()] || original;
+  return slugForName(name, product.dose);
+}
+
+function slugForName(name, dose) {
+  return `${String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${String(dose || "").toLowerCase().replace(/\s+/g, "")}`;
+}
+
+export function productSlugs(product) {
+  const compound = compoundNames[String(product.name || "").trim().toLowerCase()];
+  return [...new Set([
+    productSlug(product),
+    productSlug(product, true),
+    ...(compoundAliases[compound] || []).map((name) => slugForName(name, product.dose)),
+  ])];
 }
 
 export function matchesProductSearch(product, searchTerm) {
@@ -76,13 +102,13 @@ export function matchesProductSearch(product, searchTerm) {
   };
   const query = aliases[normalize(searchTerm)] || normalize(searchTerm);
   const publicName = publicProductName(product.name);
-  const oldDisplayName = legacySlugNames[String(product.name || "").trim().toLowerCase()];
+  const oldDisplayNames = compoundAliases[publicName] || [];
   const searchValues = [
     `${publicName} ${product.dose}`,
-    oldDisplayName && `${oldDisplayName} ${product.dose}`,
+    ...oldDisplayNames.map((name) => `${name} ${product.dose}`),
     `${product.name} ${product.dose}`,
     publicName,
-    oldDisplayName,
+    ...oldDisplayNames,
     product.name,
     product.dose,
     product.total,

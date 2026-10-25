@@ -48,7 +48,7 @@ test("built Replit server exposes the shared card handler and its security bound
   assert.equal(get.headers.get("cache-control"), "private, no-store");
   assert.equal(get.headers.get("vary"), "Authorization");
   assert.equal(get.headers.get("x-content-type-options"), "nosniff");
-  assert.deepEqual(await get.json(), { ok: true, enabled: false });
+  assert.deepEqual(await get.json(), { ok: true, enabled: false, retired: true });
 
   const unauthorized = await fetch(endpoint, {
     method: "POST", headers: { "Content-Type": "application/json", Origin: "https://10bottlevalue.co" }, body: JSON.stringify({ action: "create" }),
