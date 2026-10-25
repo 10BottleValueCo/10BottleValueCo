@@ -3,12 +3,20 @@ import assert from "node:assert/strict";
 import { validateAndPriceItems, findCatalogProduct } from "../api/_catalog.js";
 import { publicProductName } from "../api/_public-product-name.js";
 
-test("public names cover historical cart names without changing the original item", () => {
+test("email display restores compound names without changing historical items or prices", () => {
   for (const [internal, display] of [
-    ["Semaglutide", "GLP-1-S"],
-    ["Tirzepatide / GLP-2", "GLP-2-T"],
-    ["Retatrutide / GLP-3", "GLP-3-R"],
-    ["Cagrilintide + Semaglutide", "Cagrilintide + GLP-1-S"],
+    ["Semaglutide", "Semaglutide"],
+    ["Tirzepatide / GLP-2", "Tirzepatide"],
+    ["Retatrutide / GLP-3", "Retatrutide"],
+    ["Cagrilintide + Semaglutide", "Cagrilintide + Semaglutide"],
+    ["GLP-1-S", "Semaglutide"],
+    ["GLP SG-1", "Semaglutide"],
+    ["GLP-2-T", "Tirzepatide"],
+    ["GLP TZ-2", "Tirzepatide"],
+    ["GLP-3-R", "Retatrutide"],
+    ["GLP RT-3", "Retatrutide"],
+    ["Cagrilintide + GLP-1-S", "Cagrilintide + Semaglutide"],
+    ["Cagrilintide + GLP SG-1", "Cagrilintide + Semaglutide"],
   ]) {
     const item = { name: internal, dose: "10 mg", quantity: 2, price: 100 };
     assert.equal(publicProductName(item.name), display);
@@ -16,7 +24,7 @@ test("public names cover historical cart names without changing the original ite
     assert.equal(item.price, 100);
   }
   assert.equal(publicProductName("BPC-157"), "BPC-157");
-  assert.equal(publicProductName("GLP-1-S"), "GLP-1-S");
+  assert.equal(publicProductName("BAC Water"), "BAC Water");
 });
 
 test("email-only display labels do not replace canonical checkout catalog selectors", () => {
