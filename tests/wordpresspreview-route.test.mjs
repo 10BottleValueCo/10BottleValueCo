@@ -36,7 +36,7 @@ test('unknown preview paths are excluded from the existing storefront fallback',
 
 test('preview response policy is scoped and does not replace production build or API settings', () => {
   const scoped = config.headers.filter(rule => rule.source.startsWith('/wordpresspreview'));
-  assert.deepEqual(scoped, [{source:'/wordpresspreview/:path*',headers:[{key:'X-Robots-Tag',value:'noindex, nofollow'},{key:'Cache-Control',value:'no-store'}]}]);
+  assert.deepEqual(scoped, ['/wordpresspreview/', '/wordpresspreview/:path*'].map(source => ({source, headers:[{key:'X-Robots-Tag',value:'noindex, nofollow'},{key:'Cache-Control',value:'no-store'}]})));
   assert.equal(config.buildCommand, 'pnpm --filter @workspace/10-bottle-value run build');
   assert.equal(config.outputDirectory, 'artifacts/10-bottle-value/dist/public');
   assert.ok(config.rewrites.some(rule => rule.source === '/api/:path*' && rule.destination === '/api/:path*'));
