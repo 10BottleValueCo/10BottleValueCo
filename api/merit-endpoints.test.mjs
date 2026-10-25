@@ -7,10 +7,8 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { createMeritProvider } from './_merit-provider.js';
 import { createMeritCheckoutHandler } from './merit-checkout.js';
-import { meritCheckoutPaused } from './_merit-availability.js';
 import { createMeritWebhookHandler, verifyMeritSignature } from './attestly-webhook.js';
 import { requireMeritProof } from './_merit-core.js';
-import { buildMeritQuote, meritCreditSnapshot } from './_merit-quote.js';
 import { invoiceNumberFromUuid } from './_invoice-number.js';
 
 const env = { MERIT_ENABLED: 'true', ATTESTLY_API_KEY: 'fixture-private-key', ATTESTLY_WEBHOOK_SECRET: 'awhsec_fixture', MERIT_MODE: 'live', MERIT_RULE_VERSION: 'fixture-v1', MERIT_CARD_SURCHARGE_BPS: '300', MERIT_CARD_SURCHARGE_SOURCE: 'Fixture customer rule', MERIT_CARD_SURCHARGE_EFFECTIVE_AT: '2026-10-08T00:00:00Z', MERIT_PROCESSOR_FEE_BPS: '750', MERIT_PROCESSOR_FEE_SOURCE: 'Fixture dashboard reported rate', MERIT_PROCESSOR_FEE_EFFECTIVE_AT: '2026-10-08T00:00:00Z' };
@@ -25,163 +23,165 @@ const verified = (attempt = readyAttempt, paid = true) => ({ source: 'merit_auth
 function responseRecorder() { return { statusCode: 200, headers: {}, setHeader(key, value) { this.headers[key] = value; }, status(value) { this.statusCode = value; return this; }, json(value) { this.body = value; return this; } }; }
 async function run(handler, body, method = 'POST', headers = {}) { const res = responseRecorder(); await handler({ method, body, headers }, res); return res; }
 function checkoutFixture(options = {}) {
-  let saved = options.existing || null;
+  const saved = options.existing ? structuredClone(options.existing) : null;
   const calls = [];
+  const authCalls = [];
+  const unsupported = name => async (...args) => { calls.push([name, ...args]); throw Error('new checkout must remain retired'); };
   const store = {
-    ready: async () => { calls.push(['ready']); return true; },
-    findByCheckoutKey: async (...args) => { calls.push(['find', ...args]); return saved; },
-    findByOrder: async () => saved,
-    reserve: async params => { calls.push(['reserve', params]); saved = { ...readyAttempt, state: 'reserved', intent_id: null, client_secret: null, publishable_key: null, quote_fingerprint: params.p_fingerprint, snapshot: params.p_snapshot }; return { ok: true, created: true, attempt: saved }; },
-    reserveCredit: async params => {
-      calls.push(['reserveCredit', params]);
-      const split = meritCreditSnapshot(params.p_snapshot, options.creditCents ?? 9900);
-      saved = { ...readyAttempt, state: 'reserved', intent_id: null, client_secret: null, publishable_key: null,
-        quote_fingerprint: params.p_fingerprint, snapshot: split, amount_cents: Math.round(split.total * 100),
-        credit_reserved_cents: options.creditCents ?? 9900, credit_request_snapshot: params.p_snapshot };
-      return { ok: true, created: true, attempt: saved };
-    },
-    bind: async params => { calls.push(['bind', params]); saved = { ...saved, state: 'ready', intent_id: params.p_intent_id, client_secret: params.p_client_secret, publishable_key: params.p_publishable_key }; return { ok: true, attempt: saved }; },
-    finalize: async params => { calls.push(['finalize', params]); return { ok: true, paid: true, order: { id: orderId, status: 'paid' } }; },
+    ready: unsupported('ready'),
+    findByCheckoutKey: unsupported('findByCheckoutKey'),
+    reserve: unsupported('reserve'),
+    reserveCredit: unsupported('reserveCredit'),
+    bind: unsupported('bind'),
+    findByOrder: async (...args) => { calls.push(['findByOrder', ...args]); return saved; },
+    finalize: async params => { calls.push(['finalize', params]); return { ok: true, paid: true, order: { id: saved.order_id, status: 'paid' } }; },
     ...options.store,
   };
-  const provider = { configuration: async () => { calls.push(['configuration']); return providerConfig; }, create: async args => { calls.push(['create', args]); return session; }, verify: async () => { calls.push(['verify']); return verified(); }, ...options.provider };
-  const quote = options.quote || (async (body, email, opts) => { calls.push(['quote', body, email, opts]); return priced; });
-  const authenticate = async () => options.customer === null ? null : options.customer || customer;
-  const handler = createMeritCheckoutHandler({ env: { MERIT_CHECKOUT_PAUSED: 'false', ...(options.env || env) }, provider, store, quote, authenticate, notify: async () => {} });
-  return { handler, calls, store, provider };
+  const provider = {
+    configuration: unsupported('configuration'),
+    create: unsupported('create'),
+    verify: async args => { calls.push(['verify', args]); return verified(saved); },
+    ...options.provider,
+  };
+  const authenticate = async (req, res, opts) => {
+    authCalls.push(opts);
+    if (options.customer === null) { res.status(401).json({ ok: false, error: 'Sign in.' }); return null; }
+    return options.customer || customer;
+  };
+  const handler = createMeritCheckoutHandler({ env: options.env || env, provider, store, authenticate, notify: async () => {} });
+  return { handler, calls, authCalls, saved };
 }
 const createBody = { action: 'create', checkoutKey, otpToken: 'fixture-otp', verifiedEmail: customer.email, amountCents: 1, orderId: 'ATTACKER-ORDER', clientSecret: 'attacker-secret' };
 
-test('old UUID invoice reopens its original payment without reserving or charging again', async () => {
-  const legacyId = 'INV-' + checkoutKey.replaceAll('-', '').toUpperCase();
-  const fixture = checkoutFixture({ existing: { ...readyAttempt, order_id: legacyId } });
-  const result = await run(fixture.handler, createBody);
-  assert.equal(result.statusCode, 200);
-  assert.equal(result.body.orderId, legacyId);
-  assert.equal(fixture.calls.some(call => ['reserve', 'reserveCredit', 'create', 'bind'].includes(call[0])), false);
-});
-
-test('an unmigrated reservation cannot create a new long invoice at the payment provider', async () => {
-  const fixture = checkoutFixture();
-  const reserve = fixture.store.reserve;
-  fixture.store.reserve = async params => {
-    const result = await reserve(params);
-    return { ...result, attempt: { ...result.attempt, order_id: 'INV-' + checkoutKey.replaceAll('-', '').toUpperCase() } };
-  };
-  const result = await run(fixture.handler, createBody);
-  assert.equal(result.statusCode, 503);
-  assert.equal(result.body.code, 'MERIT_INVOICE_SCHEMA_NOT_READY');
-  assert.equal(fixture.calls.some(call => call[0] === 'create'), false);
-});
-
-for (const wrong of [{}, { apiKey: 'private' }]) {
-  test('missing private config is disabled without contacting provider/storage ' + JSON.stringify(wrong), async () => {
-    const fixture = checkoutFixture({ env: wrong });
+for (const flags of [
+  {},
+  { MERIT_ENABLED: 'true', MERIT_CHECKOUT_PAUSED: 'false' },
+  { MERIT_ENABLED: 'false', MERIT_CHECKOUT_PAUSED: 'true' },
+]) {
+  test('GET permanently advertises retirement without authentication or external I/O ' + JSON.stringify(flags), async () => {
+    const fixture = checkoutFixture({ env: { ...env, ...flags } });
     const result = await run(fixture.handler, undefined, 'GET');
-    assert.deepEqual(result.body, { ok: true, enabled: false });
+    assert.equal(result.statusCode, 200);
+    assert.deepEqual(result.body, { ok: true, enabled: false, retired: true });
     assert.deepEqual(fixture.calls, []);
+    assert.deepEqual(fixture.authCalls, []);
+    assert.equal(result.headers['Cache-Control'], 'private, no-store');
+    assert.equal(result.headers.Vary, 'Authorization');
+    assert.equal(result.headers['X-Content-Type-Options'], 'nosniff');
   });
 }
-test('enabled config requires both provider and storage readiness and exposes only surcharge', async () => {
-  const fixture = checkoutFixture();
-  assert.deepEqual((await run(fixture.handler, undefined, 'GET')).body, { ok: true, enabled: true, currency: 'usd', surchargeBps: 300 });
-  for (const failed of ['store', 'provider']) {
-    const broken = checkoutFixture(failed === 'store' ? { store: { ready: async () => { throw Error('private-db'); } } } : { provider: { configuration: async () => { throw Error('private-key'); } } });
-    assert.deepEqual((await run(broken.handler, undefined, 'GET')).body, { ok: true, enabled: false });
+
+test('enabled flags, stale checkout keys and credit requests cannot create or resume a payment', async () => {
+  for (const body of [
+    { action: 'create' },
+    createBody,
+    { ...createBody, useStoreCredit: true, storeCreditUsed: 9999999 },
+    { action: 'create', checkoutKey: 'old-stale-key', useStoreCredit: true },
+  ]) {
+    const fixture = checkoutFixture({ existing: readyAttempt, env: { ...env, MERIT_ENABLED: 'true', MERIT_CHECKOUT_PAUSED: 'false' } });
+    const before = structuredClone(fixture.saved);
+    for (let retry = 0; retry < 2; retry++) {
+      const result = await run(fixture.handler, body);
+      assert.equal(result.statusCode, 410);
+      assert.equal(result.body.code, 'MERIT_CHECKOUT_RETIRED');
+      assert.match(result.body.error, /another payment method/);
+      for (const secret of ['fixture-private-key', session.clientSecret, 'paymentRules', 'costSnapshot']) {
+        assert.equal(JSON.stringify(result.body).includes(secret), false, secret);
+      }
+    }
+    assert.deepEqual(fixture.calls, []);
+    assert.deepEqual(fixture.saved, before);
+    assert.deepEqual(fixture.authCalls, [{ purpose: 'payment status' }, { purpose: 'payment status' }]);
   }
 });
 
-test('configured preview origin uses handler environment and preserves checkout verification', async () => {
+test('configured preview origins retain authentication while hostile origins fail before authentication or I/O', async () => {
   const origin = 'https://merchant-preview.replit.dev';
   const fixture = checkoutFixture({ env: { ...env, MERIT_ALLOWED_ORIGINS: origin } });
-  const rejected = await run(fixture.handler, { ...createBody, otpToken: undefined }, 'POST', { origin });
-  assert.equal(rejected.statusCode, 403);
-  assert.equal(rejected.body.code, 'MERIT_ATTESTATION_REQUIRED');
-  assert.equal(fixture.calls.some(call => call[0] === 'create'), false);
-  const result = await run(fixture.handler, createBody, 'POST', { origin });
-  assert.equal(result.statusCode, 200);
-  assert.equal(fixture.calls.filter(call => call[0] === 'create').length, 1);
+  const result = await run(fixture.handler, { action: 'create' }, 'POST', { origin });
+  assert.equal(result.statusCode, 410);
+  assert.equal(result.body.code, 'MERIT_CHECKOUT_RETIRED');
+  assert.deepEqual(fixture.authCalls, [{ purpose: 'payment status' }]);
+  assert.deepEqual(fixture.calls, []);
+
   const unlisted = checkoutFixture();
   const denied = await run(unlisted.handler, createBody, 'POST', { origin });
   assert.equal(denied.statusCode, 403);
   assert.equal(denied.body.code, 'MERIT_ORIGIN_REJECTED');
+  assert.deepEqual(unlisted.authCalls, []);
   assert.deepEqual(unlisted.calls, []);
 });
-test('new checkout derives amount, order and account from canonical server state', async () => {
-  const fixture = checkoutFixture();
-  const result = await run(fixture.handler, createBody);
-  assert.equal(result.statusCode, 200);
-  assert.equal(result.body.session.amountCents, 10300);
-  assert.equal(result.body.session.baseAmountCents, 10000);
-  assert.equal(result.body.session.surchargeCents, 300);
-  assert.equal(result.body.order.id, orderId);
-  assert.equal(result.body.order.total, 103);
-  assert.equal(result.body.order.items[0].name, 'Canonical fixture item');
-  assert.deepEqual(fixture.calls.map(call => call[0]), ['find', 'configuration', 'quote', 'reserve', 'create', 'bind']);
-  assert.equal(fixture.calls.find(call => call[0] === 'quote')[1].orderId, undefined);
-  assert.deepEqual(fixture.calls.find(call => call[0] === 'create')[1], { amountCents: 10300, orderId, otpToken: 'fixture-otp', verifiedEmail: customer.email, organization: undefined });
-  assert.equal(fixture.calls.find(call => call[0] === 'reserve')[1].p_snapshot.paymentRules.merchantProcessingExpense.rate, 750);
-  for (const secret of ['fixture-private-key', 'private-affiliate', 'paymentRules', 'costSnapshot', 'merchantProcessingExpense', 'quote_fingerprint']) assert.equal(JSON.stringify(result.body).includes(secret), false, secret);
-  assert.equal(result.headers['Cache-Control'], 'private, no-store');
-});
-test('failed or malformed reservation cannot make even one provider create call', async () => {
-  for (const reserve of [async () => { throw Error('database trigger rejected canonical order'); }, async () => ({ ok: false }), async () => ({ ok: true, created: true, attempt: null }), async () => ({ ok: true, created: true, attempt: { ...readyAttempt, state: 'reserved' } })]) {
-    const fixture = checkoutFixture({ store: { reserve } });
-    const result = await run(fixture.handler, createBody);
-    assert.equal(result.statusCode, 503);
-    assert.equal(fixture.calls.some(call => call[0] === 'create'), false);
+
+test('retired creation and reconciliation still require a verified valid customer identity', async () => {
+  for (const identity of [null, { ...customer, id: '' }, { ...customer, id: 'not-a-uuid' }, { ...customer, email: 'INVALID' }, { ...customer, email: ' Buyer@example.com ' }]) {
+    for (const body of [createBody, { action: 'reconcile', orderId }]) {
+      const fixture = checkoutFixture({ customer: identity, existing: readyAttempt });
+      const result = await run(fixture.handler, body);
+      assert.equal(result.statusCode, 401);
+      assert.deepEqual(fixture.calls, []);
+    }
   }
 });
-test('untrusted dynamic discount codes fail before any order reservation or provider create', async () => {
-  const details = { checkoutForm: { firstName: 'Fixture', lastName: 'Buyer', country: 'United States', address: '1 Example Street', city: 'Boston', state: 'MA', postalCode: '02108', phone: '+1 212 555 1212' }, items: [{ name: 'BPC-157', dose: '10 mg', quantity: 1 }], shippingType: 'standard', purchaserAttestation: { over21AndResearchUseOnly: true, qualifiedResearcherOrLicensedProfessional: true, noHumanOrAnimalUse: true, policiesAccepted: true } };
-  for (const [input, code] of [[{ promoCode: 'UNTRUSTED' }, 'MERIT_PROMO_UNAVAILABLE'], [{ affiliateCode: 'UNTRUSTED' }, 'MERIT_AFFILIATE_RULES_UNAVAILABLE']]) {
-    const fixture = checkoutFixture({ quote: buildMeritQuote });
-    const result = await run(fixture.handler, { ...createBody, ...details, ...input });
-    assert.equal(result.statusCode, 503);
-    assert.equal(result.body.code, code);
-    assert.equal(fixture.calls.some(call => ['reserve', 'create', 'bind'].includes(call[0])), false);
-  }
-});
-test('same-key retry recovers bound session without re-quoting consumed promo or creating intent', async () => {
-  const fixture = checkoutFixture();
-  const first = await run(fixture.handler, createBody);
-  const second = await run(fixture.handler, { action: 'create', checkoutKey });
-  assert.deepEqual(second.body, first.body);
-  assert.equal(fixture.calls.filter(call => call[0] === 'create').length, 1);
-  assert.equal(fixture.calls.filter(call => call[0] === 'quote').length, 1);
-});
-test('reserved lost-ack retry remains pending instead of creating another intent', async () => {
-  const fixture = checkoutFixture({ existing: { ...readyAttempt, state: 'reserved', intent_id: null, client_secret: null } });
-  const result = await run(fixture.handler, createBody);
-  assert.equal(result.statusCode, 503);
-  assert.equal(result.body.code, 'MERIT_PREPARING');
-  assert.deepEqual(fixture.calls.map(call => call[0]), ['find']);
-});
-test('checkout replay refuses another owner and new checkout rejects mismatched attestation email', async () => {
-  const foreign = checkoutFixture({ existing: { ...readyAttempt, customer_id: '22222222-2222-4222-8222-222222222222' } });
-  assert.equal((await run(foreign.handler, createBody)).statusCode, 503);
-  assert.equal(foreign.calls.some(call => call[0] === 'create'), false);
-  const mismatch = checkoutFixture();
-  assert.equal((await run(mismatch.handler, { ...createBody, verifiedEmail: 'other@example.com' })).statusCode, 403);
-  assert.equal(mismatch.calls.some(call => call[0] === 'create'), false);
-});
-test('unverified UUID or hostile Origin is rejected before database/provider work', async () => {
-  for (const [fixture, headers] of [[checkoutFixture({ customer: { ...customer, id: '' } }), {}], [checkoutFixture(), { origin: 'https://evil.example' }]]) {
-    const result = await run(fixture.handler, createBody, 'POST', headers);
-    assert.ok([401, 403].includes(result.statusCode));
+
+test('invalid bodies and methods fail without provider or storage access', async () => {
+  for (const body of [undefined, null, [], 'create', { action: 'reconcile', padding: 'x'.repeat(65537) }]) {
+    const fixture = checkoutFixture();
+    const result = await run(fixture.handler, body);
+    assert.equal(result.statusCode, 400);
+    assert.equal(result.body.code, 'MERIT_INVALID_REQUEST');
+    assert.deepEqual(fixture.authCalls, []);
     assert.deepEqual(fixture.calls, []);
   }
+  const fixture = checkoutFixture();
+  assert.equal((await run(fixture.handler, { action: 'unexpected' })).statusCode, 400);
+  const wrongMethod = await run(fixture.handler, undefined, 'DELETE');
+  assert.equal(wrongMethod.statusCode, 405);
+  assert.equal(wrongMethod.headers.Allow, 'GET, POST');
+  assert.deepEqual(fixture.calls, []);
 });
-test('turning off new checkout still permits reconciliation of prior payment', async () => {
-  const fixture = checkoutFixture({ env: { ...env, MERIT_ENABLED: 'false' }, existing: readyAttempt });
-  assert.equal((await run(fixture.handler, createBody)).statusCode, 503);
-  const result = await run(fixture.handler, { action: 'reconcile', orderId });
+
+test('reconciliation enforces order identity and ownership before provider verification', async () => {
+  for (const existing of [null, { ...readyAttempt, customer_id: '22222222-2222-4222-8222-222222222222' }, { ...readyAttempt, order_id: 'INV-00000000000000000000000000000000' }]) {
+    const fixture = checkoutFixture({ existing });
+    const result = await run(fixture.handler, { action: 'reconcile', orderId });
+    assert.equal(result.statusCode, 404);
+    assert.equal(result.body.code, 'MERIT_ORDER_NOT_FOUND');
+    assert.deepEqual(fixture.calls, [['findByOrder', orderId, customer.id]]);
+  }
+  const malformed = checkoutFixture({ existing: readyAttempt });
+  const result = await run(malformed.handler, { action: 'reconcile', orderId: 'ATTACKER-ORDER' });
+  assert.equal(result.statusCode, 400);
+  assert.equal(result.body.code, 'MERIT_INVALID_ORDER');
+  assert.deepEqual(malformed.calls, []);
+});
+
+test('retirement and invalid current pricing cannot block an existing frozen payment', async () => {
+  for (const flags of [
+    { MERIT_ENABLED: 'false', MERIT_CHECKOUT_PAUSED: 'true' },
+    { MERIT_ENABLED: 'true', MERIT_CHECKOUT_PAUSED: 'false', MERIT_CARD_SURCHARGE_SOURCE: '' },
+  ]) {
+    const fixture = checkoutFixture({ env: { ...env, ...flags }, existing: readyAttempt });
+    const before = structuredClone(fixture.saved);
+    assert.equal((await run(fixture.handler, createBody)).statusCode, 410);
+    const result = await run(fixture.handler, { action: 'reconcile', orderId, amountCents: 1, useStoreCredit: true });
+    assert.equal(result.statusCode, 200);
+    assert.deepEqual(result.body, { ok: true, paid: true, status: 'paid', orderId, order: { id: orderId, status: 'paid' } });
+    assert.deepEqual(fixture.calls.map(call => call[0]), ['findByOrder', 'verify', 'finalize']);
+    assert.deepEqual(fixture.calls[1][1], { intentId: readyAttempt.intent_id, orderId });
+    assert.equal(fixture.calls[2][1].p_amount_cents, readyAttempt.amount_cents);
+    assert.equal(fixture.calls[2][1].p_email, readyAttempt.email);
+    assert.deepEqual(fixture.saved, before);
+  }
+});
+
+test('legacy UUID invoices reconcile their original payment without creating another payment', async () => {
+  const legacyId = 'INV-' + checkoutKey.replaceAll('-', '').toUpperCase();
+  const fixture = checkoutFixture({ existing: { ...readyAttempt, order_id: legacyId } });
+  const result = await run(fixture.handler, { action: 'reconcile', orderId: legacyId });
+  assert.equal(result.statusCode, 200);
   assert.equal(result.body.paid, true);
-});
-test('invalid current pricing configuration cannot block an existing frozen payment', async () => {
-  const fixture = checkoutFixture({ env: { ...env, MERIT_CARD_SURCHARGE_SOURCE: '' }, existing: readyAttempt });
-  assert.equal((await run(fixture.handler, createBody)).statusCode, 503);
-  assert.equal((await run(fixture.handler, { action: 'reconcile', orderId })).body.paid, true);
+  assert.equal(result.body.orderId, legacyId);
+  assert.deepEqual(fixture.calls.map(call => call[0]), ['findByOrder', 'verify', 'finalize']);
 });
 
 test('provider uses exact official contract, caches authenticated configuration and binds request facts separately', async () => {
@@ -394,91 +394,4 @@ test('parsed bodies and oversize signed bodies are rejected, unrelated valid eve
   assert.equal((await deliver(fixture, { type: 'unrelated', padding: 'x'.repeat(65537) })).statusCode, 400);
   assert.deepEqual((await deliver(fixture, { type: 'unrelated' })).body, { received: true });
   assert.deepEqual(fixture.calls, []);
-});
-
-
-test('partial credit provider charge and public session use the SQL-acknowledged split only', async () => {
-  const fixture = checkoutFixture({ creditCents: 9900 });
-  const body = { ...createBody, useStoreCredit: true, storeCreditUsed: 9999999 };
-  const created = await run(fixture.handler, body);
-  assert.equal(created.statusCode, 200);
-  assert.equal(created.body.session.baseAmountCents, 10000);
-  assert.equal(created.body.session.cardBaseAmountCents, 100);
-  assert.equal(created.body.session.storeCreditUsedCents, 9900);
-  assert.equal(created.body.session.appliedCreditCents, 9900);
-  assert.equal(created.body.session.surchargeCents, 300);
-  assert.equal(created.body.session.amountCents, 400);
-  assert.equal(fixture.calls.find(c => c[0] === 'create')[1].amountCents, 400);
-  assert.equal(fixture.calls.some(c => c[0] === 'reserve'), false);
-  const replay = await run(fixture.handler, { action: 'create', checkoutKey });
-  assert.deepEqual(replay.body, created.body);
-  assert.equal(fixture.calls.filter(c => c[0] === 'create').length, 1);
-});
-test('credit reservation errors never create a provider intent or silently charge full cash', async () => {
-  for (const code of ['MERIT_CREDIT_PENDING', 'MERIT_FULL_CREDIT_AVAILABLE', 'MERIT_CREDIT_BALANCE_UNAVAILABLE']) {
-    const fixture = checkoutFixture({ store: { reserveCredit: async () => ({ ok: false, error: code }) } });
-    const result = await run(fixture.handler, { ...createBody, useStoreCredit: true });
-    assert.equal(result.statusCode, 409); assert.equal(result.body.code, code);
-    assert.equal(fixture.calls.some(c => c[0] === 'create'), false);
-  }
-  const unavailable = checkoutFixture({ store: { reserveCredit: async () => { throw Error('missing RPC'); } } });
-  assert.equal((await run(unavailable.handler, { ...createBody, useStoreCredit: true })).statusCode, 503);
-  assert.equal(unavailable.calls.some(c => c[0] === 'create'), false);
-});
-test('credit hold survives a provider timeout and same-key retry never starts a second intent', async () => {
-  const fixture = checkoutFixture({ provider: { create: async () => { throw Error('unknown provider outcome'); } } });
-  assert.equal((await run(fixture.handler, { ...createBody, useStoreCredit: true })).statusCode, 503);
-  const retry = await run(fixture.handler, { action: 'create', checkoutKey });
-  assert.equal(retry.body.code, 'MERIT_PREPARING');
-  assert.equal(fixture.calls.filter(c => c[0] === 'reserveCredit').length, 1);
-});
-test('old cash checkout retry cannot spend newly selected credit', async () => {
-  const fixture = checkoutFixture({ existing: readyAttempt });
-  const result = await run(fixture.handler, { ...createBody, useStoreCredit: true });
-  assert.equal(result.statusCode, 200);
-  assert.equal(result.body.session.storeCreditUsedCents, 0);
-  assert.equal(result.body.session.amountCents, 10300);
-  assert.deepEqual(fixture.calls.map(c => c[0]), ['find']);
-});
-
-test('Merit availability announces October 22–25 without an automatic reopening date or provider contact', async () => {
-  const fixture = checkoutFixture({ env: { ...env, MERIT_CHECKOUT_PAUSED: 'true' } });
-  const result = await run(fixture.handler, undefined, 'GET');
-  assert.equal(result.statusCode, 200);
-  assert.equal(result.body.enabled, false);
-  assert.equal(result.body.reopensAt, undefined);
-  assert.equal(result.body.temporarilyClosed, true);
-  assert.match(result.body.message, /October 22–25/);
-  assert.deepEqual(fixture.calls, []);
-});
-
-test('new Merit checkout is blocked on the server before order reservation or provider creation', async () => {
-  const fixture = checkoutFixture({ env: { ...env, MERIT_CHECKOUT_PAUSED: 'true' } });
-  const result = await run(fixture.handler, createBody);
-  assert.equal(result.statusCode, 503);
-  assert.equal(result.body.code, 'MERIT_TEMPORARILY_CLOSED');
-  assert.match(result.body.error, /October 22–25/);
-  assert.deepEqual(fixture.calls, []);
-});
-
-test('Merit only reopens with an explicit manual flag and never overrides provider configuration', async () => {
-  assert.equal(meritCheckoutPaused({}), true);
-  assert.equal(meritCheckoutPaused({ MERIT_CHECKOUT_PAUSED: 'true' }), true);
-  assert.equal(meritCheckoutPaused({ MERIT_CHECKOUT_PAUSED: 'invalid' }), true);
-  assert.equal(meritCheckoutPaused({ MERIT_CHECKOUT_PAUSED: 'false' }), false);
-  const fixture = checkoutFixture();
-  const result = await run(fixture.handler, undefined, 'GET');
-  assert.equal(result.body.enabled, true);
-  assert.equal(result.body.reopensAt, undefined);
-  assert.equal(result.body.temporarilyClosed, undefined);
-  const disabled = checkoutFixture({ env: { ...env, MERIT_ENABLED: 'false' } });
-  assert.equal((await run(disabled.handler, undefined, 'GET')).body.enabled, false);
-});
-
-test('closing new Merit checkout does not stop settlement of existing payments', async () => {
-  const fixture = checkoutFixture({ existing: readyAttempt, env: { ...env, MERIT_CHECKOUT_PAUSED: 'true' } });
-  const result = await run(fixture.handler, { action: 'reconcile', orderId });
-  assert.equal(result.statusCode, 200);
-  assert.equal(result.body.paid, true);
-  assert.ok(fixture.calls.some(c => c[0] === 'finalize'));
 });

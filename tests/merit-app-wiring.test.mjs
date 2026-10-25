@@ -5,6 +5,8 @@ import { createRequire } from 'node:module';
 import { webcrypto } from 'node:crypto';
 import vm from 'node:vm';
 import { test } from 'node:test';
+import { generateInvoiceNumber, invoiceNumberFromUuid, COMPATIBLE_INVOICE_PATTERN } from '../api/_invoice-number.js';
+import { checkoutFailureMessage } from '../shared/checkout-diagnostics.js';
 import { buildMeritCheckoutPayload, estimateMeritCreditSplit, meritCheckoutBusinessError, meritPayloadDigest, saveMeritAttempt, readMeritAttempt } from '../artifacts/10-bottle-value/src/merit-checkout-client.js';
 
 import {createLegacyAttemptManager} from '../artifacts/10-bottle-value/src/legacy-checkout-attempt.js';
@@ -63,7 +65,7 @@ function fixture() {
   const calls = [];
   const form = { email: 'buyer@example.test', firstName: 'Test', lastName: 'Buyer', address: 'One Road', country: 'United States', city: 'City', state: 'CA', postalCode: '90210', phone: '+15555555555' };
   const context = {
-    Date, Math, Number, Object, JSON, URLSearchParams, Promise, AbortController, console, addAmounts, discountAmount, sumLineAmounts, setTimeout: () => 0,
+    Date, Math, Number, Object, JSON, URLSearchParams, Promise, AbortController, console, addAmounts, discountAmount, sumLineAmounts, generateInvoiceNumber, invoiceNumberFromUuid, COMPATIBLE_INVOICE_PATTERN, checkoutFailureMessage, setTimeout: () => 0,
     legacyCheckoutHeaders, supabase: { auth: { getSession: async () => ({ data: { session: { access_token: 'synthetic-token', user: { id: 'buyer-fixture', email: 'buyer@example.test' } } } }) } },
     saveAccountCheckoutDetails: async () => false, checkoutBuyerRef: { current: 'buyer-fixture' },
     rememberValidCheckoutDetails: value => calls.push(['setCheckoutForm', value]),
@@ -101,7 +103,7 @@ function fixture() {
 function checkoutEntryFixture(overrides = {}) {
   const result = fixture();
   Object.assign(result.context, {
-    checkoutForm: result.form, checkoutStep: 'details', hasOutOfStockInCart: false,
+    checkoutForm: result.form, checkoutStep: 'details', hasOutOfStockInCart: false, validateCheckoutBeforeAttestation: () => true,
     researchAccepted: false, qualifiedAccepted: false, termsAccepted: false,
     setPendingAttestationAction: value => result.calls.push(['attestationAction', value]),
     setAttestationModalOpen: value => result.calls.push(['attestationOpen', value]),
@@ -117,8 +119,8 @@ function checkoutEntryFixture(overrides = {}) {
   return result;
 }
 
-test('Card is the initial selection and checkout entry selects Card without starting payment', () => {
-  assert.equal(initialState('paymentMethod', {}), 'stripe');
+test('Paylio is the initial selection and checkout entry selects Paylio without starting payment', () => {
+  assert.equal(initialState('paymentMethod', {}), 'paylio');
   const effect = appBody.find(node => node.type === 'ExpressionStatement'
     && node.expression.callee?.name === 'useEffect'
     && source.slice(node.start, node.end).includes('finalTotalRef.current > 0'))?.expression;
@@ -128,7 +130,7 @@ test('Card is the initial selection and checkout entry selects Card without star
     checkoutStep: step, finalTotalRef: { current: total }, setPaymentMethod: method => calls.push(method),
   });
   run('details', 100); run('payment', 0); assert.deepEqual(calls, []);
-  run('payment', 100); assert.deepEqual(calls, ['stripe']);
+  run('payment', 100); assert.deepEqual(calls, ['paylio']);
 });
 
 test('Lightning to Card to Lightning keeps the original legacy order and follows its resumed invoice', async () => {
@@ -155,26 +157,14 @@ test('Lightning to Card to Lightning keeps the original legacy order and follows
   const select = handler('setPaymentMethod', context), pay = handler('createCatalystPayment', context);
   context.legacyAttemptsRef.current.begin('INV-LIGHTNING1','buyer-fixture');
   await pay(); const firstId=context.orderNumber; select('stripe'); select('cashapp'); await pay();
-  assert.equal(context.orderNumber, firstId); assert.match(firstId,/^INV-[0-9A-F]{32}$/);
+  assert.equal(context.orderNumber, firstId); assert.match(firstId,COMPATIBLE_INVOICE_PATTERN);
   assert.deepEqual(requests.map(request => request.url), ['/api/order-checkout']);
   for (const request of requests) assert.equal(request.body.order?.id || request.body.order_id, firstId);
   assert.deepEqual(navigations, ['https://checkout.example.test/original-invoice', 'https://checkout.example.test/original-invoice']);
   assert.equal(calls.some(([name, value]) => name === 'lightningError' && value), false);
 });
 
-test('App unmount disposes the code-field adapter through its signal', () => {
-  const effect = appBody.find(node => node.type === 'ExpressionStatement'
-    && node.expression.callee?.name === 'useEffect'
-    && source.slice(node.start, node.end).includes('meritVerificationAbortRef.current?.abort'))?.expression;
-  assert.ok(effect);
-  const controller = new AbortController();
-  const cleanup = vm.runInNewContext(`(${source.slice(effect.arguments[0].start, effect.arguments[0].end)})()`, {
-    meritVerificationAbortRef: { current: controller },
-  });
-  assert.equal(controller.signal.aborted, false);
-  cleanup();
-  assert.equal(controller.signal.aborted, true);
-});
+
 
 test('bottom and mobile sticky checkout open confirmations when the closed modal has no terms ref', () => {
   assert.equal(proceedButtons.length, 2);
@@ -228,7 +218,7 @@ test('checkout still requires every confirmation and valid details before creati
 
 test('Merit success/cancel URL claims all initialize as pending, never paid', () => {
   for (const payment of ['success', 'pending', 'cancelled', 'failed']) {
-    const state = initialState('paymentReturn', { readPaymentReturn, URLSearchParams, window: { location: { search: `?provider=merit&payment=${payment}&order=INV-ABCDEF123` } } });
+    const state = initialState('paymentReturn', { isOrderConfirmedPreviewLocation: () => false, readPaymentReturn, URLSearchParams, window: { location: { search: `?provider=merit&payment=${payment}&order=INV-ABCDEF123` } } });
     assert.equal(state.status, 'pending');
     assert.equal(state.provider, 'merit');
     assert.equal(state.order, 'INV-ABCDEF123');
@@ -282,107 +272,17 @@ test('switching away from unsubmitted Merit restores the legacy order id; submit
   assert.deepEqual(calls, [['pending']]);
 });
 
-test('a lost Merit create response retries the same persisted key and never calls a legacy payment endpoint', async () => {
-  const { context, calls } = fixture();
-  const requests = [];
-  context.meritApi.create = async request => {
-    requests.push(request);
-    if (requests.length === 1) throw new Error('lost response');
-    return { session: { orderId: 'INV-MERIT123', amountCents: 14419 }, order: { id: 'INV-MERIT123' } };
-  };
-  const start = handler('handleStripePayment', context);
-  await start();
-  await start();
-  assert.equal(requests.length, 2);
-  assert.equal(requests[0].checkoutKey, requests[1].checkoutKey);
-  assert.equal(readMeritAttempt(context.window.sessionStorage).orderId, 'INV-MERIT123');
-  assert.ok(calls.some(([name, value]) => name === 'setOrderNumber' && value === 'INV-MERIT123'));
-});
 
-test('cart changes during OTP prevent creating a stale payment', async () => {
-  const { context } = fixture();
-  let requests = 0;
-  context.verifyMeritCheckoutBuyer = async () => { context.meritInputsRef.current = 'edited checkout'; return { otpToken: 'otp' }; };
-  context.meritApi.create = async () => { requests += 1; };
-  await handler('handleStripePayment', context)();
-  assert.equal(requests, 0);
-});
 
-test('switching payment methods during create preserves recovery but cannot take over the legacy order', async () => {
-  const { context, calls } = fixture();
-  context.meritApi.create = async () => {
-    context.meritSelectionRef.current = { method: 'paypal', step: 'payment' };
-    return { session: { orderId: 'INV-MERIT123', amountCents: 14419 }, order: { id: 'INV-MERIT123' } };
-  };
-  await handler('handleStripePayment', context)();
-  assert.equal(readMeritAttempt(context.window.sessionStorage).orderId, 'INV-MERIT123');
-  assert.equal(calls.filter(([name]) => name === 'setOrderNumber' || name === 'setMeritSession').length, 0);
-});
 
-test('double clicks cannot start concurrent verification or create requests', async () => {
-  const { context } = fixture();
-  let resolveProof;
-  let verifies = 0;
-  context.verifyMeritCheckoutBuyer = () => { verifies += 1; return new Promise(resolve => { resolveProof = resolve; }); };
-  const start = handler('handleStripePayment', context);
-  const first = start();
-  await start();
-  while (!resolveProof) await new Promise(resolve => setTimeout(resolve, 1));
-  resolveProof(null);
-  await first;
-  assert.equal(verifies, 1);
-  assert.equal(context.meritCreateBusyRef.current, false);
-});
 
-test('paid create replay reconciles immediately and never mounts another confirmation form', async () => {
-  for (const outcome of ['paid', 'pending', 'unavailable']) {
-    const { context, calls } = fixture();
-    context.meritBuyerEmailRef = { current: context.currentUser.email };
-    context.meritReturnBusyRef = { current: false };
-    context.setMeritReturnChecking = value => calls.push(['returnChecking', value]);
-    context.setMeritReturnError = value => calls.push(['returnError', value]);
-    context.acceptMeritPaid = async (result, orderId) => calls.push(['paid', result.orderId, orderId]);
-    context.meritApi.create = async () => ({ ok: true, paid: true, session: { orderId: 'INV-MERIT123' }, order: { id: 'INV-MERIT123' } });
-    context.meritApi.reconcile = async request => {
-      calls.push(['reconcile', request.orderId]);
-      if (outcome === 'unavailable') throw new Error('temporary network failure');
-      return { ok: true, paid: outcome === 'paid', orderId: request.orderId, order: { id: request.orderId } };
-    };
-    await handler('handleStripePayment', context)();
-    assert.equal(readMeritAttempt(context.window.sessionStorage).submitted, true);
-    assert.ok(calls.some(([name]) => name === 'pending'));
-    assert.deepEqual(calls.find(([name]) => name === 'reconcile'), ['reconcile', 'INV-MERIT123']);
-    assert.equal(calls.filter(([name]) => name === 'setMeritSession').length, 0);
-    assert.equal(calls.filter(([name]) => name === 'paid').length, outcome === 'paid' ? 1 : 0);
-  }
-});
 
-test('unverified codes show the specific error without dropping attribution, auto-retrying, or generating a replacement key', async () => {
-  for (const [code, field, value] of [['MERIT_PROMO_UNVERIFIED', 'promoCode', 'DYNAMIC'], ['MERIT_AFFILIATE_UNVERIFIED', 'affiliateCode', 'PARTNER'], ['MERIT_AFFILIATE_UNAVAILABLE', 'affiliateCode', 'PARTNER'], ['MERIT_AFFILIATE_RULES_UNAVAILABLE', 'affiliateCode', 'PARTNER'], ['MERIT_AFFILIATE_LOOKUP_UNAVAILABLE', 'affiliateCode', 'PARTNER']]) {
-    for (const language of ['EN', 'RU']) {
-      const { context, calls } = fixture();
-      context.language = language;
-      context.meritPayload = { ...context.meritPayload, [field]: value };
-      context.meritInputsRef.current = JSON.stringify({ payload: context.meritPayload, email: context.currentUser.email, surchargeBps: 300 });
-      const requests = [];
-      context.meritApi.create = async request => { requests.push(request); const error = new Error('Rejected code'); error.code = code; throw error; };
-      const start = handler('handleStripePayment', context);
-      await start();
-      assert.equal(requests.length, 1);
-      assert.equal(requests[0].payload[field], value);
-      const firstKey = readMeritAttempt(context.window.sessionStorage).key;
-      assert.equal(calls.findLast(([name]) => name === 'setStripeError')[1], meritCheckoutBusinessError({ code }, language));
-      assert.equal(context.meritPayload[field], value);
-      assert.equal(calls.filter(([name]) => name === 'setMeritSession' || name === 'setPaymentMethodState').length, 0);
-      assert.equal(context.meritCreateBusyRef.current, false);
-      await start(); // An explicit retry still uses this same attempt and input.
-      assert.equal(requests.length, 2);
-      assert.equal(requests[1].checkoutKey, firstKey);
-      assert.equal(readMeritAttempt(context.window.sessionStorage).key, firstKey);
-      assert.equal(requests[1].payload[field], value);
-    }
-  }
-});
+
+
+
+
+
+
 
 test('Merit receipts remain server-only while the legacy manual receipt path stays available', async () => {
   const { context } = fixture();
@@ -406,51 +306,11 @@ test('Merit receipts remain server-only while the legacy manual receipt path sta
 });
 
 
-test('credit request cannot switch methods or create a replacement key after a lost response and changed checkout', async () => {
-  const { context, calls } = fixture();
-  context.meritPayload.useStoreCredit = true;
-  context.meritInputsRef.current = JSON.stringify({ payload: context.meritPayload, email: context.currentUser.email, surchargeBps: 300 });
-  let creates = 0;
-  context.meritApi.create = async () => { creates += 1; throw new Error('response lost after credit hold'); };
-  const start = handler('handleStripePayment', context);
-  await start();
-  const original = readMeritAttempt(context.window.sessionStorage);
-  assert.equal(original.createRequested, true);
-  await start();
-  assert.equal(creates, 2);
-  assert.equal(readMeritAttempt(context.window.sessionStorage).key, original.key);
-  handler('setPaymentMethod', context)('paypal');
-  assert.equal(calls.filter(([name]) => name === 'setPaymentMethodState').length, 0);
-  context.meritPayload.items[0].quantity = 3;
-  context.meritInputsRef.current = JSON.stringify({ payload: context.meritPayload, email: context.currentUser.email, surchargeBps: 300 });
-  await start();
-  assert.equal(creates, 2);
-  assert.equal(readMeritAttempt(context.window.sessionStorage).key, original.key);
-  assert.ok(calls.some(([name]) => name === 'pending'));
-});
 
-test('full-credit authoritative rejection releases only the unreserved request for the existing credit checkout', async () => {
-  const { context, calls } = fixture();
-  context.meritPayload.useStoreCredit = true;
-  context.meritInputsRef.current = JSON.stringify({ payload: context.meritPayload, email: context.currentUser.email, surchargeBps: 300 });
-  context.meritApi.create = async () => { const error = new Error('credit covers order'); error.code = 'MERIT_FULL_CREDIT_AVAILABLE'; throw error; };
-  await handler('handleStripePayment', context)();
-  assert.equal(readMeritAttempt(context.window.sessionStorage).createRequested, undefined);
-  assert.match(calls.findLast(([name]) => name === 'setStripeError')[1], /covers the entire order/);
-});
 
-for (const code of ['MERIT_CREDIT_PENDING', 'MERIT_CREDIT_BALANCE_UNAVAILABLE']) {
-  test(`${code} releases an explicitly unreserved request so another payment method remains available`, async () => {
-    const { context, calls } = fixture();
-    context.meritPayload.useStoreCredit = true;
-    context.meritInputsRef.current = JSON.stringify({ payload: context.meritPayload, email: context.currentUser.email, surchargeBps: 300 });
-    context.meritApi.create = async () => { const error = new Error('request rejected before reservation'); error.code = code; throw error; };
-    await handler('handleStripePayment', context)();
-    assert.equal(readMeritAttempt(context.window.sessionStorage).createRequested, undefined);
-    handler('setPaymentMethod', context)('paypal');
-    assert.ok(calls.some(([name, value]) => name === 'setPaymentMethodState' && value === 'paypal'));
-  });
-}
+
+
+
 
 test('missing full-credit RPC leaves cart, balance and retry id intact without a paid browser order', async () => {
   const { context, calls } = fixture();
@@ -476,18 +336,6 @@ test('missing full-credit RPC leaves cart, balance and retry id intact without a
   assert.equal(context.creditCheckoutInFlightRef.current, false);
   assert.equal(calls.filter(([name]) => ['setStoreCredit', 'setCart', 'setPaymentReturn', 'setCreditPayAnimating'].includes(name)).length, 0);
   assert.ok(calls.some(([name, value]) => name === 'setCheckoutMessage' && /unavailable/.test(value)));
-});
-
-test('prepared credit checkout can restore its Merit method and pass details without generating a different attempt', async () => {
-  const { context, calls } = fixture();
-  context.meritAttemptRef.current = { key: 'preserved', orderId: 'INV-HELD123', createRequested: true, submitted: false };
-  context.paymentMethod = 'cashapp';
-  context.meritSession = null;
-  handler('setPaymentMethod', context)('stripe');
-  assert.ok(calls.some(([name, value]) => name === 'setPaymentMethodState' && value === 'stripe'));
-  await handler('handleCheckout', context)();
-  assert.ok(calls.some(([name, value]) => name === 'setCheckoutStep' && value === 'payment'));
-  assert.equal(context.meritAttemptRef.current.key, 'preserved');
 });
 
 test('admin credit double-click uses one delta request and displays a fresh balance after replay', async () => {
@@ -530,33 +378,13 @@ test('unconfirmed admin adjustment cannot update the displayed balance', async (
   assert.equal(context.adminCreditAdjustmentBusyRef.current,false);
 });
 
-test('a held credit checkout retains the original intent after reload reduces available balance to zero', async () => {
-  const { context, form }=fixture();
-  Object.assign(context,{ checkoutForm:form, storeCredit:50, affiliateDiscountDisabled:false, ownerFreeShippingActive:false });
-  const original=initializer('meritPayload',context);
-  assert.equal(original.useStoreCredit,true);
-  const digest=await meritPayloadDigest(original,context.currentUser.email,300);
-  saveMeritAttempt(context.window.sessionStorage,{ key:webcrypto.randomUUID(), digest, orderId:'INV-HELD123', submitted:false, createRequested:true });
-  context.meritAttemptRef.current=readMeritAttempt(context.window.sessionStorage);
-  context.storeCredit=0;
-  const restored=initializer('meritPayload',context);
-  assert.equal(restored.useStoreCredit,true);
-  assert.equal(await meritPayloadDigest(restored,context.currentUser.email,300),digest);
-  let requests=0;
-  context.meritPayload=restored;
-  context.meritInputsRef.current=JSON.stringify({ payload:restored,email:context.currentUser.email,surchargeBps:300 });
-  context.meritApi.create=async()=>{ requests+=1; return { session:{orderId:'INV-HELD123',storeCreditUsedCents:5000},order:{id:'INV-HELD123'} }; };
-  await handler('handleStripePayment',context)();
-  assert.equal(requests,1);
-  context.meritAttemptRef.current=null;
-  assert.equal(initializer('meritPayload',context).useStoreCredit,false);
-});
+
 
 function paymentArithmetic({ method='paypal', credit=0, base=60, step='payment' }={}) {
   const f=fixture();
   Object.assign(f.context,{ paymentMethod:method, checkoutStep:step, storeCredit:credit, subtotal:base, shipping:0,
     meritActiveSession:null, estimateMeritCreditSplit });
-  for(const name of ['baseTotal','cryptoDiscountAmount','meritSelected','meritCreditSplit','stripeFeeAmount','totalAfterDiscount','paypalFee','totalWithFee','storeCreditApplied','finalTotal','cashAppEligibleAmount']) {
+  for(const name of ['baseTotal','cryptoDiscountAmount','totalAfterDiscount','paypalFee','totalWithFee','storeCreditApplied','finalTotal','cashAppEligibleAmount']) {
     f.context[name]=initializer(name,f.context);
   }
   f.context.meritSelectionRef.current={method,step};
@@ -591,12 +419,7 @@ test('crypto keeps its ordinary discount and full-credit checkout without creati
   assert.equal(cents.finalTotal,0);
 });
 
-test('Merit calculates surcharge on the full order before partial credit and keeps zero-credit and full-credit totals', () => {
-  for(const [credit,applied,total,fee] of [[0,0,61.8,1.8],[50,50,11.8,1.8],[60,60,0,0]]) {
-    const {context}=paymentArithmetic({method:'stripe',credit});
-    assert.equal(context.storeCreditApplied,applied); assert.equal(context.finalTotal,total); assert.equal(context.stripeFeeAmount,fee);
-  }
-});
+
 
 const paypalNodes=[];
 function collectPaypal(node,parents=[]) {
@@ -817,4 +640,24 @@ test('provider failure retains the acknowledged unpaid checkout and its original
   assert.equal(context.paylioPaymentLoading, false);
   assert.equal(context.legacyStartLockRef.current, false);
   assert.ok(calls.some(([name, value]) => name === 'error' && value === 'Provider unavailable'));
+});
+
+test('retired card selection cannot re-enter the new checkout or change the current method', () => {
+  const { context, calls } = fixture();
+  context.paymentMethod = 'paylio';
+  handler('setPaymentMethod', context)('stripe');
+  assert.deepEqual(calls, []);
+  assert.doesNotMatch(source, /verifyMeritCheckoutBuyer|handleStripePayment|MeritCheckoutPanel|ResearcherEntryGate|researcherEntryGateActive|meritApi\.create\(/);
+});
+
+test('held historical credit blocks replacement methods and orders while preserving the attempt', async () => {
+  const { context, calls } = fixture();
+  const attempt = { key: 'preserved', orderId: 'INV-HELD123', createRequested: true, submitted: false };
+  context.meritAttemptRef.current = attempt;
+  context.paymentMethod = 'paylio';
+  handler('setPaymentMethod', context)('paypal');
+  await handler('handleCheckout', context)();
+  await handler('handlePayWithCredits', context)();
+  assert.deepEqual(calls, [['pending'], ['pending'], ['pending']]);
+  assert.equal(context.meritAttemptRef.current, attempt);
 });

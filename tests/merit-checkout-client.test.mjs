@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createMeritCheckoutClient, formatMeritAmount, meritCheckoutMessages, meritReturnUrl, validateMeritSession } from "../artifacts/10-bottle-value/src/merit-checkout-client.js";
+import { createMeritReconciliationClient, createMeritCheckoutClient, formatMeritAmount, meritCheckoutMessages, meritReturnUrl, validateMeritSession } from "../artifacts/10-bottle-value/src/merit-checkout-client.js";
 
+import { invoiceNumberFromUuid } from "../api/_invoice-number.js";
+
+const checkoutKey = "12345678-abcd-4abc-8abc-123456789abc";
 const session = {
   clientSecret: "pi_Test123_secret_Secret123", publishableKey: "pk_live_Public123",
-  stripeAccount: "acct_Merchant123", orderId: "INV-ABC123456789", amountCents: 17899, currency: "usd",
+  stripeAccount: "acct_Merchant123", orderId: invoiceNumberFromUuid(checkoutKey), amountCents: 17899, currency: "usd",
 };
 function deferred() {
   let resolve, reject;
@@ -324,18 +327,18 @@ test('create request requires authentication and validates the server total and 
   let reply = { ok: true, session: { ...session, baseAmountCents: 17378, surchargeCents: 521 }, order: { id: session.orderId, items: checkoutPayload().items.map(item => ({ ...item, price: 86.89 })), subtotal: 173.78, shipping: 0, automaticDiscount: 0, promoDiscount: 0, affiliateDiscount: 0, total: 178.99, customerCardSurcharge: 5.21, customerCardSurchargeBps: 300 } };
   const api = createMeritApiClient({ getAccessToken: async () => 'access-proof', fetchImpl: async (url, options) => { calls.push({ url, options }); return apiResponse(reply); } });
   const payload = checkoutPayload();
-  const result = await api.create({ checkoutKey: 'same-key', payload, proof: { otpToken: 'verification-proof', verifiedEmail: 'buyer@example.test' } });
+  const result = await api.create({ checkoutKey, payload, proof: { otpToken: 'verification-proof', verifiedEmail: 'buyer@example.test' } });
   assert.equal(result.session.amountCents, session.amountCents);
   assert.equal(calls[0].url, '/api/merit-checkout');
   assert.equal(calls[0].options.headers.Authorization, 'Bearer access-proof');
-  assert.deepEqual(JSON.parse(calls[0].options.body), { ...payload, otpToken: 'verification-proof', verifiedEmail: 'buyer@example.test', action: 'create', checkoutKey: 'same-key' });
+  assert.deepEqual(JSON.parse(calls[0].options.body), { ...payload, otpToken: 'verification-proof', verifiedEmail: 'buyer@example.test', action: 'create', checkoutKey });
   reply = { ...reply, order: { id: 'INV-OTHER123' } };
-  await assert.rejects(api.create({ checkoutKey: 'same-key', payload, proof: {} }));
+  await assert.rejects(api.create({ checkoutKey, payload, proof: {} }));
   reply = { ...reply, order: { id: session.orderId }, session: { ...reply.session, surchargeCents: 301 } };
-  await assert.rejects(api.create({ checkoutKey: 'same-key', payload, proof: {} }));
+  await assert.rejects(api.create({ checkoutKey, payload, proof: {} }));
   calls = [];
   const unauthenticated = createMeritApiClient({ getAccessToken: async () => '', fetchImpl: async () => { calls.push('unexpected'); } });
-  await assert.rejects(unauthenticated.create({ checkoutKey: 'same-key', payload, proof: {} }), error => error.code === 'authentication_required');
+  await assert.rejects(unauthenticated.create({ checkoutKey, payload, proof: {} }), error => error.code === 'authentication_required');
   assert.equal(calls.length, 0);
 });
 
@@ -383,7 +386,7 @@ test('unverified promo and affiliate errors provide matching English and Russian
       requests += 1;
       return apiResponse({ ok: false, code, error: 'Untrusted backend detail is not displayed' }, 409);
     } });
-    await assert.rejects(api.create({ checkoutKey: 'same-key', payload: checkoutPayload(), proof: {} }), error => {
+    await assert.rejects(api.create({ checkoutKey, payload: checkoutPayload(), proof: {} }), error => {
       assert.equal(error.code, code);
       assert.equal(meritCheckoutBusinessError(error, 'EN'), messages.en);
       assert.equal(meritCheckoutBusinessError(error, 'RU'), messages.ru);
@@ -407,7 +410,7 @@ test('mixed credit quote has exact credit, uncovered base, surcharge and final c
   const api = createMeritApiClient({ getAccessToken: async () => 'token', fetchImpl: async (_url, options) => {
     sent = JSON.parse(options.body); return apiResponse(reply);
   } });
-  const result = await api.create({ checkoutKey: 'same-key', payload, proof: {} });
+  const result = await api.create({ checkoutKey, payload, proof: {} });
   assert.equal(result.session.amountCents, 1180);
   assert.equal(result.session.storeCreditUsedCents, 5000);
   assert.equal(sent.useStoreCredit, true);
@@ -421,7 +424,7 @@ test('mixed credit quote has exact credit, uncovered base, surcharge and final c
     r => { delete r.order.storeCreditUsed; },
   ]) {
     reply = structuredClone(good); change(reply);
-    await assert.rejects(api.create({ checkoutKey: 'same-key', payload, proof: {} }));
+    await assert.rejects(api.create({ checkoutKey, payload, proof: {} }));
   }
 });
 
@@ -442,4 +445,22 @@ test('card preview charges surcharge on the full pre-credit order and preserves 
     cardBaseAmountCents: 0, surchargeCents: 0, amountCents: 0 });
   assert.equal(estimateMeritCreditSplit(60, 0, 300).amountCents, 6180);
   assert.equal(estimateMeritCreditSplit(60.01, 60, 300).amountCents, 181);
+});
+
+
+test('retired storefront client exposes only authenticated, bound status reconciliation', async () => {
+  const calls = [];
+  let reply = { ok: true, paid: true, orderId: session.orderId, order: { id: session.orderId } };
+  const api = createMeritReconciliationClient({ getAccessToken: async () => 'status-token', fetchImpl: async (url, options) => {
+    calls.push([url, options]); return apiResponse(reply);
+  } });
+  assert.deepEqual(Object.keys(api), ['reconcile']);
+  assert.equal(calls.length, 0);
+  assert.equal((await api.reconcile({ orderId: session.orderId })).paid, true);
+  assert.deepEqual(JSON.parse(calls[0][1].body), { action: 'reconcile', orderId: session.orderId });
+  assert.equal(calls[0][1].headers.Authorization, 'Bearer status-token');
+  reply = { ...reply, order: { id: 'INV-OTHER123' } };
+  await assert.rejects(api.reconcile({ orderId: session.orderId }));
+  const unauthenticated = createMeritReconciliationClient({ getAccessToken: async () => '', fetchImpl: async () => assert.fail('no unauthenticated request') });
+  await assert.rejects(unauthenticated.reconcile({ orderId: session.orderId }), error => error.code === 'authentication_required');
 });

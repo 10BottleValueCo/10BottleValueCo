@@ -91,7 +91,7 @@ export async function verifyMeritCheckoutBuyer(email, otp = globalThis.window?.A
     ...(typeof result.captureId === "string" && result.captureId.trim() ? { captureId: result.captureId.trim() } : {}) };
 }
 
-export function createMeritApiClient({ getAccessToken, fetchImpl = globalThis.fetch }) {
+function createMeritPost({ getAccessToken, fetchImpl = globalThis.fetch }) {
   async function post(body) {
     const token = await getAccessToken();
     if (!token) { const error = new Error(SESSION_ERROR); error.code = "authentication_required"; throw error; }
@@ -105,6 +105,26 @@ export function createMeritApiClient({ getAccessToken, fetchImpl = globalThis.fe
     }
     return result;
   }
+  return post;
+}
+
+export function createMeritReconciliationClient(options) {
+  const post = createMeritPost(options);
+  return {
+    async reconcile({ orderId }) {
+      if (!/^INV-[A-Z0-9]{6,32}$/i.test(orderId || "")) throw new Error(SESSION_ERROR);
+      const result = await post({ action: "reconcile", orderId });
+      if (result.orderId !== orderId || (result.paid === true && result.order?.id !== orderId)) throw new Error(SESSION_ERROR);
+      return result;
+    },
+  };
+}
+
+// Legacy checkout helpers are kept for historical fixtures. The storefront
+// imports only the reconciliation client; it cannot request a new payment.
+export function createMeritApiClient(options) {
+  const post = createMeritPost(options);
+  const { getAccessToken, fetchImpl = globalThis.fetch } = options;
   return {
     async configuration() {
       const response = await fetchImpl("/api/merit-checkout", { cache: "no-store", credentials: "same-origin" });

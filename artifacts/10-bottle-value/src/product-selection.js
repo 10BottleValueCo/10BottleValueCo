@@ -3,7 +3,7 @@ import {
   normalizeWarehouse,
   resolveWarehouseOffer,
 } from "../../../shared/warehouse-offer.js";
-import { productSlug } from "./productNames.js";
+import { productSlug, productSlugs } from "./productNames.js";
 
 const normalizedText = (value) => String(value ?? "").trim().toLowerCase();
 const normalizedDose = (value) => normalizedText(value).replace(/(\d)\s+([a-z])/g, "$1$2");
@@ -44,7 +44,7 @@ export function readProductSelection(catalog, location) {
   const slug = pathSlug(location?.pathname) || normalizedText(params.get("product"));
   if (!slug) return null;
   const candidates = catalog.filter((product) =>
-    slug === productSlug(product) || slug === productSlug(product, true));
+    productSlugs(product).includes(slug));
   if (!candidates.length) return null;
 
   const rawWarehouse = params.has("warehouse") ? normalizedText(params.get("warehouse")) : undefined;
