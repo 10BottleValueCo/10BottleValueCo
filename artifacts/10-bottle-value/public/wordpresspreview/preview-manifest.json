@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-10-25T02:47:14.422263+00:00",
+  "sourceCommit": "5672c65ca153ec565256cd1d805f8a4a34fdb718",
+  "runtime": {
+    "php": "8.3",
+    "wp": "7.1"
+  },
+  "expectedWordPressVersion": "7.1.3",
+  "woocommerce": {
+    "version": "11.2.1",
+    "url": "./plugins/woocommerce.11.2.1.zip",
+    "sourceUrl": "https://downloads.wordpress.org/plugin/woocommerce.11.2.1.zip",
+    "bytes": 18060641,
+    "sha256": "5317434cb381b5fdc7c1dd6ee258324f08c390976aaf8d1199f2a0e9a3ab8586"
+  },
+  "coreStatic": {
+    "path": "./wp-7.1/wordpress-static.zip",
+    "bytes": 18713238,
+    "sha256": "5c7178e4e96c3f1c92510c652265e001013e4015d4e7d3b3f14c3e57c10f2d1b"
+  },
+  "theme": {
+    "bytes": 47670896,
+    "sha256": "3d6396ddfe61f2a24c959701fe3b6c20d449ac1c808a69bf717eb35c976ac04e",
+    "parts": [
+      {
+        "path": "./theme/10bottlevalue.zip.part-00",
+        "bytes": 12582912,
+        "sha256": "d8f350c4430a621fb1f4bba1fe42f1b2d9e2570ff0d59286a1bfb337fcdf2958"
+      },
+      {
+        "path": "./theme/10bottlevalue.zip.part-01",
+        "bytes": 12582912,
+        "sha256": "c8bdba2c68bd3c16733dfa6431f845c9930423250f8772637faf1346dd22807f"
+      },
+      {
+        "path": "./theme/10bottlevalue.zip.part-02",
+        "bytes": 12582912,
+        "sha256": "30f3fead2bec6cadd3216951b6f560e17479ba315a1fb640a9ce2a50949d0514"
+      },
+      {
+        "path": "./theme/10bottlevalue.zip.part-03",
+        "bytes": 9922160,
+        "sha256": "9d0bd0aaa6816988ef6df88c4a93913e73b1ddfa78cc4268a4a42a6f1e35a54e"
+      }
+    ]
+  },
+  "catalogSnapshot": "2026-10-22T23:16:06.961Z",
+  "plugin": {
+    "path": "./downloads/10bottlevalue-preview-tools-968c70babb5c0d8f.zip",
+    "bytes": 26314,
+    "sha256": "968c70babb5c0d8faae05bb37532c9f5dfdba2fab23b3aab53d1c771c41125b4"
+  },
+  "limits": {
+    "paymentsEnabled": false,
+    "realOrdersEnabled": false,
+    "emailEnabled": false,
+    "physicalInventoryVerified": false,
+    "browserVisualParityVerified": false,
+    "storefrontLanguages": [
+      "EN"
+    ]
+  }
+}

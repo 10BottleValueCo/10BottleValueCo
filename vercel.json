@@ -74,14 +74,8 @@
     {
       "source": "/operations(.*)",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "private, no-store"
-        },
-        {
-          "key": "X-Robots-Tag",
-          "value": "noindex, nofollow"
-        }
+        { "key": "Cache-Control", "value": "private, no-store" },
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
       ]
     },
     {
@@ -90,6 +84,19 @@
       "headers": [
         { "key": "Cache-Control", "value": "private, no-store" },
         { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
+      ]
+    },
+    {
+      "source": "/wordpresspreview/:path*",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        }
       ]
     }
   ],
@@ -120,7 +127,19 @@
       "destination": "/api/:path*"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/wordpresspreview",
+      "destination": "/wordpresspreview/index.html"
+    },
+    {
+      "source": "/wordpresspreview/",
+      "destination": "/wordpresspreview/index.html"
+    },
+    {
+      "source": "/wordpresspreview/:path*",
+      "destination": "/wordpresspreview/:path*"
+    },
+    {
+      "source": "/((?!api/|wordpresspreview/|wordpresspreview$).*)",
       "destination": "/index.html"
     }
   ]
