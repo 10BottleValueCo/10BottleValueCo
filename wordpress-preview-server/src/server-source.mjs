@@ -8,6 +8,10 @@ import {bootWordPressAndRequestHandler} from '@wp-playground/wordpress';
 const PREFIX='/wordpresspreview';
 const here=typeof __dirname==='string'?__dirname:path.dirname(new URL(import.meta.url).pathname);
 let instance,queued=0,tail=Promise.resolve();
+// Only the cookie-free, unfiltered guest home is eligible. Never share cart,
+// search, AJAX, authenticated or mutation responses between visitors.
+const guestHomeTtlMs=10000;
+let guestHome;
 export function allowedPath(p){return /^\/(?:|shop\/?|product\/[a-z0-9-]+\/?|cart\/?|about\/?|contact\/?|faq\/?|track-order\/?|shipping-policy\/?|refund-policy\/?|privacy-policy\/?|terms-and-conditions\/?|shipping-prices\/?)$/.test(p);}
 const queryKeys=new Set(['warehouse','s','post_type','paged','product-page','attribute_dosage','attribute_pack-size','attribute_warehouse','attribute_formulation','variation_id','product_id','add-to-cart','quantity','remove_item','undo_item','_wpnonce','wc-ajax']);
 const cartCookie=/^(?:wp_woocommerce_session_[a-z0-9]+|woocommerce_items_in_cart|woocommerce_cart_hash)$/i;
@@ -15,6 +19,7 @@ function safeCookies(input=''){return input.split(';').map(x=>x.trim()).filter(x
 function reply(res,status,body,type='text/plain; charset=utf-8'){res.statusCode=status;res.setHeader('Content-Type',type);res.setHeader('Cache-Control','no-store');res.setHeader('X-Robots-Tag','noindex, nofollow');res.end(body);}
 async function boot(origin){
  if(instance?.origin===origin)return instance;
+ guestHome=undefined;
  if(instance){await instance.handler[Symbol.asyncDispose]();fs.rmSync(instance.tmp,{recursive:true,force:true});instance=null;}
  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'tbv-wp-preview-'));
  fs.cpSync(path.join(here,'site/wp-content/database'),path.join(tmp,'database'),{recursive:true});
@@ -61,6 +66,18 @@ export default async function preview(req,res){
  if(input.searchParams.has('quantity')&&(!/^\d+$/.test(input.searchParams.get('quantity'))||Number(input.searchParams.get('quantity'))>20))return reply(res,400,'Preview quantity is limited to 20 kits');
  if(input.searchParams.has('post_type')&&input.searchParams.get('post_type')!=='product')return reply(res,400,'Unsupported preview search');
  if(!['GET','HEAD','POST'].includes(req.method))return reply(res,405,'Method not allowed');
+ const cacheable=req.method==='GET'&&route==='/'&&!input.searchParams.size&&
+  !Object.hasOwn(req.headers,'cookie')&&!Object.hasOwn(req.headers,'authorization');
+ function serveGuestHome(){
+  if(!cacheable||!guestHome||instance?.origin!==origin||guestHome.origin!==origin)return false;
+  if(Date.now()>=guestHome.expires){guestHome=undefined;return false;}
+  res.statusCode=200;
+  for(const [name,values]of Object.entries(guestHome.headers))res.setHeader(name,values);
+  res.setHeader('Cache-Control','no-store');res.setHeader('X-Robots-Tag','noindex, nofollow');
+  res.setHeader('X-TBV-Preview-Engine',guestHome.engine);res.setHeader('X-TBV-Preview-Cache','HIT');
+  res.end(guestHome.body);return true;
+ }
+ if(serveGuestHome())return;
  let params;
  if(req.method==='POST'){
   if(req.headers.origin&&req.headers.origin!==origin)return reply(res,403,'Preview origin rejected');
@@ -81,6 +98,7 @@ export default async function preview(req,res){
  const before=tail;let done;tail=new Promise(resolve=>done=resolve);
  await before;
  try{
+  if(serveGuestHome())return;
   const runtime=await boot(origin);
   const target=origin+PREFIX+route+(input.search?'?'+input.searchParams.toString():'');
   const result=await runtime.handler.request({url:target,method:req.method==='HEAD'?'GET':req.method,headers:{'host':host,'cookie':safeCookies(req.headers.cookie),'content-type':'application/x-www-form-urlencoded','user-agent':'10BottleValue anonymous WordPress preview'},...(params?{body:new TextEncoder().encode(params.toString())}:{})});
@@ -94,8 +112,17 @@ export default async function preview(req,res){
    }else if(['content-type','location','link','vary'].includes(key))res.setHeader(name,values);
   }
   res.setHeader('Cache-Control','no-store');res.setHeader('X-Robots-Tag','noindex, nofollow');
-  res.setHeader('X-TBV-Preview-Engine','WordPress '+runtime.facts.wp+'; WooCommerce '+runtime.facts.woo);
-  res.end(req.method==='HEAD'?undefined:Buffer.from(result.bytes));
+  const engine='WordPress '+runtime.facts.wp+'; WooCommerce '+runtime.facts.woo;
+  res.setHeader('X-TBV-Preview-Engine',engine);
+  const responseBody=Buffer.from(result.bytes);
+  const responseHeaders=Object.fromEntries(Object.entries(result.headers).map(([name,values])=>[name.toLowerCase(),values]));
+  if(cacheable&&res.statusCode===200&&!responseHeaders['set-cookie']&&!responseHeaders.vary&&
+    /^text\/html(?:;|$)/i.test(responseHeaders['content-type']?.[0]||'')){
+   const headers=Object.fromEntries(Object.entries(responseHeaders).filter(([name])=>['content-type','link'].includes(name)));
+   guestHome={origin,expires:Date.now()+guestHomeTtlMs,headers,engine,body:responseBody};
+   res.setHeader('X-TBV-Preview-Cache','MISS');
+  }
+  res.end(req.method==='HEAD'?undefined:responseBody);
  }catch(error){console.error('WordPress preview render error:',error.message);reply(res,503,'The WordPress preview is temporarily unavailable. Please reload.');}
  finally{queued--;done();}
 }

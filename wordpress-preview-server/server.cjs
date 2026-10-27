@@ -4140,7 +4140,7 @@ var init_zstddec_stream_modern_C2FJ34ZP = __esm({
   }
 });
 
-// server-source.mjs
+// ../wordpress-server-preview-2026-10-25/server-source.mjs
 var server_source_exports = {};
 __export(server_source_exports, {
   allowedPath: () => allowedPath,
@@ -17820,12 +17820,14 @@ var Kt = class extends Error {
 };
 var Qt = R2(fetch);
 
-// server-source.mjs
+// ../wordpress-server-preview-2026-10-25/server-source.mjs
 var PREFIX = "/wordpresspreview";
 var here = typeof __dirname === "string" ? __dirname : import_node_path.default.dirname(new URL(__tbv_import_meta_url).pathname);
 var instance;
 var queued = 0;
 var tail = Promise.resolve();
+var guestHomeTtlMs = 1e4;
+var guestHome;
 function allowedPath(p2) {
   return /^\/(?:|shop\/?|product\/[a-z0-9-]+\/?|cart\/?|about\/?|contact\/?|faq\/?|track-order\/?|shipping-policy\/?|refund-policy\/?|privacy-policy\/?|terms-and-conditions\/?|shipping-prices\/?)$/.test(p2);
 }
@@ -17843,6 +17845,7 @@ function reply(res, status, body, type = "text/plain; charset=utf-8") {
 }
 async function boot(origin) {
   if (instance?.origin === origin) return instance;
+  guestHome = void 0;
   if (instance) {
     await instance.handler[Symbol.asyncDispose]();
     import_node_fs2.default.rmSync(instance.tmp, { recursive: true, force: true });
@@ -17919,6 +17922,23 @@ async function preview(req, res) {
   if (input.searchParams.has("quantity") && (!/^\d+$/.test(input.searchParams.get("quantity")) || Number(input.searchParams.get("quantity")) > 20)) return reply(res, 400, "Preview quantity is limited to 20 kits");
   if (input.searchParams.has("post_type") && input.searchParams.get("post_type") !== "product") return reply(res, 400, "Unsupported preview search");
   if (!["GET", "HEAD", "POST"].includes(req.method)) return reply(res, 405, "Method not allowed");
+  const cacheable = req.method === "GET" && route === "/" && !input.searchParams.size && !Object.hasOwn(req.headers, "cookie") && !Object.hasOwn(req.headers, "authorization");
+  function serveGuestHome() {
+    if (!cacheable || !guestHome || instance?.origin !== origin || guestHome.origin !== origin) return false;
+    if (Date.now() >= guestHome.expires) {
+      guestHome = void 0;
+      return false;
+    }
+    res.statusCode = 200;
+    for (const [name, values] of Object.entries(guestHome.headers)) res.setHeader(name, values);
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    res.setHeader("X-TBV-Preview-Engine", guestHome.engine);
+    res.setHeader("X-TBV-Preview-Cache", "HIT");
+    res.end(guestHome.body);
+    return true;
+  }
+  if (serveGuestHome()) return;
   let params;
   if (req.method === "POST") {
     if (req.headers.origin && req.headers.origin !== origin) return reply(res, 403, "Preview origin rejected");
@@ -17945,6 +17965,7 @@ async function preview(req, res) {
   tail = new Promise((resolve) => done = resolve);
   await before;
   try {
+    if (serveGuestHome()) return;
     const runtime = await boot(origin);
     const target = origin + PREFIX + route + (input.search ? "?" + input.searchParams.toString() : "");
     const result = await runtime.handler.request({ url: target, method: req.method === "HEAD" ? "GET" : req.method, headers: { "host": host, "cookie": safeCookies(req.headers.cookie), "content-type": "application/x-www-form-urlencoded", "user-agent": "10BottleValue anonymous WordPress preview" }, ...params ? { body: new TextEncoder().encode(params.toString()) } : {} });
@@ -17959,8 +17980,16 @@ async function preview(req, res) {
     }
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("X-Robots-Tag", "noindex, nofollow");
-    res.setHeader("X-TBV-Preview-Engine", "WordPress " + runtime.facts.wp + "; WooCommerce " + runtime.facts.woo);
-    res.end(req.method === "HEAD" ? void 0 : Buffer.from(result.bytes));
+    const engine = "WordPress " + runtime.facts.wp + "; WooCommerce " + runtime.facts.woo;
+    res.setHeader("X-TBV-Preview-Engine", engine);
+    const responseBody = Buffer.from(result.bytes);
+    const responseHeaders = Object.fromEntries(Object.entries(result.headers).map(([name, values]) => [name.toLowerCase(), values]));
+    if (cacheable && res.statusCode === 200 && !responseHeaders["set-cookie"] && !responseHeaders.vary && /^text\/html(?:;|$)/i.test(responseHeaders["content-type"]?.[0] || "")) {
+      const headers = Object.fromEntries(Object.entries(responseHeaders).filter(([name]) => ["content-type", "link"].includes(name)));
+      guestHome = { origin, expires: Date.now() + guestHomeTtlMs, headers, engine, body: responseBody };
+      res.setHeader("X-TBV-Preview-Cache", "MISS");
+    }
+    res.end(req.method === "HEAD" ? void 0 : responseBody);
   } catch (error) {
     console.error("WordPress preview render error:", error.message);
     reply(res, 503, "The WordPress preview is temporarily unavailable. Please reload.");
