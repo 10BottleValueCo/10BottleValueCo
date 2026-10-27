@@ -1,0 +1,35 @@
+<?php
+require '/wordpress/wp-load.php';
+if (defined('TBV_TEST_CLASSIC') && TBV_TEST_CLASSIC) update_option('woocommerce_custom_orders_table_enabled','no');
+require '/wordpress/wp-content/plugins/tbv-synthetic-migration/tbv-synthetic-migration.php';
+$checks=[];function ck($key,$v){global $checks;$checks[$key]=(bool)$v;}
+function code($x,$code){return is_wp_error($x)&&$x->get_error_code()===$code;}
+$fixture=['synthetic'=>true,'customers'=>[['id'=>'sample-c1','email'=>'tbvsm-a@example.invalid'],['id'=>'sample-c2','email'=>'tbvsm-b@example.invalid']],'orders'=>[['id'=>'sample-o1','customerId'=>'sample-c1','createdAt'=>'2026-01-02T03:04:05Z','historicalStatus'=>'paid','paymentReference'=>'sample-pay1','itemName'=>'Synthetic item','quantity'=>2,'subtotal'=>'20.00','shipping'=>'4.00','total'=>'24.00']]];
+$mail=0;$payment=0;$status=0;$refund=0;$stock=0;add_action('woocommerce_order_refunded',function()use(&$refund){$refund++;});add_action('woocommerce_reduce_order_stock',function()use(&$stock){$stock++;});add_filter('pre_wp_mail',function($x)use(&$mail){$mail++;return true;},0);add_action('woocommerce_payment_complete',function()use(&$payment){$payment++;});add_action('woocommerce_order_status_changed',function()use(&$status){$status++;});
+$p=tbvsm_plan($fixture);ck('dry_run_three_creates',!is_wp_error($p)&&count($p['operations'])===3 && count(array_filter($p['operations'],fn($x)=>$x['action']==='create'))===3);
+ck('dry_run_no_writes',!email_exists('tbvsm-a@example.invalid') && count(tbvsm_orders_for('sample-o1'))===0);
+$bad=$fixture;$bad['customers'][1]['id']='sample-c1';ck('duplicate_customer',code(tbvsm_plan($bad),'invalid_customer'));
+$bad=$fixture;$bad['orders'][]=$bad['orders'][0];ck('duplicate_order',code(tbvsm_plan($bad),'invalid_order'));
+$bad=$fixture;$bad['customers'][0]['email']='real@example.com';ck('real_email_rejected',code(tbvsm_plan($bad),'invalid_customer'));
+$bad=$fixture;$bad['customers'][0]['id']='real-identity';ck('real_id_rejected',code(tbvsm_plan($bad),'invalid_customer'));
+$bad=$fixture;$bad['synthetic']=false;ck('synthetic_flag_required',code(tbvsm_plan($bad),'invalid_fixture'));
+$bad=$fixture;$bad['orders'][0]['customerId']=[];ck('nonstring_owner_refused',code(tbvsm_plan($bad),'invalid_order'));
+$bad=$fixture;$bad['orders'][0]['customerId']='sample-missing';ck('unknown_owner_refused',code(tbvsm_plan($bad),'invalid_order'));
+$bad=$fixture;$bad['orders'][0]['total']='24.01';ck('unbalanced_refused',code(tbvsm_plan($bad),'invalid_total'));
+$bad=$fixture;$bad['orders'][0]['total']=24;ck('floating_money_refused',code(tbvsm_plan($bad),'invalid_total'));
+$bad=$fixture;$bad['orders'][0]['createdAt']=[];ck('nonstring_date_refused',code(tbvsm_plan($bad),'invalid_timestamp'));
+$bad=$fixture;$bad['orders'][0]['createdAt']='2026-02-30T03:04:05Z';ck('invalid_date_refused',code(tbvsm_plan($bad),'invalid_timestamp'));
+add_option('_tbvsm_lab_lock','held','','no');ck('concurrent_lock',code(tbvsm_apply($fixture),'locked'));delete_option('_tbvsm_lab_lock');
+$taken=wp_insert_user(['user_login'=>'tbvsm-sample-c1','user_email'=>'tbvsm-taken@example.invalid','user_pass'=>wp_generate_password(),'role'=>'customer']);ck('occupied_username_preflight',code(tbvsm_apply($fixture),'customer_identity_conflict') && !email_exists('tbvsm-b@example.invalid'));require_once ABSPATH.'wp-admin/includes/user.php';wp_delete_user($taken);
+$a=tbvsm_apply($fixture);ck('apply_success',!is_wp_error($a));
+$uid=email_exists('tbvsm-a@example.invalid');$orderids=tbvsm_orders_for('sample-o1');$order=count($orderids)===1?wc_get_order($orderids[0]):null;
+ck('customer_and_order_saved',$uid && $order && tbvsm_customer_matches($uid,$fixture['customers'][0]) && tbvsm_order_matches($orderids[0],$fixture['orders'][0],$uid));
+ck('historical_paid_not_verified',$order && $order->get_status()==='pending' && !$order->get_date_paid() && $order->get_meta('_tbvsm_historical_status')==='paid');
+ck('identity_and_payment_ref_preserved',$order && $order->get_meta('_tbvsm_source_id')==='sample-o1' && $order->get_meta('_tbvsm_payment_reference')==='sample-pay1');
+$p=tbvsm_plan($fixture);ck('repeated_plan_unchanged',!is_wp_error($p)&&count(array_filter($p['operations'],fn($x)=>$x['action']==='unchanged'))===3);
+$r=tbvsm_apply($fixture);ck('repeat_no_duplicates',!is_wp_error($r) && count(tbvsm_users_for('sample-c1'))===1 && count(tbvsm_orders_for('sample-o1'))===1);
+$changed=$fixture;$changed['orders'][0]['total']='25.00';$changed['orders'][0]['shipping']='5.00';$changed['customers'][]=['id'=>'sample-c3','email'=>'tbvsm-c@example.invalid'];ck('changed_source_blocks_entire_batch',code(tbvsm_apply($changed),'order_edited') && !email_exists('tbvsm-c@example.invalid'));
+ck('no_order_status_transition',$status===0);$order->delete(false);ck('trashed_order_detected',code(tbvsm_plan($fixture),'order_edited'));$order=wc_get_order($orderids[0]);$order->set_status('pending');$order->save();
+$order->set_total('99.00');$order->save();ck('operator_edit_refused',code(tbvsm_plan($fixture),'order_edited'));$order->set_total('24.00');$order->save();
+$other=wp_insert_user(['user_login'=>'tbvsm-existing','user_email'=>'tbvsm-other@example.invalid','user_pass'=>wp_generate_password(),'role'=>'customer']);update_user_meta($other,'_tbvsm_source_id','sample-c1');ck('duplicate_destination_identity_refused',code(tbvsm_plan($fixture),'customer_identity_conflict'));
+ck('no_email_event',$mail===0);ck('no_payment_complete_event',$payment===0);ck('no_refund_event',$refund===0);ck('no_stock_reduction_event',$stock===0);echo wp_json_encode(['passed'=>count(array_filter($checks)),'total'=>count($checks),'checks'=>$checks,'hpos'=>\Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()]);
