@@ -2,6 +2,7 @@
 // This script is mounted only in an isolated local test runtime. It creates one
 // synthetic user and order in a throwaway SQLite copy; it is not a WP plugin.
 require '/wordpress/wp-load.php';
+if (!defined('TBV_SYNTHETIC_WOO_TEST') || TBV_SYNTHETIC_WOO_TEST !== true || !defined('WP_HTTP_BLOCK_EXTERNAL') || WP_HTTP_BLOCK_EXTERNAL !== true || !defined('DISABLE_WP_CRON') || DISABLE_WP_CRON !== true) throw new Exception('This script may only run in an isolated synthetic test runtime');
 if (!function_exists('wc_create_order')) throw new Exception('WooCommerce is unavailable');
 $tests=[]; function check($key,$ok) {global $tests; $tests[$key]=(bool)$ok;}
 $mail=0;$payments=0;
