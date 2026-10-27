@@ -29,7 +29,7 @@ const server=http.createServer(async(request,response)=>{
  const url=new URL(request.url,origin);if(request.headers.host!=='127.0.0.1:9476'||(prefix&&!url.pathname.startsWith(prefix+'/')&&url.pathname!==prefix)){response.writeHead(403).end();return;}
  const pathname=url.pathname.slice(prefix.length)||'/';
  if(request.method==='GET'&&pathname==='/__test/fixture'){response.setHeader('content-type','application/json');response.end(JSON.stringify(synthetic));return;}
- if(/%(?:2f|5c|00)/i.test(request.url)||url.pathname.includes('//')||url.pathname.includes('\\')||/^\/(?:api|wp-admin|wp-login\.php|my-account|account|checkout|wc-api|order-pay)(?:\/|$)/i.test(pathname)||url.searchParams.has('wc-ajax')||url.searchParams.has('rest_route')||url.searchParams.has('add-to-cart')){response.writeHead(403).end();return;}
+ if(/%(?:2f|5c|00)/i.test(url.pathname)||url.pathname.includes('//')||url.pathname.includes('\\')||/^\/(?:api|wp-admin|wp-login\.php|my-account|account|checkout|wc-api|order-pay)(?:\/|$)/i.test(pathname)||url.searchParams.has('wc-ajax')||url.searchParams.has('rest_route')||url.searchParams.has('add-to-cart')){response.writeHead(403).end();return;}
  const action=pathname==='/wp-json/wc/store/v1/cart/add-item';
  if(!['GET','HEAD'].includes(request.method)&&!(request.method==='POST'&&action)){response.writeHead(403).end();return;}
  if(pathname.startsWith('/wp-json/')&&!['/wp-json/wc/store/v1/cart','/wp-json/wc/store/v1/cart/add-item'].includes(pathname)){response.writeHead(403).end();return;}

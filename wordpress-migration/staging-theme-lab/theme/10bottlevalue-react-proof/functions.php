@@ -147,6 +147,7 @@ add_filter('woocommerce_cart_item_permalink', function ($permalink, $cart_item) 
         if ($offer['warehouse'] === 'us') $params['warehouse'] = 'us';
         if ((int)$offer['pack'] !== 10) $params['pack'] = (int)$offer['pack'];
         if ($offer['noteLabel'] !== '') $params['option'] = $offer['noteLabel'];
+        else $params['tbv_option'] = 'empty';
         $url = home_url('/' . $slug);
         return $params ? add_query_arg($params, $url) : $url;
     }

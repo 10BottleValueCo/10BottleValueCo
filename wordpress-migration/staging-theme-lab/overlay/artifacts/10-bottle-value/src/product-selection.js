@@ -51,8 +51,11 @@ export function readProductSelection(catalog, location) {
   const warehouse = normalizeWarehouse(rawWarehouse) ?? rawWarehouse;
   const option = params.get("option");
   const hasOption = option !== null && option !== "";
-  const matchingOption = hasOption
-    ? candidates.filter((product) => normalizedText(product.noteLabel) === normalizedText(option))
+  // Legacy links, including option=, keep their existing first-match default.
+  // New links explicitly distinguish an empty label from an unspecified label.
+  const explicitEmptyOption = !hasOption && params.get("tbv_option") === "empty";
+  const matchingOption = hasOption || explicitEmptyOption
+    ? candidates.filter((product) => normalizedText(product.noteLabel) === normalizedText(explicitEmptyOption ? "" : option))
     : candidates;
   // Old ambiguous links retain their first matching catalog option. New links
   // include option, so changing warehouse cannot switch with/d to no/d.
@@ -61,20 +64,21 @@ export function readProductSelection(catalog, location) {
     ?? candidates[0];
   return {
     ...productSelectionFromProduct(product, warehouse),
-    noteLabel: hasOption ? option : product.noteLabel ?? "",
+    noteLabel: explicitEmptyOption ? "" : hasOption ? option : product.noteLabel ?? "",
     vials: readPack(params),
   };
 }
 
 export function productSelectionUrl(selection, currentSearch = "") {
   const params = new URLSearchParams(currentSearch);
-  for (const key of ["product", "warehouse", "pack", "option"]) params.delete(key);
+  for (const key of ["product", "warehouse", "pack", "option", "tbv_option"]) params.delete(key);
   const rawWarehouse = selection.warehouse;
   const warehouse = normalizeWarehouse(rawWarehouse);
   if (warehouse === "us" || warehouse === null) params.set("warehouse", String(rawWarehouse));
   const vials = selection.vials === undefined ? 10 : selection.vials;
   if (vials !== 10) params.set("pack", String(vials));
   if (selection.noteLabel) params.set("option", selection.noteLabel);
+  else params.set("tbv_option", "empty");
   const query = params.toString();
   return `/${productSlug(selection)}${query ? `?${query}` : ""}`;
 }

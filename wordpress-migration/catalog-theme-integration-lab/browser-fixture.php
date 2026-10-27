@@ -4,7 +4,7 @@ if (!defined('TBV_DISPOSABLE_FIXTURE') || TBV_DISPOSABLE_FIXTURE !== true || wp_
 require_once '/wordpress/wp-content/plugins/tbv-catalog-import/tbv-catalog-import.php';
 $src=json_decode(file_get_contents('/wordpress/wp-content/plugins/tbv-catalog-import/public-catalog.json'),true);
 $base=$src['rows'][0];$rows=[];$n=0;
-foreach(['worldwide','us'] as $warehouse)foreach(['','with/d'] as $form)foreach([1,5,10] as $pack){
+foreach(['worldwide','us'] as $warehouse)foreach(['with/d',''] as $form)foreach([1,5,10] as $pack){
     $row=$base;$row['catalogName']='SYNTHETIC IMPORT FIXTURE - DO NOT SELL';$row['name']=$row['catalogName'];$row['dose']='5 mg';
     $row['warehouse']=$warehouse;$row['packCount']=$pack;$row['noteLabel']=$form;$row['sourceIndex']=$n;
     $row['migrationKey']='tbv-'.substr(hash('sha256','browser-import-fixture-'.$n),0,16);

@@ -64,7 +64,7 @@ const server=http.createServer(async(req,res)=>{
 
  // Fail closed before WordPress initializes: only this disposable preview may
  // run here. Account, checkout, admin, payment and legacy app APIs stay off.
- if(/%(?:2f|5c|00)/i.test(req.url)||url.pathname.includes('//')||url.pathname.includes('\\')){res.writeHead(400).end('Invalid preview path');return;}
+ if(/%(?:2f|5c|00)/i.test(url.pathname)||url.pathname.includes('//')||url.pathname.includes('\\')){res.writeHead(400).end('Invalid preview path');return;}
  if(/^\/(?:api|wp-admin|wp-login\.php|my-account|account|wc-api|order-pay)(?:\/|$)/i.test(sitePath)||(url.searchParams.has('wc-ajax')&&!labAjax)||url.searchParams.has('rest_route')||url.searchParams.has('add-to-cart')){res.writeHead(403).end('Not available in local proof');return;}
  if(!['GET','HEAD'].includes(req.method)&&!cartPost&&!cartForm&&!labAjax){res.writeHead(403).end('Only synthetic cart operations allowed');return;}
  if(cartPost&&(req.headers.origin!==origin||!String(req.headers['content-type']||'').startsWith('application/json'))){res.writeHead(403).end('Invalid cart origin or content type');return;}
