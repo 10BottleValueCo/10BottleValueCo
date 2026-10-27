@@ -42,8 +42,13 @@ function tbvsm_customer_matches($uid,$row) {
 function tbvsm_order_matches($oid,$row,$uid) {
     $o=wc_get_order($oid); if (!$o || $o->get_customer_id()!==(int)$uid || $o->get_status()!=='pending' || $o->get_date_paid() || $o->get_currency()!=='USD') return false;
     $items=array_values($o->get_items()); $ship=array_values($o->get_items('shipping'));
-    return count($items)===1 && count($ship)===1 && $items[0]->get_name()===$row['itemName'] && $items[0]->get_quantity()===$row['quantity'] &&
+    return count($items)===1 && count($ship)===1 && count($o->get_items('fee'))===0 && count($o->get_items('coupon'))===0 && count($o->get_items('tax'))===0 && count($o->get_refunds())===0 &&
+      $items[0]->get_name()===$row['itemName'] && $items[0]->get_quantity()===$row['quantity'] &&
+      tbvsm_cents(wc_format_decimal($items[0]->get_subtotal(),2))===tbvsm_cents($row['subtotal']) &&
       tbvsm_cents(wc_format_decimal($items[0]->get_total(),2))===tbvsm_cents($row['subtotal']) &&
+      tbvsm_cents(wc_format_decimal($ship[0]->get_total(),2))===tbvsm_cents($row['shipping']) &&
+      tbvsm_cents(wc_format_decimal($items[0]->get_subtotal_tax(),2))===0 && tbvsm_cents(wc_format_decimal($items[0]->get_total_tax(),2))===0 && tbvsm_cents(wc_format_decimal($ship[0]->get_total_tax(),2))===0 &&
+      tbvsm_cents(wc_format_decimal($o->get_discount_total(),2))===0 && tbvsm_cents(wc_format_decimal($o->get_total_tax(),2))===0 &&
       tbvsm_cents(wc_format_decimal($o->get_shipping_total(),2))===tbvsm_cents($row['shipping']) &&
       tbvsm_cents(wc_format_decimal($o->get_total(),2))===tbvsm_cents($row['total']) &&
       $o->get_meta('_tbvsm_source_id')===$row['id'] && $o->get_meta('_tbvsm_fingerprint')===tbvsm_fingerprint($row) &&
