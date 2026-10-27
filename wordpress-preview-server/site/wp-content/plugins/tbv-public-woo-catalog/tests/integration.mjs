@@ -49,6 +49,10 @@ try {
  $keys=array_keys($sample[1]);sort($keys);$allowed=['dose','formulation','pack','price','purchasable','stock_status','variation_id','warehouse'];sort($allowed);check('strict_offer_allowlist',$keys===$allowed);
  $productKeys=array_keys($sample[0]);sort($productKeys);$productAllowed=['name','offers','product_id'];sort($productAllowed);check('strict_product_allowlist',$productKeys===$productAllowed);
  $var=wc_get_product($sample[1]['variation_id']);$parent=wc_get_product($sample[0]['product_id']);
+ wp_update_post(['ID'=>$parent->get_id(),'post_password'=>'synthetic-password']);$protected=data_for(1,100);check('password_protected_parent_omitted',!in_array($parent->get_id(),array_column($protected['products'],'product_id'),true));
+ check('direct_offer_rejects_protected_parent',tbv_public_catalog_offer($var,$parent)===null);wp_update_post(['ID'=>$parent->get_id(),'post_password'=>'']);
+ wp_update_post(['ID'=>$var->get_id(),'post_password'=>'synthetic-password']);$protected=data_for(1,100);$offerIds=[];foreach($protected['products'] as $p){foreach($p['offers'] as $o){$offerIds[]=$o['variation_id'];}}
+ check('password_protected_variation_omitted',!in_array($var->get_id(),$offerIds,true));check('direct_offer_rejects_protected_variation',tbv_public_catalog_offer($var,$parent)===null);wp_update_post(['ID'=>$var->get_id(),'post_password'=>'']);
  $var->update_meta_data('_private_supplier_secret','SHOULD_NOT_LEAK');$var->save();
  $withPrivate=data_for(1,100);check('private_metadata_omitted',strpos(wp_json_encode($withPrivate),'SHOULD_NOT_LEAK')===false);
  $var->update_meta_data('_tbv_warehouse','not-a-warehouse');$var->save();$invalid=tbv_public_catalog_offer(wc_get_product($var->get_id()),$parent);check('unknown_warehouse_omitted',$invalid===null);

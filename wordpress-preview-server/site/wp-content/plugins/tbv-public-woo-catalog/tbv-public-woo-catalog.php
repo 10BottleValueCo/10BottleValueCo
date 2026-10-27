@@ -55,8 +55,16 @@ function tbv_public_catalog_field($product, $parent, $meta_key, $attribute_keys)
     return is_scalar($value) && trim((string)$value) !== '' ? tbv_public_catalog_clean_text($value) : '';
 }
 
+/** The public endpoint never exposes password-protected WordPress products,
+ * regardless of the current visitor's password cookie. */
+function tbv_public_catalog_unprotected($product) {
+    if (!is_a($product, 'WC_Product')) return false;
+    $post = get_post($product->get_id());
+    return $post instanceof WP_Post && (string)$post->post_password === '';
+}
+
 function tbv_public_catalog_offer($item, $parent) {
-    if (!is_a($item, 'WC_Product') || $item->get_status('edit') !== 'publish') return null;
+    if (!is_a($item, 'WC_Product') || $item->get_status('edit') !== 'publish' || !tbv_public_catalog_unprotected($parent) || !tbv_public_catalog_unprotected($item)) return null;
     $warehouse = strtolower(tbv_public_catalog_field($item, $parent, '_tbv_warehouse', ['warehouse', 'pa_warehouse']));
     $warehouse_aliases = ['us' => 'us', 'usa' => 'us', 'us-warehouse' => 'us', 'us warehouse' => 'us', 'worldwide' => 'worldwide'];
     if (!isset($warehouse_aliases[$warehouse])) return null;
@@ -98,7 +106,7 @@ function tbv_public_catalog_response($request) {
     ]);
     $products = [];
     foreach ($query->products as $product) {
-        if (!is_a($product, 'WC_Product') || $product->get_status('edit') !== 'publish') continue;
+        if (!is_a($product, 'WC_Product') || $product->get_status('edit') !== 'publish' || !tbv_public_catalog_unprotected($product)) continue;
         if (!in_array($product->get_catalog_visibility('edit'), ['visible', 'catalog', 'search'], true) || !$product->is_visible()) continue;
         $items = $product->is_type('variable') ? array_map('wc_get_product', $product->get_children()) : [$product];
         $offers = [];
