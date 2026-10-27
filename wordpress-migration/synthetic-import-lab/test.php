@@ -59,6 +59,8 @@ $guestPlan=tbvsm_plan($guest);ck('unlinked_dry_run_no_order',!is_wp_error($guest
 $guestApply=tbvsm_apply($guest);$guestIds=tbvsm_orders_for('sample-unlinked-order');$guestOrder=count($guestIds)===1?wc_get_order($guestIds[0]):null;
 ck('unlinked_order_does_not_attach_matching_email',!is_wp_error($guestApply)&&$guestOrder&&$guestOrder->get_customer_id()===0&&$guestOrder->get_billing_email()===$guest['customers'][0]['email']);
 ck('unlinked_repeat_idempotent',!is_wp_error(tbvsm_apply($guest))&&count(tbvsm_orders_for('sample-unlinked-order'))===1);
+$accountOrders=wc_get_orders(['customer'=>email_exists($guest['customers'][0]['email']),'return'=>'ids','limit'=>-1]);
+ck('my_account_query_excludes_unlinked_matching_email',!in_array((int)$guestIds[0],array_map('intval',$accountOrders),true)&&in_array((int)$addressIds[0],array_map('intval',$accountOrders),true));
 $guestOrder->set_customer_id(email_exists($guest['customers'][0]['email']));$guestOrder->save();ck('unlinked_changed_owner_refused',code(tbvsm_plan($guest),'order_edited'));$guestOrder->set_customer_id(0);$guestOrder->save();
 $guestChanged=$guest;$guestChanged['orders'][0]['customerId']=$guest['customers'][0]['id'];ck('unlinked_source_owner_change_requires_review',code(tbvsm_plan($guestChanged),'journal_conflict'));
 ck('unlinked_restored',!is_wp_error(tbvsm_plan($guest)));
