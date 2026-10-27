@@ -30,6 +30,22 @@ add_filter('pre_wp_mail', '__return_false', PHP_INT_MAX);
 add_filter('woocommerce_payment_gateways', '__return_empty_array', PHP_INT_MAX);
 add_filter('woocommerce_available_payment_gateways', '__return_empty_array', PHP_INT_MAX);
 add_filter('woocommerce_valid_order_statuses_for_payment', '__return_empty_array', PHP_INT_MAX);
+// The review catalog excludes password-protected products. Also enforce that
+// boundary when a visitor supplies a WooCommerce product ID directly to cart.
+function tbv_react_proof_cart_product_is_public($product) {
+    if (!function_exists('tbv_public_catalog_unprotected') || !is_a($product, 'WC_Product')) return false;
+    if (!tbv_public_catalog_unprotected($product)) return false;
+    $parent_id = $product->get_parent_id();
+    if (!$parent_id) return true;
+    $parent = wc_get_product($parent_id);
+    return $parent && tbv_public_catalog_unprotected($parent);
+}
+add_filter('woocommerce_is_purchasable', function ($purchasable, $product) {
+    return $purchasable && tbv_react_proof_cart_product_is_public($product);
+}, PHP_INT_MAX, 2);
+add_filter('woocommerce_variation_is_purchasable', function ($purchasable, $product) {
+    return $purchasable && tbv_react_proof_cart_product_is_public($product);
+}, PHP_INT_MAX, 2);
 add_action('wp', function () {
     remove_action('woocommerce_proceed_to_checkout', 'woocommerce_button_proceed_to_checkout', 20);
     add_action('woocommerce_proceed_to_checkout', function () { echo '<p>Checkout is unavailable in this WordPress preview.</p>'; }, 20);
