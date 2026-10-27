@@ -4,7 +4,7 @@ This directory captures the source for an isolated review prototype, **not a fin
 
 ## Build an isolated review package
 
-Use a checkout that contains commit `910641dad6e374e3cbc9938a021928175f1af7ef` and has this repository's workspace dependencies installed. The builder uses that pinned Git baseline, overlays the source in this directory, and extracts only the 220 public assets listed with SHA-256 hashes in `public-assets.json`. It does not copy the current live database, customer records, environment files or credentials. Asset contents are checked before building. The target directory must not exist, and its parent must exist.
+Use a checkout that contains commit `af9419645e770a424b3a1c63ea5b344eff463b85` and has this repository's workspace dependencies installed. The builder uses that pinned Git baseline, overlays the source in this directory, and extracts only the 220 public assets listed with SHA-256 hashes in `public-assets.json`. It does not copy the current live database, customer records, environment files or credentials. Asset contents are checked before building. The target directory must not exist, and its parent must exist.
 
 ```sh
 node wordpress-migration/staging-theme-lab/build-local.mjs /absolute/path/to/new-output-directory

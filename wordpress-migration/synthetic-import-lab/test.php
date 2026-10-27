@@ -52,6 +52,16 @@ ck('synthetic_address_repeat_idempotent',!is_wp_error(tbvsm_apply($addressFixtur
 $addressOrder->set_billing_address_1('Synthetic Changed Address');$addressOrder->save();ck('edited_billing_refused',code(tbvsm_plan($addressFixture),'order_edited'));$addressOrder->set_billing_address_1('Synthetic 1 Example Street');$addressOrder->save();
 $addressOrder->set_shipping_city('Synthetic Changed City');$addressOrder->save();ck('edited_shipping_refused',code(tbvsm_plan($addressFixture),'order_edited'));$addressOrder->set_shipping_city('Synthetic City');$addressOrder->save();
 ck('restored_addresses_unchanged',!is_wp_error(tbvsm_plan($addressFixture)));
+// An explicitly unlinked fictional order remains Woo guest 0 even when its
+// fictional billing email matches an existing customer; no email-based linking.
+$guest=$addressFixture;$guest['orders'][0]['id']='sample-unlinked-order';$guest['orders'][0]['customerId']=null;$guest['orders'][0]['addresses']['billing']['email']=$guest['customers'][0]['email'];
+$guestPlan=tbvsm_plan($guest);ck('unlinked_dry_run_no_order',!is_wp_error($guestPlan)&&count(tbvsm_orders_for('sample-unlinked-order'))===0);
+$guestApply=tbvsm_apply($guest);$guestIds=tbvsm_orders_for('sample-unlinked-order');$guestOrder=count($guestIds)===1?wc_get_order($guestIds[0]):null;
+ck('unlinked_order_does_not_attach_matching_email',!is_wp_error($guestApply)&&$guestOrder&&$guestOrder->get_customer_id()===0&&$guestOrder->get_billing_email()===$guest['customers'][0]['email']);
+ck('unlinked_repeat_idempotent',!is_wp_error(tbvsm_apply($guest))&&count(tbvsm_orders_for('sample-unlinked-order'))===1);
+$guestOrder->set_customer_id(email_exists($guest['customers'][0]['email']));$guestOrder->save();ck('unlinked_changed_owner_refused',code(tbvsm_plan($guest),'order_edited'));$guestOrder->set_customer_id(0);$guestOrder->save();
+$guestChanged=$guest;$guestChanged['orders'][0]['customerId']=$guest['customers'][0]['id'];ck('unlinked_source_owner_change_requires_review',code(tbvsm_plan($guestChanged),'journal_conflict'));
+ck('unlinked_restored',!is_wp_error(tbvsm_plan($guest)));
 $multi=['synthetic'=>true,'customers'=>[['id'=>'sample-multi-c','email'=>'tbvsm-multi@example.invalid']],'orders'=>[['id'=>'sample-multi-o','customerId'=>'sample-multi-c','createdAt'=>'2026-03-04T05:06:07Z','historicalStatus'=>'paid','paymentReference'=>'sample-multi-payment','items'=>[
  ['id'=>'sample-line-a','name'=>'Synthetic first item','quantity'=>2,'subtotal'=>'20.00','total'=>'20.00'],
  ['id'=>'sample-line-b','name'=>'Synthetic second item','quantity'=>1,'subtotal'=>'7.50','total'=>'7.50'],

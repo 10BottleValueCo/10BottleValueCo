@@ -86,6 +86,16 @@ function tbvsm_fingerprint($row) { return hash('sha256', wp_json_encode($row)); 
 function tbvsm_users_for($id) {
     return get_users(['meta_key'=>'_tbvsm_source_id','meta_value'=>$id,'fields'=>'ids','number'=>3]);
 }
+// In this fictional fixture only, an explicit null customerId means no linked
+// account. Never infer ownership from the billing email. Missing or malformed
+// references remain errors; this is not a rule for real source records.
+function tbvsm_recovery_owner($row) {
+    if (!array_key_exists('customerId',$row)) return new WP_Error('invalid_recovery_owner');
+    if ($row['customerId']===null) return 0;
+    if (!tbvsm_id($row['customerId'])) return new WP_Error('invalid_recovery_owner');
+    $ids=tbvsm_users_for($row['customerId']);
+    return count($ids)===1 ? (int)$ids[0] : new WP_Error('invalid_recovery_owner');
+}
 function tbvsm_orders_for($id) {
     global $wpdb;
     if (class_exists('Automattic\\WooCommerce\\Utilities\\OrderUtil') && \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()) {
@@ -142,8 +152,8 @@ function tbvsm_finish($kind,$row,$target) {
     if($kind==='customer') {
         $ids=tbvsm_users_for($row['id']);$valid=count($ids)===1 && (int)$ids[0]===(int)$target && tbvsm_customer_matches($target,$row);
     } else {
-        $ownerIds=tbvsm_id($row['customerId']??null)?tbvsm_users_for($row['customerId']):[];
-        $ids=tbvsm_orders_for($row['id']);$valid=count($ownerIds)===1 && count($ids)===1 && (int)$ids[0]===(int)$target && tbvsm_order_matches($target,$row,(int)$ownerIds[0]);
+        $owner=tbvsm_recovery_owner($row);
+        $ids=tbvsm_orders_for($row['id']);$valid=!is_wp_error($owner) && count($ids)===1 && (int)$ids[0]===(int)$target && tbvsm_order_matches($target,$row,$owner);
     }
     if(!$valid) return new WP_Error('recovery_ambiguous');
     $entry['state']='complete';$entry['target']=(int)$target;
@@ -175,9 +185,8 @@ function tbvsm_reconcile($kind,$row,$uid=0) {
     $entry=get_option(tbvsm_journal_key($kind,$row['id']),false);
     if (!is_array($entry) || ($entry['state']??null)!=='pending' || ($entry['kind']??null)!==$kind || ($entry['id']??null)!==$row['id'] || ($entry['fingerprint']??null)!==tbvsm_fingerprint($row)) return new WP_Error('journal_conflict');
     if($kind==='order') {
-        if(!tbvsm_id($row['customerId']??null)) return new WP_Error('invalid_recovery_owner');
-        $ownerIds=tbvsm_users_for($row['customerId']);
-        if(count($ownerIds)!==1 || (int)$ownerIds[0]!== (int)$uid) return new WP_Error('invalid_recovery_owner');
+        $owner=tbvsm_recovery_owner($row);
+        if(is_wp_error($owner) || $owner !== (int)$uid) return new WP_Error('invalid_recovery_owner');
     }
     $ids=$kind==='customer'?tbvsm_users_for($row['id']):tbvsm_orders_for($row['id']);
     if (count($ids)!==1) return new WP_Error('recovery_ambiguous');
@@ -200,7 +209,7 @@ function tbvsm_plan($data) {
     foreach ($data['orders'] as $o) {
         $orderKeys=['id','customerId','createdAt','historicalStatus','paymentReference','itemName','quantity','subtotal','shipping','total'];
         $multiKeys=['id','customerId','createdAt','historicalStatus','paymentReference','items','shipping','total'];
-        if (!is_array($o) || !in_array(array_keys($o),[$orderKeys,array_merge($orderKeys,['addresses']),$multiKeys,array_merge($multiKeys,['addresses'])],true) || !tbvsm_id($o['id']) || isset($seen['o'.$o['id']]) || !tbvsm_id($o['customerId']) || !array_key_exists($o['customerId'],$resolved) || !tbvsm_id($o['paymentReference']) || !in_array($o['historicalStatus'],['pending','paid','cancelled','refunded'],true)) return new WP_Error('invalid_order');
+        if (!is_array($o) || !in_array(array_keys($o),[$orderKeys,array_merge($orderKeys,['addresses']),$multiKeys,array_merge($multiKeys,['addresses'])],true) || !tbvsm_id($o['id']) || isset($seen['o'.$o['id']]) || ($o['customerId']!==null && (!tbvsm_id($o['customerId']) || !array_key_exists($o['customerId'],$resolved))) || !tbvsm_id($o['paymentReference']) || !in_array($o['historicalStatus'],['pending','paid','cancelled','refunded'],true)) return new WP_Error('invalid_order');
         if(array_key_exists('items',$o)) {
             if(!is_array($o['items'])||!array_is_list($o['items'])||count($o['items'])<1||count($o['items'])>20)return new WP_Error('invalid_lines');
             $lineIds=[];$sub=0;
@@ -223,7 +232,8 @@ function tbvsm_plan($data) {
         $shipping=tbvsm_cents($o['shipping']);$total=tbvsm_cents($o['total']);
         if ($sub===false || $shipping===false || $total===false || $sub+$shipping!==$total) return new WP_Error('invalid_total');
         $ids=tbvsm_orders_for($o['id']); $journal=tbvsm_journal_check('order',$o,$ids);if(is_wp_error($journal)) return $journal; if(count($ids)>1) return new WP_Error('order_identity_conflict');
-        if ($ids && (!$resolved[$o['customerId']] || !tbvsm_order_matches($ids[0],$o,$resolved[$o['customerId']]))) return new WP_Error('order_edited');
+        $expectedOwner=$o['customerId']===null ? 0 : $resolved[$o['customerId']];
+        if ($ids && ($expectedOwner===null || !tbvsm_order_matches($ids[0],$o,$expectedOwner))) return new WP_Error('order_edited');
         $ops[]=['kind'=>'order','id'=>$o['id'],'action'=>$ids?'unchanged':'create'];
     }
     return ['operations'=>$ops,'customers'=>$resolved];
@@ -247,7 +257,8 @@ function tbvsm_apply($data) {
             }
             foreach($data['orders'] as $o) if(!tbvsm_orders_for($o['id'])) {
                 $reservation=tbvsm_reserve('order',$o);if(is_wp_error($reservation)) return $reservation;tbvsm_fault('order_reserved');
-                $order=wc_create_order(['customer_id'=>$ids[$o['customerId']],'status'=>'pending','created_via'=>'tbv_synthetic_migration']);
+                $owner=$o['customerId']===null ? 0 : $ids[$o['customerId']];
+                $order=wc_create_order(['customer_id'=>$owner,'status'=>'pending','created_via'=>'tbv_synthetic_migration']);
                 if(is_wp_error($order)) return $order;tbvsm_fault('order_inserted');
                 $order->set_currency('USD'); $order->set_date_created($o['createdAt']);
                 if(isset($o['addresses']))foreach(['billing','shipping'] as $type)foreach($o['addresses'][$type] as $field=>$value){$setter='set_'.$type.'_'.$field;$order->$setter($value);}
@@ -260,7 +271,7 @@ function tbvsm_apply($data) {
                 $order->update_meta_data('_tbvsm_source_id',$o['id']); $order->update_meta_data('_tbvsm_fingerprint',tbvsm_fingerprint($o));
                 $order->update_meta_data('_tbvsm_historical_status',$o['historicalStatus']); $order->update_meta_data('_tbvsm_payment_reference',$o['paymentReference']);
                 $order->save();tbvsm_fault('order_saved');
-                if(!tbvsm_order_matches($order->get_id(),$o,$ids[$o['customerId']])) return new WP_Error('order_write_mismatch');$finished=tbvsm_finish('order',$o,$order->get_id());if(is_wp_error($finished)) return $finished;
+                if(!tbvsm_order_matches($order->get_id(),$o,$owner)) return new WP_Error('order_write_mismatch');$finished=tbvsm_finish('order',$o,$order->get_id());if(is_wp_error($finished)) return $finished;
             }
         } finally {remove_filter('pre_wp_mail',$suppress,PHP_INT_MAX);}
         return $plan['operations'];

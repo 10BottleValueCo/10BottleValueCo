@@ -18,6 +18,7 @@ if (defined('TBV_TEST_ADDRESSES') && TBV_TEST_ADDRESSES) $o['addresses']=[
  'billing'=>['first_name'=>'Synthetic Billing','last_name'=>'Synthetic Tester','company'=>'','address_1'=>'Synthetic 1 Example Street','address_2'=>'','city'=>'Synthetic City','state'=>'WA','postcode'=>'00000','country'=>'US','email'=>'billing@example.invalid','phone'=>'0000000000'],
  'shipping'=>['first_name'=>'Synthetic Shipping','last_name'=>'Synthetic Tester','company'=>'','address_1'=>'Synthetic 2 Example Street','address_2'=>'','city'=>'Synthetic City','state'=>'WA','postcode'=>'00000','country'=>'US','phone'=>'0000000000'],
 ];
+if (defined('TBV_TEST_GUEST') && TBV_TEST_GUEST) $o['customerId']=null;
 $fixture=['synthetic'=>true,'customers'=>[$c],'orders'=>[$o]];
 if ($phase==='crash') { $GLOBALS['tbvsm_test_fault']=$fault;tbvsm_apply($fixture);echo 'FAULT_NOT_REACHED';exit; }
 function cerr($r,$c){return is_wp_error($r)&&$r->get_error_code()===$c;}
@@ -26,7 +27,7 @@ $checks['old_lock_blocks_apply']=cerr(tbvsm_apply($fixture),'locked');$checks['p
 $checks['recovery_requires_stopped_worker']=cerr(tbvsm_clear_stale_lock($lock,false),'unsafe_lock_recovery') && get_option('_tbvsm_lab_lock')===$lock;
 $checks['wrong_token_cannot_clear']=cerr(tbvsm_clear_stale_lock('00000000-0000-0000-0000-000000000000',true),'lock_token_mismatch') && get_option('_tbvsm_lab_lock')===$lock;
 $checks['verified_stopped_worker_can_clear']=tbvsm_clear_stale_lock($lock,true)===true && get_option('_tbvsm_lab_lock',false)===false;
-$uid=email_exists($c['email']);$isCustomer=str_starts_with($fault,'customer_');$kind=$isCustomer?'customer':'order';$row=$isCustomer?$c:$o;
+$isCustomer=str_starts_with($fault,'customer_');$uid=(!$isCustomer && $o['customerId']===null)?0:email_exists($c['email']);$kind=$isCustomer?'customer':'order';$row=$isCustomer?$c:$o;
 $changed=$row;if($isCustomer) $changed['email']='changed@example.invalid';else $changed['total']='25.00';
 $checks['changed_record_rejected']=cerr(tbvsm_reconcile($kind,$changed,$uid),'journal_conflict');
 $checks['wrong_target_rejected']=cerr(tbvsm_finish($kind,$row,999999),'recovery_ambiguous');
@@ -40,6 +41,7 @@ if(str_ends_with($fault,'_saved')) {
 
 
  $recovery=tbvsm_reconcile($kind,$row,$uid);$checks['exact_object_adopted']=$recovery===true;
+ if(!$isCustomer && $o['customerId']===null){$ids=tbvsm_orders_for($o['id']);$order=count($ids)===1?wc_get_order($ids[0]):null;$checks['unlinked_owner_preserved']=$order && $order->get_customer_id()===0;}
  $result=tbvsm_apply($fixture);$checks['retry_after_reconciliation']=!is_wp_error($result) && count(tbvsm_users_for($c['id']))===1 && count(tbvsm_orders_for($o['id']))===1;
  $checks['repeated_retry_no_duplicates']=!is_wp_error(tbvsm_apply($fixture)) && count(tbvsm_orders_for($o['id']))===1;
 } else {

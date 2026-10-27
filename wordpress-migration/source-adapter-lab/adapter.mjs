@@ -24,7 +24,9 @@ function checkCustomer(row, at, issues) {
 function checkOrder(row, at, issues) {
   if (!exact(row, orderKeys)) { issues.push({at, code:'ORDER_PROJECTION_REQUIRED'}); return; }
   if (!sampleId(row.id)) issues.push({at, code:'SYNTHETIC_ID_REQUIRED'});
-  if (!sampleId(row.user_id)) issues.push({at, code:'OWNER_LINK_UNRESOLVED'});
+  // Only the fictional contract treats explicit null as unlinked; the real
+  // source meaning of null has not been established. Never match by email.
+  if (row.user_id !== null && !sampleId(row.user_id)) issues.push({at, code:'OWNER_LINK_UNRESOLVED'});
   if (!email(row.email)) issues.push({at, code:'SYNTHETIC_EMAIL_REQUIRED'});
   if (!money(row.total) || (row.affiliate_commission_adjustment !== null && !money(row.affiliate_commission_adjustment))) issues.push({at, code:'INVALID_AMOUNT'});
   if (!statuses.has(row.status)) issues.push({at, code:'UNSUPPORTED_SOURCE_STATUS'});
@@ -57,7 +59,7 @@ function validate(rows, issues, prefix='') {
 }
 function destination(kind,row,currency) {
   if (kind === 'customers') return {kind:'customer',sourceId:row.id,email:row.email,createdAt:row.created_at,accountActivation:'unresolved'};
-  return {kind:'order',sourceId:row.id,sourceCustomerId:row.user_id,sourceEmail:row.email,sourceCreatedAt:row.created_at,sourceStatus:row.status,sourceTotal:row.total,currency,items:clone(row.items),sourceMetadata:clone(row.metadata),sourceAffiliateCommissionAdjustment:row.affiliate_commission_adjustment,paymentEvidence:{provider:row.payment_provider,paymentId:row.payment_id,paidAt:row.paid_at},wooStatus:'unresolved',paymentVerification:'unverified',amountReconciliation:'unresolved'};
+  return {kind:'order',sourceId:row.id,sourceCustomerId:row.user_id,sourceOwnerState:row.user_id===null?'unlinked':'linked',sourceEmail:row.email,sourceCreatedAt:row.created_at,sourceStatus:row.status,sourceTotal:row.total,currency,items:clone(row.items),sourceMetadata:clone(row.metadata),sourceAffiliateCommissionAdjustment:row.affiliate_commission_adjustment,paymentEvidence:{provider:row.payment_provider,paymentId:row.payment_id,paidAt:row.paid_at},wooStatus:'unresolved',paymentVerification:'unverified',amountReconciliation:'unresolved'};
 }
 /** Pure, atomic planning simulation: no target IDs are assigned and no writes occur. */
 export function plan(batch, previous=null) {
