@@ -42,6 +42,16 @@ try {
  check('rule_version_recorded',q($cfg,[item('worldwide','100')])['version']==='fixture-1');
  do_action('woocommerce_shipping_init'); $method=new TBV_Warehouse_Shipping_Method(1);$method->instance_settings=['title'=>'Test shipping','service'=>'standard','tax_status'=>'none','configuration'=>wp_json_encode($cfg)];$method->title='Test shipping';$method->tax_status='none';$p=wc_get_product(77);$p->update_meta_data('_tbv_warehouse','worldwide');
  $pkg=['contents'=>[['data'=>$p,'quantity'=>1,'line_subtotal'=>'100.00']],'destination'=>['country'=>'US']]; $method->calculate_shipping($pkg);$rates=$method->rates;$rate=reset($rates);check('woocommerce_rate_integration',$rate && $rate->get_cost()==='39.99' && $rate->get_meta_data()['tbv_rule_version']==='fixture-1');
+
+ remove_filter('woocommerce_coupons_enabled','__return_false'); update_option('woocommerce_enable_coupons','yes'); wc_load_cart(); WC()->cart->empty_cart();
+ $id=WC()->cart->add_to_cart($p->get_parent_id(),1,$p->get_id(),$p->get_variation_attributes());
+ $coupon=new WC_Coupon();$coupon->set_code('TBVTESTFREE');$coupon->set_discount_type('percent');$coupon->set_amount('1');$coupon->set_free_shipping(true);$coupon->save();
+ $applied=WC()->cart->apply_coupon('TBVTESTFREE');
+ check('valid_free_coupon_detected',(bool)$id && $applied && tbv_shipping_has_free_coupon(WC()->cart));
+ $method->rates=[];$method->calculate_shipping($pkg);$rate=reset($method->rates);check('valid_free_coupon_zeroes_shipping',$rate && $rate->get_cost()==='0.00');
+ $coupon->set_free_shipping(false);$coupon->save();check('ordinary_coupon_not_free',!tbv_shipping_has_free_coupon(WC()->cart));
+ $coupon->set_free_shipping(true);$coupon->set_date_expires(time()-3600);$coupon->save();check('expired_coupon_not_free',!tbv_shipping_has_free_coupon(WC()->cart));
+ WC()->cart->remove_coupon('TBVTESTFREE');check('removed_coupon_not_free',!tbv_shipping_has_free_coupon(WC()->cart));
  echo wp_json_encode(['passed'=>count(array_filter($t)),'total'=>count($t),'tests'=>$t]);
  `});
  if(result.exitCode!==0)throw Error(result.errors+' '+result.text);

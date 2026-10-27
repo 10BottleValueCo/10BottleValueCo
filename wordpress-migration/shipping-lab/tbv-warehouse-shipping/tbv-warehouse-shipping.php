@@ -51,6 +51,15 @@ function tbv_shipping_quote($config, $items, $country, $service, $currency) {
     return $chosen === null ? null : ['minor' => $chosen, 'version' => (string)$metadata['version']];
 }
 
+/** Follow WooCommerce's own valid free-shipping coupon check. */
+function tbv_shipping_has_free_coupon($cart) {
+    if (!is_object($cart) || !method_exists($cart, 'get_coupons')) return false;
+    foreach ($cart->get_coupons() as $coupon) {
+        if (is_a($coupon, 'WC_Coupon') && $coupon->is_valid() && $coupon->get_free_shipping()) return true;
+    }
+    return false;
+}
+
 add_action('woocommerce_shipping_init', function () {
     if (!class_exists('WC_Shipping_Method') || class_exists('TBV_Warehouse_Shipping_Method')) return;
     class TBV_Warehouse_Shipping_Method extends WC_Shipping_Method {
@@ -91,6 +100,7 @@ add_action('woocommerce_shipping_init', function () {
             }
             $quote = tbv_shipping_quote($config, $items, strtoupper((string)($package['destination']['country'] ?? '')), $this->get_option('service', 'standard'), get_woocommerce_currency());
             if ($quote === null) return;
+            if (tbv_shipping_has_free_coupon(WC()->cart)) $quote['minor'] = 0;
             $amount = sprintf('%d.%02d', intdiv($quote['minor'], 100), $quote['minor'] % 100);
             $this->add_rate(['id' => $this->get_rate_id(), 'label' => $this->title, 'cost' => $amount, 'package' => $package, 'meta_data' => ['tbv_rule_version' => $quote['version']]]);
         }
