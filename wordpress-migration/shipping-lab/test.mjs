@@ -30,6 +30,10 @@ try {
  check('express_at_300',q($cfg,[item('worldwide','300')],'US','express')['minor']===1999);
  check('express_at_550',q($cfg,[item('worldwide','550')],'US','express')['minor']===0);
  check('mixed_warehouse_threshold',q($cfg,[item('worldwide','99.99'),item('us','900')])['minor']===5999);
+ check('zero_price_worldwide_uses_standard_tier',q($cfg,[item('worldwide','0')])['minor']===5999);
+ check('zero_price_worldwide_uses_express_tier',q($cfg,[item('worldwide','0')],'US','express')['minor']===9999);
+ check('zero_price_mixed_not_misclassified_as_us_only',q($cfg,[item('worldwide','0'),item('us','20')])['minor']===5999);
+ check('zero_price_worldwide_express_destination_checked',q($cfg,[item('worldwide','0')],'GB','express')===null);
  check('us_only_free',q($cfg,[item('us','200')])['minor']===0);
  check('us_only_has_no_express',q($cfg,[item('us','200')],'US','express')===null);
  check('us_destination_rejected',q($cfg,[item('us','200')],'CA')===null);
@@ -42,6 +46,7 @@ try {
  check('rule_version_recorded',q($cfg,[item('worldwide','100')])['version']==='fixture-1');
  do_action('woocommerce_shipping_init'); $method=new TBV_Warehouse_Shipping_Method(1);$method->instance_settings=['title'=>'Test shipping','service'=>'standard','tax_status'=>'none','configuration'=>wp_json_encode($cfg)];$method->title='Test shipping';$method->tax_status='none';$p=wc_get_product(77);$p->update_meta_data('_tbv_warehouse','worldwide');
  $pkg=['contents'=>[['data'=>$p,'quantity'=>1,'line_subtotal'=>'100.00']],'destination'=>['country'=>'US']]; $method->calculate_shipping($pkg);$rates=$method->rates;$rate=reset($rates);check('woocommerce_rate_integration',$rate && $rate->get_cost()==='39.99' && $rate->get_meta_data()['tbv_rule_version']==='fixture-1');
+ $zeroPkg=$pkg;$zeroPkg['contents'][0]['line_subtotal']='0.00';$method->rates=[];$method->calculate_shipping($zeroPkg);$rate=reset($method->rates);check('woocommerce_zero_price_worldwide_rate',$rate && $rate->get_cost()==='59.99');
 
  remove_filter('woocommerce_coupons_enabled','__return_false'); update_option('woocommerce_enable_coupons','yes'); wc_load_cart(); WC()->cart->empty_cart();
  $id=WC()->cart->add_to_cart($p->get_parent_id(),1,$p->get_id(),$p->get_variation_attributes());

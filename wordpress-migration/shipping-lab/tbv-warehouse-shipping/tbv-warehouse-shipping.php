@@ -28,14 +28,18 @@ function tbv_shipping_quote($config, $items, $country, $service, $currency) {
     $expressCountries = $config['express_countries'] ?? null;
     if (!is_array($usCountries) || !is_array($expressCountries)) return null;
     $worldwide = 0;
+    $hasWorldwide = false;
     foreach ($items as $item) {
         $warehouse = $item['warehouse'] ?? null;
         $amount = tbv_shipping_minor($item['line_subtotal'] ?? '');
         if (!in_array($warehouse, ['us', 'worldwide'], true) || $amount === null) return null;
         if ($warehouse === 'us' && !in_array($country, $usCountries, true)) return null;
-        if ($warehouse === 'worldwide') $worldwide += $amount;
+        if ($warehouse === 'worldwide') {
+            $hasWorldwide = true;
+            $worldwide += $amount;
+        }
     }
-    if ($worldwide === 0) return $service === 'standard' ? ['minor' => 0, 'version' => (string)$metadata['version']] : null;
+    if (!$hasWorldwide) return $service === 'standard' ? ['minor' => 0, 'version' => (string)$metadata['version']] : null;
     if ($service === 'express' && !in_array($country, $expressCountries, true)) return null;
     $tiers = $config['tiers'][$service] ?? null;
     if (!is_array($tiers) || !$tiers) return null;
