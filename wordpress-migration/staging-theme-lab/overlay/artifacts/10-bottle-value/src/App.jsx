@@ -1,3 +1,4 @@
+import ResearcherEntryGate, { hasResearcherEntryAcceptance } from "./components/ResearcherEntryGate.jsx";
 import { tbvLocal, tbvSession } from './previewStorage.js';
 import { uniqueWooOffers } from './woo-offer-identity.js';
 import { mergeWooDisplayMetadata } from './woo-display-metadata.js';
@@ -3765,7 +3766,10 @@ export default function App() {
   });
   const [publicImagesState, setPublicImagesState] = useState("ready");
   const [publicImageRetry, setPublicImageRetry] = useState(0);
-  const researcherEntryGateActive = false;
+  // Same first-visit researcher verification as the live storefront.
+  const [researcherEntryAccepted, setResearcherEntryAccepted] = useState(() => hasResearcherEntryAcceptance());
+  const researcherEntryGateActive =
+    !researcherEntryAccepted && page !== "terms" && page !== "privacy";
 
   useEffect(() => {
     if (researcherEntryGateActive) return undefined;
@@ -13948,6 +13952,9 @@ export default function App() {
   return (
     <>
       {scrollbarStyles}
+      {researcherEntryGateActive && (
+        <ResearcherEntryGate onAccept={() => setResearcherEntryAccepted(true)} />
+      )}
       {cartToast && <div role="alert" style={{position:"fixed",zIndex:2147483647,bottom:16,left:16,right:16,padding:12,background:"#fff1d7",color:"#111",font:"600 14px Arial",borderRadius:8}}>{cartToast}<button type="button" onClick={() => setCartToast("")} style={{float:"right"}}>×</button></div>}
       {publicImagesState === "error" && (
         <div
@@ -15231,7 +15238,8 @@ export default function App() {
                   const variants = products.filter(p =>
                     p.name === selectedProduct.name &&
                     (p.noteLabel ?? "") === (selectedProduct.noteLabel ?? "") &&
-                    (isUs ? p.warehouse === "us" : !p.warehouse)
+                    // Woo catalog offers carry an explicit "worldwide" warehouse.
+                    (isUs ? p.warehouse === "us" : p.warehouse !== "us")
                   ).sort((a, b) => parseFloat(a.dose) - parseFloat(b.dose));
                   if (!variants.some(v => v.dose === selectedProduct.dose)) variants.push(selectedProduct);
                   if (variants.length < 2) return null;

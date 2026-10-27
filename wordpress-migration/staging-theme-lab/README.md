@@ -14,6 +14,10 @@ The builder runs Vite with a relative base, removes inherited `VITE_*` environme
 
 Install only into a separate disposable local or staging WordPress instance, with a separate database and files, no real data or credentials, no payment/email/fulfillment plugins, and server-level network and scheduler isolation. Set `WP_ENVIRONMENT_TYPE` to `local` or `staging`, `TBV_STAGING_PREVIEW` to true, `DISABLE_WP_CRON` to true, and `WP_HTTP_BLOCK_EXTERNAL` to true. These settings and the theme guard are not a security boundary against arbitrary PHP or infrastructure access.
 
+## Persistent staging commerce-test opt-in
+
+When the install also defines `TBV_STAGING_COMMERCE_TEST` as true **and** the separate staging guard (`../persistent-staging/mu-plugins/tbv-persistent-staging.php`) supplies its offline test gateway, the theme allows native WooCommerce My Account, the classic checkout and three checkout `wc-ajax` actions, offers only that test gateway, gives Woo administrators REST access, styles My Account (`account.css`) and redirects the storefront `/account` route to native My Account. Without both, every restriction above is unchanged. Order-pay, `wc-api` and the Store API checkout stay blocked either way. The first-visit researcher verification is rendered exactly as on the live storefront (an earlier review overlay had disabled it).
+
 ## Evidence and limitations
 
 The captured source built locally from a pinned Git baseline and manifest. Programmatic installation through WordPress upgraders passed 9/9 checks and selected route/cart/session checks passed 27/27 at both `/` and `/wordpresspreview` in a disposable PHP-WASM/SQLite runtime. The catalog adapter separately tests that password-protected products and variations are excluded. Five Node tests cover ambiguous offer filtering. Earlier browser tests exercised selected navigation, names and carts against mounted candidate files; those are not a browser installation test or full parity assessment.

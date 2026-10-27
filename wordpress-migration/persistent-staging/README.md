@@ -1,0 +1,55 @@
+# Persistent WordPress/WooCommerce staging
+
+A durable staging install of the WordPress storefront for stakeholder review: real PHP-FPM, MariaDB and a web server, so carts, sessions and test accounts survive across requests and restarts. The earlier serverless preview copied a SQLite file into each function instance and generated new salts per boot, so cart cookies and nonces did not carry between instances.
+
+**Synthetic data only.** This is not production, not a completed migration, and not connected to any payment processor, fulfillment, customer email or production database.
+
+## What runs
+
+| Layer | Staging setup |
+|---|---|
+| WordPress | 7.1.3 (official core, checksums verified) |
+| WooCommerce | 11.2.1, HPOS enabled |
+| Theme | `staging-theme-lab` build with `TBV_STAGING_COMMERCE_TEST` opt-in |
+| Catalog | Dated public snapshot: 66 products / 166 variations (prices and stock not live) |
+| Database | MariaDB, copied from the v17 preview snapshot with `scripts/sqlite-to-mariadb.php` (row counts verified per table) |
+| Guard | `mu-plugins/tbv-persistent-staging.php` |
+
+## Staging guard (mu-plugin)
+
+Active only when `WP_ENVIRONMENT_TYPE=staging` and `TBV_STAGING_COMMERCE_TEST=true`.
+
+- Visible "WordPress preview — staging" banner; noindex everywhere.
+- **No email:** `pre_wp_mail` returns false; attempts are logged by subject only.
+- **No payments:** one offline gateway (`tbv_staging_test`) creates *pending, unpaid* orders marked `_tbv_staging_test_order=1`. `payment_complete` status transitions and stock reduction are disabled; `wc-api` callbacks and order-pay links return 403.
+- **No outbound HTTP:** `WP_HTTP_BLOCK_EXTERNAL`, cron disabled, file mods disabled.
+- Native WooCommerce My Account (register/login/orders/addresses). Password reset and order-linking emails are unavailable by design.
+- The storefront's account icon and `/account` route go to native My Account.
+
+The theme's existing review restrictions stay in force unless the commerce-test opt-in and the guard's gateway are both present. Checkout uses the classic shortcode; the Store API checkout endpoint stays blocked.
+
+## Setup outline
+
+1. PHP 8.3+ with `mysqli`, `pdo_mysql`, `gd`, `intl`, `zip`, OPcache; MariaDB 10.11+; a web server with PHP-FPM (`config/Caddyfile.sample`).
+2. Install WordPress 7.1.3 core, then copy the theme, `tbv-public-woo-catalog`, `tbv-warehouse-shipping`, the homepage mu-plugin and this guard.
+3. Create `wp-config.php` from `config/wp-config.staging-sample.php`. Keep DB credentials and **fixed** salts in a file outside the web root.
+4. `wp core install`, activate WooCommerce, create the HPOS tables, then copy the snapshot with `php scripts/sqlite-to-mariadb.php <snapshot.sqlite> <secrets.php>` (refuses any database not named `tbv_staging` or `tbv_migration_test`).
+5. `wp eval-file scripts/configure-staging-shipping.php` — **unverified** fixture rates copied from the current storefront display.
+6. Protect `/wp-admin` and `/wp-login.php` with an extra server-level gate (`admin-ajax.php` and `wp-admin/{js,css,images}` must stay public for storefront pages).
+
+## Checks
+
+```sh
+node scripts/e2e-staging.mjs http://127.0.0.1:8088 --accounts --phase=before-restart   # loopback only for credentialed checks
+# restart PHP-FPM, MariaDB and the web server
+node scripts/e2e-staging.mjs http://127.0.0.1:8088 --accounts --phase=after-restart
+node scripts/e2e-staging.mjs https://<public staging origin> --phase=before-restart       # guest + guard checks
+TBV_STAGING_PUBLIC_URL=https://<public staging origin> node scripts/browser-qa.mjs <outDir>  # Playwright, mobile + desktop, vs production (view-only)
+wp eval-file scripts/audit-staging.php                                                   # safety audit
+```
+
+E2E covers catalog, variation add/update/remove, cart persistence, guest isolation, totals, registration, logout/login, wrong password, test checkout, order-received, order history, cross-customer order access, restart persistence and the guard endpoints. Browser QA compares 10 routes on production and staging at iPhone 13 and 1440×900 (status, overflow, JS errors, failed requests, researcher gate parity) and drives the real UI through gate, add to cart, cart, account link, registration, checkout and order history.
+
+## Not done here
+
+Real catalog prices/stock, confirmed shipping rates and destinations, taxes, coupons, real payment processor, customer/order/credit/affiliate data migration and reconciliation, auth migration from Supabase, production hosting, DNS and cutover. See `PAYMENT_INTEGRATION_POINTS.md`.

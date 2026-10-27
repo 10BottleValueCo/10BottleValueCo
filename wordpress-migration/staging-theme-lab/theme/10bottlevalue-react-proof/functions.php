@@ -9,6 +9,12 @@ function tbv_staging_preview_enabled() {
         && defined('DISABLE_WP_CRON') && DISABLE_WP_CRON === true
         && defined('WP_HTTP_BLOCK_EXTERNAL') && WP_HTTP_BLOCK_EXTERNAL === true;
 }
+// Persistent staging only: native test accounts and a no-payment test checkout.
+// Requires an explicit opt-in plus the staging guard's offline test gateway.
+function tbv_staging_commerce_test_enabled() {
+    return tbv_staging_preview_enabled() && defined('TBV_STAGING_COMMERCE_TEST') && TBV_STAGING_COMMERCE_TEST === true
+        && defined('TBV_STAGING_TEST_GATEWAY_ID');
+}
 add_action('admin_notices', function () {
     if (!tbv_staging_preview_enabled()) echo '<div class="notice notice-error"><p>10BottleValue staging preview is disabled. Use an isolated staging installation and configure TBV_STAGING_PREVIEW.</p></div>';
     elseif (!function_exists('wc_get_product') || !function_exists('tbv_public_catalog_response')) echo '<div class="notice notice-error"><p>10BottleValue staging preview requires WooCommerce and the public Woo catalog plugin.</p></div>';
@@ -17,6 +23,7 @@ add_action('admin_notices', function () {
 // the review catalog and cookie-session cart routes, including checkout.
 add_filter('rest_pre_dispatch', function ($result, $server, $request) {
     if (!tbv_staging_preview_enabled()) return new WP_Error('tbv_preview_disabled', 'Staging preview is disabled.', ['status' => 503]);
+    if (tbv_staging_commerce_test_enabled() && current_user_can('manage_woocommerce')) return $result;
     $route = rtrim($request->get_route(), '/');
     $method = strtoupper($request->get_method());
     $read = $method === 'GET' && in_array($route, ['/wc/store/v1/cart', '/tbv-catalog/v1/products'], true);
@@ -24,12 +31,24 @@ add_filter('rest_pre_dispatch', function ($result, $server, $request) {
     return ($read || $write) ? $result : new WP_Error('tbv_preview_blocked', 'This action is unavailable in the staging review.', ['status' => 403]);
 }, 0, 3);
 add_action('init', function () {
+    $test_ajax = ['update_order_review', 'checkout', 'update_shipping_method'];
+    if (isset($_GET['wc-ajax']) && tbv_staging_commerce_test_enabled() && in_array($_GET['wc-ajax'], $test_ajax, true)) return;
     if (isset($_GET['wc-ajax'])) wp_die('WooCommerce AJAX is unavailable in this preview.', 'Staging preview', ['response' => 403]);
 }, 0);
 add_filter('pre_wp_mail', '__return_false', PHP_INT_MAX);
-add_filter('woocommerce_payment_gateways', '__return_empty_array', PHP_INT_MAX);
-add_filter('woocommerce_available_payment_gateways', '__return_empty_array', PHP_INT_MAX);
-add_filter('woocommerce_valid_order_statuses_for_payment', '__return_empty_array', PHP_INT_MAX);
+// Only the staging offline test gateway may ever be offered; never a real processor.
+add_filter('woocommerce_payment_gateways', function ($gateways) {
+    if (!tbv_staging_commerce_test_enabled()) return [];
+    return array_values(array_filter((array)$gateways, function ($g) { return $g === 'TBV_Staging_Test_Gateway' || (is_object($g) && get_class($g) === 'TBV_Staging_Test_Gateway'); }));
+}, PHP_INT_MAX);
+add_filter('woocommerce_available_payment_gateways', function ($gateways) {
+    return tbv_staging_commerce_test_enabled() ? array_intersect_key((array)$gateways, [TBV_STAGING_TEST_GATEWAY_ID => true]) : [];
+}, PHP_INT_MAX);
+// Review package: nothing is payable. Commerce test mode keeps Woo's statuses so
+// checkout routes through the offline test gateway; order-pay stays route-blocked.
+add_filter('woocommerce_valid_order_statuses_for_payment', function ($statuses) {
+    return tbv_staging_commerce_test_enabled() ? $statuses : [];
+}, PHP_INT_MAX);
 // The review catalog excludes password-protected products. Also enforce that
 // boundary when a visitor supplies a WooCommerce product ID directly to cart.
 function tbv_react_proof_cart_product_is_public($product) {
@@ -47,6 +66,7 @@ add_filter('woocommerce_variation_is_purchasable', function ($purchasable, $prod
     return $purchasable && tbv_react_proof_cart_product_is_public($product);
 }, PHP_INT_MAX, 2);
 add_action('wp', function () {
+    if (tbv_staging_commerce_test_enabled()) return;
     remove_action('woocommerce_proceed_to_checkout', 'woocommerce_button_proceed_to_checkout', 20);
     add_action('woocommerce_proceed_to_checkout', function () { echo '<p>Checkout is unavailable in this WordPress preview.</p>'; }, 20);
 });
@@ -56,12 +76,17 @@ add_action('template_redirect', function () {
     $site_path = rtrim((string)wp_parse_url(home_url('/'), PHP_URL_PATH), '/');
     if ($site_path !== '' && ($req_path === $site_path || strpos($req_path, $site_path . '/') === 0)) $req_path = substr($req_path, strlen($site_path)) ?: '/';
     $path = strtolower(trim(rawurldecode($req_path), '/'));
-    if (preg_match('#^(?:checkout|my-account|account)(?:/|$)#D', $path) || isset($_GET['order-pay']) || isset($_GET['wc-api'])) wp_die('Checkout and accounts are unavailable in this preview.', 'Staging preview', ['response' => 403]);
+    $commerce_test = tbv_staging_commerce_test_enabled();
+    if ($commerce_test && preg_match('#^account(?:/|$)#D', $path)) { wp_safe_redirect(wc_get_page_permalink('myaccount')); exit; }
+    $account_or_checkout = (bool)preg_match('#^(?:checkout|my-account)(?:/|$)#D', $path);
+    if (isset($_GET['order-pay']) || isset($_GET['wc-api']) || (!$commerce_test && ($account_or_checkout || preg_match('#^account(?:/|$)#D', $path)))) wp_die('Checkout and accounts are unavailable in this preview.', 'Staging preview', ['response' => 403]);
     $cart_form = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && in_array($req_path, ['/cart', '/cart/'], true) && str_starts_with((string)($_SERVER['CONTENT_TYPE'] ?? ''), 'application/x-www-form-urlencoded');
-    if (!in_array($_SERVER['REQUEST_METHOD'] ?? '', ['GET', 'HEAD'], true) && !$cart_form) wp_die('Only review cart changes are available in this preview.', 'Staging preview', ['response' => 403]);
+    $account_form = $commerce_test && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST'
+        && ($account_or_checkout || in_array($_GET['wc-ajax'] ?? '', ['update_order_review', 'checkout', 'update_shipping_method'], true));
+    if (!in_array($_SERVER['REQUEST_METHOD'] ?? '', ['GET', 'HEAD'], true) && !$cart_form && !$account_form) wp_die('Only review cart changes are available in this preview.', 'Staging preview', ['response' => 403]);
     $cart_api = esc_url_raw(rest_url('wc/store/v1/cart'));
     $native_cart = esc_url_raw(function_exists('wc_get_cart_url') ? wc_get_cart_url() : home_url('/cart/'));
-    header("Content-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src " . $cart_api . ' ' . trailingslashit($cart_api) . ' ' . $native_cart . "; frame-src 'none'; worker-src 'none'; object-src 'none'; form-action 'self'; base-uri 'self'");
+    header("Content-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src " . ($commerce_test ? "'self' " : '') . $cart_api . ' ' . trailingslashit($cart_api) . ' ' . $native_cart . "; frame-src 'none'; worker-src 'none'; object-src 'none'; form-action 'self'; base-uri 'self'");
     header('X-Robots-Tag: noindex, nofollow');
     header('Cache-Control: no-store');
 }, 0);
