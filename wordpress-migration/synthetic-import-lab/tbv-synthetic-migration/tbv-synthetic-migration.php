@@ -50,13 +50,84 @@ function tbvsm_order_matches($oid,$row,$uid) {
       $o->get_meta('_tbvsm_historical_status')===$row['historicalStatus'] && $o->get_meta('_tbvsm_payment_reference')===$row['paymentReference'] &&
       $o->get_date_created() && $o->get_date_created()->getTimestamp()===strtotime($row['createdAt']);
 }
+// A write-ahead reservation is stored before each entity creation. A pending
+// reservation never expires automatically: it blocks retries until investigated.
+function tbvsm_journal_key($kind,$id) {
+    return '_tbvsm_j_' . hash('sha256',$kind . ':' . $id);
+}
+function tbvsm_journal_check($kind,$row,$ids) {
+    $entry=get_option(tbvsm_journal_key($kind,$row['id']),false);
+    if ($entry===false) return true; // older lab objects may predate journaling
+    if (!is_array($entry) || ($entry['kind']??null)!==$kind || ($entry['id']??null)!==$row['id'] || ($entry['fingerprint']??null)!==tbvsm_fingerprint($row)) return new WP_Error('journal_conflict');
+    if (($entry['state']??null)==='pending') return new WP_Error('journal_needs_review');
+    if (($entry['state']??null)!=='complete' || !isset($entry['target']) || count($ids)!==1 || (int)$ids[0]!==(int)$entry['target']) return new WP_Error('journal_target_conflict');
+    return true;
+}
+function tbvsm_reserve($kind,$row) {
+    $guard=tbvsm_guard();if(is_wp_error($guard)) return $guard;
+    if(!in_array($kind,['customer','order'],true) || !is_array($row) || !tbvsm_id($row['id']??null)) return new WP_Error('invalid_reservation');
+    $entry=['kind'=>$kind,'id'=>$row['id'],'fingerprint'=>tbvsm_fingerprint($row),'state'=>'pending'];
+    if (!add_option(tbvsm_journal_key($kind,$row['id']),$entry,'','no')) return new WP_Error('journal_needs_review');
+    return true;
+}
+function tbvsm_finish($kind,$row,$target) {
+    $guard=tbvsm_guard();if(is_wp_error($guard)) return $guard;
+    if(!in_array($kind,['customer','order'],true) || !is_array($row) || !tbvsm_id($row['id']??null)) return new WP_Error('invalid_reservation');
+    $key=tbvsm_journal_key($kind,$row['id']);$entry=get_option($key,false);
+    if (!is_array($entry) || ($entry['state']??null)!=='pending' || ($entry['kind']??null)!==$kind || ($entry['id']??null)!==$row['id'] || ($entry['fingerprint']??null)!==tbvsm_fingerprint($row) || (int)$target<=0) return new WP_Error('journal_conflict');
+    if($kind==='customer') {
+        $ids=tbvsm_users_for($row['id']);$valid=count($ids)===1 && (int)$ids[0]===(int)$target && tbvsm_customer_matches($target,$row);
+    } else {
+        $ownerIds=tbvsm_id($row['customerId']??null)?tbvsm_users_for($row['customerId']):[];
+        $ids=tbvsm_orders_for($row['id']);$valid=count($ownerIds)===1 && count($ids)===1 && (int)$ids[0]===(int)$target && tbvsm_order_matches($target,$row,(int)$ownerIds[0]);
+    }
+    if(!$valid) return new WP_Error('recovery_ambiguous');
+    $entry['state']='complete';$entry['target']=(int)$target;
+    if (!update_option($key,$entry,false)) return new WP_Error('journal_write_failed');
+    return true;
+}
+// Test-only fault injection deliberately uses process exit so that no PHP finally
+// handlers run; never exposed through a URL or UI.
+function tbvsm_fault($point) {
+    if (tbvsm_guard()===true && ($GLOBALS['tbvsm_test_fault']??'')===$point) { echo 'TEST_INTERRUPTION';exit(0); }
+}
+// Operator must first positively establish that the old worker cannot run again.
+// Exact token is required; this does not clear reservations or remove any data.
+function tbvsm_clear_stale_lock($expected,$worker_stopped) {
+    $guard=tbvsm_guard();if(is_wp_error($guard)) return $guard;
+    if ($worker_stopped!==true || !is_string($expected) || !preg_match('/^[a-f0-9-]{36}$/D',$expected)) return new WP_Error('unsafe_lock_recovery');
+    if (get_option('_tbvsm_lab_lock',false)!==$expected) return new WP_Error('lock_token_mismatch');
+    global $wpdb;
+    $deleted=$wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name=%s AND option_value=%s",'_tbvsm_lab_lock',$expected));
+    if ($deleted!==1) return new WP_Error('lock_token_mismatch');
+    wp_cache_delete('_tbvsm_lab_lock','options');return true;
+}
+// Recovery does not guess an orphan. It may only adopt a *fully matching*
+// object with exactly one source ID, after the worker lock is absent.
+function tbvsm_reconcile($kind,$row,$uid=0) {
+    $guard=tbvsm_guard();if(is_wp_error($guard)) return $guard;
+    if (get_option('_tbvsm_lab_lock',false)!==false) return new WP_Error('locked');
+    if (!in_array($kind,['customer','order'],true) || !is_array($row) || !tbvsm_id($row['id']??null)) return new WP_Error('invalid_recovery');
+    $entry=get_option(tbvsm_journal_key($kind,$row['id']),false);
+    if (!is_array($entry) || ($entry['state']??null)!=='pending' || ($entry['kind']??null)!==$kind || ($entry['id']??null)!==$row['id'] || ($entry['fingerprint']??null)!==tbvsm_fingerprint($row)) return new WP_Error('journal_conflict');
+    if($kind==='order') {
+        if(!tbvsm_id($row['customerId']??null)) return new WP_Error('invalid_recovery_owner');
+        $ownerIds=tbvsm_users_for($row['customerId']);
+        if(count($ownerIds)!==1 || (int)$ownerIds[0]!== (int)$uid) return new WP_Error('invalid_recovery_owner');
+    }
+    $ids=$kind==='customer'?tbvsm_users_for($row['id']):tbvsm_orders_for($row['id']);
+    if (count($ids)!==1) return new WP_Error('recovery_ambiguous');
+    $valid=$kind==='customer'?tbvsm_customer_matches((int)$ids[0],$row):tbvsm_order_matches((int)$ids[0],$row,(int)$uid);
+    if (!$valid) return new WP_Error('recovery_ambiguous');
+    return tbvsm_finish($kind,$row,(int)$ids[0]);
+}
 function tbvsm_plan($data) {
     $guard=tbvsm_guard(); if (is_wp_error($guard)) return $guard;
     if (!is_array($data) || array_keys($data)!==['synthetic','customers','orders'] || $data['synthetic']!==true || !is_array($data['customers']) || !is_array($data['orders']) || count($data['customers'])>25 || count($data['orders'])>25) return new WP_Error('invalid_fixture');
     $seen=[];$emails=[];$resolved=[];$ops=[];
     foreach ($data['customers'] as $c) {
         if (!is_array($c) || array_keys($c)!==['id','email'] || !tbvsm_id($c['id']) || !tbvsm_email($c['email']) || isset($seen['c'.$c['id']]) || isset($emails[$c['email']])) return new WP_Error('invalid_customer');
-        $seen['c'.$c['id']]=true; $emails[$c['email']]=true; $ids=tbvsm_users_for($c['id']); $byemail=email_exists($c['email']); $bylogin=username_exists('tbvsm-'.$c['id']);
+        $seen['c'.$c['id']]=true; $emails[$c['email']]=true; $ids=tbvsm_users_for($c['id']); $journal=tbvsm_journal_check('customer',$c,$ids);if(is_wp_error($journal)) return $journal; $byemail=email_exists($c['email']); $bylogin=username_exists('tbvsm-'.$c['id']);
         if ($bylogin && (count($ids)!==1 || (int)$ids[0]!== (int)$bylogin)) return new WP_Error('customer_identity_conflict');
         if (count($ids)>1 || ($byemail && (count($ids)!==1 || (int)$ids[0]!== (int)$byemail))) return new WP_Error('customer_identity_conflict');
         if ($ids && !tbvsm_customer_matches($ids[0],$c)) return new WP_Error('customer_edited');
@@ -69,7 +140,7 @@ function tbvsm_plan($data) {
         if (!$time || $time->format('Y-m-d\TH:i:s\Z')!==$o['createdAt']) return new WP_Error('invalid_timestamp');
         $sub=tbvsm_cents($o['subtotal']);$shipping=tbvsm_cents($o['shipping']);$total=tbvsm_cents($o['total']);
         if ($sub===false || $shipping===false || $total===false || $sub+$shipping!==$total) return new WP_Error('invalid_total');
-        $ids=tbvsm_orders_for($o['id']); if(count($ids)>1) return new WP_Error('order_identity_conflict');
+        $ids=tbvsm_orders_for($o['id']); $journal=tbvsm_journal_check('order',$o,$ids);if(is_wp_error($journal)) return $journal; if(count($ids)>1) return new WP_Error('order_identity_conflict');
         if ($ids && (!$resolved[$o['customerId']] || !tbvsm_order_matches($ids[0],$o,$resolved[$o['customerId']]))) return new WP_Error('order_edited');
         $ops[]=['kind'=>'order','id'=>$o['id'],'action'=>$ids?'unchanged':'create'];
     }
@@ -77,7 +148,7 @@ function tbvsm_plan($data) {
 }
 function tbvsm_apply($data) {
     $guard=tbvsm_guard(); if(is_wp_error($guard)) return $guard;
-    if(!add_option('_tbvsm_lab_lock','held','','no')) return new WP_Error('locked');
+    $lock=wp_generate_uuid4();if(!add_option('_tbvsm_lab_lock',$lock,'','no')) return new WP_Error('locked');
     try {
         $plan=tbvsm_plan($data); if(is_wp_error($plan)) return $plan;
         // Explicitly suppress wp_mail for this local test only; external HTTP and
@@ -86,22 +157,26 @@ function tbvsm_apply($data) {
         try {
             $ids=$plan['customers'];
             foreach($data['customers'] as $c) if(!$ids[$c['id']]) {
+                $reservation=tbvsm_reserve('customer',$c);if(is_wp_error($reservation)) return $reservation;tbvsm_fault('customer_reserved');
                 $uid=wp_insert_user(['user_login'=>'tbvsm-'.$c['id'],'user_email'=>$c['email'],'user_pass'=>wp_generate_password(40,true,true),'role'=>'customer']);
-                if(is_wp_error($uid)) return $uid;
-                update_user_meta($uid,'_tbvsm_source_id',$c['id']); update_user_meta($uid,'_tbvsm_fingerprint',tbvsm_fingerprint($c)); $ids[$c['id']]=(int)$uid;
+                if(is_wp_error($uid)) return $uid;tbvsm_fault('customer_inserted');
+                update_user_meta($uid,'_tbvsm_source_id',$c['id']); update_user_meta($uid,'_tbvsm_fingerprint',tbvsm_fingerprint($c)); $ids[$c['id']]=(int)$uid;tbvsm_fault('customer_saved');
+                if(!tbvsm_customer_matches($uid,$c)) return new WP_Error('customer_write_mismatch');$finished=tbvsm_finish('customer',$c,$uid);if(is_wp_error($finished)) return $finished;
             }
             foreach($data['orders'] as $o) if(!tbvsm_orders_for($o['id'])) {
+                $reservation=tbvsm_reserve('order',$o);if(is_wp_error($reservation)) return $reservation;tbvsm_fault('order_reserved');
                 $order=wc_create_order(['customer_id'=>$ids[$o['customerId']],'status'=>'pending','created_via'=>'tbv_synthetic_migration']);
-                if(is_wp_error($order)) return $order;
+                if(is_wp_error($order)) return $order;tbvsm_fault('order_inserted');
                 $order->set_currency('USD'); $order->set_date_created($o['createdAt']);
                 $item=new WC_Order_Item_Product(); $item->set_name($o['itemName']); $item->set_quantity($o['quantity']); $item->set_subtotal($o['subtotal']); $item->set_total($o['subtotal']); $order->add_item($item);
                 $ship=new WC_Order_Item_Shipping(); $ship->set_method_title('Synthetic shipping'); $ship->set_total($o['shipping']); $order->add_item($ship);
                 $order->set_shipping_total($o['shipping']); $order->set_total($o['total']);
                 $order->update_meta_data('_tbvsm_source_id',$o['id']); $order->update_meta_data('_tbvsm_fingerprint',tbvsm_fingerprint($o));
                 $order->update_meta_data('_tbvsm_historical_status',$o['historicalStatus']); $order->update_meta_data('_tbvsm_payment_reference',$o['paymentReference']);
-                $order->save();
+                $order->save();tbvsm_fault('order_saved');
+                if(!tbvsm_order_matches($order->get_id(),$o,$ids[$o['customerId']])) return new WP_Error('order_write_mismatch');$finished=tbvsm_finish('order',$o,$order->get_id());if(is_wp_error($finished)) return $finished;
             }
         } finally {remove_filter('pre_wp_mail',$suppress,PHP_INT_MAX);}
         return $plan['operations'];
-    } finally {delete_option('_tbvsm_lab_lock');}
+    } finally {if(get_option('_tbvsm_lab_lock',false)===$lock) delete_option('_tbvsm_lab_lock');}
 }
