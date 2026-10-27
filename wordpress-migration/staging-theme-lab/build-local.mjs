@@ -67,7 +67,7 @@ try {
   fs.writeFileSync(path.join(homeParent, 'tbv-local-homepage-proof/assets.json'), JSON.stringify({ script: script[0], style: style[0] }));
   fs.mkdirSync(output, { recursive: false });
   for (const [parent, dir, filename] of [[themeParent,'10bottlevalue-react-proof','10bottlevalue-woo-staging-review-0.2.0.zip'],[homeParent,'tbv-local-homepage-proof','tbv-homepage-staging-review-0.2.0.zip'],[catalogParent,'tbv-public-woo-catalog','tbv-public-woo-catalog-0.1.0.zip']]) {
-    run('zip', ['-q', '-r', path.join(output, filename), dir, '-x', '*.DS_Store'], { cwd: parent });
+    run('python3', [path.join(here, 'zip-portable.py'), parent, dir, path.join(output, filename)]);
   }
   console.log(JSON.stringify({ output, sourceBase: baseCommit, script: script[0], style: style[0], scope: 'local staging prototype only' }));
 } finally { fs.rmSync(temp, { recursive: true, force: true }); }
