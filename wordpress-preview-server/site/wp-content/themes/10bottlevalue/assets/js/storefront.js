@@ -85,6 +85,65 @@
     menu.addEventListener('close', () => trigger.setAttribute('aria-expanded','false'));
     menu.addEventListener('click', event => { if(event.target === menu && event.clientX < menu.getBoundingClientRect().left) menu.close(); });
   }
+  const faq = document.querySelector('[data-faq]');
+  if (faq) {
+    const input = faq.querySelector('[data-faq-search]');
+    const sections = [...faq.querySelectorAll('[data-faq-section]')];
+    input.addEventListener('input', () => {
+      const query = input.value.trim().toLocaleLowerCase();
+      let total = 0;
+      for (const section of sections) {
+        let count = 0;
+        for (const item of section.querySelectorAll('[data-faq-item]')) {
+          item.hidden = !item.dataset.faqSearchText.toLocaleLowerCase().includes(query);
+          if (!item.hidden) count++;
+        }
+        section.hidden = count === 0;
+        section.querySelector('[data-faq-count]').textContent = count + (count === 1 ? ' question' : ' questions');
+        total += count;
+      }
+      faq.querySelector('[data-faq-empty]').hidden = total !== 0;
+    });
+    for (const section of sections) {
+      for (const item of section.querySelectorAll('details')) {
+        item.addEventListener('toggle', () => {
+          if (item.open) for (const other of section.querySelectorAll('details[open]')) if (other !== item) other.open = false;
+        });
+      }
+    }
+  }
+  const trackingUrls = {
+    fedex: number => 'https://www.fedex.com/fedextrack/?trknbr=' + encodeURIComponent(number),
+    usps: number => 'https://tools.usps.com/go/TrackConfirmAction?tLabels=' + encodeURIComponent(number),
+    ups: number => 'https://www.ups.com/track?tracknum=' + encodeURIComponent(number),
+  };
+  for (const form of document.querySelectorAll('[data-carrier]')) {
+    const input = form.querySelector('input');
+    const button = form.querySelector('button');
+    const result = form.parentElement.querySelector('[data-tracking-result]');
+    input.addEventListener('input', () => {
+      button.disabled = !input.value.trim();
+      if (result) { result.hidden = true; result.replaceChildren(); }
+    });
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      const number = input.value.trim();
+      if (!number) return;
+      if (form.dataset.carrier === '17track' && result) {
+        const encoded = encodeURIComponent(number);
+        const frame = document.createElement('iframe');
+        frame.src = 'https://t.17track.net/en?lang=en#nums=' + encoded;
+        frame.title = 'Track Shipment';
+        frame.loading = 'lazy';
+        const link = document.createElement('a');
+        link.href = 'https://t.17track.net/en#nums=' + encoded;
+        link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'Open on 17track ↗';
+        result.replaceChildren(frame, link); result.hidden = false;
+      } else if (trackingUrls[form.dataset.carrier]) {
+        window.open(trackingUrls[form.dataset.carrier](number), '_blank', 'noopener,noreferrer');
+      }
+    });
+  }
   const switcher = document.querySelector('[data-featured-switch]');
   if(switcher) switcher.addEventListener('click', () => {
     const worldwide = document.querySelector('[data-featured-warehouse=worldwide]');

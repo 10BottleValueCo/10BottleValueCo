@@ -17827,7 +17827,7 @@ var instance;
 var queued = 0;
 var tail = Promise.resolve();
 function allowedPath(p2) {
-  return /^\/(?:|shop\/?|product\/[a-z0-9-]+\/?|cart\/?|about\/?|contact\/?|faq\/?|shipping-policy\/?|refund-policy\/?|privacy-policy\/?|terms-and-conditions\/?|shipping-prices\/?)$/.test(p2);
+  return /^\/(?:|shop\/?|product\/[a-z0-9-]+\/?|cart\/?|about\/?|contact\/?|faq\/?|track-order\/?|shipping-policy\/?|refund-policy\/?|privacy-policy\/?|terms-and-conditions\/?|shipping-prices\/?)$/.test(p2);
 }
 var queryKeys = /* @__PURE__ */ new Set(["warehouse", "s", "post_type", "paged", "product-page", "attribute_dosage", "attribute_pack-size", "attribute_warehouse", "attribute_formulation", "variation_id", "product_id", "add-to-cart", "quantity", "remove_item", "undo_item", "_wpnonce", "wc-ajax"]);
 var cartCookie = /^(?:wp_woocommerce_session_[a-z0-9]+|woocommerce_items_in_cart|woocommerce_cart_hash)$/i;

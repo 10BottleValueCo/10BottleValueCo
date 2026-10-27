@@ -34,5 +34,11 @@ r=await fetch(base+'/shop/?quantity=99999');ok(r.status===400,'bounded preview q
 for(const p of ['/shop/?warehouse=us','/product/bpc-157/']){
  r=await fetch(base+p);html=await r.text();ok(r.status===200&&html.includes('Preview — WordPress version'),'native '+p);
 }
+r=await fetch(base+'/faq/');html=await r.text();
+ok(r.status===200&&html.includes('Common Questions')&&(html.match(/data-faq-item/g)||[]).length===17,'live-source FAQ sections and questions');
+ok(html.includes('What if my package tracking stops updating?')&&!html.includes('Are the listed stock amounts live?'),'original FAQ wording replaces placeholder');
+r=await fetch(base+'/track-order/');html=await r.text();
+ok(r.status===200&&['17TRACK','FedEx','USPS','UPS'].every(x=>html.includes(x)),'carrier tracking page');
+ok(html.includes('Order lookup will be available after customer accounts and order history are connected.'),'real account order lookup remains unavailable in preview');
 const receipt={passed:true,checks,origin,nativeWordPress:true,anonymous:true,cartIsolated:true,cartUSD:109,realOrderPerformed:false,customerEmailSent:false,browserBlueprintUsed:false};
 fs.writeFileSync(new URL('../.vercel/wordpress-native-http-test.json',import.meta.url),JSON.stringify(receipt,null,2)+'\n');console.log(JSON.stringify(receipt));

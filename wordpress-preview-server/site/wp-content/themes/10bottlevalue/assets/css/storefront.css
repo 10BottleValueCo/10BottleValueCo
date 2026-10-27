@@ -194,12 +194,12 @@ button:disabled {
   margin:0 0 0 auto;
   max-height:100dvh;
   min-height:100dvh;
-  width:min(80vw,330px);
+  width:min(68vw,280px);
   border:0;
   border-left:1px solid #ffffff22;
   background:#111820f0;
   color:white;
-  padding:22px;
+  padding:20px;
   backdrop-filter:blur(20px)
 }
 .tbv-mobile-menu::backdrop {
@@ -209,31 +209,51 @@ button:disabled {
   display:flex;
   align-items:center;
   justify-content:space-between;
-  padding:0 0 20px
+  padding:0 0 16px
 }
-.tbv-mobile-menu button {
-  border:0;
-  background:none;
+.tbv-mobile-menu [data-close-menu] {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:36px;
+  height:36px;
+  border:1px solid #ffffff33;
+  border-radius:50%;
+  background:transparent;
   color:white;
-  font-size:30px
+  font-size:22px
 }
 .tbv-mobile-menu nav {
   display:flex;
   flex-direction:column;
-  gap:7px
+  min-height:calc(100dvh - 110px);
+  gap:8px
 }
-.tbv-mobile-menu nav a {
-  padding:10px 14px;
-  border-radius:12px;
-  font-weight:650
+.tbv-mobile-menu nav a,.tbv-mobile-menu .tbv-menu-account {
+  display:block;
+  width:100%;
+  padding:12px 16px;
+  border:1px solid #ffffff33;
+  border-radius:9999px;
+  background:#ffffff1a;
+  color:#fff;
+  text-align:center;
+  text-transform:uppercase;
+  letter-spacing:.2em;
+  font-size:13px;
+  font-weight:700;
+  line-height:1.2;
+  box-shadow:inset 0 1px 0 #ffffff17;
+  backdrop-filter:blur(12px)
 }
 .tbv-mobile-menu small {
-  display:inline;
-  font-size:11px
+  display:block;
+  font-size:10px
 }
 .tbv-mobile-menu nav a:hover {
   background:#fff2
 }
+.tbv-mobile-menu .tbv-menu-account { margin-top:auto; }
 .tbv-home a.tbv-home__button {
   display:inline-flex;
   text-decoration:none
@@ -1275,5 +1295,70 @@ button:disabled {
   .tbv-app-shell--home .tbv-home__hero--reference { height:auto; min-height:0; aspect-ratio:2 / 3; }
   .tbv-app-shell--home>.tbv-announcement { padding-block:4px; }
   .tbv-home .tbv-home__section-actions .tbv-home__text-link { font-size:16px; font-weight:400; line-height:24px; }
+}
+
+/* FAQ structure and source wording follow the existing storefront. */
+body.tbv-app-shell--faq::before {
+  background:linear-gradient(#10121699,#10121699),url('../images/faq-background.webp') center/cover no-repeat;
+}
+.tbv-faq { max-width:1280px; margin:0 auto; padding:40px 40px 64px; }
+.tbv-faq__intro { display:flex; justify-content:space-between; align-items:end; gap:32px; margin:18px 0 24px; }
+.tbv-faq__intro>div { max-width:540px; }
+.tbv-faq h1 { max-width:330px; margin:0; font-size:48px; font-weight:600; line-height:1; letter-spacing:.08em; text-transform:uppercase; }
+.tbv-faq__intro p { margin:16px 0 0; color:#ffffff99; font-size:14px; letter-spacing:.08em; line-height:1.75; text-transform:uppercase; }
+.tbv-faq__search { position:relative; display:block; width:min(100%,512px); flex-shrink:0; }
+.tbv-faq__search span { position:absolute; left:16px; top:50%; transform:translateY(-55%); color:#ffffff73; font-size:27px; line-height:1; }
+.tbv-faq__search input { width:100%; height:48px; border:1px solid #ffffff26; border-radius:16px; background:#0004; color:#fff; padding:0 16px 0 48px; font-size:14px; }
+.tbv-faq__search input::placeholder { color:#ffffff73; }
+.tbv-faq__section { margin-bottom:40px; padding:32px; border:1px solid #ffffff33; border-radius:32px; background:#0006; box-shadow:0 18px 50px #0003; }
+.tbv-faq__section-head { display:flex; align-items:end; justify-content:space-between; gap:16px; margin-bottom:32px; padding-bottom:24px; border-bottom:1px solid #ffffff1a; }
+.tbv-faq__section-head h2 { margin:8px 0 0; font-size:30px; font-weight:600; letter-spacing:-.03em; line-height:1.2; }
+.tbv-faq__section-head p { margin:12px 0 0; color:#fff9; font-size:15px; line-height:1.75; }
+.tbv-faq__eyebrow { font-size:11px; font-weight:600; letter-spacing:.26em; text-transform:uppercase; }
+.tbv-faq__section-head>span { flex-shrink:0; color:#ffffff80; font-size:11px; letter-spacing:.22em; text-transform:uppercase; }
+.tbv-faq__items { display:grid; gap:16px; }
+.tbv-faq__item { overflow:hidden; border:1px solid #ffffff33; border-radius:26px; background:#0006; padding:0 24px; }
+.tbv-faq__item summary { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:20px 0; font-size:18px; font-weight:700; line-height:1.5; letter-spacing:-.02em; list-style:none; cursor:pointer; }
+.tbv-faq__item summary::-webkit-details-marker { display:none; }
+.tbv-faq__item summary span { color:#ffffffbf; font-size:20px; font-weight:300; transition:transform .2s; }
+.tbv-faq__item[open] summary span { transform:rotate(45deg); }
+.tbv-faq__answer { border-top:1px solid #ffffff1a; padding:12px 0 20px; font-size:16px; line-height:2; }
+.tbv-faq__answer p { margin:0 0 12px; }
+.tbv-faq__empty { border:1px solid #ffffff26; border-radius:16px; padding:24px 20px; color:#ffffffa6; }
+.tbv-tracking { max-width:672px; margin:0 auto; padding:56px 24px 64px; display:grid; gap:24px; }
+.tbv-tracking__card { display:grid; grid-template-columns:72px minmax(0,1fr); gap:20px; padding:32px; border:1px solid #ffffff33; border-radius:32px; background:#0009; }
+.tbv-tracking__icon { display:flex; align-items:center; justify-content:center; min-height:72px; border-right:1px solid #fff3; padding-right:20px; font-size:19px; font-weight:900; }
+.tbv-tracking h1,.tbv-tracking h2 { margin:0 0 20px; font-size:24px; font-weight:600; letter-spacing:.12em; line-height:1.25; text-transform:uppercase; }
+.tbv-tracking__subtitle { margin:-10px 0 24px; color:#fff8; font-size:12px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; }
+.tbv-tracking__form { display:flex; gap:12px; }
+.tbv-tracking__form input { width:100%; min-width:0; border:1px solid #fff3; border-radius:999px; background:#ffffff1a; color:white; padding:12px 20px; font-size:14px; font-weight:600; letter-spacing:.06em; }
+.tbv-tracking__form button { border:0; border-radius:999px; background:#000; color:white; padding:12px 24px; font-size:13px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; }
+.tbv-tracking__form[data-carrier=fedex] button { background:#4d148c; }
+.tbv-tracking__form[data-carrier=usps] button { background:#004b87; }
+.tbv-tracking__form[data-carrier=ups] button { background:#351c15; }
+.tbv-tracking__notice,.tbv-tracking__footnote { margin:20px 0 0; color:#ffffffb3; font-size:12px; line-height:1.6; }
+.tbv-tracking [data-tracking-result] { margin-top:24px; text-align:center; }
+.tbv-tracking [data-tracking-result] iframe { display:block; width:100%; height:820px; border:1px solid #ffffff1a; border-radius:12px; }
+.tbv-tracking [data-tracking-result] a { display:inline-block; margin-top:12px; padding:8px 20px; border:1px solid #fff3; border-radius:999px; background:#ffffff1a; font-size:13px; font-weight:600; letter-spacing:.12em; text-transform:uppercase; }
+@media(max-width:639px) {
+  .tbv-tracking { padding:32px 16px 64px; }
+  .tbv-tracking__card { display:block; padding:24px; border-radius:24px; }
+  .tbv-tracking__icon { min-height:0; margin-bottom:16px; padding:0; border:0; }
+  .tbv-tracking h1,.tbv-tracking h2,.tbv-tracking__subtitle { text-align:center; }
+  .tbv-tracking h1,.tbv-tracking h2 { font-size:18px; }
+  .tbv-tracking__form { flex-direction:column; }
+}
+@media(max-width:767px) {
+  .tbv-faq { padding:40px 16px 48px; }
+  .tbv-faq__intro { display:block; margin:0 0 20px; }
+  .tbv-faq h1 { font-size:30px; }
+  .tbv-faq__search { margin-top:20px; }
+  .tbv-faq__section { padding:20px; border-radius:24px; }
+  .tbv-faq__section-head { display:block; margin-bottom:24px; padding-bottom:20px; }
+  .tbv-faq__section-head h2 { font-size:24px; }
+  .tbv-faq__section-head>span { display:block; margin-top:12px; }
+  .tbv-faq__item { border-radius:22px; padding:0 16px; }
+  .tbv-faq__item summary { gap:16px; padding:16px 0; font-size:15.7px; }
+  .tbv-faq__answer { padding-bottom:16px; font-size:14px; }
 }
 

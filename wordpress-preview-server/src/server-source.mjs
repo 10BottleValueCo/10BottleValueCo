@@ -8,7 +8,7 @@ import {bootWordPressAndRequestHandler} from '@wp-playground/wordpress';
 const PREFIX='/wordpresspreview';
 const here=typeof __dirname==='string'?__dirname:path.dirname(new URL(import.meta.url).pathname);
 let instance,queued=0,tail=Promise.resolve();
-export function allowedPath(p){return /^\/(?:|shop\/?|product\/[a-z0-9-]+\/?|cart\/?|about\/?|contact\/?|faq\/?|shipping-policy\/?|refund-policy\/?|privacy-policy\/?|terms-and-conditions\/?|shipping-prices\/?)$/.test(p);}
+export function allowedPath(p){return /^\/(?:|shop\/?|product\/[a-z0-9-]+\/?|cart\/?|about\/?|contact\/?|faq\/?|track-order\/?|shipping-policy\/?|refund-policy\/?|privacy-policy\/?|terms-and-conditions\/?|shipping-prices\/?)$/.test(p);}
 const queryKeys=new Set(['warehouse','s','post_type','paged','product-page','attribute_dosage','attribute_pack-size','attribute_warehouse','attribute_formulation','variation_id','product_id','add-to-cart','quantity','remove_item','undo_item','_wpnonce','wc-ajax']);
 const cartCookie=/^(?:wp_woocommerce_session_[a-z0-9]+|woocommerce_items_in_cart|woocommerce_cart_hash)$/i;
 function safeCookies(input=''){return input.split(';').map(x=>x.trim()).filter(x=>cartCookie.test(x.split('=')[0])).join('; ').slice(0,6000);}
