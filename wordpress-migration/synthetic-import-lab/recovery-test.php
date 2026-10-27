@@ -8,6 +8,12 @@ if (defined('TBV_TEST_MULTILINE') && TBV_TEST_MULTILINE) $o=['id'=>$o['id'],'cus
  ['id'=>'sample-'.$case.'-line-a','name'=>'Synthetic first item','quantity'=>2,'subtotal'=>'20.00','total'=>'20.00'],
  ['id'=>'sample-'.$case.'-line-b','name'=>'Synthetic second item','quantity'=>1,'subtotal'=>'7.50','total'=>'7.50'],
  ],'shipping'=>'4.00','total'=>'31.50'];
+if (defined('TBV_TEST_PRODUCT_MAPPING') && TBV_TEST_PRODUCT_MAPPING) {
+ if (!isset($o['items'])) throw new RuntimeException('Multi-line fixture required');
+ $ref=['productId'=>'sample-'.$case.'-product','variationId'=>'sample-'.$case.'-variation'];
+ if($phase==='crash'){$p=new WC_Product_Variable();$p->set_name('Synthetic recovery product');$p->set_status('draft');$p->update_meta_data('_tbvsm_synthetic','yes');$p->update_meta_data('_tbvsm_source_product_id',$ref['productId']);$pid=$p->save();$v=new WC_Product_Variation();$v->set_parent_id($pid);$v->set_status('publish');$v->set_regular_price('10.00');$v->set_manage_stock(true);$v->set_stock_quantity(7);$v->update_meta_data('_tbvsm_synthetic','yes');$v->update_meta_data('_tbvsm_source_variation_id',$ref['variationId']);$v->save();}
+ $o['items'][0]['productRef']=$ref;
+}
 if (defined('TBV_TEST_ADDRESSES') && TBV_TEST_ADDRESSES) $o['addresses']=[
  'billing'=>['first_name'=>'Synthetic Billing','last_name'=>'Synthetic Tester','company'=>'','address_1'=>'Synthetic 1 Example Street','address_2'=>'','city'=>'Synthetic City','state'=>'WA','postcode'=>'00000','country'=>'US','email'=>'billing@example.invalid','phone'=>'0000000000'],
  'shipping'=>['first_name'=>'Synthetic Shipping','last_name'=>'Synthetic Tester','company'=>'','address_1'=>'Synthetic 2 Example Street','address_2'=>'','city'=>'Synthetic City','state'=>'WA','postcode'=>'00000','country'=>'US','phone'=>'0000000000'],
@@ -29,6 +35,8 @@ if(str_ends_with($fault,'_saved')) {
  if(!$isCustomer) $checks['wrong_order_owner_never_adopted']=cerr(tbvsm_reconcile($kind,$row,999999),'invalid_recovery_owner');
  if(!$isCustomer && isset($o['addresses'])) {$ids=tbvsm_orders_for($o['id']);$order=count($ids)===1?wc_get_order($ids[0]):null;if($order){$order->set_shipping_city('Synthetic Changed City');$order->save();}$checks['changed_address_never_adopted']=$order&&cerr(tbvsm_reconcile($kind,$row,$uid),'recovery_ambiguous');if($order){$order->set_shipping_city('Synthetic City');$order->save();}}
  if(!$isCustomer && isset($o['items'])) {$ids=tbvsm_orders_for($o['id']);$order=count($ids)===1?wc_get_order($ids[0]):null;$lines=$order?array_values($order->get_items()):[];$line=$lines[0]??null;if($line){$line->set_quantity(9);$line->save();}$checks['changed_line_never_adopted']=$line&&cerr(tbvsm_reconcile($kind,$row,$uid),'recovery_ambiguous');if($line){$line->set_quantity(2);$line->save();}}
+ if(!$isCustomer && isset($o['items'][0]['productRef'])) {$ids=tbvsm_orders_for($o['id']);$order=count($ids)===1?wc_get_order($ids[0]):null;$lines=$order?array_values($order->get_items()):[];$line=$lines[0]??null;$mapping=tbvsm_product_mapping($o['items'][0]['productRef']);if($line){$line->set_variation_id(0);$line->save();}$checks['changed_product_link_never_adopted']=$line&&!is_wp_error($mapping)&&cerr(tbvsm_reconcile($kind,$row,$uid),'recovery_ambiguous');if($line&&!is_wp_error($mapping)){$line->set_variation_id($mapping['variation']);$line->save();}$checks['mapped_product_stock_unchanged']=!is_wp_error($mapping)&&(int)wc_get_product($mapping['variation'])->get_stock_quantity()===7;}
+
 
 
  $recovery=tbvsm_reconcile($kind,$row,$uid);$checks['exact_object_adopted']=$recovery===true;

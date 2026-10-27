@@ -41,12 +41,26 @@ function tbvsm_addresses_match($order,$addresses) {
     }
     return true;
 }
+// Resolve explicitly tagged fictional products only; never infer a mapping from
+// a product name, price, SKU, or numeric destination ID supplied by a caller.
+function tbvsm_product_mapping($ref) {
+    if(!is_array($ref)||array_keys($ref)!==['productId','variationId']||!tbvsm_id($ref['productId'])||!tbvsm_id($ref['variationId']))return new WP_Error('invalid_product_reference');
+    $query=function($type,$key,$value){return get_posts(['post_type'=>$type,'post_status'=>['publish','draft','pending','private','future','trash','inherit'],'numberposts'=>3,'fields'=>'ids','meta_key'=>$key,'meta_value'=>$value]);};
+    $parents=$query('product','_tbvsm_source_product_id',$ref['productId']);$variants=$query('product_variation','_tbvsm_source_variation_id',$ref['variationId']);
+    if(count($parents)>1||count($variants)>1)return new WP_Error('product_mapping_ambiguous');
+    if(count($parents)!==1||count($variants)!==1)return new WP_Error('product_mapping_unresolved');
+    $parent=wc_get_product($parents[0]);$variant=wc_get_product($variants[0]);
+    if(!$parent||!$variant||!$parent->is_type('variable')||!$variant->is_type('variation')||$variant->get_parent_id()!==(int)$parent->get_id()||
+       $parent->get_status('edit')==='trash'||$variant->get_status('edit')==='trash'||$parent->get_meta('_tbvsm_synthetic',true,'edit')!=='yes'||
+       $variant->get_meta('_tbvsm_synthetic',true,'edit')!=='yes'||!preg_match('/^Synthetic [A-Za-z0-9 -]{1,60}$/D',$parent->get_name('edit')))return new WP_Error('product_mapping_invalid');
+    return ['product'=>(int)$parent->get_id(),'variation'=>(int)$variant->get_id()];
+}
 // Match synthetic source line identities without relying on Woo item order.
 function tbvsm_lines_match($items,$row) {
     if(!isset($row['items'])) {
         if(count($items)!==1)return false;
         $item=reset($items);
-        return $item->get_name()===$row['itemName'] && $item->get_quantity()===$row['quantity'] &&
+        return $item->get_product_id()===0 && $item->get_variation_id()===0 && $item->get_name()===$row['itemName'] && $item->get_quantity()===$row['quantity'] &&
             tbvsm_cents(wc_format_decimal($item->get_subtotal(),2))===tbvsm_cents($row['subtotal']) &&
             tbvsm_cents(wc_format_decimal($item->get_total(),2))===tbvsm_cents($row['subtotal']) &&
             tbvsm_cents(wc_format_decimal($item->get_subtotal_tax(),2))===0 && tbvsm_cents(wc_format_decimal($item->get_total_tax(),2))===0;
@@ -60,6 +74,11 @@ function tbvsm_lines_match($items,$row) {
            tbvsm_cents(wc_format_decimal($item->get_subtotal(),2))!==tbvsm_cents($line['subtotal'])||
            tbvsm_cents(wc_format_decimal($item->get_total(),2))!==tbvsm_cents($line['total'])||
            tbvsm_cents(wc_format_decimal($item->get_subtotal_tax(),2))!==0||tbvsm_cents(wc_format_decimal($item->get_total_tax(),2))!==0)return false;
+        if(isset($line['productRef'])){
+            $mapping=tbvsm_product_mapping($line['productRef']);
+            if(is_wp_error($mapping)||$item->get_product_id()!==$mapping['product']||$item->get_variation_id()!==$mapping['variation']||
+               $item->get_meta('_tbvsm_source_product_id',true,'edit')!==$line['productRef']['productId']||$item->get_meta('_tbvsm_source_variation_id',true,'edit')!==$line['productRef']['variationId'])return false;
+        } elseif($item->get_product_id()!==0||$item->get_variation_id()!==0)return false;
     }
     return true;
 }
@@ -186,7 +205,9 @@ function tbvsm_plan($data) {
             if(!is_array($o['items'])||!array_is_list($o['items'])||count($o['items'])<1||count($o['items'])>20)return new WP_Error('invalid_lines');
             $lineIds=[];$sub=0;
             foreach($o['items'] as $line){
-                if(!is_array($line)||array_keys($line)!==['id','name','quantity','subtotal','total']||!tbvsm_id($line['id'])||isset($lineIds[$line['id']])||!is_string($line['name'])||!preg_match('/^Synthetic [A-Za-z0-9 -]{1,60}$/D',$line['name'])||!is_int($line['quantity'])||$line['quantity']<1||$line['quantity']>100)return new WP_Error('invalid_lines');
+                $lineKeys=['id','name','quantity','subtotal','total'];
+                if(!is_array($line)||(array_keys($line)!==$lineKeys&&array_keys($line)!==array_merge($lineKeys,['productRef']))||!tbvsm_id($line['id'])||isset($lineIds[$line['id']])||!is_string($line['name'])||!preg_match('/^Synthetic [A-Za-z0-9 -]{1,60}$/D',$line['name'])||!is_int($line['quantity'])||$line['quantity']<1||$line['quantity']>100)return new WP_Error('invalid_lines');
+                if(array_key_exists('productRef',$line)){$mapping=tbvsm_product_mapping($line['productRef']);if(is_wp_error($mapping))return $mapping;}
                 $lineIds[$line['id']]=true;$lineSub=tbvsm_cents($line['subtotal']);$lineTotal=tbvsm_cents($line['total']);
                 if($lineSub===false||$lineTotal===false||$lineSub!==$lineTotal)return new WP_Error('invalid_total');
                 $sub+=$lineTotal;
@@ -230,7 +251,9 @@ function tbvsm_apply($data) {
                 if(is_wp_error($order)) return $order;tbvsm_fault('order_inserted');
                 $order->set_currency('USD'); $order->set_date_created($o['createdAt']);
                 if(isset($o['addresses']))foreach(['billing','shipping'] as $type)foreach($o['addresses'][$type] as $field=>$value){$setter='set_'.$type.'_'.$field;$order->$setter($value);}
-                if(isset($o['items']))foreach($o['items'] as $line){$item=new WC_Order_Item_Product();$item->set_name($line['name']);$item->set_quantity($line['quantity']);$item->set_subtotal($line['subtotal']);$item->set_total($line['total']);$item->add_meta_data('_tbvsm_source_line_id',$line['id'],true);$order->add_item($item);}
+                if(isset($o['items']))foreach($o['items'] as $line){$item=new WC_Order_Item_Product();$item->set_name($line['name']);$item->set_quantity($line['quantity']);$item->set_subtotal($line['subtotal']);$item->set_total($line['total']);$item->add_meta_data('_tbvsm_source_line_id',$line['id'],true);
+                    if(isset($line['productRef'])){$mapping=tbvsm_product_mapping($line['productRef']);if(is_wp_error($mapping))return $mapping;$item->set_product_id($mapping['product']);$item->set_variation_id($mapping['variation']);$item->add_meta_data('_tbvsm_source_product_id',$line['productRef']['productId'],true);$item->add_meta_data('_tbvsm_source_variation_id',$line['productRef']['variationId'],true);}
+                    $order->add_item($item);}
                 else {$item=new WC_Order_Item_Product();$item->set_name($o['itemName']);$item->set_quantity($o['quantity']);$item->set_subtotal($o['subtotal']);$item->set_total($o['subtotal']);$order->add_item($item);}
                 $ship=new WC_Order_Item_Shipping(); $ship->set_method_title('Synthetic shipping'); $ship->set_total($o['shipping']); $order->add_item($ship);
                 $order->set_shipping_total($o['shipping']); $order->set_total($o['total']);
