@@ -10,6 +10,7 @@ if (!defined('ABSPATH')) exit;
 // An explicitly marked isolated WordPress test runtime must call these functions.
 function tbvsm_guard() {
     if (!defined('TBV_SYNTHETIC_WOO_TEST') || TBV_SYNTHETIC_WOO_TEST !== true ||
+        !function_exists('wp_get_environment_type') || !in_array(wp_get_environment_type(),['local','staging'],true) ||
         !defined('WP_HTTP_BLOCK_EXTERNAL') || WP_HTTP_BLOCK_EXTERNAL !== true ||
         !defined('DISABLE_WP_CRON') || DISABLE_WP_CRON !== true ||
         !function_exists('wc_create_order')) return new WP_Error('test_runtime_required');
@@ -20,6 +21,25 @@ function tbvsm_email($s) { return is_string($s) && preg_match('/^[a-z0-9][a-z0-9
 function tbvsm_cents($s) {
     if (!is_string($s) || !preg_match('/^(0|[1-9][0-9]{0,8})(?:\.([0-9]{1,2}))?$/D', $s, $m)) return false;
     return ((int)$m[1])*100 + (int)str_pad($m[2] ?? '', 2, '0');
+}
+// This narrow address contract accepts fictional fixtures only. It is not a
+// claim about the real source schema or an adapter for customer addresses.
+function tbvsm_address_valid($address,$type) {
+    $keys=['first_name','last_name','company','address_1','address_2','city','state','postcode','country'];
+    if($type==='billing')$keys[]='email';
+    $keys[]='phone';
+    if(!is_array($address)||array_keys($address)!==$keys)return false;
+    foreach(['first_name','last_name','address_1','city'] as $key)if(!is_string($address[$key])||!preg_match('/^Synthetic [A-Za-z0-9 .-]{1,50}$/D',$address[$key]))return false;
+    foreach(['company','address_2'] as $key)if(!is_string($address[$key])||($address[$key]!==''&&!preg_match('/^Synthetic [A-Za-z0-9 .-]{1,50}$/D',$address[$key])))return false;
+    if($address['state']!=='WA'||$address['postcode']!=='00000'||$address['country']!=='US'||$address['phone']!=='0000000000')return false;
+    return $type!=='billing'||tbvsm_email($address['email']);
+}
+function tbvsm_addresses_match($order,$addresses) {
+    foreach(['billing','shipping'] as $type)foreach($addresses[$type] as $field=>$expected){
+        $getter='get_'.$type.'_'.$field;
+        if(!is_callable([$order,$getter])||$order->$getter('edit')!==$expected)return false;
+    }
+    return true;
 }
 function tbvsm_fingerprint($row) { return hash('sha256', wp_json_encode($row)); }
 function tbvsm_users_for($id) {
@@ -41,6 +61,7 @@ function tbvsm_customer_matches($uid,$row) {
 }
 function tbvsm_order_matches($oid,$row,$uid) {
     $o=wc_get_order($oid); if (!$o || $o->get_customer_id()!==(int)$uid || $o->get_status()!=='pending' || $o->get_date_paid() || $o->get_currency()!=='USD') return false;
+    if(isset($row['addresses'])&&!tbvsm_addresses_match($o,$row['addresses']))return false;
     $items=array_values($o->get_items()); $ship=array_values($o->get_items('shipping'));
     return count($items)===1 && count($ship)===1 && count($o->get_items('fee'))===0 && count($o->get_items('coupon'))===0 && count($o->get_items('tax'))===0 && count($o->get_refunds())===0 &&
       $items[0]->get_name()===$row['itemName'] && $items[0]->get_quantity()===$row['quantity'] &&
@@ -139,7 +160,9 @@ function tbvsm_plan($data) {
         $resolved[$c['id']]=$ids ? (int)$ids[0] : null; $ops[]=['kind'=>'customer','id'=>$c['id'],'action'=>$ids?'unchanged':'create'];
     }
     foreach ($data['orders'] as $o) {
-        if (!is_array($o) || array_keys($o)!==['id','customerId','createdAt','historicalStatus','paymentReference','itemName','quantity','subtotal','shipping','total'] || !tbvsm_id($o['id']) || isset($seen['o'.$o['id']]) || !tbvsm_id($o['customerId']) || !array_key_exists($o['customerId'],$resolved) || !tbvsm_id($o['paymentReference']) || !in_array($o['historicalStatus'],['pending','paid','cancelled','refunded'],true) || !is_string($o['itemName']) || !preg_match('/^Synthetic [A-Za-z0-9 -]{1,60}$/D',$o['itemName']) || !is_int($o['quantity']) || $o['quantity']<1 || $o['quantity']>100) return new WP_Error('invalid_order');
+        $orderKeys=['id','customerId','createdAt','historicalStatus','paymentReference','itemName','quantity','subtotal','shipping','total'];
+        if (!is_array($o) || (array_keys($o)!==$orderKeys && array_keys($o)!==array_merge($orderKeys,['addresses'])) || !tbvsm_id($o['id']) || isset($seen['o'.$o['id']]) || !tbvsm_id($o['customerId']) || !array_key_exists($o['customerId'],$resolved) || !tbvsm_id($o['paymentReference']) || !in_array($o['historicalStatus'],['pending','paid','cancelled','refunded'],true) || !is_string($o['itemName']) || !preg_match('/^Synthetic [A-Za-z0-9 -]{1,60}$/D',$o['itemName']) || !is_int($o['quantity']) || $o['quantity']<1 || $o['quantity']>100) return new WP_Error('invalid_order');
+        if(array_key_exists('addresses',$o) && (!is_array($o['addresses'])||array_keys($o['addresses'])!==['billing','shipping']||!tbvsm_address_valid($o['addresses']['billing'],'billing')||!tbvsm_address_valid($o['addresses']['shipping'],'shipping')))return new WP_Error('invalid_synthetic_address');
         if (!is_string($o['createdAt'])) return new WP_Error('invalid_timestamp');
         $seen['o'.$o['id']]=true; $time=DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z',$o['createdAt']);
         if (!$time || $time->format('Y-m-d\TH:i:s\Z')!==$o['createdAt']) return new WP_Error('invalid_timestamp');
@@ -173,6 +196,7 @@ function tbvsm_apply($data) {
                 $order=wc_create_order(['customer_id'=>$ids[$o['customerId']],'status'=>'pending','created_via'=>'tbv_synthetic_migration']);
                 if(is_wp_error($order)) return $order;tbvsm_fault('order_inserted');
                 $order->set_currency('USD'); $order->set_date_created($o['createdAt']);
+                if(isset($o['addresses']))foreach(['billing','shipping'] as $type)foreach($o['addresses'][$type] as $field=>$value){$setter='set_'.$type.'_'.$field;$order->$setter($value);}
                 $item=new WC_Order_Item_Product(); $item->set_name($o['itemName']); $item->set_quantity($o['quantity']); $item->set_subtotal($o['subtotal']); $item->set_total($o['subtotal']); $order->add_item($item);
                 $ship=new WC_Order_Item_Shipping(); $ship->set_method_title('Synthetic shipping'); $ship->set_total($o['shipping']); $order->add_item($ship);
                 $order->set_shipping_total($o['shipping']); $order->set_total($o['total']);

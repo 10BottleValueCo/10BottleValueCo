@@ -4,6 +4,10 @@ if (defined('TBV_TEST_CLASSIC') && TBV_TEST_CLASSIC) update_option('woocommerce_
 require '/wordpress/wp-content/plugins/tbv-synthetic-migration/tbv-synthetic-migration.php';
 $c=['id'=>'sample-'.$case.'-customer','email'=>'tbvsm-'.$case.'@example.invalid'];
 $o=['id'=>'sample-'.$case.'-order','customerId'=>$c['id'],'createdAt'=>'2026-01-02T03:04:05Z','historicalStatus'=>'paid','paymentReference'=>'sample-'.$case.'-payment','itemName'=>'Synthetic item','quantity'=>2,'subtotal'=>'20.00','shipping'=>'4.00','total'=>'24.00'];
+if (defined('TBV_TEST_ADDRESSES') && TBV_TEST_ADDRESSES) $o['addresses']=[
+ 'billing'=>['first_name'=>'Synthetic Billing','last_name'=>'Synthetic Tester','company'=>'','address_1'=>'Synthetic 1 Example Street','address_2'=>'','city'=>'Synthetic City','state'=>'WA','postcode'=>'00000','country'=>'US','email'=>'billing@example.invalid','phone'=>'0000000000'],
+ 'shipping'=>['first_name'=>'Synthetic Shipping','last_name'=>'Synthetic Tester','company'=>'','address_1'=>'Synthetic 2 Example Street','address_2'=>'','city'=>'Synthetic City','state'=>'WA','postcode'=>'00000','country'=>'US','phone'=>'0000000000'],
+];
 $fixture=['synthetic'=>true,'customers'=>[$c],'orders'=>[$o]];
 if ($phase==='crash') { $GLOBALS['tbvsm_test_fault']=$fault;tbvsm_apply($fixture);echo 'FAULT_NOT_REACHED';exit; }
 function cerr($r,$c){return is_wp_error($r)&&$r->get_error_code()===$c;}
@@ -19,6 +23,8 @@ $checks['wrong_target_rejected']=cerr(tbvsm_finish($kind,$row,999999),'recovery_
 $ordersBefore=wc_get_orders(['limit'=>-1,'return'=>'ids','status'=>array_keys(wc_get_order_statuses())]);
 if(str_ends_with($fault,'_saved')) {
  if(!$isCustomer) $checks['wrong_order_owner_never_adopted']=cerr(tbvsm_reconcile($kind,$row,999999),'invalid_recovery_owner');
+ if(!$isCustomer && isset($o['addresses'])) {$ids=tbvsm_orders_for($o['id']);$order=count($ids)===1?wc_get_order($ids[0]):null;if($order){$order->set_shipping_city('Synthetic Changed City');$order->save();}$checks['changed_address_never_adopted']=$order&&cerr(tbvsm_reconcile($kind,$row,$uid),'recovery_ambiguous');if($order){$order->set_shipping_city('Synthetic City');$order->save();}}
+
  $recovery=tbvsm_reconcile($kind,$row,$uid);$checks['exact_object_adopted']=$recovery===true;
  $result=tbvsm_apply($fixture);$checks['retry_after_reconciliation']=!is_wp_error($result) && count(tbvsm_users_for($c['id']))===1 && count(tbvsm_orders_for($o['id']))===1;
  $checks['repeated_retry_no_duplicates']=!is_wp_error(tbvsm_apply($fixture)) && count(tbvsm_orders_for($o['id']))===1;
