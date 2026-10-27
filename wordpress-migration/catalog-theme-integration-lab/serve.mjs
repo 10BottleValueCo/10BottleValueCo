@@ -19,7 +19,8 @@ const handler=await bootWordPressAndRequestHandler({createPhpRuntime:()=>loadNod
  await php.mount('/wordpress',createNodeFsMountHandler(path.join(runtime,'package/site')));
  for(const [target,source] of [['database',path.join(temp,'database')],['uploads',path.join(temp,'uploads')],['themes/10bottlevalue-react-proof',theme],['plugins/tbv-public-woo-catalog',catalog],['plugins/tbv-local-homepage-proof',home],['plugins/tbv-catalog-import',importer]])await php.mount('/wordpress/wp-content/'+target,createNodeFsMountHandler(source));
 }}});
-const php=await handler.getPrimaryPhp(),fixture=fs.readFileSync(path.join(lab,'browser-fixture.php'),'utf8').replace(/^<\?php\s*/,'');
+const fixtureFile=process.env.TBV_TEST_PACK_DISPLAY==='1'?'browser-pack-display-fixture.php':'browser-fixture.php';
+const php=await handler.getPrimaryPhp(),fixture=fs.readFileSync(path.join(lab,fixtureFile),'utf8').replace(/^<\?php\s*/,'');
 const init=await php.run({code:`<?php require '/wordpress/wp-load.php';update_option('template','10bottlevalue-react-proof');update_option('stylesheet','10bottlevalue-react-proof');update_option('active_plugins',['woocommerce/woocommerce.php','tbv-public-woo-catalog/tbv-public-woo-catalog.php','tbv-local-homepage-proof/tbv-local-homepage-proof.php']);update_option('woocommerce_currency','USD');update_option('woocommerce_price_num_decimals',2);${fixture} echo wp_json_encode($synthetic_fixture);`});
 const synthetic=JSON.parse(init.text);if(!Array.isArray(synthetic.offers)||synthetic.offers.length!==12)throw Error('Invalid synthetic fixture');const allowedIds=new Set(synthetic.offers.map(o=>o.id));
 const assets=path.join(theme,'public'),assetPrefix='/wp-content/themes/10bottlevalue-react-proof/public/';

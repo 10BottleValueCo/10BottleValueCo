@@ -1,5 +1,6 @@
 import { tbvLocal, tbvSession } from './previewStorage.js';
 import { uniqueWooOffers } from './woo-offer-identity.js';
+import { mergeWooDisplayMetadata } from './woo-display-metadata.js';
 const rawWooSnapshot = Array.isArray(window.TBV_WOO_CATALOG) ? window.TBV_WOO_CATALOG : [];
 const wooSnapshot = uniqueWooOffers(rawWooSnapshot);
 import { sumLineAmounts, discountAmount, addAmounts } from "../../../shared/checkout-money.js";
@@ -2947,7 +2948,7 @@ const ORIGINAL_PRODUCTS = [
 // display only; unmatched rows fall back to neutral display metadata.
 const PRODUCTS_BASE = wooSnapshot.map((woo) => {
   const old = ORIGINAL_PRODUCTS.find((p) => p.name === woo.name && p.dose === woo.dose && (p.warehouse || "worldwide") === woo.warehouse && (p.noteLabel || "") === woo.noteLabel) || {};
-  return { ...old, ...woo, note: old.note || `${woo.pack} vial kit (${woo.pack} vials included)` };
+  return mergeWooDisplayMetadata(old, woo);
 });
 const US_WAREHOUSE_IN_STOCK_OFFERS = new Set(PRODUCTS_BASE.filter(p => p.warehouse === "us" && !p.outOfStock).map(p => `${p.name}|${p.dose}${p.noteLabel ? `|${p.noteLabel}` : ""}`));
 // CATALOG_DATA_END
@@ -15303,9 +15304,9 @@ export default function App() {
                     <div className="min-w-0 flex flex-col justify-center px-3 py-4 md:px-4 md:py-5">
                       <div className="mb-1 text-xs font-extrabold uppercase tracking-[0.08em] text-white/90 md:text-sm">{t("kitTotal")}</div>
                       <div className="break-words text-base font-bold leading-snug md:text-lg">
-                        {selectedProductConfigurationMissing ? "—" : selectedProduct.name === "TB-500 + BPC-157"
+                        {selectedProductConfigurationMissing ? "—" : selectedProduct.name === "TB-500 + BPC-157" && selectedProduct.vials === 10
                           ? `${parseFloat(selectedProduct.dose) * 10} mg total`
-                          : selectedProduct.total}
+                          : (selectedProduct.total || "—")}
                       </div>
                     </div>
                     <div className="min-w-0 flex flex-col justify-center px-3 py-4 md:px-4 md:py-5">
