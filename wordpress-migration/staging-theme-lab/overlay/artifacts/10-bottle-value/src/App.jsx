@@ -14362,7 +14362,7 @@ export default function App() {
           usesInfoPageBackdrop
             ? {
                 "--tbv-info-background-image": page === "affiliate"
-                  ? `linear-gradient(180deg, rgba(9, 13, 18, .32), rgba(9, 13, 18, .55)), url("${import.meta.env.BASE_URL}images/affiliate-lab-background.webp")`
+                  ? `linear-gradient(180deg, rgba(9, 13, 18, .32), rgba(9, 13, 18, .55)), url("${getPreloadedDisplayImageUrl(`${import.meta.env.BASE_URL}images/affiliate-lab-background.webp`)}")`
                   : `linear-gradient(rgba(76, 80, 86, 0.66), rgba(55, 59, 66, 0.72)), url("${pageBackdropImage}")`,
               }
             : usesWorldwideBackground
