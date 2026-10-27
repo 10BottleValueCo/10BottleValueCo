@@ -13647,7 +13647,10 @@ export default function App() {
     // Убираем "EACH" из дозировки
     let dose = (product?.dose || "").toUpperCase().replace(" EACH", "").trim();
 
-    const vialKey = JSON.stringify([product.name, product.dose, product.noteLabel ?? ""]);
+    // Preserve the restored product name while reusing the live-site vial artwork
+    // for the matching historical catalog identity, dose and formulation.
+    const artworkName = ({ Retatrutide: "Retatrutide / GLP-3", Tirzepatide: "Tirzepatide / GLP-2" })[product.name] || product.name;
+    const vialKey = JSON.stringify([artworkName, product.dose, product.noteLabel ?? ""]);
     const vialImage = vialCManifest[vialKey];
     if (vialImage) {
       if (
@@ -13661,7 +13664,7 @@ export default function App() {
           isOptionC: true,
         };
       }
-      const baseImage = vialBaseImages.get(JSON.stringify([product.name, product.noteLabel ?? ""])) || vialImage;
+      const baseImage = vialBaseImages.get(JSON.stringify([artworkName, product.noteLabel ?? ""])) || vialImage;
       return {
         imgUrl: getPreloadedDisplayImageUrl(`${import.meta.env.BASE_URL}vials-c/${vialImage}`),
         baseImgUrl: getPreloadedDisplayImageUrl(`${import.meta.env.BASE_URL}vials-c/${baseImage}`),
