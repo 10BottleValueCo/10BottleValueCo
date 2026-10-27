@@ -52,5 +52,23 @@ ck('synthetic_address_repeat_idempotent',!is_wp_error(tbvsm_apply($addressFixtur
 $addressOrder->set_billing_address_1('Synthetic Changed Address');$addressOrder->save();ck('edited_billing_refused',code(tbvsm_plan($addressFixture),'order_edited'));$addressOrder->set_billing_address_1('Synthetic 1 Example Street');$addressOrder->save();
 $addressOrder->set_shipping_city('Synthetic Changed City');$addressOrder->save();ck('edited_shipping_refused',code(tbvsm_plan($addressFixture),'order_edited'));$addressOrder->set_shipping_city('Synthetic City');$addressOrder->save();
 ck('restored_addresses_unchanged',!is_wp_error(tbvsm_plan($addressFixture)));
+$multi=['synthetic'=>true,'customers'=>[['id'=>'sample-multi-c','email'=>'tbvsm-multi@example.invalid']],'orders'=>[['id'=>'sample-multi-o','customerId'=>'sample-multi-c','createdAt'=>'2026-03-04T05:06:07Z','historicalStatus'=>'paid','paymentReference'=>'sample-multi-payment','items'=>[
+ ['id'=>'sample-line-a','name'=>'Synthetic first item','quantity'=>2,'subtotal'=>'20.00','total'=>'20.00'],
+ ['id'=>'sample-line-b','name'=>'Synthetic second item','quantity'=>1,'subtotal'=>'7.50','total'=>'7.50'],
+ ],'shipping'=>'4.00','total'=>'31.50','addresses'=>$addressFixture['orders'][0]['addresses']]]];
+$multiPlan=tbvsm_plan($multi);ck('multi_line_dry_run_no_writes',!is_wp_error($multiPlan)&&!email_exists('tbvsm-multi@example.invalid')&&!tbvsm_orders_for('sample-multi-o'));
+$badMulti=$multi;$badMulti['orders'][0]['items'][1]['id']='sample-line-a';ck('duplicate_source_line_refused',code(tbvsm_plan($badMulti),'invalid_lines'));
+$badMulti=$multi;$badMulti['orders'][0]['items'][0]['name']='Real item';ck('non_synthetic_line_refused',code(tbvsm_plan($badMulti),'invalid_lines'));
+$badMulti=$multi;$badMulti['orders'][0]['items'][0]['unexpected']='Synthetic data';ck('unknown_line_field_refused',code(tbvsm_plan($badMulti),'invalid_lines'));
+$badMulti=$multi;$badMulti['orders'][0]['items'][0]['total']='19.00';ck('line_discount_not_guessed',code(tbvsm_plan($badMulti),'invalid_total'));
+$badMulti=$multi;$badMulti['orders'][0]['total']='31.51';ck('multi_total_mismatch_refused',code(tbvsm_plan($badMulti),'invalid_total'));
+$multiResult=tbvsm_apply($multi);$multiIds=tbvsm_orders_for('sample-multi-o');$multiOrder=count($multiIds)===1?wc_get_order($multiIds[0]):null;$multiUid=email_exists('tbvsm-multi@example.invalid');
+ck('multi_line_import',!is_wp_error($multiResult)&&$multiOrder&&tbvsm_order_matches($multiIds[0],$multi['orders'][0],$multiUid)&&count($multiOrder->get_items())===2);
+ck('multi_line_repeat_idempotent',!is_wp_error(tbvsm_apply($multi))&&count(tbvsm_orders_for('sample-multi-o'))===1);
+$multiItems=array_values($multiOrder->get_items());ck('line_matching_independent_of_item_order',tbvsm_lines_match(array_reverse($multiItems),$multi['orders'][0]));
+$multiItems[0]->set_quantity(3);$multiItems[0]->save();ck('edited_line_quantity_refused',code(tbvsm_plan($multi),'order_edited'));$multiItems[0]->set_quantity(2);$multiItems[0]->save();
+$multiItems[0]->update_meta_data('_tbvsm_source_line_id','sample-line-b');$multiItems[0]->save();ck('duplicate_destination_line_id_refused',code(tbvsm_plan($multi),'order_edited'));$multiItems[0]->update_meta_data('_tbvsm_source_line_id','sample-line-a');$multiItems[0]->save();
+$multiItems[1]->set_total('7.51');$multiItems[1]->save();ck('edited_line_total_refused',code(tbvsm_plan($multi),'order_edited'));$multiItems[1]->set_total('7.50');$multiItems[1]->set_subtotal('7.50');$multiItems[1]->save();
+ck('restored_multi_order_unchanged',!is_wp_error(tbvsm_plan($multi)));
 $other=wp_insert_user(['user_login'=>'tbvsm-existing','user_email'=>'tbvsm-other@example.invalid','user_pass'=>wp_generate_password(),'role'=>'customer']);update_user_meta($other,'_tbvsm_source_id','sample-c1');ck('duplicate_destination_identity_refused',code(tbvsm_plan($fixture),'journal_target_conflict'));
 ck('no_email_event',$mail===0);ck('no_payment_complete_event',$payment===0);ck('no_refund_event',$refund===0);ck('no_stock_reduction_event',$stock===0);echo wp_json_encode(['passed'=>count(array_filter($checks)),'total'=>count($checks),'checks'=>$checks,'hpos'=>\Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()]);

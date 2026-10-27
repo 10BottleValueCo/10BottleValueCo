@@ -15,3 +15,5 @@ The lock and journal do not make a batch transactional. A crash or an error can 
 The adjacent `test.mjs` copies a disposable WP/Woo database, mounts this plugin, and deletes the test copy. Set `TBV_WP_TEST_RUNTIME` to the local isolated WP runtime. Run `test.mjs` and `recovery-test.mjs` normally for HPOS and with `TBV_TEST_CLASSIC=1` for classic; run `test.mjs` with `TBV_EXPECT_GUARD=1` for the runtime guard. These are development tests and not an installed-ZIP UI test.
 
 The optional order address projection accepts only the lab’s fictional names, addresses, reserved email domain and fixed placeholder contact fields. Billing and shipping are written to Woo order address fields and compared during retry/recovery; this is not a real-data schema or a customer address import.
+
+The optional synthetic multi-line fixture stores each fictional line ID separately from the destination order-item ID. It refuses duplicate IDs, unbalanced amounts and discounts rather than inventing their treatment. It does not create Woo product/variation links, migrate real lines, or implement taxes, refunds or production reconciliation.

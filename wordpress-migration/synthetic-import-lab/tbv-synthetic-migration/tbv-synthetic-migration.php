@@ -41,6 +41,28 @@ function tbvsm_addresses_match($order,$addresses) {
     }
     return true;
 }
+// Match synthetic source line identities without relying on Woo item order.
+function tbvsm_lines_match($items,$row) {
+    if(!isset($row['items'])) {
+        if(count($items)!==1)return false;
+        $item=reset($items);
+        return $item->get_name()===$row['itemName'] && $item->get_quantity()===$row['quantity'] &&
+            tbvsm_cents(wc_format_decimal($item->get_subtotal(),2))===tbvsm_cents($row['subtotal']) &&
+            tbvsm_cents(wc_format_decimal($item->get_total(),2))===tbvsm_cents($row['subtotal']) &&
+            tbvsm_cents(wc_format_decimal($item->get_subtotal_tax(),2))===0 && tbvsm_cents(wc_format_decimal($item->get_total_tax(),2))===0;
+    }
+    if(count($items)!==count($row['items']))return false;
+    $mapped=[];
+    foreach($items as $item){$id=$item->get_meta('_tbvsm_source_line_id',true,'edit');if(!tbvsm_id($id)||isset($mapped[$id]))return false;$mapped[$id]=$item;}
+    foreach($row['items'] as $line){
+        $item=$mapped[$line['id']]??null;
+        if(!$item||$item->get_name()!==$line['name']||$item->get_quantity()!==$line['quantity']||
+           tbvsm_cents(wc_format_decimal($item->get_subtotal(),2))!==tbvsm_cents($line['subtotal'])||
+           tbvsm_cents(wc_format_decimal($item->get_total(),2))!==tbvsm_cents($line['total'])||
+           tbvsm_cents(wc_format_decimal($item->get_subtotal_tax(),2))!==0||tbvsm_cents(wc_format_decimal($item->get_total_tax(),2))!==0)return false;
+    }
+    return true;
+}
 function tbvsm_fingerprint($row) { return hash('sha256', wp_json_encode($row)); }
 function tbvsm_users_for($id) {
     return get_users(['meta_key'=>'_tbvsm_source_id','meta_value'=>$id,'fields'=>'ids','number'=>3]);
@@ -63,12 +85,9 @@ function tbvsm_order_matches($oid,$row,$uid) {
     $o=wc_get_order($oid); if (!$o || $o->get_customer_id()!==(int)$uid || $o->get_status()!=='pending' || $o->get_date_paid() || $o->get_currency()!=='USD') return false;
     if(isset($row['addresses'])&&!tbvsm_addresses_match($o,$row['addresses']))return false;
     $items=array_values($o->get_items()); $ship=array_values($o->get_items('shipping'));
-    return count($items)===1 && count($ship)===1 && count($o->get_items('fee'))===0 && count($o->get_items('coupon'))===0 && count($o->get_items('tax'))===0 && count($o->get_refunds())===0 &&
-      $items[0]->get_name()===$row['itemName'] && $items[0]->get_quantity()===$row['quantity'] &&
-      tbvsm_cents(wc_format_decimal($items[0]->get_subtotal(),2))===tbvsm_cents($row['subtotal']) &&
-      tbvsm_cents(wc_format_decimal($items[0]->get_total(),2))===tbvsm_cents($row['subtotal']) &&
+    return tbvsm_lines_match($items,$row) && count($ship)===1 && count($o->get_items('fee'))===0 && count($o->get_items('coupon'))===0 && count($o->get_items('tax'))===0 && count($o->get_refunds())===0 &&
       tbvsm_cents(wc_format_decimal($ship[0]->get_total(),2))===tbvsm_cents($row['shipping']) &&
-      tbvsm_cents(wc_format_decimal($items[0]->get_subtotal_tax(),2))===0 && tbvsm_cents(wc_format_decimal($items[0]->get_total_tax(),2))===0 && tbvsm_cents(wc_format_decimal($ship[0]->get_total_tax(),2))===0 &&
+      tbvsm_cents(wc_format_decimal($ship[0]->get_total_tax(),2))===0 &&
       tbvsm_cents(wc_format_decimal($o->get_discount_total(),2))===0 && tbvsm_cents(wc_format_decimal($o->get_total_tax(),2))===0 &&
       tbvsm_cents(wc_format_decimal($o->get_shipping_total(),2))===tbvsm_cents($row['shipping']) &&
       tbvsm_cents(wc_format_decimal($o->get_total(),2))===tbvsm_cents($row['total']) &&
@@ -161,12 +180,26 @@ function tbvsm_plan($data) {
     }
     foreach ($data['orders'] as $o) {
         $orderKeys=['id','customerId','createdAt','historicalStatus','paymentReference','itemName','quantity','subtotal','shipping','total'];
-        if (!is_array($o) || (array_keys($o)!==$orderKeys && array_keys($o)!==array_merge($orderKeys,['addresses'])) || !tbvsm_id($o['id']) || isset($seen['o'.$o['id']]) || !tbvsm_id($o['customerId']) || !array_key_exists($o['customerId'],$resolved) || !tbvsm_id($o['paymentReference']) || !in_array($o['historicalStatus'],['pending','paid','cancelled','refunded'],true) || !is_string($o['itemName']) || !preg_match('/^Synthetic [A-Za-z0-9 -]{1,60}$/D',$o['itemName']) || !is_int($o['quantity']) || $o['quantity']<1 || $o['quantity']>100) return new WP_Error('invalid_order');
+        $multiKeys=['id','customerId','createdAt','historicalStatus','paymentReference','items','shipping','total'];
+        if (!is_array($o) || !in_array(array_keys($o),[$orderKeys,array_merge($orderKeys,['addresses']),$multiKeys,array_merge($multiKeys,['addresses'])],true) || !tbvsm_id($o['id']) || isset($seen['o'.$o['id']]) || !tbvsm_id($o['customerId']) || !array_key_exists($o['customerId'],$resolved) || !tbvsm_id($o['paymentReference']) || !in_array($o['historicalStatus'],['pending','paid','cancelled','refunded'],true)) return new WP_Error('invalid_order');
+        if(array_key_exists('items',$o)) {
+            if(!is_array($o['items'])||!array_is_list($o['items'])||count($o['items'])<1||count($o['items'])>20)return new WP_Error('invalid_lines');
+            $lineIds=[];$sub=0;
+            foreach($o['items'] as $line){
+                if(!is_array($line)||array_keys($line)!==['id','name','quantity','subtotal','total']||!tbvsm_id($line['id'])||isset($lineIds[$line['id']])||!is_string($line['name'])||!preg_match('/^Synthetic [A-Za-z0-9 -]{1,60}$/D',$line['name'])||!is_int($line['quantity'])||$line['quantity']<1||$line['quantity']>100)return new WP_Error('invalid_lines');
+                $lineIds[$line['id']]=true;$lineSub=tbvsm_cents($line['subtotal']);$lineTotal=tbvsm_cents($line['total']);
+                if($lineSub===false||$lineTotal===false||$lineSub!==$lineTotal)return new WP_Error('invalid_total');
+                $sub+=$lineTotal;
+            }
+        } else {
+            if(!is_string($o['itemName'])||!preg_match('/^Synthetic [A-Za-z0-9 -]{1,60}$/D',$o['itemName'])||!is_int($o['quantity'])||$o['quantity']<1||$o['quantity']>100)return new WP_Error('invalid_order');
+            $sub=tbvsm_cents($o['subtotal']);
+        }
         if(array_key_exists('addresses',$o) && (!is_array($o['addresses'])||array_keys($o['addresses'])!==['billing','shipping']||!tbvsm_address_valid($o['addresses']['billing'],'billing')||!tbvsm_address_valid($o['addresses']['shipping'],'shipping')))return new WP_Error('invalid_synthetic_address');
         if (!is_string($o['createdAt'])) return new WP_Error('invalid_timestamp');
         $seen['o'.$o['id']]=true; $time=DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z',$o['createdAt']);
         if (!$time || $time->format('Y-m-d\TH:i:s\Z')!==$o['createdAt']) return new WP_Error('invalid_timestamp');
-        $sub=tbvsm_cents($o['subtotal']);$shipping=tbvsm_cents($o['shipping']);$total=tbvsm_cents($o['total']);
+        $shipping=tbvsm_cents($o['shipping']);$total=tbvsm_cents($o['total']);
         if ($sub===false || $shipping===false || $total===false || $sub+$shipping!==$total) return new WP_Error('invalid_total');
         $ids=tbvsm_orders_for($o['id']); $journal=tbvsm_journal_check('order',$o,$ids);if(is_wp_error($journal)) return $journal; if(count($ids)>1) return new WP_Error('order_identity_conflict');
         if ($ids && (!$resolved[$o['customerId']] || !tbvsm_order_matches($ids[0],$o,$resolved[$o['customerId']]))) return new WP_Error('order_edited');
@@ -197,7 +230,8 @@ function tbvsm_apply($data) {
                 if(is_wp_error($order)) return $order;tbvsm_fault('order_inserted');
                 $order->set_currency('USD'); $order->set_date_created($o['createdAt']);
                 if(isset($o['addresses']))foreach(['billing','shipping'] as $type)foreach($o['addresses'][$type] as $field=>$value){$setter='set_'.$type.'_'.$field;$order->$setter($value);}
-                $item=new WC_Order_Item_Product(); $item->set_name($o['itemName']); $item->set_quantity($o['quantity']); $item->set_subtotal($o['subtotal']); $item->set_total($o['subtotal']); $order->add_item($item);
+                if(isset($o['items']))foreach($o['items'] as $line){$item=new WC_Order_Item_Product();$item->set_name($line['name']);$item->set_quantity($line['quantity']);$item->set_subtotal($line['subtotal']);$item->set_total($line['total']);$item->add_meta_data('_tbvsm_source_line_id',$line['id'],true);$order->add_item($item);}
+                else {$item=new WC_Order_Item_Product();$item->set_name($o['itemName']);$item->set_quantity($o['quantity']);$item->set_subtotal($o['subtotal']);$item->set_total($o['subtotal']);$order->add_item($item);}
                 $ship=new WC_Order_Item_Shipping(); $ship->set_method_title('Synthetic shipping'); $ship->set_total($o['shipping']); $order->add_item($ship);
                 $order->set_shipping_total($o['shipping']); $order->set_total($o['total']);
                 $order->update_meta_data('_tbvsm_source_id',$o['id']); $order->update_meta_data('_tbvsm_fingerprint',tbvsm_fingerprint($o));
