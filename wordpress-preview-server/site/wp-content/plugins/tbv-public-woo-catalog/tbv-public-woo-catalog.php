@@ -71,7 +71,14 @@ function tbv_public_catalog_offer($item, $parent) {
     $dose = tbv_public_catalog_field($item, $parent, '_tbv_dose', ['dosage', 'dose', 'pa_dosage']);
     $pack = tbv_public_catalog_field($item, $parent, '_tbv_pack_size', ['pack-size', 'pack', 'pa_pack-size']);
     if ($dose === '' || !preg_match('/^[1-9][0-9]{0,5}$/D', $pack)) return null;
-    $formulation = tbv_public_catalog_field($item, $parent, '_tbv_note_label', ['formulation', 'pa_formulation']);
+    // The draft importer stores the source's empty option label explicitly,
+    // while using "Standard" as the required Woo variation attribute value.
+    // Preserve that empty label instead of displaying a fictitious option.
+    if ($item->get_meta('_tbvi_managed', true, 'edit') === 'yes' && $item->meta_exists('_tbv_note_label')) {
+        $formulation = tbv_public_catalog_clean_text($item->get_meta('_tbv_note_label', true, 'edit'));
+    } else {
+        $formulation = tbv_public_catalog_field($item, $parent, '_tbv_note_label', ['formulation', 'pa_formulation']);
+    }
     $price = (string)$item->get_price('view');
     if ($price === '') $price = null;
     elseif (!preg_match('/^[0-9]+(?:\.[0-9]+)?$/D', $price)) return null;

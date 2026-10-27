@@ -49,6 +49,12 @@ try {
  $keys=array_keys($sample[1]);sort($keys);$allowed=['dose','formulation','pack','price','purchasable','stock_status','variation_id','warehouse'];sort($allowed);check('strict_offer_allowlist',$keys===$allowed);
  $productKeys=array_keys($sample[0]);sort($productKeys);$productAllowed=['name','offers','product_id'];sort($productAllowed);check('strict_product_allowlist',$productKeys===$productAllowed);
  $var=wc_get_product($sample[1]['variation_id']);$parent=wc_get_product($sample[0]['product_id']);
+ $beforeAttrs=$var->get_attributes('edit');$beforeNote=$var->get_meta('_tbv_note_label',true,'edit');
+ $var->set_attributes(array_merge($beforeAttrs,['formulation'=>'Standard']));$var->update_meta_data('_tbvi_managed','yes');$var->update_meta_data('_tbv_note_label','');$var->save();
+ $imported=tbv_public_catalog_offer(wc_get_product($var->get_id()),$parent);check('imported_empty_option_preserved',$imported['formulation']==='');
+ $var->update_meta_data('_tbv_note_label','Synthetic special');$var->save();$imported=tbv_public_catalog_offer(wc_get_product($var->get_id()),$parent);check('imported_named_option_preserved',$imported['formulation']==='Synthetic special');
+ $var->delete_meta_data('_tbvi_managed');$var->update_meta_data('_tbv_note_label','');$var->save();$unmanaged=tbv_public_catalog_offer(wc_get_product($var->get_id()),$parent);check('unmanaged_attribute_fallback_preserved',$unmanaged['formulation']===tbv_public_catalog_field(wc_get_product($var->get_id()),$parent,'_tbv_note_label',['formulation','pa_formulation']));
+ $var->set_attributes($beforeAttrs);$var->update_meta_data('_tbv_note_label',$beforeNote);$var->save();
  wp_update_post(['ID'=>$parent->get_id(),'post_password'=>'synthetic-password']);$protected=data_for(1,100);check('password_protected_parent_omitted',!in_array($parent->get_id(),array_column($protected['products'],'product_id'),true));
  check('direct_offer_rejects_protected_parent',tbv_public_catalog_offer($var,$parent)===null);wp_update_post(['ID'=>$parent->get_id(),'post_password'=>'']);
  wp_update_post(['ID'=>$var->get_id(),'post_password'=>'synthetic-password']);$protected=data_for(1,100);$offerIds=[];foreach($protected['products'] as $p){foreach($p['offers'] as $o){$offerIds[]=$o['variation_id'];}}
