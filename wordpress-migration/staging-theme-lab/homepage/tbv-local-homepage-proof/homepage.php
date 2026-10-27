@@ -13,5 +13,5 @@ $base = trailingslashit(get_template_directory_uri()) . 'public/';
 <script type="module" src="<?php echo esc_url($base . $assets['script']); ?>"></script>
 </head><body <?php body_class(); ?>><?php wp_body_open(); ?>
 <div role="note" style="position:relative;z-index:2147483646;padding:7px;background:#ffe486;color:#111;text-align:center;font:600 12px Arial,sans-serif">WORDPRESS PREVIEW · No orders or payments</div>
-<?php if ($catalog === null): ?><p role="alert">WooCommerce catalog plugin unavailable; no product data loaded.</p><?php endif; ?>
+<?php if ($catalog === null): ?><p role="alert" style="position:relative;z-index:2147483646;background:#fff3dc;color:#111;padding:10px">Preview catalog unavailable or uses unsupported currency or precision; no product data loaded.</p><?php endif; ?>
 <div id="root" data-tbv-homepage-plugin="staging-review"></div><?php wp_footer(); ?></body></html>

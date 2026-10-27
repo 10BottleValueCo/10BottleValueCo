@@ -140,6 +140,9 @@ add_filter('woocommerce_cart_item_permalink', function ($permalink, $cart_item) 
 /** Map only the separate plugin's allowlisted public values to the original UI's shape. */
 function tbv_react_proof_woo_catalog() {
     if (!function_exists('tbv_public_catalog_response') || !function_exists('wc_get_product')) return null;
+    // The inherited presentation renders USD with two decimal places. Do not
+    // show a different Woo currency or precision as if it were USD.
+    if (!function_exists('wc_get_price_decimals') || wc_get_price_decimals() !== 2) return null;
     $out = [];
     for ($page = 1; $page <= 1000; $page++) {
         $request = new WP_REST_Request('GET', '/tbv-catalog/v1/products');
@@ -148,10 +151,11 @@ function tbv_react_proof_woo_catalog() {
         $response = tbv_public_catalog_response($request);
         if (is_wp_error($response)) return null;
         $body = $response->get_data();
-        if (!is_array($body) || !isset($body['products']) || !is_array($body['products'])) return null;
+        if (!is_array($body) || ($body['currency'] ?? null) !== 'USD' || !isset($body['products']) || !is_array($body['products'])) return null;
         foreach ($body['products'] as $product) {
             foreach ($product['offers'] as $offer) {
                 if ($offer['price'] === null || !in_array((int)$offer['pack'], [1, 5, 10], true)) continue;
+                if (!is_string($offer['price']) || !preg_match('/^(?:0|[1-9][0-9]{0,12})(?:\.[0-9]{1,2})?$/D', $offer['price'])) return null;
                 $variation = wc_get_product((int)$offer['variation_id']);
                 if (!$variation) continue;
                 $img = (string)$variation->get_meta('_tbv_source_image');
