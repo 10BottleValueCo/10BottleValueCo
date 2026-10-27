@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
-const baseCommit = '83336ce3caceb54ace8944204eb6307bad818a07';
+const baseCommit = '910641dad6e374e3cbc9938a021928175f1af7ef';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repository = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: here, encoding: 'utf8' }).trim();
 if (process.argv.length !== 3) throw Error('Usage: node build-local.mjs /path/to/new-output-directory');

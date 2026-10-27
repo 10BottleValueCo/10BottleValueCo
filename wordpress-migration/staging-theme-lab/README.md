@@ -4,7 +4,7 @@ This directory captures the source for an isolated review prototype, **not a fin
 
 ## Build an isolated review package
 
-Use a checkout that contains commit `83336ce3caceb54ace8944204eb6307bad818a07` and has this repository's workspace dependencies installed. The builder uses that pinned Git baseline, overlays the source in this directory, and extracts only the 220 public assets listed with SHA-256 hashes in `public-assets.json`. It does not copy the current live database, customer records, environment files or credentials. Asset contents are checked before building. The target directory must not exist, and its parent must exist.
+Use a checkout that contains commit `910641dad6e374e3cbc9938a021928175f1af7ef` and has this repository's workspace dependencies installed. The builder uses that pinned Git baseline, overlays the source in this directory, and extracts only the 220 public assets listed with SHA-256 hashes in `public-assets.json`. It does not copy the current live database, customer records, environment files or credentials. Asset contents are checked before building. The target directory must not exist, and its parent must exist.
 
 ```sh
 node wordpress-migration/staging-theme-lab/build-local.mjs /absolute/path/to/new-output-directory
@@ -16,7 +16,7 @@ Install only into a separate disposable local or staging WordPress instance, wit
 
 ## Evidence and limitations
 
-The captured source built locally from the pinned Git baseline and manifest. The resulting theme ZIP had the same file contents as the earlier tested local candidate; the homepage asset manifest was semantically identical, and catalog plugin contents matched. Programmatic installation through WordPress upgraders passed 9/9 checks and selected route/cart/session checks passed 27/27 at both `/` and `/wordpresspreview` in a disposable PHP-WASM/SQLite runtime. Five Node tests cover ambiguous offer filtering. Earlier browser tests exercised selected navigation, names and carts against mounted candidate files; those are not a browser installation test or full parity assessment.
+The captured source built locally from a pinned Git baseline and manifest. Programmatic installation through WordPress upgraders passed 9/9 checks and selected route/cart/session checks passed 27/27 at both `/` and `/wordpresspreview` in a disposable PHP-WASM/SQLite runtime. The catalog adapter separately tests that password-protected products and variations are excluded. Five Node tests cover ambiguous offer filtering. Earlier browser tests exercised selected navigation, names and carts against mounted candidate files; those are not a browser installation test or full parity assessment.
 
 A fresh local sparse clone of the committed source reproduced the same individual ZIP file contents using the original workspace's already-installed dependencies. The builder refused an existing output directory and refused a deliberately altered public-asset hash before creating an output. This did not test a clean dependency installation or a remote hosting environment.
 
