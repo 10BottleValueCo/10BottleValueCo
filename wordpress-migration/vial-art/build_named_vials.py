@@ -25,6 +25,7 @@ def jobs():
     for h in SEMAGLUTIDE:
         yield f"semaglutide-{h}.webp", f"semaglutide-label-{h}.webp", ONE_LINE("SEMAGLUTIDE"), None
     yield "cagrilintide-semaglutide-ee9e1cd7aef4.webp", "cagrilintide-semaglutide-label-ee9e1cd7aef4.webp", CAGRI_SEMA, None
+    yield "melanotan-1-mt1-10mg.webp", "melanotan-1-label-mt1-10mg.webp", ONE_LINE("MELANOTAN-1"), None
     # The live manifest shows the GLP TZ-2 20 mg vial for these two offers;
     # keep that 20 mg dose band and use each product's own name band.
     yield "tirzepatide-glp-2-3c2452bfd7b4.webp", "mots-c-20mg-label-3c2452bfd7b4.webp", None, "mots-c-844dea5d38ec.webp"

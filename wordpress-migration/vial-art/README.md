@@ -9,7 +9,8 @@ band and draws the new name warped to the vial's curve (DIN Condensed Bold, ink
 #0D1F6A). The dose band and glass are untouched. It also fixes two live-manifest
 mistakes: MOTS-C 20 mg and Tesamorelin 20 mg pointed at the GLP TZ-2 20 mg vial;
 they now get their own name band on that 20 mg body. Melanotan-2 uses the
-existing `melanotan-2-0e2065c9b893.webp` artwork.
+existing `melanotan-2-0e2065c9b893.webp` artwork; Melanotan-1 (shown as "MT1"
+live) gets a MELANOTAN-1 name band on its own vial (owner decision, same day).
 
     python3 -m venv .venv && .venv/bin/pip install pillow
     .venv/bin/python build_named_vials.py <theme>/public/vials-c \

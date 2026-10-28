@@ -11,7 +11,7 @@ const {chromium, devices} = require(process.env.TBV_PLAYWRIGHT || 'playwright');
 
 const out = process.argv[2]; fs.mkdirSync(out, {recursive: true});
 const PROD = 'https://10bottlevalue.co', STAGE = process.env.TBV_STAGING_PUBLIC_URL || 'https://staging.example.invalid', LOCAL = 'http://127.0.0.1:8088';
-const routes = ['/', '/shop', '/us-warehouse', '/retatrutide-5mg', '/tirzepatide-10mg', '/melanotan-2-10mg', '/shipping-prices', '/faq', '/affiliate', '/track-order', '/contact', '/cart'];
+const routes = ['/', '/shop', '/us-warehouse', '/retatrutide-5mg', '/tirzepatide-10mg', '/melanotan-2-10mg', '/melanotan-1-10mg?warehouse=us', '/shipping-prices', '/faq', '/affiliate', '/track-order', '/contact', '/cart'];
 const results = [];
 const check = (name, ok, detail = '') => results.push({name, ok: !!ok, detail: ok ? '' : String(detail).slice(0, 300)});
 const env = Object.fromEntries(fs.readFileSync(new URL('../private/test-accounts.env', import.meta.url), 'utf8').split('\n').filter(l => /^[A-Z0-9_]+=/.test(l)).map(l => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
@@ -32,10 +32,12 @@ async function visit(ctx, origin, label, route) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth).catch(() => -1);
   const ruo = await page.getByText(/research use only|not for human or animal use/i).count().catch(() => 0);
   const images = await page.evaluate(() => [...document.images].map(i => i.currentSrc || i.src)).catch(() => []);
+  const mt1Price = await page.evaluate(() => /\$135\b/.test(document.body.innerText)).catch(() => false);
+  const mt1Name = await page.evaluate(() => /melanotan-1/i.test(document.body.innerText) && !/\bMT1\b/.test(document.body.innerText)).catch(() => false);
   const file = `${label}${route === '/' ? '-home' : route.replace(/\//g, '-')}.png`;
   await page.screenshot({path: path.join(out, file)});
   await page.close();
-  return {status: res.status(), ms, overflow, errors, failed, file, gate, ruo, images};
+  return {status: res.status(), ms, overflow, errors, failed, file, gate, ruo, images, mt1Name, mt1Price};
 }
 
 for (const [pname, profile] of Object.entries(profiles)) {
@@ -49,8 +51,9 @@ for (const [pname, profile] of Object.entries(profiles)) {
     check(`${pname} ${route} staging has no researcher gate`, s.gate === 0, `stage ${s.gate}`);
     // Owner decisions 2026-10-28: no research-use banner; vials carry the product names.
     check(`${pname} ${route} staging has no research-use wording`, s.ruo === 0, `stage ${s.ruo}`);
-    const oldArt = s.images.filter(src => /vials-c\/(tirzepatide-glp-2|retatrutide-glp-3|semaglutide-[0-9a-f]{12}|cagrilintide-semaglutide-[0-9a-f]{12}|melanotan-2-mt2)/.test(src));
+    const oldArt = s.images.filter(src => /vials-c\/(tirzepatide-glp-2|retatrutide-glp-3|semaglutide-[0-9a-f]{12}|cagrilintide-semaglutide-[0-9a-f]{12}|melanotan-2-mt2|melanotan-1-mt1)/.test(src));
     check(`${pname} ${route} staging shows no GLP-code vial art`, oldArt.length === 0, oldArt.join(', '));
+    if (route.startsWith('/melanotan-1-10mg')) check(`${pname} ${route} staging shows the Melanotan-1 name, vial and price`, s.mt1Name && s.mt1Price && s.images.some(src => src.includes('vials-c/melanotan-1-label-')), s.images.join(', '));
     if (/^\/(retatrutide|tirzepatide)-/.test(route)) check(`${pname} ${route} staging shows the named vial`, s.images.some(src => src.includes(`vials-c/${route.split('-')[0].slice(1)}-label-`)), s.images.join(', '));
     check(`${pname} ${route} staging no horizontal overflow`, s.overflow <= 1, `overflow ${s.overflow}px`);
     check(`${pname} ${route} staging no JS errors`, s.errors.length === 0, s.errors.join(' | '));

@@ -1,6 +1,6 @@
 <?php
 // Staging-only catalog update for the owner's 2026-10-28 decisions:
-// named blue-label vials (no GLP codes), Melanotan-2 artwork, and no
+// named blue-label vials (no GLP codes), Melanotan-1/-2 artwork, and no
 // research-use line in product descriptions. Run with `wp eval-file`.
 // Idempotent: rows already updated are left alone.
 global $wpdb;
@@ -12,6 +12,7 @@ foreach (['tirzepatide-glp-2' => 'tirzepatide', 'retatrutide-glp-3' => 'retatrut
     }
 $named['vials-c/cagrilintide-semaglutide-ee9e1cd7aef4.webp'] = 'vials-c/cagrilintide-semaglutide-label-ee9e1cd7aef4.webp';
 $named['vials-c/melanotan-2-mt2-10mg.webp'] = 'vials-c/melanotan-2-0e2065c9b893.webp';
+$named['vials-c/melanotan-1-mt1-10mg.webp'] = 'vials-c/melanotan-1-label-mt1-10mg.webp';
 // The live manifest reuses the GLP TZ-2 20 mg vial for these two products.
 $by_product = ['MOTS-C' => 'vials-c/mots-c-20mg-label-3c2452bfd7b4.webp', 'Tesamorelin' => 'vials-c/tesamorelin-20mg-label-3c2452bfd7b4.webp'];
 
