@@ -134,6 +134,9 @@ check('direct load of My Account serves the dashboard', await page.locator('.lab
 check('saved avatar persists across requests', await page.locator('a[href$="/account"] img').count() >= 1);
 await page.goto(LOCAL + '/my-account/orders/', {waitUntil: 'networkidle'});
 check('mobile UI order appears in My Account', await page.locator('.woocommerce-orders-table__row, tr.order').count() >= 1);
+check('native account pages use the dashboard shell', await page.locator('.lab-sidebar .lab-sidenav__item').count() >= 4 && await page.locator('.tbv-native-panel').count() === 1);
+await page.goto(LOCAL + '/my-account/edit-account/', {waitUntil: 'networkidle'});
+check('edit-account form keeps WooCommerce fields in the shell', await page.locator('.tbv-native-panel #account_email').count() === 1 && await page.locator('.lab-sidenav__item.is-active', {hasText: /security/i}).count() === 1);
 await page.screenshot({path: path.join(out, 'flow-mobile-orders.png'), fullPage: true});
 await page.goto(LOCAL + '/my-account/', {waitUntil: 'networkidle'});
 // Mobile hides the sidebar Sign out (as on the live dashboard); use its logout link.
@@ -143,6 +146,8 @@ await page.goto(logoutUrl || LOCAL + '/my-account/', {waitUntil: 'networkidle'})
 check('dashboard sign out returns to the storefront sign-in card', await page.locator('.tbv-auth h1').filter({hasText: /sign in/i}).count() === 1, page.url());
 await page.goto(LOCAL + '/my-account/', {waitUntil: 'networkidle'});
 check('signed out after dashboard sign out', await page.locator('.lab-dashboard').count() === 0 && await page.locator('.tbv-auth').count() === 1);
+await page.goto(LOCAL + '/my-account/lost-password/', {waitUntil: 'networkidle'});
+check('lost-password uses the storefront card', await page.locator('.tbv-native-card #user_login').count() === 1);
 check('flow no JS errors', jsErrors.length === 0, jsErrors.join(' | '));
 await browser.close();
 

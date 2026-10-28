@@ -7,12 +7,18 @@
  $cart_count = function_exists('WC') && WC()->cart ? (int)WC()->cart->get_cart_contents_count() : 0;
  $cart_label = $cart_count > 0 ? sprintf('Cart (%d)', $cart_count) : 'Cart';
  $asset = trailingslashit(get_template_directory_uri()) . 'public/';
- // Signed-out My Account uses the live storefront layout and stylesheet.
- $storefront_layout = $is_account_page && !is_user_logged_in() && !is_wc_endpoint_url('lost-password') && tbv_react_proof_bundle_css() !== '';
+ // My Account pages use the live storefront layout and stylesheet: the sign-in
+ // card when signed out, the account dashboard shell around WooCommerce's own
+ // endpoint forms when signed in.
+ $storefront_layout = $is_account_page && tbv_react_proof_bundle_css() !== '';
+ $account_shell = $storefront_layout && is_user_logged_in() && tbv_react_proof_asset_css('AccountDashboard') !== '';
+ $plain_card = $storefront_layout && !$account_shell && (is_user_logged_in() || is_wc_endpoint_url('lost-password'));
  if ($storefront_layout):
-?><!doctype html><html <?php language_attributes(); ?>><head><meta charset="<?php bloginfo('charset'); ?>"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><?php wp_head(); ?><link rel="stylesheet" href="<?php echo esc_url(tbv_react_proof_bundle_css()); ?>"><link rel="stylesheet" href="<?php echo esc_url(trailingslashit(get_template_directory_uri()) . 'storefront.css'); ?>"></head><body <?php body_class('tbv-storefront-native'); ?>><?php wp_body_open(); ?>
+?><!doctype html><html <?php language_attributes(); ?>><head><meta charset="<?php bloginfo('charset'); ?>"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><?php wp_head(); ?><link rel="stylesheet" href="<?php echo esc_url(tbv_react_proof_bundle_css()); ?>"><?php if ($account_shell): ?><link rel="stylesheet" href="<?php echo esc_url(tbv_react_proof_asset_css('AccountDashboard')); ?>"><?php endif; ?><link rel="stylesheet" href="<?php echo esc_url(trailingslashit(get_template_directory_uri()) . 'storefront.css'); ?>"></head><body <?php body_class('tbv-storefront-native'); ?>><?php wp_body_open(); ?>
 <?php get_template_part('parts/storefront-header'); ?>
-<div class="tbv-app-shell min-h-screen bg-[#8f8f8f] text-white tbv-app-shell--catalog-background tbv-app-shell--photo-backdrop"<?php if (tbv_react_proof_catalog_background()): ?> style="--tbv-catalog-background-image: linear-gradient(rgba(18, 20, 22, 0.46), rgba(18, 20, 22, 0.46)), url(&quot;<?php echo esc_attr(tbv_react_proof_catalog_background()); ?>&quot;);"<?php endif; ?>><main class="mx-auto max-w-[1400px] px-4 pt-6 pb-10 md:px-10 md:pt-12 md:pb-16"><?php while (have_posts()) { the_post(); the_content(); } ?></main></div>
+<div class="tbv-app-shell min-h-screen bg-[#8f8f8f] text-white tbv-app-shell--catalog-background tbv-app-shell--photo-backdrop"<?php if (tbv_react_proof_catalog_background()): ?> style="--tbv-catalog-background-image: linear-gradient(rgba(18, 20, 22, 0.46), rgba(18, 20, 22, 0.46)), url(&quot;<?php echo esc_attr(tbv_react_proof_catalog_background()); ?>&quot;);"<?php endif; ?>>
+<?php if ($account_shell): ?><div class="mx-auto max-w-[1400px] px-0 pt-0 pb-10 md:pb-16"><div class="min-w-0 w-full"><div class="lab-account"><main class="lab-dashboard"><?php get_template_part('parts/account-sidebar'); ?><div class="lab-content"><section class="lab-panel tbv-native-panel"><?php while (have_posts()) { the_post(); the_content(); } ?></section></div></main></div></div></div>
+<?php else: ?><main class="mx-auto max-w-[1400px] px-4 pt-6 pb-10 md:px-10 md:pt-12 md:pb-16"><?php if ($plain_card): ?><div class="tbv-native-card box-border min-w-0 w-full rounded-[2rem] border border-white/30 bg-black/40 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.3)] backdrop-blur-2xl sm:p-8 md:mx-auto md:w-4/5 md:p-14"><?php endif; ?><?php while (have_posts()) { the_post(); the_content(); } ?><?php if ($plain_card): ?></div><?php endif; ?></main><?php endif; ?></div>
 <script>(function(){var card=document.querySelector('.tbv-auth');if(!card)return;card.addEventListener('click',function(e){var tab=e.target.closest('[data-tbv-mode]');if(tab){card.setAttribute('data-mode',tab.getAttribute('data-tbv-mode'));return;}var eye=e.target.closest('[data-tbv-reveal]');if(eye){var input=eye.parentElement.querySelector('input');var show=input.type==='password';input.type=show?'text':'password';eye.setAttribute('aria-label',show?'Hide password':'Show password');}});})();</script>
 <?php wp_footer(); ?></body></html>
 <?php return; endif;

@@ -429,6 +429,11 @@ add_filter('woocommerce_registration_redirect', function ($redirect) {
     $requested = isset($_POST['redirect']) ? esc_url_raw(wp_unslash($_POST['redirect'])) : '';
     return $requested && wp_validate_redirect($requested, false) ? $requested : $redirect;
 });
+/** URL of a lazily loaded bundle chunk's stylesheet (e.g. AccountDashboard), or ''. */
+function tbv_react_proof_asset_css($chunk) {
+    $files = glob(get_template_directory() . '/public/assets/' . $chunk . '-*.css') ?: [];
+    return count($files) === 1 ? trailingslashit(get_template_directory_uri()) . 'public/assets/' . rawurlencode(basename($files[0])) : '';
+}
 /** URL of the React bundle stylesheet (one hashed file per build), or ''. */
 function tbv_react_proof_bundle_css() {
     $files = glob(get_template_directory() . '/public/assets/index-*.css') ?: [];
