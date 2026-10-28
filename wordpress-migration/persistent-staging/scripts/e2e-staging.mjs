@@ -138,7 +138,10 @@ async function login(c, username, password) {
   await c.req('/my-account/', {method: 'POST', headers: {...formHeaders, origin: base}, body: form({username, password, 'woocommerce-login-nonce': nonce, _wp_http_referer: '/my-account/', login: 'Log in', rememberme: 'forever'})});
   return c.follow('/my-account/');
 }
-const loggedIn = html => /woocommerce-MyAccount-navigation/.test(html) && /customer-logout/.test(html);
+// Signed in: the native account navigation, or the storefront dashboard config
+// WordPress embeds for the signed-in customer (with its logout link).
+const accountLogoutUrl = html => { const m = html.match(/"logoutUrl":"([^"]+)"/); return m ? JSON.parse(`"${m[1]}"`) : ''; };
+const loggedIn = html => (/woocommerce-MyAccount-navigation/.test(html) && /customer-logout/.test(html)) || /customer-logout/.test(accountLogoutUrl(html));
 
 // The storefront cart page is the checkout; it posts to Woo's classic checkout
 // with the nonce WordPress publishes in TBV_COMMERCE.
@@ -160,7 +163,7 @@ async function accountChecksBeforeRestart(offers) {
   const c = new Client();
   const {dash} = await register(c, email, env.E2E_RUN_PASSWORD);
   check('register_logs_in', loggedIn(dash.text), 'not logged in after register');
-  await c.req(new URL((dash.text.match(/href="([^"]*customer-logout[^"]*)"/) || [])[1]?.replace(/&amp;/g, '&') || '/my-account/customer-logout/', base).href);
+  await c.req(new URL(accountLogoutUrl(dash.text) || (dash.text.match(/href="([^"]*customer-logout[^"]*)"/) || [])[1]?.replace(/&amp;/g, '&') || '/my-account/customer-logout/', base).href);
   const out = await c.follow('/my-account/');
   check('logout_works', !loggedIn(out.text) && out.text.includes('woocommerce-login-nonce'), 'still logged in');
   const c2 = new Client();

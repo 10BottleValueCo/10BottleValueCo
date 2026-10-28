@@ -30,6 +30,11 @@ add_filter('rest_pre_dispatch', function ($result, $server, $request) {
     $write = $method === 'POST' && in_array($route, ['/wc/store/v1/cart/add-item', '/wc/store/v1/cart/update-item', '/wc/store/v1/cart/remove-item'], true);
     // The storefront cart page picks the shipping service and destination country.
     if (tbv_staging_commerce_test_enabled() && $method === 'POST' && in_array($route, ['/wc/store/v1/cart/select-shipping-rate', '/wc/store/v1/cart/update-customer'], true)) $write = true;
+    // The storefront account dashboard reads the customer's own orders and saves the avatar.
+    if (tbv_staging_commerce_test_enabled() && is_user_logged_in()) {
+        if ($method === 'GET' && $route === '/tbv-account/v1/orders') $read = true;
+        if ($method === 'POST' && $route === '/tbv-account/v1/avatar') $write = true;
+    }
     return ($read || $write) ? $result : new WP_Error('tbv_preview_blocked', 'This action is unavailable in the staging review.', ['status' => 403]);
 }, 0, 3);
 add_action('init', function () {
@@ -249,6 +254,9 @@ function tbv_react_proof_recognized_route() {
     $path = tbv_react_proof_requested_path();
     if ($path === null) return false;
     if ($path === 'cart' && tbv_staging_commerce_test_enabled()) return $cached = true;
+    // Signed-in customers get the storefront account dashboard; the sign-in
+    // form and every account endpoint stay native WooCommerce pages.
+    if ($path === 'my-account' && tbv_staging_commerce_test_enabled() && is_user_logged_in() && !$_GET) return $cached = true;
     $reserved = ['cart','checkout','account','my-account','wp-admin','wp-json','wc-api','wp-login.php','wp-cron.php'];
     if (in_array($path, $reserved, true)) return false;
     $pages = ['', 'shop', 'us-warehouse', 'shipping-prices', 'affiliate', 'about', 'faq', 'contact', 'track-order', 'terms-and-conditions', 'privacy-policy', 'shipping-policy', 'refund-policy'];
@@ -291,8 +299,19 @@ add_action('template_redirect', function () {
     if ($wp_query->is_404()) { $wp_query->is_404 = false; status_header(200); }
 }, 1);
 add_filter('template_include', function ($template) {
-    return tbv_react_proof_recognized_route() ? get_template_directory() . '/front-page.php' : $template;
+    return tbv_react_proof_recognized_route() || tbv_react_proof_received_order() ? get_template_directory() . '/front-page.php' : $template;
 }, PHP_INT_MAX);
+/** The signed-in customer's own order on its order-received page (commerce test), or null. */
+function tbv_react_proof_received_order() {
+    static $order = false;
+    if ($order !== false) return $order;
+    $order = null;
+    if (!tbv_staging_commerce_test_enabled() || !is_user_logged_in() || !function_exists('is_wc_endpoint_url') || !is_wc_endpoint_url('order-received')) return null;
+    $candidate = wc_get_order(absint(get_query_var('order-received')));
+    $key = isset($_GET['key']) ? wc_clean(wp_unslash($_GET['key'])) : '';
+    if ($candidate && $key !== '' && $candidate->key_is_valid($key) && $candidate->get_customer_id() === get_current_user_id()) $order = $candidate;
+    return $order;
+}
 
 /** Storefront checkout settings for the React cart page (commerce test only). */
 function tbv_react_proof_commerce_config() {
@@ -302,10 +321,104 @@ function tbv_react_proof_commerce_config() {
         'checkoutNonce' => wp_create_nonce('woocommerce-process_checkout'),
         'gatewayId' => TBV_STAGING_TEST_GATEWAY_ID,
         'accountUrl' => wc_get_page_permalink('myaccount'),
-        'user' => $user->exists() ? ['id' => $user->ID, 'email' => $user->user_email] : null,
+        'user' => $user->exists() ? tbv_react_proof_account_user($user) : null,
+        'account' => $user->exists() ? [
+            // WooCommerce's own logout endpoint; wp-login.php sits behind the admin edge gate.
+            'logoutUrl' => html_entity_decode(wp_nonce_url(wc_get_account_endpoint_url('customer-logout'), 'customer-logout')),
+            'editAddressUrl' => wc_get_endpoint_url('edit-address', 'billing', wc_get_page_permalink('myaccount')),
+            'editAccountUrl' => wc_get_endpoint_url('edit-account', '', wc_get_page_permalink('myaccount')),
+            'ordersEndpoint' => esc_url_raw(rest_url('tbv-account/v1/orders')),
+            'avatarEndpoint' => esc_url_raw(rest_url('tbv-account/v1/avatar')),
+            'restNonce' => wp_create_nonce('wp_rest'),
+        ] : null,
+        'receivedOrder' => ($received = tbv_react_proof_received_order()) ? tbv_react_proof_received_order_data($received) : null,
         'countries' => array_map(fn($name) => html_entity_decode($name, ENT_QUOTES, 'UTF-8'), WC()->countries->get_shipping_countries()),
     ];
 }
+/** Country label without WooCommerce's " (US)" suffix, as the storefront shows it. */
+function tbv_react_proof_country_name($label) {
+    return trim(preg_replace('/\s*\([^)]*\)\s*$/', '', html_entity_decode((string)$label, ENT_QUOTES, 'UTF-8')));
+}
+/** The signed-in customer as the storefront account dashboard expects it. */
+function tbv_react_proof_account_user($user) {
+    $c = new WC_Customer($user->ID);
+    $countries = WC()->countries->get_countries();
+    $country = $c->get_billing_country();
+    return [
+        'id' => $user->ID, 'email' => $user->user_email,
+        'firstName' => $c->get_billing_first_name() ?: $c->get_first_name(), 'lastName' => $c->get_billing_last_name() ?: $c->get_last_name(),
+        'phone' => $c->get_billing_phone(), 'address' => $c->get_billing_address_1(), 'address2' => $c->get_billing_address_2(),
+        'city' => $c->get_billing_city(), 'state' => $c->get_billing_state(), 'postalCode' => $c->get_billing_postcode(),
+        'country' => $country ? tbv_react_proof_country_name($countries[$country] ?? $country) : '',
+        'avatarId' => (string)get_user_meta($user->ID, 'tbv_avatar_id', true),
+    ];
+}
+/** One order in the storefront dashboard's shape (customer's own orders only). */
+function tbv_react_proof_account_order($order) {
+    $countries = WC()->countries->get_countries();
+    $items = [];
+    $warehouses = [];
+    foreach ($order->get_items() as $item) {
+        $product = $item->get_product();
+        $dose = $product ? (string)($product->get_meta('_tbv_dose') ?: '') : '';
+        $items[] = ['id' => $item->get_id(), 'name' => $product && $product->get_parent_id() ? get_the_title($product->get_parent_id()) : $item->get_name(), 'dose' => $dose, 'quantity' => $item->get_quantity()];
+        if (function_exists('tbv_storefront_warehouse')) $warehouses[] = tbv_storefront_warehouse($product);
+    }
+    $service = '';
+    foreach ($order->get_shipping_methods() as $method) $service = (string)$method->get_meta('tbv_service') ?: $service;
+    $notes = trim((string)$order->get_customer_note());
+    if ($carrier = $order->get_meta('_tbv_carrier_preference')) $notes = trim($notes . "\nCarrier preference: " . $carrier);
+    $country = $order->get_billing_country();
+    return [
+        'id' => (string)$order->get_order_number(),
+        'createdAt' => $order->get_date_created() ? $order->get_date_created()->format(DATE_ATOM) : null,
+        'paidAt' => $order->get_date_paid() ? $order->get_date_paid()->format(DATE_ATOM) : null,
+        'status' => wc_get_order_status_name($order->get_status()),
+        'total' => (float)$order->get_total(),
+        'items' => $items,
+        'shippingType' => $warehouses && !array_diff($warehouses, ['us']) ? 'us-warehouse' : ($service ?: 'standard'),
+        'email' => $order->get_billing_email(), 'firstName' => $order->get_billing_first_name(), 'lastName' => $order->get_billing_last_name(),
+        'address' => $order->get_billing_address_1(), 'address2' => $order->get_billing_address_2(), 'city' => $order->get_billing_city(),
+        'state' => $order->get_billing_state(), 'postalCode' => $order->get_billing_postcode(),
+        'country' => $country ? tbv_react_proof_country_name($countries[$country] ?? $country) : '',
+        'phone' => $order->get_billing_phone(), 'taxId' => (string)$order->get_meta('_tbv_tax_id'), 'orderNotes' => $notes,
+        'confirmationUrl' => $order->get_checkout_order_received_url(),
+    ];
+}
+/** Order-received data for the storefront confirmation page: line prices and warehouse. */
+function tbv_react_proof_received_order_data($order) {
+    $data = tbv_react_proof_account_order($order);
+    $data['items'] = [];
+    foreach ($order->get_items() as $item) {
+        $product = $item->get_product();
+        $qty = max(1, (int)$item->get_quantity());
+        $data['items'][] = [
+            'name' => $product && $product->get_parent_id() ? get_the_title($product->get_parent_id()) : $item->get_name(),
+            'dose' => $product ? (string)$product->get_meta('_tbv_dose') : '',
+            'quantity' => $qty,
+            'price' => round((float)$item->get_subtotal() / $qty, 2),
+            'fromWarehouse' => function_exists('tbv_storefront_warehouse') && tbv_storefront_warehouse($product) === 'us' ? 'us' : null,
+        ];
+    }
+    $data['subtotal'] = (float)$order->get_subtotal();
+    $data['shipping'] = (float)$order->get_shipping_total();
+    $data['paymentMethodTitle'] = $order->get_payment_method_title();
+    return $data;
+}
+add_action('rest_api_init', function () {
+    if (!function_exists('tbv_staging_commerce_test_enabled') || !tbv_staging_commerce_test_enabled()) return;
+    $signed_in = fn() => is_user_logged_in();
+    register_rest_route('tbv-account/v1', '/orders', ['methods' => 'GET', 'permission_callback' => $signed_in, 'callback' => function () {
+        $orders = wc_get_orders(['customer_id' => get_current_user_id(), 'limit' => 50, 'orderby' => 'date', 'order' => 'DESC', 'type' => 'shop_order']);
+        return array_map('tbv_react_proof_account_order', $orders);
+    }]);
+    register_rest_route('tbv-account/v1', '/avatar', ['methods' => 'POST', 'permission_callback' => $signed_in, 'callback' => function ($request) {
+        $id = (string)$request->get_param('avatarId');
+        if ($id !== '' && !preg_match('/^[a-z0-9-]{1,64}$/', $id)) return new WP_Error('tbv_avatar_invalid', 'Unknown avatar.', ['status' => 400]);
+        update_user_meta(get_current_user_id(), 'tbv_avatar_id', $id);
+        return ['avatarId' => $id];
+    }]);
+});
 // Return to the cart page after signing in or registering from it.
 function tbv_react_proof_cart_return_field() {
     if (tbv_staging_commerce_test_enabled() && ($_GET['tbv_return'] ?? '') === 'cart') echo '<input type="hidden" name="redirect" value="' . esc_url(wc_get_cart_url()) . '">';

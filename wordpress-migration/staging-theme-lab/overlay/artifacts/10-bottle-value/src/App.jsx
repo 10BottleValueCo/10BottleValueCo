@@ -123,6 +123,7 @@ const publicPathToPage = {
   account: "account",
   cart: "cart",
   "cart/confirmation": "cart",
+  "my-account": "account",
   ...(import.meta.env.DEV
     ? { "order-confirmed-preview": "payment-return" }
     : {}),
@@ -158,9 +159,18 @@ const tbvCartApi = typeof window.TBV_CART_API === "string" && window.TBV_CART_AP
 const tbvCommerce = (() => {
   const c = window.TBV_COMMERCE;
   if (!c || typeof c !== "object" || typeof c.checkoutEndpoint !== "string" || !c.checkoutEndpoint.startsWith(window.location.origin + "/")) return null;
-  const user = c.user && typeof c.user.email === "string" && c.user.email ? { id: `wp-${Number(c.user.id) || 0}`, email: c.user.email } : null;
+  const text = (value) => (typeof value === "string" ? value : "");
+  const user = c.user && typeof c.user.email === "string" && c.user.email
+    ? {
+        id: `wp-${Number(c.user.id) || 0}`,
+        email: c.user.email,
+        ...Object.fromEntries(["firstName", "lastName", "phone", "address", "address2", "city", "state", "postalCode", "country", "avatarId"].map((key) => [key, text(c.user[key])])),
+      }
+    : null;
+  const account = user && c.account && typeof c.account === "object" ? c.account : null;
   const countries = c.countries && typeof c.countries === "object" ? c.countries : {};
-  return { ...c, user, countries };
+  const receivedOrder = user && c.receivedOrder && typeof c.receivedOrder === "object" && Array.isArray(c.receivedOrder.items) ? c.receivedOrder : null;
+  return { ...c, user, account, receivedOrder, countries };
 })();
 const tbvCountryName = (name) => String(name || "").replace(/\s*\([^)]*\)\s*$/, "").trim().toLowerCase();
 function tbvWooCountryCode(name) {
@@ -3775,6 +3785,7 @@ export default function App() {
   );
   const [page, setPageState] = useState(() => {
     if (typeof window === "undefined") return "home";
+    if (tbvCommerce?.receivedOrder) return "payment-return";
     const pathSlug = tbvCurrentLocation().pathname.replace(/^\/+|\/+$/g, "").toLowerCase().trim();
     if (publicPathToPage[pathSlug]) return publicPathToPage[pathSlug];
     // A known product remains on its page even when the requested warehouse
@@ -3843,6 +3854,13 @@ export default function App() {
       window.location.assign(tbvSitePath("/cart/"));
       return;
     }
+    if (nextPage === "account" && tbvCommerce?.account) {
+      const target = new URL(tbvCommerce.accountUrl, window.location.href).pathname;
+      if (window.location.pathname !== target) window.history.pushState({}, "", target);
+      setActiveAccountSection("overview");
+      setPageState("account");
+      return;
+    }
     if (nextPage === "account" && tbvCommerce?.accountUrl) {
       window.location.assign(page === "cart" ? `${tbvCommerce.accountUrl}${tbvCommerce.accountUrl.includes("?") ? "&" : "?"}tbv_return=cart` : tbvCommerce.accountUrl);
       return;
@@ -3908,6 +3926,10 @@ export default function App() {
   const [cart, setCart] = useState([]);
   // WooCommerce's own totals and shipping rates for the current cart.
   const [wooCartMeta, setWooCartMeta] = useState(null);
+  const [wooAccountOrders, setWooAccountOrders] = useState([]);
+  const [wooAccountOrdersLoading, setWooAccountOrdersLoading] = useState(false);
+  const [wooAvatarId, setWooAvatarId] = useState(() => tbvCommerce?.user?.avatarId || "");
+  const [wooAvatarSave, setWooAvatarSave] = useState({ saving: false, error: "", status: "" });
   const [productSelection, setProductSelection] = useState(() =>
     typeof window === "undefined" ? null : readProductSelection(PRODUCTS_BASE, tbvCurrentLocation())
   );
@@ -4468,7 +4490,11 @@ export default function App() {
     }
     setLogoBumpKey((k) => k + 1);
   };
-  const [paymentReturn, setPaymentReturn] = useState(() => isOrderConfirmedPreviewLocation()
+  // Staging commerce test: WordPress renders the order-received page with the
+  // customer's own test order; it is never a paid order.
+  const [paymentReturn, setPaymentReturn] = useState(() => tbvCommerce?.receivedOrder
+    ? { status: "success", origin: "woo-test", provider: "woo-test", order: String(tbvCommerce.receivedOrder.id) }
+    : isOrderConfirmedPreviewLocation()
     ? {
         status: "success",
         origin: "preview",
@@ -4477,7 +4503,7 @@ export default function App() {
       }
     : readPaymentReturn(""));
   const [paymentReturnOrder, setPaymentReturnOrder] = useState(() =>
-    isOrderConfirmedPreviewLocation() ? ORDER_CONFIRMED_PREVIEW_ORDER : null
+    tbvCommerce?.receivedOrder || (isOrderConfirmedPreviewLocation() ? ORDER_CONFIRMED_PREVIEW_ORDER : null)
   );
   const [legacyReturnReadStatus, setLegacyReturnReadStatus] = useState("checking");
   const [legacyReturnRetry, setLegacyReturnRetry] = useState(0);
@@ -4574,7 +4600,7 @@ export default function App() {
     };
   }, [page, paymentReturn.status]);
   useEffect(() => {
-    if (paymentReturn.origin === "preview") return;
+    if (paymentReturn.origin === "preview" || paymentReturn.origin === "woo-test") return;
     if (paymentReturn.provider === "merit" || paymentReturn.origin === "provider-return") return;
     const stored = paymentReturn.status === "success" && currentUser?.email
       ? getStoredOrders().find(o => o.id === paymentReturn.order && normalizeEmail(o.email) === normalizeEmail(currentUser.email))
@@ -14021,11 +14047,11 @@ export default function App() {
   }
 
   const showAccountLoginBackdrop =
-    page === "account" && (!currentUser || authMode === "reset");
+    page === "account" && !tbvCommerce?.account && (!currentUser || authMode === "reset");
   const usesInfoPageBackdrop = page === "affiliate" || page === "faq";
   const accountDashboardBackdrop =
-    page === "account" && Boolean(currentUser) && authMode !== "reset";
-  const currentAccountAvatar = getAccountAvatar(currentUser?.avatarId);
+    page === "account" && (Boolean(tbvCommerce?.account) || (Boolean(currentUser) && authMode !== "reset"));
+  const currentAccountAvatar = getAccountAvatar(tbvCommerce ? (tbvCommerce.user ? wooAvatarId : "") : currentUser?.avatarId);
   const rawPageBackdropImage =
     page === "faq"
       ? faqBackgroundImage
@@ -14062,6 +14088,41 @@ export default function App() {
     setAuthMode(mode);
     setPage("account");
   };
+
+  // Staging commerce test: the dashboard reads WooCommerce orders; profile,
+  // password and support stay on the native WooCommerce and contact pages.
+  async function loadWooAccountOrders() {
+    if (!tbvCommerce?.account) return;
+    setWooAccountOrdersLoading(true);
+    try {
+      const response = await fetch(tbvCommerce.account.ordersEndpoint, { credentials: "same-origin", headers: { "X-WP-Nonce": String(tbvCommerce.account.restNonce || "") } });
+      const data = await response.json().catch(() => null);
+      if (response.ok && Array.isArray(data)) setWooAccountOrders(data);
+    } finally {
+      setWooAccountOrdersLoading(false);
+    }
+  }
+  async function saveWooAvatar(avatarId) {
+    if (!tbvCommerce?.account) return;
+    setWooAvatarSave({ saving: true, error: "", status: "" });
+    try {
+      const response = await fetch(tbvCommerce.account.avatarEndpoint, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-WP-Nonce": String(tbvCommerce.account.restNonce || "") }, body: JSON.stringify({ avatarId }) });
+      if (!response.ok) throw new Error("save failed");
+      setWooAvatarId(avatarId);
+      setWooAvatarSave({ saving: false, error: "", status: avatarId ? "saved" : "removed" });
+    } catch {
+      setWooAvatarSave({ saving: false, error: tx("We could not save your avatar. Please try again.", "Не удалось сохранить аватар. Попробуйте ещё раз.", "Не вдалося зберегти аватар. Спробуйте ще раз.", "Avatar konnte nicht gespeichert werden. Bitte erneut versuchen.", "No se pudo guardar tu avatar. Inténtalo de nuevo."), status: "" });
+    }
+  }
+  const navigateWooAccountSection = (section) => {
+    if (section === "shipping") window.location.assign(tbvCommerce.account.editAddressUrl);
+    else if (section === "security") window.location.assign(tbvCommerce.account.editAccountUrl);
+    else if (section === "messages") setPage("contact");
+    else setActiveAccountSection(section === "avatars" ? "avatars" : "overview");
+  };
+  useEffect(() => {
+    if (page === "account" && tbvCommerce?.account) loadWooAccountOrders();
+  }, [page]);
 
   const navigateAccountSection = (section) => {
     setActiveAccountSection(section);
@@ -18876,7 +18937,43 @@ export default function App() {
           </main>
         )}
 
-        {page === "account" && (
+        {page === "account" && tbvCommerce?.account && (
+          <main className="mx-auto max-w-[1400px] px-0 pt-0 pb-10 md:pb-16">
+            <div className="min-w-0 w-full">
+              <Suspense
+                fallback={
+                  <div className="min-h-[320px]" aria-busy="true">
+                    <div className="h-8 w-48 animate-pulse rounded bg-white/10" />
+                    <div className="mt-5 h-56 animate-pulse rounded-2xl bg-white/[0.04]" />
+                  </div>
+                }
+              >
+                <AccountDashboard
+                  user={{ ...tbvCommerce.user, avatarId: wooAvatarId }}
+                  orders={wooAccountOrders}
+                  activeSection={activeAccountSection === "avatars" ? "avatars" : "overview"}
+                  tx={tx}
+                  formatPrice={formatPricePrecise}
+                  onNavigate={navigateWooAccountSection}
+                  onOpenMessages={() => setPage("contact")}
+                  onEditProfile={() => window.location.assign(tbvCommerce.account.editAddressUrl)}
+                  onShopNow={() => setPage("shop")}
+                  onRefreshOrders={loadWooAccountOrders}
+                  onTrackOrder={() => setPage("track")}
+                  onViewOrderConfirmation={(order) => { if (order.confirmationUrl) window.location.assign(order.confirmationUrl); }}
+                  isRefreshingOrders={wooAccountOrdersLoading}
+                  avatarSaving={wooAvatarSave.saving}
+                  avatarSaveError={wooAvatarSave.error}
+                  avatarSaveStatus={wooAvatarSave.status}
+                  onChooseAvatar={saveWooAvatar}
+                  onSignOut={() => window.location.assign(tbvCommerce.account.logoutUrl)}
+                />
+              </Suspense>
+            </div>
+          </main>
+        )}
+
+        {page === "account" && !tbvCommerce?.account && (
           <main
             className={`mx-auto ${
               currentUser && authMode !== "reset"
@@ -20890,8 +20987,12 @@ export default function App() {
             {paymentReturn.status === "success" ? (
               <section className="payment-return-card">
                 <PaymentReturnHeader tone="success"
-                  eyebrow={tx("Payment received", "Оплата получена", "Оплату отримано", "Zahlung erhalten", "Pago recibido")}
-                  title={tx("Order Confirmed", "Заказ подтверждён", "Замовлення підтверджено", "Bestellung bestätigt", "Pedido confirmado")}
+                  eyebrow={paymentReturn.origin === "woo-test"
+                    ? "Test order — no payment (staging)"
+                    : tx("Payment received", "Оплата получена", "Оплату отримано", "Zahlung erhalten", "Pago recibido")}
+                  title={paymentReturn.origin === "woo-test"
+                    ? tx("Order Received", "Заказ получен", "Замовлення отримано", "Bestellung erhalten", "Pedido recibido")
+                    : tx("Order Confirmed", "Заказ подтверждён", "Замовлення підтверджено", "Bestellung bestätigt", "Pedido confirmado")}
                   order={paymentReturn.order}
                   orderLabel={tx("Order", "Заказ", "Замовлення", "Bestellung", "Pedido")}
                 />
@@ -20899,7 +21000,16 @@ export default function App() {
                 {/* Steps */}
                 <div className="payment-return-block payment-return-steps mx-8 mt-6 mb-6 overflow-hidden rounded-[1.4rem] border border-white/25 bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] md:mx-12">
                   {[
-                    {
+                    paymentReturn.origin === "woo-test"
+                      ? {
+                          icon: "!",
+                          color: "text-amber-300",
+                          bg: "bg-amber-300/10",
+                          border: "border-amber-300/20",
+                          label: tx("Not connected", "Не подключено", "Не підключено", "Nicht verbunden", "No conectado"),
+                          title: tx("Payment — not taken on the staging site", "Оплата — не принимается на тестовом сайте", "Оплата — не приймається на тестовому сайті", "Zahlung — auf der Staging-Seite nicht aktiv", "Pago — no se cobra en el sitio de pruebas"),
+                        }
+                      : {
                       icon: "✓",
                       color: "text-emerald-400",
                       bg: "bg-emerald-400/10",
@@ -20991,7 +21101,7 @@ export default function App() {
                     })()}
                     {Number(paymentReturnOrder.total) > 0 && (
                       <div className="flex items-center justify-between px-5 py-3 border-t border-white/15 bg-white/[0.06]">
-                        <div className="text-[11px] font-black uppercase tracking-[0.15em] text-white">{tx("Total paid", "Итого оплачено", "Разом сплачено", "Gesamt bezahlt", "Total pagado")}</div>
+                        <div className="text-[11px] font-black uppercase tracking-[0.15em] text-white">{paymentReturn.origin === "woo-test" ? tx("Order total", "Сумма заказа", "Сума замовлення", "Bestellsumme", "Total del pedido") : tx("Total paid", "Итого оплачено", "Разом сплачено", "Gesamt bezahlt", "Total pagado")}</div>
                         <div className="text-sm font-black text-white">${Number(paymentReturnOrder.total).toFixed(2)}</div>
                       </div>
                     )}
@@ -21071,7 +21181,7 @@ export default function App() {
                   {/* Note 1 */}
                   <div className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/25 px-4 py-3">
                     <span className="mt-0.5 text-base shrink-0">✉️</span>
-                    <p className="text-[12px] leading-5 text-white">{tx("Confirmation email will be sent shortly. Tracking info after fulfillment.", "Письмо с подтверждением придёт скоро. Трекинг — после отправки.", "Лист-підтвердження надійде незабаром. Трекінг — після відправки.", "Bestätigungs-E-Mail kommt bald. Tracking nach Versand.", "Email de confirmación próximamente. Seguimiento tras el envío.")}</p>
+                    <p className="text-[12px] leading-5 text-white">{paymentReturn.origin === "woo-test" ? tx("No emails are sent from the staging site. Your test order is saved in My Account.", "Тестовый сайт не отправляет письма. Тестовый заказ сохранён в аккаунте.", "Тестовий сайт не надсилає листів. Тестове замовлення збережено в акаунті.", "Die Staging-Seite versendet keine E-Mails. Ihre Testbestellung ist im Konto gespeichert.", "El sitio de pruebas no envía correos. Tu pedido de prueba está guardado en tu cuenta.") : tx("Confirmation email will be sent shortly. Tracking info after fulfillment.", "Письмо с подтверждением придёт скоро. Трекинг — после отправки.", "Лист-підтвердження надійде незабаром. Трекінг — після відправки.", "Bestätigungs-E-Mail kommt bald. Tracking nach Versand.", "Email de confirmación próximamente. Seguimiento tras el envío.")}</p>
                   </div>
                   {/* Note 2 */}
                   <div className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/25 px-4 py-3">

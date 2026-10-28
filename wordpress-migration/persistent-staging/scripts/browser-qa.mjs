@@ -107,19 +107,42 @@ await page.screenshot({path: path.join(out, 'flow-mobile-checkout.png'), fullPag
 await page.getByRole('button', {name: /proceed to checkout/i}).last().click();
 await page.waitForURL(/order-received/, {timeout: 20000}).catch(() => {});
 check('mobile UI test order reaches order-received', /order-received/.test(page.url()), page.url());
-check('order uses staging test payment', /Test order — no payment \(staging\)/.test(await page.locator('body').innerText()));
+const orderNumber = (page.url().match(/order-received\/(\d+)/) || [])[1] || '';
+await page.locator('.payment-return-card').waitFor({timeout: 10000}).catch(() => {});
+const receivedText = await page.locator('body').innerText();
+check('order uses staging test payment', /Test order — no payment \(staging\)/i.test(receivedText));
+check('order-received is the storefront confirmation page', await page.locator('.payment-return-card').count() === 1 && receivedText.includes(orderNumber), orderNumber);
+check('order-received never claims payment', !/payment received|payment confirmed|total paid/i.test(receivedText));
 await page.screenshot({path: path.join(out, 'flow-mobile-order-received.png'), fullPage: true});
-// Account icon in the React header leads to native My Account.
+// Account icon in the React header opens the storefront account dashboard.
 await page.goto(LOCAL + '/', {waitUntil: 'networkidle'});
 const acctLinks = await page.evaluate(() => [...document.querySelectorAll('a[href]')].filter(a => /\/account\/?$/.test(new URL(a.href).pathname)).length);
 check('storefront exposes account links', acctLinks > 0, 'none');
 await page.locator('a[href$="/account"]').first().dispatchEvent('click');
 await page.waitForURL(/my-account/, {timeout: 8000}).catch(() => {});
-check('header account link opens native My Account', /\/my-account\/?/.test(page.url()), page.url());
+check('header account link opens My Account', /\/my-account\/?/.test(page.url()), page.url());
+await page.locator('.lab-order-card').first().waitFor({timeout: 10000}).catch(() => {});
+check('signed-in My Account is the storefront dashboard', await page.locator('.lab-dashboard .lab-welcome h1').count() === 1);
+check('dashboard lists the new test order', orderNumber !== '' && await page.locator('.lab-order-card__id', {hasText: new RegExp(`^${orderNumber}$`)}).count() === 1, orderNumber);
 await page.screenshot({path: path.join(out, 'flow-mobile-account-dashboard.png'), fullPage: true});
+await page.getByRole('button', {name: /^avatars$/i}).first().click();
+await page.locator('.lab-avatar-option').first().click();
+await page.getByText(/avatar saved to your account/i).waitFor({timeout: 8000}).catch(() => {});
+await page.goto(LOCAL + '/my-account/', {waitUntil: 'networkidle'});
+await page.waitForTimeout(1500);
+check('direct load of My Account serves the dashboard', await page.locator('.lab-dashboard .lab-welcome h1').count() === 1);
+check('saved avatar persists across requests', await page.locator('a[href$="/account"] img').count() >= 1);
 await page.goto(LOCAL + '/my-account/orders/', {waitUntil: 'networkidle'});
 check('mobile UI order appears in My Account', await page.locator('.woocommerce-orders-table__row, tr.order').count() >= 1);
 await page.screenshot({path: path.join(out, 'flow-mobile-orders.png'), fullPage: true});
+await page.goto(LOCAL + '/my-account/', {waitUntil: 'networkidle'});
+// Mobile hides the sidebar Sign out (as on the live dashboard); use its logout link.
+const logoutUrl = await page.evaluate(() => window.TBV_COMMERCE?.account?.logoutUrl || '');
+check('dashboard logout link uses the WooCommerce endpoint', /\/my-account\/customer-logout\/\?_wpnonce=/.test(logoutUrl), logoutUrl);
+await page.goto(logoutUrl || LOCAL + '/my-account/', {waitUntil: 'networkidle'});
+check('dashboard sign out returns to the storefront sign-in card', await page.locator('.tbv-auth h1').filter({hasText: /sign in/i}).count() === 1, page.url());
+await page.goto(LOCAL + '/my-account/', {waitUntil: 'networkidle'});
+check('signed out after dashboard sign out', await page.locator('.lab-dashboard').count() === 0 && await page.locator('.tbv-auth').count() === 1);
 check('flow no JS errors', jsErrors.length === 0, jsErrors.join(' | '));
 await browser.close();
 
