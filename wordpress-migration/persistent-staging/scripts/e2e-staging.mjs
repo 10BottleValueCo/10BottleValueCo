@@ -78,8 +78,9 @@ async function guestChecks() {
   check('guest_add_variation', add.status === 201 && add.json.items?.[0]?.id === o1.variation_id && add.json.items?.[0]?.quantity === 2, `${add.status} ${JSON.stringify(add.json).slice(0, 200)}`);
   const persisted = await cartApi(a);
   check('guest_cart_persists_next_request', persisted.json.items?.length === 1 && persisted.json.items[0].quantity === 2, JSON.stringify(persisted.json.items));
-  const nativeCart = await a.req('/cart/');
-  check('native_cart_shows_item', nativeCart.status === 200 && nativeCart.text.includes('cart_item') && nativeCart.text.includes(o1.product.split(' ')[0]), nativeCart.status);
+  const cartPage = await a.req('/cart/');
+  check('cart_page_is_storefront_cart', cartPage.status === 200 && cartPage.text.includes('TBV_WOO_CATALOG') && cartPage.text.includes('TBV_COMMERCE'), cartPage.status);
+  check('native_checkout_page_redirects_to_cart', /\/cart\/?$/.test((await a.req('/checkout/')).location || ''), 'no redirect');
   const upd = await cartApi(a, 'update-item', {key: persisted.json.items[0].key, quantity: 3});
   check('guest_update_quantity', upd.status === 200 && upd.json.items?.[0]?.quantity === 3, upd.status);
   const other = await cartApi(b);
@@ -91,6 +92,20 @@ async function guestChecks() {
   check('guest_remove_item', rm.status === 200 && rm.json.items?.length === 0, rm.status);
   const totals = await cartApi(b);
   check('cart_total_matches_price', Number(totals.json.totals?.total_items) / 100 === Number(o2.price), `${totals.json.totals?.total_items} vs ${o2.price}`);
+
+  // Storefront rules: automatic discount tiers, shipping service choice.
+  const d = new Client();
+  const qty = Math.ceil(1000 / Number(o1.price));
+  const big = await cartApi(d, 'add-item', {id: o1.variation_id, quantity: qty});
+  const sub = Number(big.json.totals?.total_items);
+  const fee = big.json.fees?.find(f => /Automatic discount \(10%\)/.test(f.name));
+  check('automatic_discount_10_percent', fee && Number(fee.totals.total) === -Math.round(sub * 0.1), JSON.stringify(big.json.fees));
+  const rates = big.json.shipping_rates?.[0]?.shipping_rates || [];
+  const express = rates.find(r => r.meta_data?.some(m => m.key === 'tbv_service' && m.value === 'express'));
+  const picked = express ? await cartApi(d, 'select-shipping-rate', {package_id: 0, rate_id: express.rate_id}) : {status: 0, json: {}};
+  check('select_express_rate', picked.status === 200 && picked.json.shipping_rates?.[0]?.shipping_rates?.find(r => r.selected)?.rate_id === express?.rate_id, picked.status);
+  const small = await cartApi(new Client(), 'add-item', {id: o1.variation_id, quantity: 1});
+  check('no_discount_below_threshold', !(small.json.fees || []).length || Number(o1.price) >= 1000, JSON.stringify(small.json.fees));
   return offers;
 }
 
@@ -125,15 +140,19 @@ async function login(c, username, password) {
 }
 const loggedIn = html => /woocommerce-MyAccount-navigation/.test(html) && /customer-logout/.test(html);
 
-async function checkout(c, offer, email) {
-  await cartApi(c, 'add-item', {id: offer.variation_id, quantity: 1});
-  const page = await c.follow('/checkout/');
-  const nonce = hidden(page.text, 'woocommerce-process-checkout-nonce');
-  const ship = (page.text.match(/name="shipping_method\[0\]"[^>]*value="([^"]+)"/) || [])[1];
-  const body = {billing_first_name: 'Test', billing_last_name: 'Researcher', billing_country: 'US', billing_address_1: '123 Example Lane', billing_city: 'Springfield', billing_state: 'IL', billing_postcode: '62701', billing_phone: '5550100', billing_email: email, payment_method: 'tbv_staging_test', 'woocommerce-process-checkout-nonce': nonce, _wp_http_referer: '/checkout/', ...(ship ? {'shipping_method[0]': ship} : {})};
+// The storefront cart page is the checkout; it posts to Woo's classic checkout
+// with the nonce WordPress publishes in TBV_COMMERCE.
+async function checkout(c, offer, email, overrides = {}) {
+  if (offer) await cartApi(c, 'add-item', {id: offer.variation_id, quantity: 1});
+  const page = await c.follow('/cart/');
+  const config = JSON.parse((page.text.match(/window\.TBV_COMMERCE = (\{.*?\});<\/script>/) || [])[1] || '{}');
+  const cart = await cartApi(c);
+  const ship = cart.json.shipping_rates?.[0]?.shipping_rates?.find(r => r.selected)?.rate_id;
+  const body = {billing_first_name: 'Test', billing_last_name: 'Researcher', billing_country: 'US', billing_address_1: '123 Example Lane', billing_city: 'Springfield', billing_state: 'IL', billing_postcode: '62701', billing_phone: '5550100', billing_email: email, payment_method: config.gatewayId || '', terms: 'on', 'terms-field': '1', tbv_attestation_research: '1', tbv_attestation_qualified: '1', tbv_attestation_terms: '1', tbv_carrier_preference: 'USPS', 'woocommerce-process-checkout-nonce': config.checkoutNonce || '', _wp_http_referer: '/cart/', ...(ship ? {'shipping_method[0]': ship} : {}), ...overrides};
+  for (const [k, v] of Object.entries(body)) if (v === null) delete body[k];
   const r = await c.req('/?wc-ajax=checkout', {method: 'POST', headers: {...formHeaders, origin: base, 'x-requested-with': 'XMLHttpRequest'}, body: form(body)});
   let json = {}; try { json = JSON.parse(r.text); } catch {}
-  return {page, json, nonceFound: !!nonce, ship, gatewayOffered: page.text.includes('payment_method_tbv_staging_test'), otherGateways: (page.text.match(/id="payment_method_([a-z0-9_]+)"/g) || []).filter(x => !x.includes('tbv_staging_test'))};
+  return {page, json, config, ship};
 }
 
 async function accountChecksBeforeRestart(offers) {
@@ -151,8 +170,15 @@ async function accountChecksBeforeRestart(offers) {
   check('wrong_password_rejected', !loggedIn(bad.text));
 
   const offer = offers.find(o => o.warehouse === 'worldwide' && Number(o.price) < 300) || offers[0];
-  const co = await checkout(c2, offer, email);
-  check('checkout_only_staging_gateway', co.gatewayOffered && co.otherGateways.length === 0, JSON.stringify(co.otherGateways));
+  const guest = new Client();
+  const guestTry = await checkout(guest, offer, `e2e.guest.${Date.now()}@example.test`);
+  check('guest_checkout_requires_login', guestTry.json.result !== 'success' && guestTry.config.user === null, JSON.stringify(guestTry.json).slice(0, 200));
+  const noAttest = await checkout(c2, offer, email, {tbv_attestation_qualified: null});
+  check('checkout_requires_attestation', noAttest.json.result !== 'success' && /attestation/i.test(noAttest.json.messages || ''), JSON.stringify(noAttest.json).slice(0, 200));
+  const otherGateway = await checkout(c2, null, email, {payment_method: 'cod'});
+  check('checkout_rejects_other_gateway', otherGateway.json.result !== 'success', JSON.stringify(otherGateway.json).slice(0, 200));
+  const co = await checkout(c2, null, email);
+  check('checkout_config_for_signed_in_customer', co.config.user?.email === email && co.config.gatewayId === 'tbv_staging_test', JSON.stringify(co.config.user));
   check('checkout_shipping_rate_offered', !!co.ship, 'no shipping rate');
   check('test_checkout_success', co.json.result === 'success' && /order-received/.test(co.json.redirect || ''), JSON.stringify(co.json).slice(0, 300));
   const orderId = Number((co.json.redirect || '').match(/order-received\/(\d+)/)?.[1]);

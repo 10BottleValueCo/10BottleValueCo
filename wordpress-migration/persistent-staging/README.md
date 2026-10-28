@@ -26,6 +26,12 @@ Active only when `WP_ENVIRONMENT_TYPE=staging` and `TBV_STAGING_COMMERCE_TEST=tr
 - Native WooCommerce My Account (register/login/orders/addresses). Password reset and order-linking emails are unavailable by design.
 - The storefront's account icon and `/account` route go to native My Account.
 
+## Storefront cart and checkout
+
+As on the live site, `/cart` is the storefront's own cart page and is also the checkout: items, Standard/Express cards, totals, free-shipping and discount progress, shipping details, purchaser attestation, then the order. The page is the live cart's React markup backed by WooCommerce: items, shipping rates, destination and totals come from the Store API (`select-shipping-rate` and `update-customer` are allowed in commerce mode), and placing the order posts to the classic checkout (`?wc-ajax=checkout`) with the nonce WordPress publishes in `window.TBV_COMMERCE`. WooCommerce recalculates every amount server-side. Checkout requires a signed-in customer (guest checkout off), like the live site; the cart's Sign in button returns to the cart. The native `/checkout/` page redirects to `/cart/`; order-received stays native.
+
+`../woo-storefront-rules/tbv-storefront-rules` carries the live checkout rules, with values in the editable `tbv_storefront_rules` option: automatic 10/15/20% discount at $1,000/$2,000/$4,000 (negative fee, not combined with coupons), required purchaser attestation (rejected server-side if missing; stored as order meta), carrier preference and the $350 worldwide order-bonus marker. Promo codes stay off on staging.
+
 The theme's existing review restrictions stay in force unless the commerce-test opt-in and the guard's gateway are both present. Checkout uses the classic shortcode; the Store API checkout endpoint stays blocked.
 
 ## Setup outline
@@ -34,7 +40,7 @@ The theme's existing review restrictions stay in force unless the commerce-test 
 2. Install WordPress 7.1.3 core, then copy the theme, `tbv-public-woo-catalog`, `tbv-warehouse-shipping`, the homepage mu-plugin and this guard.
 3. Create `wp-config.php` from `config/wp-config.staging-sample.php`. Keep DB credentials and **fixed** salts in a file outside the web root.
 4. `wp core install`, activate WooCommerce, create the HPOS tables, then copy the snapshot with `php scripts/sqlite-to-mariadb.php <snapshot.sqlite> <secrets.php>` (refuses any database not named `tbv_staging` or `tbv_migration_test`).
-5. `wp eval-file scripts/configure-staging-shipping.php` — **unverified** fixture rates copied from the current storefront display.
+5. `wp eval-file scripts/configure-staging-shipping.php` — rates and express destinations copied from the live storefront's own rules, **not verified** against carrier/supplier terms. Activate `tbv-storefront-rules`; set `woocommerce_enable_guest_checkout` to `no`.
 6. Protect `/wp-admin` and `/wp-login.php` with an extra server-level gate (`admin-ajax.php` and `wp-admin/{js,css,images}` must stay public for storefront pages).
 
 ## Checks
@@ -48,7 +54,7 @@ TBV_STAGING_PUBLIC_URL=https://<public staging origin> node scripts/browser-qa.m
 wp eval-file scripts/audit-staging.php                                                   # safety audit
 ```
 
-E2E covers catalog, variation add/update/remove, cart persistence, guest isolation, totals, registration, logout/login, wrong password, test checkout, order-received, order history, cross-customer order access, restart persistence and the guard endpoints. Browser QA compares 10 routes on production and staging at iPhone 13 and 1440×900 (status, overflow, JS errors, failed requests, researcher gate parity) and drives the real UI through gate, add to cart, cart, account link, registration, checkout and order history.
+E2E covers catalog, variation add/update/remove, cart persistence, guest isolation, totals, automatic discount, express selection, registration, logout/login, wrong password, guest-checkout refusal, missing-attestation refusal, other-gateway refusal, test checkout, order-received, order history, cross-customer order access, restart persistence and the guard endpoints. Browser QA compares 11 routes (including `/cart`) on production and staging at iPhone 13 and 1440×900 (status, overflow, JS errors, failed requests, researcher gate parity) and drives the real UI: gate, add to cart, header CART, storefront cart, Sign in → register → back to cart, shipping details, purchaser attestation, test order, account link.
 
 ## Not done here
 

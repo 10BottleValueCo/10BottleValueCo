@@ -106,7 +106,7 @@ add_action('woocommerce_shipping_init', function () {
             if ($quote === null) return;
             if (tbv_shipping_has_free_coupon(WC()->cart)) $quote['minor'] = 0;
             $amount = sprintf('%d.%02d', intdiv($quote['minor'], 100), $quote['minor'] % 100);
-            $this->add_rate(['id' => $this->get_rate_id(), 'label' => $this->title, 'cost' => $amount, 'package' => $package, 'meta_data' => ['tbv_rule_version' => $quote['version']]]);
+            $this->add_rate(['id' => $this->get_rate_id(), 'label' => $this->title, 'cost' => $amount, 'package' => $package, 'meta_data' => ['tbv_rule_version' => $quote['version'], 'tbv_service' => $this->get_option('service', 'standard')]]);
         }
     }
 });

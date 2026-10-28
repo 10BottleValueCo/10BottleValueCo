@@ -28,6 +28,8 @@ add_filter('rest_pre_dispatch', function ($result, $server, $request) {
     $method = strtoupper($request->get_method());
     $read = $method === 'GET' && in_array($route, ['/wc/store/v1/cart', '/tbv-catalog/v1/products'], true);
     $write = $method === 'POST' && in_array($route, ['/wc/store/v1/cart/add-item', '/wc/store/v1/cart/update-item', '/wc/store/v1/cart/remove-item'], true);
+    // The storefront cart page picks the shipping service and destination country.
+    if (tbv_staging_commerce_test_enabled() && $method === 'POST' && in_array($route, ['/wc/store/v1/cart/select-shipping-rate', '/wc/store/v1/cart/update-customer'], true)) $write = true;
     return ($read || $write) ? $result : new WP_Error('tbv_preview_blocked', 'This action is unavailable in the staging review.', ['status' => 403]);
 }, 0, 3);
 add_action('init', function () {
@@ -78,6 +80,10 @@ add_action('template_redirect', function () {
     $path = strtolower(trim(rawurldecode($req_path), '/'));
     $commerce_test = tbv_staging_commerce_test_enabled();
     if ($commerce_test && preg_match('#^account(?:/|$)#D', $path)) { wp_safe_redirect(wc_get_page_permalink('myaccount')); exit; }
+    // As on the live storefront, the cart page is the checkout. Order-received
+    // and other checkout endpoints stay native.
+    $read_request = in_array($_SERVER['REQUEST_METHOD'] ?? '', ['GET', 'HEAD'], true) && !isset($_GET['wc-ajax']);
+    if ($commerce_test && $read_request && ($path === 'cart/confirmation' || (function_exists('is_checkout') && is_checkout() && !is_wc_endpoint_url()))) { wp_safe_redirect(wc_get_cart_url()); exit; }
     $account_or_checkout = (bool)preg_match('#^(?:checkout|my-account)(?:/|$)#D', $path);
     if (isset($_GET['order-pay']) || isset($_GET['wc-api']) || (!$commerce_test && ($account_or_checkout || preg_match('#^account(?:/|$)#D', $path)))) wp_die('Checkout and accounts are unavailable in this preview.', 'Staging preview', ['response' => 403]);
     $cart_form = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && in_array($req_path, ['/cart', '/cart/'], true) && str_starts_with((string)($_SERVER['CONTENT_TYPE'] ?? ''), 'application/x-www-form-urlencoded');
@@ -242,6 +248,7 @@ function tbv_react_proof_recognized_route() {
     foreach (['rest_route','wc-ajax','add-to-cart','payment','order-pay','key','wc-api'] as $reserved) if (isset($_GET[$reserved])) return false;
     $path = tbv_react_proof_requested_path();
     if ($path === null) return false;
+    if ($path === 'cart' && tbv_staging_commerce_test_enabled()) return $cached = true;
     $reserved = ['cart','checkout','account','my-account','wp-admin','wp-json','wc-api','wp-login.php','wp-cron.php'];
     if (in_array($path, $reserved, true)) return false;
     $pages = ['', 'shop', 'us-warehouse', 'shipping-prices', 'affiliate', 'about', 'faq', 'contact', 'track-order', 'terms-and-conditions', 'privacy-policy', 'shipping-policy', 'refund-policy'];
@@ -286,3 +293,26 @@ add_action('template_redirect', function () {
 add_filter('template_include', function ($template) {
     return tbv_react_proof_recognized_route() ? get_template_directory() . '/front-page.php' : $template;
 }, PHP_INT_MAX);
+
+/** Storefront checkout settings for the React cart page (commerce test only). */
+function tbv_react_proof_commerce_config() {
+    $user = wp_get_current_user();
+    return [
+        'checkoutEndpoint' => add_query_arg('wc-ajax', 'checkout', home_url('/')),
+        'checkoutNonce' => wp_create_nonce('woocommerce-process_checkout'),
+        'gatewayId' => TBV_STAGING_TEST_GATEWAY_ID,
+        'accountUrl' => wc_get_page_permalink('myaccount'),
+        'user' => $user->exists() ? ['id' => $user->ID, 'email' => $user->user_email] : null,
+        'countries' => array_map(fn($name) => html_entity_decode($name, ENT_QUOTES, 'UTF-8'), WC()->countries->get_shipping_countries()),
+    ];
+}
+// Return to the cart page after signing in or registering from it.
+function tbv_react_proof_cart_return_field() {
+    if (tbv_staging_commerce_test_enabled() && ($_GET['tbv_return'] ?? '') === 'cart') echo '<input type="hidden" name="redirect" value="' . esc_url(wc_get_cart_url()) . '">';
+}
+add_action('woocommerce_login_form_end', 'tbv_react_proof_cart_return_field');
+add_action('woocommerce_register_form_end', 'tbv_react_proof_cart_return_field');
+add_filter('woocommerce_registration_redirect', function ($redirect) {
+    $requested = isset($_POST['redirect']) ? esc_url_raw(wp_unslash($_POST['redirect'])) : '';
+    return $requested && wp_validate_redirect($requested, false) ? $requested : $redirect;
+});

@@ -11,7 +11,7 @@ const {chromium, devices} = require(process.env.TBV_PLAYWRIGHT || 'playwright');
 
 const out = process.argv[2]; fs.mkdirSync(out, {recursive: true});
 const PROD = 'https://10bottlevalue.co', STAGE = process.env.TBV_STAGING_PUBLIC_URL || 'https://staging.example.invalid', LOCAL = 'http://127.0.0.1:8088';
-const routes = ['/', '/shop', '/us-warehouse', '/retatrutide-5mg', '/tirzepatide-10mg', '/shipping-prices', '/faq', '/affiliate', '/track-order', '/contact'];
+const routes = ['/', '/shop', '/us-warehouse', '/retatrutide-5mg', '/tirzepatide-10mg', '/shipping-prices', '/faq', '/affiliate', '/track-order', '/contact', '/cart'];
 const results = [];
 const check = (name, ok, detail = '') => results.push({name, ok: !!ok, detail: ok ? '' : String(detail).slice(0, 300)});
 const env = Object.fromEntries(fs.readFileSync(new URL('../private/test-accounts.env', import.meta.url), 'utf8').split('\n').filter(l => /^[A-Z0-9_]+=/.test(l)).map(l => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
@@ -77,38 +77,55 @@ await addBtn.scrollIntoViewIfNeeded(); await addBtn.click();
 await page.waitForTimeout(1500);
 const cartLabel = await page.getByText(/cart\s*\(\d+\)/i).first().textContent().catch(() => '');
 check('mobile UI add-to-cart updates header count', /\(1\)/.test(cartLabel || ''), cartLabel);
-await page.goto(LOCAL + '/cart/', {waitUntil: 'networkidle'});
-check('mobile native cart lists UI-added item', await page.locator('.cart_item, .woocommerce-cart-form__cart-item').count() >= 1);
-await page.screenshot({path: path.join(out, 'flow-mobile-cart.png')});
-// Account icon in the React header leads to native My Account.
-await page.goto(LOCAL + '/', {waitUntil: 'networkidle'});
-const acctLinks = await page.evaluate(() => [...document.querySelectorAll('a[href]')].filter(a => /\/account\/?$/.test(new URL(a.href).pathname)).map(a => a.textContent.trim() || a.getAttribute('aria-label') || 'icon'));
-check('storefront exposes account/register links', acctLinks.length > 0, 'none');
-await page.locator('a[href$="/account"]').first().dispatchEvent('click');
-await page.waitForURL(/my-account/, {timeout: 8000}).catch(() => {});
-check('header account link opens native My Account', /\/my-account\/?/.test(page.url()), page.url());
-// Register through the real form.
-await page.goto(LOCAL + '/my-account/', {waitUntil: 'networkidle'});
+// The header CART button opens the storefront cart page (as on the live site).
+await page.getByRole('link', {name: /^cart/i}).first().click();
+await page.waitForTimeout(2500);
+const cartText = await page.locator('main').innerText().catch(() => '');
+check('mobile cart page is the storefront cart', /\/cart\/?$/.test(new URL(page.url()).pathname) && /Your cart/i.test(cartText) && /SHIPPING METHOD/i.test(cartText) && /STANDARD/.test(cartText) && /EXPRESS/.test(cartText), cartText.slice(0, 200));
+check('mobile cart lists UI-added item', /Retatrutide|GLP RT-3/i.test(cartText), cartText.slice(0, 200));
+check('mobile cart has sticky total + proceed bar', await page.locator('.fixed.bottom-0').filter({hasText: /proceed to checkout/i}).count() === 1);
+check('signed-out cart asks to sign in', /available only for signed-in customers/i.test(cartText));
+await page.screenshot({path: path.join(out, 'flow-mobile-cart.png'), fullPage: true});
+// Sign in from the cart, register through the real form, return to the cart.
+await page.getByRole('button', {name: /^sign in$/i}).first().click();
+await page.waitForURL(/my-account\/\?tbv_return=cart/, {timeout: 10000}).catch(() => {});
+check('cart sign-in opens My Account with return to cart', /tbv_return=cart/.test(page.url()), page.url());
 await page.screenshot({path: path.join(out, 'flow-mobile-account-logged-out.png'), fullPage: true});
 const email = `ui.${Date.now()}@example.test`;
 await page.locator('#reg_email').pressSequentially(email, {delay: 15});
 await page.locator('#reg_password').pressSequentially(env.E2E_RUN_PASSWORD, {delay: 15});
 await page.waitForTimeout(500);
 await Promise.all([page.waitForNavigation({timeout: 15000}).catch(() => {}), page.locator('button[name="register"]').click()]);
-await page.waitForLoadState('networkidle');
-check('mobile UI registration logs in', await page.locator('.woocommerce-MyAccount-navigation').count() > 0);
-await page.screenshot({path: path.join(out, 'flow-mobile-account-dashboard.png'), fullPage: true});
-// Checkout through the real form with fictional data.
-await page.goto(LOCAL + '/checkout/', {waitUntil: 'networkidle'});
-for (const [sel, val] of [['#billing_first_name', 'Test'], ['#billing_last_name', 'Researcher'], ['#billing_address_1', '123 Example Lane'], ['#billing_city', 'Springfield'], ['#billing_postcode', '62701'], ['#billing_phone', '5550100']]) await page.fill(sel, val);
-await page.selectOption('#billing_state', 'IL').catch(() => {});
+await page.waitForLoadState('networkidle'); await page.waitForTimeout(2000);
+check('mobile UI registration returns to cart', /\/cart\/?$/.test(new URL(page.url()).pathname), page.url());
+check('cart shows signed-in account email', await page.locator(`input[value="${email}"]`).count() === 1);
+// Shipping details, purchaser attestation, test order.
+const field = (re) => page.getByPlaceholder(re).first();
+await field(/First name/).fill('Test'); await field(/Last name/).fill('Researcher');
+await field(/Country/).click(); await field(/Country/).fill('United States'); await page.waitForTimeout(300);
+await page.getByRole('button', {name: /^United States$/}).first().click();
+await field(/Street address/).fill('123 Example Lane'); await field(/City/).fill('Springfield'); await field(/Postal code/).fill('62701');
+await field(/State/).fill('Illinois'); await field(/Phone/i).fill('5550100');
 await page.waitForTimeout(1500);
 await page.screenshot({path: path.join(out, 'flow-mobile-checkout.png'), fullPage: true});
-check('checkout shows only staging test payment', (await page.locator('input[name="payment_method"]').count()) === 1 && (await page.locator('#payment_method_tbv_staging_test').count()) === 1);
-await page.click('#place_order');
+await page.getByRole('button', {name: /proceed to checkout/i}).last().click();
+const attest = page.locator('[role="dialog"][aria-modal="true"]');
+await attest.waitFor({timeout: 5000}).catch(() => {});
+check('purchaser attestation shown before order', await attest.getByText(/purchaser attestation/i).count() === 1);
+for (const box of await attest.locator('input[type="checkbox"]').all()) await box.check();
+await attest.getByRole('button', {name: /confirm/i}).click();
 await page.waitForURL(/order-received/, {timeout: 20000}).catch(() => {});
 check('mobile UI test order reaches order-received', /order-received/.test(page.url()), page.url());
+check('order uses staging test payment', /Test order — no payment \(staging\)/.test(await page.locator('body').innerText()));
 await page.screenshot({path: path.join(out, 'flow-mobile-order-received.png'), fullPage: true});
+// Account icon in the React header leads to native My Account.
+await page.goto(LOCAL + '/', {waitUntil: 'networkidle'});
+const acctLinks = await page.evaluate(() => [...document.querySelectorAll('a[href]')].filter(a => /\/account\/?$/.test(new URL(a.href).pathname)).length);
+check('storefront exposes account links', acctLinks > 0, 'none');
+await page.locator('a[href$="/account"]').first().dispatchEvent('click');
+await page.waitForURL(/my-account/, {timeout: 8000}).catch(() => {});
+check('header account link opens native My Account', /\/my-account\/?/.test(page.url()), page.url());
+await page.screenshot({path: path.join(out, 'flow-mobile-account-dashboard.png'), fullPage: true});
 await page.goto(LOCAL + '/my-account/orders/', {waitUntil: 'networkidle'});
 check('mobile UI order appears in My Account', await page.locator('.woocommerce-orders-table__row, tr.order').count() >= 1);
 await page.screenshot({path: path.join(out, 'flow-mobile-orders.png'), fullPage: true});

@@ -155,6 +155,26 @@ const tbvSitePath = (path) => `${tbvSiteBase}${path.startsWith("/") ? path : `/$
 const tbvCurrentLocation = () => { const path=window.location.pathname; const within=!tbvSiteBase || path===tbvSiteBase || path.startsWith(`${tbvSiteBase}/`); return {pathname:within ? (path.slice(tbvSiteBase.length) || "/") : "/__outside_site__", search:window.location.search}; };
 const tbvCartApi = typeof window.TBV_CART_API === "string" && window.TBV_CART_API.startsWith(window.location.origin + "/") ? window.TBV_CART_API.replace(/\/+$/, "") : tbvSitePath("/wp-json/wc/store/v1/cart");
 
+// Persistent staging commerce test: WordPress supplies the signed-in customer,
+// the classic checkout endpoint and nonce. Absent outside that opt-in.
+const tbvCommerce = (() => {
+  const c = window.TBV_COMMERCE;
+  if (!c || typeof c !== "object" || typeof c.checkoutEndpoint !== "string" || !c.checkoutEndpoint.startsWith(window.location.origin + "/")) return null;
+  const user = c.user && typeof c.user.email === "string" && c.user.email ? { id: `wp-${Number(c.user.id) || 0}`, email: c.user.email } : null;
+  const countries = c.countries && typeof c.countries === "object" ? c.countries : {};
+  return { ...c, user, countries };
+})();
+const tbvCountryName = (name) => String(name || "").replace(/\s*\([^)]*\)\s*$/, "").trim().toLowerCase();
+function tbvWooCountryCode(name) {
+  if (!tbvCommerce) return "";
+  const wanted = tbvCountryName(name);
+  if (!wanted) return "";
+  for (const [code, label] of Object.entries(tbvCommerce.countries)) {
+    if (tbvCountryName(label) === wanted) return code;
+  }
+  return tbvCommerce.countryAliases?.[wanted] || "";
+}
+
 const ORDER_CONFIRMED_PREVIEW_PATH = "/order-confirmed-preview";
 const ORDER_CONFIRMED_PREVIEW_ORDER = import.meta.env.DEV
   ? {
@@ -3825,8 +3845,12 @@ export default function App() {
   // WordPress's own cart uses the same WooCommerce cookie session as our
   // Store API requests. Account and payment remain disabled in this proof.
   function setPage(nextPage) {
-    if (nextPage === "cart") {
+    if (nextPage === "cart" && !tbvCommerce) {
       window.location.assign(tbvSitePath("/cart/"));
+      return;
+    }
+    if (nextPage === "account" && tbvCommerce?.accountUrl) {
+      window.location.assign(page === "cart" ? `${tbvCommerce.accountUrl}${tbvCommerce.accountUrl.includes("?") ? "&" : "?"}tbv_return=cart` : tbvCommerce.accountUrl);
       return;
     }
     if (["account", "payment-return", "admin"].includes(nextPage)) {
@@ -3888,6 +3912,8 @@ export default function App() {
 
 
   const [cart, setCart] = useState([]);
+  // WooCommerce's own totals and shipping rates for the current cart.
+  const [wooCartMeta, setWooCartMeta] = useState(null);
   const [productSelection, setProductSelection] = useState(() =>
     typeof window === "undefined" ? null : readProductSelection(PRODUCTS_BASE, tbvCurrentLocation())
   );
@@ -4357,7 +4383,10 @@ export default function App() {
   const [fadingOutAddedId, setFadingOutAddedId] = useState("");
   const [shopPrimed, setShopPrimed] = useState(false);
   const [cartHighlight, setCartHighlight] = useState(false);
-  const { form: checkoutForm, setForm: setCheckoutForm, remember: rememberCheckoutField } = useCheckoutDetails(currentUser);
+  // On the staging commerce test the WordPress customer owns checkout; the
+  // storefront's legacy account stays signed out.
+  const cartUser = tbvCommerce ? tbvCommerce.user : currentUser;
+  const { form: checkoutForm, setForm: setCheckoutForm, remember: rememberCheckoutField } = useCheckoutDetails(cartUser);
   const checkoutBuyerRef = useRef(currentUser?.id);
   checkoutBuyerRef.current = currentUser?.id;
   const [checkoutMessage, setCheckoutMessage] = useState("");
@@ -8506,7 +8535,7 @@ export default function App() {
 
   // Pre-load crypto coin icons as soon as user enters the cart page
   useEffect(() => {
-    if (page !== "cart") return;
+    if (page !== "cart" || tbvCommerce) return;
     const urls = [
       "https://cryptologos.cc/logos/tether-usdt-logo.png",
       "https://cryptologos.cc/logos/usd-coin-usdc-logo.png",
@@ -8715,7 +8744,7 @@ export default function App() {
     const readField = (field) => refs[field]?.value ?? form[field] ?? "";
     return {
       ...form,
-      email: String(readField("email") || currentUser?.email || "").trim(),
+      email: String(readField("email") || cartUser?.email || "").trim(),
       firstName: String(readField("firstName")),
       lastName: String(readField("lastName")),
       country: String(readField("country")),
@@ -10599,6 +10628,11 @@ export default function App() {
   const storeCreditApplied = meritSelected ? meritCreditSplit.storeCreditUsedCents / 100
     : currentUser && storeCredit > 0 && totalWithFee > 0 && Math.round(storeCredit * 100) >= Math.round(totalWithFee * 100) ? totalWithFee : 0;
   const finalTotal = meritSelected ? meritCreditSplit.amountCents / 100 : Math.max(0, totalWithFee - storeCreditApplied);
+  // Staging shows WooCommerce's authoritative totals once they match the cart.
+  const wooView = tbvCommerce && wooCartMeta && wooCartMeta.itemCount === cartCount ? wooCartMeta : null;
+  const cartShipping = wooView ? wooView.shipping : shipping;
+  const cartAutoDiscount = wooView ? wooView.discount : automaticDiscount;
+  const cartTotal = wooView ? wooView.total : finalTotal;
   const stripeTemporarilyDisabled = meritConfig?.enabled !== true;
   const meritUnavailableMessage = meritConfig?.temporarilyClosed || meritConfig?.reopensAt
     ? tx("Opens October 26–28", "Откроется 26–28 октября", "Відкриється 26–28 жовтня", "Öffnet 26.–28. Oktober", "Disponible del 26 al 28 de octubre")
@@ -10813,6 +10847,33 @@ export default function App() {
       return { ...original, ...(original.warehouse === "us" ? {fromWarehouse:"us"} : {}), price: Number(minor) / (10 ** digits), quantity:item.quantity, wooCartKey:item.key };
     });
   }
+  // Totals and rates exactly as WooCommerce calculated them (minor units).
+  function wooCartMetaFrom(response) {
+    const totals = response?.totals || {};
+    const digits = Number(totals.currency_minor_unit);
+    if (!Number.isInteger(digits) || digits < 0 || digits > 4) return null;
+    const money = (value) => { const text = String(value ?? "0"); return /^-?[0-9]+$/.test(text) ? Number(text) / (10 ** digits) : 0; };
+    const packages = Array.isArray(response?.shipping_rates) ? response.shipping_rates : [];
+    const pack = packages.length === 1 ? packages[0] : null;
+    const rates = (pack?.shipping_rates || []).map((rate) => {
+      const meta = Array.isArray(rate.meta_data) ? rate.meta_data : [];
+      const service = String(meta.find((entry) => entry?.key === "tbv_service")?.value || "");
+      return { id: String(rate.rate_id || ""), service, price: money(rate.price), selected: rate.selected === true };
+    });
+    const fees = Array.isArray(response?.fees) ? response.fees : [];
+    const discount = fees.reduce((sum, fee) => { const amount = money(fee?.totals?.total); return amount < 0 ? sum - amount : sum; }, 0);
+    return {
+      itemCount: Number(response?.items_count) || 0,
+      subtotal: money(totals.total_items),
+      shipping: money(totals.total_shipping),
+      discount: Math.round(discount * 100) / 100,
+      total: money(totals.total_price),
+      packageId: pack ? pack.package_id : null,
+      rates,
+      country: String(response?.shipping_address?.country || ""),
+      errors: Array.isArray(response?.errors) ? response.errors.map((e) => String(e?.message || "")).filter(Boolean) : [],
+    };
+  }
   async function initWooCart() {
     if (wooCartNonceRef.current) return wooCartNonceRef.current;
     if (wooInitRef.current) return wooInitRef.current;
@@ -10826,6 +10887,7 @@ export default function App() {
       wooCartNonceRef.current = nonce;
       wooCartItemsRef.current = items;
       setCart(items);
+      setWooCartMeta(wooCartMetaFrom(data));
       return nonce;
     })();
     try { return await wooInitRef.current; } finally { wooInitRef.current = null; }
@@ -10850,6 +10912,7 @@ export default function App() {
         if (!next.some((item) => item.wooVariationId === selected.wooVariationId && item.quantity === previousQty + 1)) throw new Error("WooCommerce did not confirm the item");
         wooCartItemsRef.current = next;
         setCart(next);
+        setWooCartMeta(wooCartMetaFrom(data));
         setCartHighlight(true);
         window.clearTimeout(window.__tbvCartHighlightTimeout);
         window.__tbvCartHighlightTimeout = window.setTimeout(() => setCartHighlight(false), 600);
@@ -10879,11 +10942,13 @@ export default function App() {
           throw new Error("WooCommerce rejected the cart change");
         }
         wooCartNonceRef.current = response.headers.get("Nonce") || nonce;
-        const next = wooCartState(await response.json());
+        const data = await response.json();
+        const next = wooCartState(data);
         const result = next.find((item) => item.wooVariationId === existing.wooVariationId);
         if ((quantity === 0 && result) || (quantity > 0 && (!result || result.quantity !== quantity))) throw new Error("WooCommerce did not confirm the cart change");
         wooCartItemsRef.current = next;
         setCart(next);
+        setWooCartMeta(wooCartMetaFrom(data));
         return true;
       } catch (error) { setCartToast(`Preview cart: ${error.message}`); return false; }
     };
@@ -10891,6 +10956,97 @@ export default function App() {
     wooQueueRef.current = pending;
     return pending;
   }
+  // Other Store API cart changes (shipping rate, destination) on the same queue.
+  function wooCartPost(endpoint, payload) {
+    const action = async () => {
+      try {
+        const nonce = await initWooCart();
+        const response = await fetch(`${tbvCartApi}/${endpoint}`, {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json", "Nonce":nonce}, body:JSON.stringify(payload)});
+        if (!response.ok) {
+          if (response.status === 401 || response.status === 403) wooCartNonceRef.current = null;
+          throw new Error("WooCommerce rejected the cart change");
+        }
+        wooCartNonceRef.current = response.headers.get("Nonce") || nonce;
+        const data = await response.json();
+        const next = wooCartState(data);
+        wooCartItemsRef.current = next;
+        setCart(next);
+        setWooCartMeta(wooCartMetaFrom(data));
+        return true;
+      } catch (error) { setCartToast(`Cart: ${error.message}`); return false; }
+    };
+    const pending = wooQueueRef.current.then(action, action);
+    wooQueueRef.current = pending;
+    return pending;
+  }
+
+  // Submit the staging test order through WooCommerce's classic checkout. The
+  // offline staging gateway saves it unpaid; WooCommerce recalculates every total.
+  async function submitWooCheckout(form, attestation) {
+    const country = tbvWooCountryCode(form.country);
+    if (!country) {
+      setCheckoutMessage(tx("Shipping to this country is not available.", "Доставка в эту страну недоступна."));
+      return;
+    }
+    await wooQueueRef.current.catch(() => {});
+    const rate = wooCartMeta?.rates.find((entry) => entry.selected);
+    const body = new URLSearchParams({
+      billing_first_name: form.firstName.trim(),
+      billing_last_name: form.lastName.trim(),
+      billing_country: country,
+      billing_address_1: form.address.trim(),
+      billing_address_2: form.address2.trim(),
+      billing_city: form.city.trim(),
+      billing_state: form.state.trim(),
+      billing_postcode: form.postalCode.trim(),
+      billing_phone: form.phone.trim(),
+      billing_email: cartUser.email,
+      order_comments: getCheckoutOrderNotes(form),
+      payment_method: String(tbvCommerce.gatewayId || ""),
+      "shipping_method[0]": rate?.id || "",
+      terms: "on",
+      "terms-field": "1",
+      tbv_attestation_research: attestation.acceptedResearch ? "1" : "",
+      tbv_attestation_qualified: attestation.acceptedQualified ? "1" : "",
+      tbv_attestation_terms: attestation.acceptedTerms ? "1" : "",
+      tbv_carrier_preference: form.carrierPreference || "",
+      tbv_tax_id: form.taxId || "",
+      "woocommerce-process-checkout-nonce": String(tbvCommerce.checkoutNonce || ""),
+      _wp_http_referer: tbvSitePath("/cart/"),
+    });
+    setCheckoutMessage(tx("Placing your order…", "Оформляем заказ…"));
+    try {
+      const response = await fetch(tbvCommerce.checkoutEndpoint, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" }, body });
+      const data = await response.json().catch(() => null);
+      if (data?.result === "success" && typeof data.redirect === "string") {
+        const target = new URL(data.redirect, window.location.href);
+        if (target.origin === window.location.origin) {
+          track("order_placed", { page: "cart", payment_method: "staging_test", total: cartTotal, items_count: cart.length });
+          window.location.assign(target.href);
+          return;
+        }
+      }
+      const text = typeof data?.messages === "string" ? new DOMParser().parseFromString(data.messages, "text/html").body.textContent.replace(/\s+/g, " ").trim() : "";
+      setCheckoutMessage(text || tx("Checkout failed. Please try again.", "Не удалось оформить заказ. Попробуйте ещё раз."));
+      wooCartNonceRef.current = null;
+      initWooCart().catch(() => {});
+    } catch {
+      setCheckoutMessage(tx("Checkout failed. Please try again.", "Не удалось оформить заказ. Попробуйте ещё раз."));
+    }
+  }
+
+  // Keep WooCommerce's selected rate and destination in step with the cart page.
+  useEffect(() => {
+    if (!tbvCommerce || !wooCartMeta || wooCartMeta.packageId === null) return;
+    const wanted = wooCartMeta.rates.find((rate) => rate.service === shippingType);
+    if (wanted && !wanted.selected) wooCartPost("select-shipping-rate", { package_id: wooCartMeta.packageId, rate_id: wanted.id });
+  }, [shippingType, wooCartMeta]);
+  useEffect(() => {
+    if (!tbvCommerce || !wooCartMeta) return;
+    const code = tbvWooCountryCode(checkoutForm.country);
+    if (code && code !== wooCartMeta.country) wooCartPost("update-customer", { shipping_address: { country: code }, billing_address: { country: code } });
+  }, [checkoutForm.country, wooCartMeta?.country]);
+
   function updateQuantity(id, change) { return changeWooItem(id, change); }
   function removeFromCart(id) { return changeWooItem(id, 0, true); }
   function decrementCartItem(id) { return changeWooItem(id, -1); }
@@ -11539,6 +11695,10 @@ export default function App() {
   }
 
   async function applyPromoCode() {
+    if (tbvCommerce) {
+      setPromoMessage("Promo codes are not active on this staging site.");
+      return;
+    }
     const requestId = ++promoApplyRequestRef.current;
     const normalizedCode = promoInput.trim().toUpperCase();
 
@@ -12186,7 +12346,7 @@ export default function App() {
 
   function requestCheckoutAttestation() {
     if (cart.length === 0 || hasOutOfStockInCart) return;
-    if (currentUser?.email && !validateCheckoutBeforeAttestation()) return;
+    if (cartUser?.email && !validateCheckoutBeforeAttestation()) return;
     setPendingAttestationAction(
       finalTotal === 0 && storeCreditApplied > 0 ? "credits" : "checkout"
     );
@@ -12210,7 +12370,7 @@ export default function App() {
     const acceptedResearch = attestationOverride?.researchAccepted ?? researchAccepted;
     const acceptedQualified = attestationOverride?.qualifiedAccepted ?? qualifiedAccepted;
     const acceptedTerms = attestationOverride?.termsAccepted ?? termsAccepted;
-    if (!currentUser?.email) {
+    if (!cartUser?.email) {
       setPendingCheckoutAfterAuth(true);
       setAuthMode("create");
       setAccountMessage(
@@ -12310,6 +12470,11 @@ export default function App() {
       }
       setCheckboxHighlight(true);
       setTimeout(() => setCheckboxHighlight(false), 900);
+      return;
+    }
+
+    if (tbvCommerce) {
+      await submitWooCheckout(syncedForm, { acceptedResearch, acceptedQualified, acceptedTerms });
       return;
     }
 
@@ -14479,7 +14644,7 @@ export default function App() {
                     ${
                       item.key === "cart"
                         ? "bg-black text-white hover:bg-black/80"
-                        : item.key === "account" && page === "cart" && !currentUser
+                        : item.key === "account" && page === "cart" && !cartUser
                         ? "bg-red-600 text-white shadow-[0_0_14px_rgba(220,38,38,0.55)] hover:bg-red-500"
                         : page === item.key
                         ? "bg-white text-black shadow-[0_6px_20px_rgba(0,0,0,0.15)]"
@@ -14608,7 +14773,7 @@ export default function App() {
                     } ${
                       page === item.key
                         ? "border-white/35 bg-white/20 text-white"
-                        : item.key === "account" && page === "cart" && !currentUser
+                        : item.key === "account" && page === "cart" && !cartUser
                         ? "border-red-300/30 bg-red-700/70 text-white shadow-[0_0_14px_rgba(220,38,38,0.35)]"
                         : "bg-white/[0.10] text-white hover:bg-white/[0.16]"
                     }`}
@@ -21108,7 +21273,1179 @@ export default function App() {
           </main>
         )}
 
-        {null /* WooCommerce renders the cart on its own route. */}
+        {page === "cart" && (
+          <main className="tbv-cart-page mx-auto max-w-[1280px] px-4 pt-8 pb-28 md:px-10 md:pt-12 xl:pb-16">
+            {/* The PayPal SDK preloads above; payment buttons mount only when selected. */}
+            <div
+              className={
+                checkoutStep === "payment"
+                  ? "block"
+                  : "grid min-w-0 gap-5 xl:grid-cols-[1.1fr_0.9fr] xl:gap-6"
+              }
+            >
+              {checkoutStep === "details" && (
+                <div className="bpc-catalog-surface--worldwide p-5 md:p-8">
+                  <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] md:mt-3 md:text-5xl">
+                    {t("yourCart")}
+                  </h1>
+
+                  {cart.length === 0 ? (
+                    <div className="mt-6 rounded-2xl border border-white/20 bg-black/10 px-5 py-6 text-white/70 md:mt-8">
+                      {t("cartEmpty")}
+                    </div>
+                  ) : (() => {
+                    const regularItems = cart.filter(i => !i.fromWarehouse);
+                    const usItems = cart.filter(i => i.fromWarehouse === "us");
+                    const renderItem = (item) => (
+                      <div
+                        key={getProductId(item)}
+                        className={`rounded-[1.2rem] border px-3 py-3 md:rounded-[1.6rem] md:p-5 ${!isCartOfferAvailable(item) ? "border-red-500/50 bg-red-500/10" : "border-white/20 bg-black/60"}`}
+                      >
+                        {(() => {
+                          const isOOS = !isCartOfferAvailable(item);
+                          return (
+                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-4">
+                              <div className="min-w-0">
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <div className={`min-w-0 whitespace-normal break-words text-[15px] font-semibold leading-tight md:text-xl ${isOOS ? "text-red-300" : "text-white"}`}>
+                                    {publicProductName(item.name)}
+                                  </div>
+                                  {item.fromWarehouse === "us" && (
+                                     <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/60 bg-[#a32133] px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.1em] text-white shadow-[0_0_10px_rgba(163,33,51,0.35)]"><UsFlag />US</span>
+                                  )}
+                                </div>
+                                <div className="mt-0.5 text-[12px] text-white/60 md:mt-1 md:text-sm whitespace-nowrap overflow-hidden">
+                                  {`${item.vials || 10} VIAL${(item.vials || 10) === 1 ? "" : "S"} × ${item.dose.toUpperCase().replace(" EACH", "")}`}{" "}
+                                  • {item.name === "BPC-157" ? formatPricePrecise(item.price) : formatPrice(item.price)}
+                                  {isOOS && <span className="ml-2 font-bold text-red-400 uppercase tracking-[0.08em]">· Out of stock</span>}
+                                </div>
+                              </div>
+                              <div className="flex items-center justify-between gap-2 md:flex-nowrap md:gap-4 shrink-0">
+                                <div className="flex items-center gap-1 px-1.5 py-1 md:gap-3 md:px-3 md:py-2">
+                                  <button onClick={() => updateQuantity(getProductId(item), -1)} className="h-8 w-8 rounded-full border-2 border-white/30 text-white">−</button>
+                                  <span className="min-w-5 text-center text-sm md:min-w-6 md:text-base">{item.quantity}</span>
+                                  <button onClick={() => updateQuantity(getProductId(item), 1)} className="h-8 w-8 rounded-full border-2 border-white/30 text-white">+</button>
+                                </div>
+                                <div className="flex items-center gap-3 md:gap-5">
+                                  <div className="text-[14px] font-semibold md:text-lg">{formatPricePrecise(Number(item.price || 0) * (item.quantity ?? item.qty ?? 1))}</div>
+                                  <button onClick={() => removeFromCart(getProductId(item))} className="text-[12px] text-white hover:text-white md:text-sm">{t("remove")}</button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    );
+                    return (
+                      <div className="mt-6 space-y-4 md:mt-8">
+                        {regularItems.map(renderItem)}
+                        {usItems.length > 0 && (
+                          <>
+                            <div className="flex items-center gap-3 pt-2">
+                              <div className="h-px flex-1 bg-white/10" />
+                              <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-blue-300">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+                                US WAREHOUSE
+                              </span>
+                              <div className="h-px flex-1 bg-white/10" />
+                            </div>
+                            {usItems.map(renderItem)}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              <div
+                ref={shippingSectionRef}
+                className={`bpc-catalog-surface--worldwide px-5 pb-5 pt-5 md:px-8 md:pb-8 md:pt-6 ${
+                  checkoutStep === "payment" ? "w-full" : ""
+                }`}
+              >
+                <div className="mt-0">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-[11px] uppercase tracking-[0.24em] text-white/60">
+                      {t("shippingMethod")}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAccountPromoCodeInput("");
+                        setPage("bonuses");
+                      }}
+                      className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-400 underline underline-offset-2 transition hover:text-emerald-300"
+                    >
+                      {tx(
+                        "Shipping Prices",
+                        "Цены доставки",
+                        "Ціни доставки",
+                        "Versandpreise",
+                        "Precios de envío"
+                      )}
+                    </button>
+                  </div>
+                  {cart.length > 0 && regularSubtotal === 0 ? (
+                    <div className="mt-3 flex items-start gap-2.5 rounded-2xl border-2 border-emerald-400 bg-white px-4 py-3.5 shadow-[0_0_0_3px_rgba(52,211,153,0.25)]">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-emerald-500"><path d="M20 6 9 17l-5-5"/></svg>
+                      <span className="text-sm font-semibold leading-snug text-black">
+                        {tx(
+                          "Free shipping for US Warehouse orders",
+                          "Бесплатная доставка для заказов US Warehouse",
+                          "Безкоштовна доставка для замовлень US Warehouse",
+                          "Kostenloser Versand für US Warehouse-Bestellungen",
+                          "Envío gratuito para pedidos de US Warehouse"
+                        )}
+                        <span className="block font-normal text-black/60">
+                          {tx(
+                            "Delivery time: 2–5 business days",
+                            "Срок доставки: 2–5 рабочих дней",
+                            "Термін доставки: 2–5 робочих днів",
+                            "Lieferzeit: 2–5 Werktage",
+                            "Tiempo de entrega: 2–5 días hábiles"
+                          )}
+                        </span>
+                      </span>
+                    </div>
+                  ) : (
+                  <>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setShippingType("standard")}
+                      className={`relative rounded-2xl border-2 px-4 py-3 text-left ${
+                        shippingType === "standard"
+                          ? "border-emerald-400 bg-black/60 text-white shadow-[0_0_0_3px_rgba(52,211,153,0.25),0_10px_30px_rgba(0,0,0,0.14)]"
+                          : "border-white/20 bg-black/60 text-white/70 hover:bg-black/60"
+                      }`}
+                    >
+                      {shippingType === "standard" && (
+                        <div className={`absolute right-3 top-3 hidden sm:flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold text-white ${shippingHighlight ? "animate-check-pulse" : ""}`}>
+                          ✓ Selected
+                        </div>
+                      )}
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.22em]">
+                        {tx("Standard", "Стандартная", "Стандартна")}
+                      </div>
+                      <div className="mt-1 text-sm text-white">
+                        8–12 business days
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <div className="text-sm font-semibold text-white">
+                          {cart.length === 0
+                            ? "—"
+                            : regularSubtotal === 0
+                            ? tx("FREE", "БЕСПЛАТНО", "БЕЗКОШТОВНО", "KOSTENLOS", "GRATIS")
+                            : getShippingPrice(regularSubtotal, "standard") === 0
+                            ? tx("FREE", "БЕСПЛАТНО", "БЕЗКОШТОВНО", "KOSTENLOS", "GRATIS")
+                            : formatPricePrecise(getShippingPrice(regularSubtotal, "standard"))}
+                        </div>
+                        {shippingType === "standard" && (
+                          <div className={`flex sm:hidden items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-bold text-white ${shippingHighlight ? "animate-check-pulse" : ""}`}>
+                            ✓ Selected
+                          </div>
+                        )}
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShippingType("express")}
+                      className={`relative rounded-2xl border-2 px-4 py-3 text-left ${
+                        shippingType === "express"
+                          ? "border-emerald-400 bg-black/60 text-white shadow-[0_0_0_3px_rgba(52,211,153,0.25),0_10px_30px_rgba(0,0,0,0.14)]"
+                          : "border-white/20 bg-black/60 text-white/70 hover:bg-black/60"
+                      }`}
+                    >
+                      {shippingType === "express" && (
+                        <div className="absolute right-3 top-3 hidden sm:flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold text-white">
+                          ✓ Selected
+                        </div>
+                      )}
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.22em]">
+                        {tx("Express", "Экспресс", "Експрес")}
+                      </div>
+                      <div className="mt-1 text-sm text-white">
+                        5–7 business days
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <div className="text-sm font-semibold text-white">
+                          {cart.length === 0
+                            ? "—"
+                            : regularSubtotal === 0
+                            ? tx("FREE", "БЕСПЛАТНО", "БЕЗКОШТОВНО", "KOSTENLOS", "GRATIS")
+                            : getShippingPrice(regularSubtotal, "express") === 0
+                            ? tx("FREE", "БЕСПЛАТНО", "БЕЗКОШТОВНО", "KOSTENLOS", "GRATIS")
+                            : formatPricePrecise(getShippingPrice(regularSubtotal, "express"))}
+                        </div>
+                        {shippingType === "express" && (
+                          <div className="flex sm:hidden items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-bold text-white">
+                            ✓ Selected
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Warning: express selected but country doesn't support it */}
+                  {shippingType === "express" && checkoutForm.country && !EXPRESS_ALLOWED_COUNTRIES.has(checkoutForm.country) && (
+                    <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-red-300"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        <span className="text-[11px] font-semibold text-red-200">
+                          Express unavailable for {checkoutForm.country}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShippingType("standard")}
+                        className="shrink-0 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-white hover:bg-white/20 transition-colors"
+                      >
+                        Switch to Standard
+                      </button>
+                    </div>
+                  )}
+                  </>
+                  )}
+
+                  {cart.some(i => i.fromWarehouse === "us") && !(cart.length > 0 && regularSubtotal === 0) && (
+                    <div className="mt-3 flex items-center gap-2.5 rounded-xl border-2 border-blue-400 bg-blue-500/25 px-4 py-3 shadow-[0_0_0_3px_rgba(96,165,250,0.15)]">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-blue-200"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+                      <span className="text-[12px] font-bold text-white">
+                        {tx("US WAREHOUSE items: free shipping in 2–5 business days", "Товары US WAREHOUSE: бесплатная доставка 2–5 рабочих дня", "Товари US WAREHOUSE: безкоштовна доставка 2–5 робочих днів", "US WAREHOUSE Artikel: kostenloser Versand in 2–5 Werktagen", "Artículos US WAREHOUSE: envío gratis en 2–5 días hábiles")}
+                      </span>
+                    </div>
+                  )}
+
+                </div>
+
+                <div className="mt-6 rounded-2xl border border-white/10 bg-black/60 p-4 space-y-2.5">
+                  {/* Items count */}
+                  <div className="flex items-center justify-between text-[13px] text-white">
+                    <span className="uppercase tracking-[0.1em]">{tx("Items", "Товары", "Товари", undefined, "Artículos")}</span>
+                    <span className="tabular-nums">{cartCount}</span>
+                  </div>
+
+                  {/* Subtotal */}
+                  <div className="flex items-center justify-between text-[13px] text-white">
+                    <span className="uppercase tracking-[0.1em]">{tx("Subtotal", "Подытог", "Проміжна сума", undefined, "Subtotal")}</span>
+                    <span className="tabular-nums">{formatPricePrecise(subtotal)}</span>
+                  </div>
+
+                  {/* Automatic discount */}
+                  {cartAutoDiscount > 0 && (
+                    <div className="flex items-center justify-between text-[13px] text-white">
+                      <span className="uppercase tracking-[0.1em]">Automatic discount ({automaticDiscountRate * 100}%)</span>
+                      <span className="tabular-nums font-semibold text-emerald-300">−${Number(cartAutoDiscount).toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  {/* Shipping */}
+                  <div className="flex items-center justify-between text-[13px] text-white">
+                    <span>
+                      <span className="uppercase tracking-[0.1em]">{tx("Shipping", "Доставка", "Доставка", undefined, "Envío")}</span>
+                      <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/50">
+                        ({cart.length > 0 && regularSubtotal === 0
+                          ? tx("US Warehouse", "Склад в США", "Склад у США", "US-Lager", "Almacén de EE. UU.")
+                          : shippingType === "express"
+                          ? tx("Express", "Экспресс", "Експрес", "Express", "Exprés")
+                          : tx("Standard", "Стандарт", "Стандарт", "Standard", "Estándar")})
+                      </span>
+                    </span>
+                    <span className="tabular-nums">
+                      {cartShipping === 0 ? "FREE" : `$${cartShipping.toFixed(2)}`}
+                    </span>
+                  </div>
+
+                  {/* Promo code */}
+                  {promoDiscountRate > 0 && (
+                    <div className="flex items-center justify-between text-[13px] text-white">
+                      <span className="uppercase tracking-[0.1em]">
+                        {t("promoCode")} <span className="font-bold">{appliedPromo?.code}</span>
+                        <span className="ml-1 text-white/50">({+(((appliedPromo?.rate || 0) * 100).toFixed(2))}% off)</span>
+                      </span>
+                      <span className="tabular-nums font-semibold text-emerald-300">−${Number(promoDiscount).toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  {/* Affiliate discount */}
+                  {affiliateDiscount > 0 && (
+                    <div className="flex items-center justify-between text-[13px] text-white">
+                      <span className="uppercase tracking-[0.1em]">Affiliate discount ({resolvedAffiliateCode})</span>
+                      <span className="tabular-nums font-semibold text-emerald-300">−${Number(affiliateDiscount).toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  {/* Store credit */}
+                  {storeCreditApplied > 0 && (
+                    <div className="flex items-center justify-between text-[13px] text-emerald-300">
+                      <span className="uppercase tracking-[0.1em]">{tx("Store credit", "Кредит магазина", "Кредит магазину", "Store-Guthaben", "Crédito de tienda")}</span>
+                      <span className="tabular-nums font-semibold">−${Number(storeCreditApplied).toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  {/* Total */}
+                  <div className="flex items-center justify-between border-t border-white/10 pt-3">
+                    <span className="text-[13px] font-bold uppercase tracking-[0.12em] text-white">
+                      {tx("Total", "Итого", "Усього", undefined, "Total")}
+                    </span>
+                    <span className="text-[17px] font-bold tabular-nums text-white">{formatPricePrecise(cartTotal)}</span>
+                  </div>
+
+                  {/* Promo code */}
+                  <div className="border-t border-white/10 pt-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex min-w-[180px] flex-1 gap-2">
+                        <BufferedInput
+                          value={promoInput}
+                          onValueChange={(value) => {
+                            setPromoInput(value);
+                            if (promoMessage) setPromoMessage("");
+                          }}
+                          placeholder={t("enterCode")}
+                          className="w-full min-w-0 rounded-full border border-white/20 bg-black/60 px-3 py-1.5 text-xs text-white placeholder:text-white/60 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={applyPromoCode}
+                          className="shrink-0 rounded-full border border-white/20 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-white hover:bg-white/10"
+                        >
+                          {t("apply")}
+                        </button>
+                      </div>
+                      {(ownerFreeShippingActive || appliedPromo || (resolvedAffiliateCode && !affiliateDiscountDisabled && !pinnedAffiliateCode)) && (
+                        <button type="button" onClick={removePromoCode}
+                          className="shrink-0 rounded-full border border-white/30 px-3 py-2 text-xs text-white hover:bg-white/10">
+                          {tx("Remove code", "Убрать код", "Прибрати код", "Code entfernen", "Quitar código")}
+                        </button>
+                      )}
+                      {promoMessage && (
+                        <div role="status" className="w-full text-xs text-white/80">
+                          {promoMessage}
+                        </div>
+                      )}
+                      {resolvedAffiliateCode && !appliedPromo && !affiliateDiscountDisabled && affiliateEligibility?.status !== "first_order_only" && (
+                        <div role="status" className="w-full text-xs leading-5 text-white/80">
+                          {!cartUser?.email
+                            ? tx("Sign in to confirm your first-order discount.", "Войдите, чтобы подтвердить скидку на первый заказ.", "Увійдіть, щоб підтвердити знижку на перше замовлення.", "Melden Sie sich an, um Ihren Erstbestellungsrabatt zu bestätigen.", "Inicia sesión para confirmar tu descuento del primer pedido.")
+                            : affiliateEligibility?.key !== affiliateEligibilityKey || affiliateEligibility.status === "loading"
+                              ? tx("Checking your referral discount…", "Проверяем партнёрскую скидку…", "Перевіряємо партнерську знижку…", "Empfehlungsrabatt wird geprüft…", "Comprobando tu descuento…")
+                              : affiliateEligibility.status === "unavailable"
+                                ? <>{tx("We could not confirm this referral. Retry or remove the code before paying.", "Не удалось подтвердить партнёрский код. Повторите проверку или уберите код перед оплатой.", "Не вдалося підтвердити партнерський код. Повторіть перевірку або приберіть код перед оплатою.", "Der Empfehlungscode konnte nicht bestätigt werden. Erneut prüfen oder vor der Zahlung entfernen.", "No pudimos confirmar el código. Reintenta o quítalo antes de pagar.")} <button type="button" className="underline" onClick={() => setAffiliateEligibilityRefresh(value => value + 1)}>{tx("Retry", "Повторить", "Повторити", "Erneut versuchen", "Reintentar")}</button></>
+                                : affiliateEligibility.status === "first_order_only"
+                                  ? tx("Affiliate codes can only be applied before your first paid order. Your account is already linked, or has already completed an order.", "Партнёрский код можно применить только до первого оплаченного заказа. Аккаунт уже привязан к партнёру или заказ уже был оплачен.", "Партнерський код можна застосувати лише до першого оплаченого замовлення. Обліковий запис уже прив’язаний або замовлення вже було оплачене.", "Affiliate-Codes können nur vor der ersten bezahlten Bestellung angewendet werden. Ihr Konto ist bereits verknüpft oder hat schon bestellt.", "Los códigos de afiliado solo se pueden aplicar antes del primer pedido pagado. La cuenta ya está vinculada o ya completó un pedido.")
+                                : isFirstTimeAffiliateBuyer
+                                  ? tx("Your 5% first-order discount is confirmed. The largest eligible discount applies.", "Скидка 5% на первый заказ подтверждена. Применяется наибольшая доступная скидка.", "Знижку 5% на перше замовлення підтверджено. Застосовується найбільша доступна знижка.", "Ihr Erstbestellungsrabatt von 5% ist bestätigt. Es gilt der höchste verfügbare Rabatt.", "Tu descuento del 5% está confirmado. Se aplica el mayor descuento disponible.")
+                                  : null}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {cart.length > 0 && (
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3.5 space-y-3.5">
+
+                    {regularSubtotal > 0 && (
+                    <>
+                    {/* Standard Free Shipping — $300 */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em]">
+                          <span className="text-sm leading-none">📦</span>
+                          <span className={regularSubtotal >= 300 ? "text-emerald-300 font-bold" : "text-white"}>
+                            {tx("Free Standard Shipping", "Бесплатная доставка", "Безкоштовна доставка", "Kostenloser Standardversand", "Envío estándar gratis")}
+                          </span>
+                        </div>
+                        {regularSubtotal >= 300
+                          ? <span className="text-[11px] font-bold text-emerald-300">✓ FREE</span>
+                          : <span className="text-[11px] text-white">{formatPricePrecise(300 - regularSubtotal)} {tx("away", "до цели", "до цілі", "entfernt", "más")}</span>
+                        }
+                      </div>
+                      <div className="h-1 w-full overflow-hidden rounded-full bg-white/10">
+                        <div className="h-full rounded-full bg-amber-500 transition-all duration-700 ease-out" style={{ width: `${Math.min((regularSubtotal / 300) * 100, 100)}%` }} />
+                      </div>
+                    </div>
+
+                    {/* Free Express Shipping — $550 */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em]">
+                          <span className="text-sm leading-none">⚡</span>
+                          <span className={regularSubtotal >= 550 ? "text-emerald-300 font-bold" : "text-white"}>
+                            {tx("Free Express Shipping", "Бесплатный экспресс", "Безкоштовний експрес", "Kostenloser Expressversand", "Envío exprés gratis")}
+                          </span>
+                        </div>
+                        {regularSubtotal >= 550
+                          ? <span className="text-[11px] font-bold text-emerald-300">✓ FREE</span>
+                          : <span className="text-[11px] text-white">{formatPricePrecise(550 - regularSubtotal)} {tx("away", "до цели", "до цілі", "entfernt", "más")}</span>
+                        }
+                      </div>
+                      <div className="h-1 w-full overflow-hidden rounded-full bg-white/10">
+                        <div className="h-full rounded-full bg-sky-400 transition-all duration-700 ease-out" style={{ width: `${Math.min((regularSubtotal / 550) * 100, 100)}%` }} />
+                      </div>
+                    </div>
+                    </>
+                    )}
+
+                    {/* Discount tiers */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em]">
+                          <span className="text-sm leading-none">🏷️</span>
+                          <span className={subtotal >= 1000 ? "text-emerald-300 font-bold" : "text-white"}>
+                            {subtotal >= 4000
+                              ? tx("20% Discount", "Скидка 20%", "Знижка 20%", "20% Rabatt", "20% de descuento")
+                              : subtotal >= 2000
+                              ? tx("15% Discount", "Скидка 15%", "Знижка 15%", "15% Rabatt", "15% de descuento")
+                              : subtotal >= 1000
+                              ? tx("10% Discount", "Скидка 10%", "Знижка 10%", "10% Rabatt", "10% de descuento")
+                              : tx("10% Discount", "Скидка 10%", "Знижка 10%", "10% Rabatt", "10% de descuento")
+                            }
+                          </span>
+                        </div>
+                        {subtotal >= 4000
+                          ? <span className="text-[11px] font-bold text-emerald-300">✓ MAX</span>
+                          : subtotal >= 2000
+                          ? <span className="text-[11px] text-white">{formatPricePrecise(4000 - subtotal)} {tx("to 20%", "до 20%", "до 20%", "für 20%", "para 20%")}</span>
+                          : subtotal >= 1000
+                          ? <span className="text-[11px] text-white">{formatPricePrecise(2000 - subtotal)} {tx("to 15%", "до 15%", "до 15%", "für 15%", "para 15%")}</span>
+                          : <span className="text-[11px] text-white">{formatPricePrecise(1000 - subtotal)} {tx("to 10%", "до 10%", "до 10%", "für 10%", "para 10%")}</span>
+                        }
+                      </div>
+                      <div className="h-1 w-full overflow-hidden rounded-full bg-white/10">
+                        <div className="h-full rounded-full bg-violet-400 transition-all duration-700 ease-out" style={{ width: `${
+                          subtotal >= 4000 ? 100
+                          : subtotal >= 2000 ? Math.min(((subtotal - 2000) / 2000) * 100, 100)
+                          : subtotal >= 1000 ? Math.min(((subtotal - 1000) / 1000) * 100, 100)
+                          : Math.min((subtotal / 1000) * 100, 100)
+                        }%` }} />
+                      </div>
+                    </div>
+
+                  </div>
+                )}
+
+
+                {regularSubtotal >= 350 && (
+                  <div className="mt-5 rounded-[1.6rem] border border-white/20 bg-white/[0.05] text-white shadow-[0_10px_30px_rgba(0,0,0,0.06)]">
+                    <button
+                      type="button"
+                      onClick={() => setIsBonusExpanded((v) => !v)}
+                      className="flex w-full items-start gap-2.5 p-2.5 text-left transition-colors hover:bg-white/[0.03] rounded-[1.6rem]"
+                      aria-expanded={isBonusExpanded}
+                    >
+                      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/20 bg-black/10 text-lg">
+                        🎁
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[14px] font-semibold text-white">
+                          {tx(
+                            "Order bonus unlocked",
+                            "Бонус за заказ разблокирован",
+                            "Бонус за замовлення розблоковано"
+                          )}
+                        </div>
+                        {!isBonusExpanded && (
+                          <div className="mt-0.5 text-[10px] uppercase tracking-[0.16em] text-white/60">
+                            {tx(
+                              "Tap to view details",
+                              "Нажмите, чтобы посмотреть",
+                              "Натисніть, щоб подивитися",
+                              "Tippen für Details",
+                              "Toca para ver detalles"
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <span
+                        className={`mt-1 shrink-0 text-xs text-white/70 transition-transform duration-200 ${
+                          isBonusExpanded ? "rotate-180" : ""
+                        }`}
+                      >
+                        ▼
+                      </span>
+                    </button>
+                    {isBonusExpanded && (
+                      <div className="space-y-3 px-5 pb-5">
+                          {regularSubtotal >= 350 && (
+                            <div className="rounded-xl border border-white/10 bg-black/10 px-4 py-3">
+                              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white">
+                                {tx(
+                                  "Free bonus",
+                                  "Бесплатный бонус",
+                                  "Безкоштовний бонус",
+                                  undefined,
+                                  "Bono gratis"
+                                )}
+                              </div>
+                              <div className="mt-1 text-[15px] leading-6 text-white/90">
+                                {tx("Free", "Бесплатный", "Безкоштовний")}{" "}
+                                <span className="font-semibold text-white">
+                                  Reconstitution Solution
+                                </span>{" "}
+                                {tx(
+                                  "(10 vials × 3 ml each) bonus added for orders above",
+                                  "(10 флаконов × 3 ml каждый) бонус добавлен для заказов от",
+                                  "(10 флаконів × 3 ml кожен) бонус додано для замовлень від",
+                                  undefined,
+                                  "(10 viales × 3 ml cada uno) de bono añadido para pedidos superiores a"
+                                )}{" "}
+                                <span className="font-semibold text-white">
+                                  $350
+                                </span>{" "}
+                                {tx(
+                                  "from shop worldwide",
+                                  "из магазина worldwide",
+                                  "з магазину worldwide",
+                                  undefined,
+                                  "de la tienda worldwide"
+                                )}
+                                .
+                              </div>
+                            </div>
+                          )}
+
+                          {subtotal >= 1000 && (
+                            <div className="rounded-xl border border-white/10 bg-black/10 px-4 py-3">
+                              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white">
+                                {tx(
+                                  "Checkout discounts",
+                                  "Скидки на checkout",
+                                  "Знижки на checkout"
+                                )}
+                              </div>
+                              <div className="mt-2 inline-grid grid-cols-2 gap-x-8 gap-y-1.5 text-[14px] font-normal text-white/90">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-white/30">•</span>
+                                  <span><span className="font-semibold text-white">$1000+</span> → 10% off</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-white/30">•</span>
+                                  <span><span className="font-semibold text-white">$2000+</span> → 15% off</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-white/30">•</span>
+                                  <span><span className="font-semibold text-white">$4000+</span> → 20% off</span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                    )}
+                  </div>
+                )}
+
+                {checkoutStep === "details" && (
+                  <>
+                    <div ref={formSectionRef} className="tbv-checkout-shipping-details mt-6 rounded-[1.6rem] border border-white/20 bg-black/60 p-5">
+                      <div className="text-[11px] uppercase tracking-[0.24em] text-white/60">
+                        {t("shippingDetails")}
+                      </div>
+                      {!cartUser && (
+                        <div className="mt-3 rounded-xl border border-red-500/40 bg-red-900/20 px-4 py-3 text-[12px] leading-5 text-white/90 shadow-[0_0_18px_rgba(220,38,38,0.25)] md:text-sm md:leading-7">
+                          {tx(
+                            "Checkout is available only for signed-in customers. This order will be saved under your account email.",
+                            "Оплата доступна только после входа в аккаунт. Этот заказ будет сохранён на email вашего аккаунта.",
+                            "Оплата доступна лише після входу в акаунт. Це замовлення буде збережено на email вашого акаунта.",
+                            "Checkout ist nur für angemeldete Kunden verfügbar. Diese Bestellung wird unter Ihrer Konto-E-Mail gespeichert.",
+                            "El checkout solo está disponible para clientes con sesión iniciada. Este pedido se guardará con el email de tu cuenta."
+                          )}
+                          {" "}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAuthMode("signin");
+                              setAccountMessage("");
+                              setPage("account");
+                            }}
+                            className="ml-1 inline-flex h-5 items-center justify-center align-middle whitespace-nowrap rounded-full bg-white px-2 text-[8px] font-black uppercase leading-none tracking-[0.1em] text-black transition hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                          >
+                            {tx("Sign in", "Войти", "Увійти", "Anmelden", "Iniciar sesión")}
+                          </button>
+                        </div>
+                      )}
+                      <div className="mt-4 grid gap-3" key={cartUser?.id || cartUser?.email || "guest"}>
+                        <div className="relative">
+                          <input
+                            ref={(el) => (checkoutInputRefs.current.email = el)}
+                            type="email"
+                            value={cartUser?.email || ""}
+                            readOnly
+                            placeholder={tx(
+                              "Account email *",
+                              "Email аккаунта *",
+                              "Email акаунта *",
+                              "Konto-E-Mail *",
+                              "Email de la cuenta *"
+                            )}
+                            className="w-full rounded-2xl border border-white/20 bg-black/20 px-4 py-3 text-sm text-white/80 placeholder:text-white outline-none cursor-not-allowed"
+                          />
+                          {!cartUser && (
+                            <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-white/50">
+                              (registration required)
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <BufferedInput
+                            ref={(el) =>
+                              (checkoutInputRefs.current.firstName = el)
+                            }
+                            type="text"
+                            value={checkoutForm.firstName}
+                            onImmediateInput={(value) => rememberCheckoutField("firstName", value)}
+                            onValueChange={(value) => updateCheckoutField("firstName", value)}
+                            placeholder={tx(
+                              "First name *",
+                              "Имя *",
+                              "Імʼя *",
+                              undefined,
+                              "Nombre *"
+                            )}
+                            className={`rounded-2xl border px-4 py-3 text-sm text-white placeholder:text-white outline-none transition ${
+                              checkoutErrors.firstName
+                                ? "border-red-300 bg-red-500/10"
+                                : "border-white/20 bg-black/10"
+                            }`}
+                          />
+                          <BufferedInput
+                            ref={(el) =>
+                              (checkoutInputRefs.current.lastName = el)
+                            }
+                            type="text"
+                            value={checkoutForm.lastName}
+                            onImmediateInput={(value) => rememberCheckoutField("lastName", value)}
+                            onValueChange={(value) => updateCheckoutField("lastName", value)}
+                            placeholder={tx(
+                              "Last name *",
+                              "Фамилия *",
+                              "Прізвище *",
+                              undefined,
+                              "Apellido *"
+                            )}
+                            className={`rounded-2xl border px-4 py-3 text-sm text-white placeholder:text-white outline-none transition ${
+                              checkoutErrors.lastName
+                                ? "border-red-300 bg-red-500/10"
+                                : "border-white/20 bg-black/10"
+                            }`}
+                          />
+                        </div>
+
+                        <div className="relative" ref={countryDropdownRef}>
+                          {cart.some(i => i.fromWarehouse === "us") && (
+                            <div className="mb-2 flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-[12px] text-amber-200 leading-[1.5]">
+                              <svg className="mt-0.5 shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                              <span>{tx("Your cart contains US Warehouse items — delivery is available within the USA only. Country is automatically set to United States.", "В вашей корзине есть товары US Warehouse — доставка только по США. Страна автоматически установлена как United States.", "У вашому кошику є товари US Warehouse — доставка лише по США. Країна автоматично встановлена як United States.", "Ihr Warenkorb enthält US-Warehouse-Artikel — Lieferung nur innerhalb der USA. Land wird automatisch auf United States gesetzt.", "Su carrito tiene artículos del US Warehouse — entrega solo dentro de EE.UU. El país se establece automáticamente en United States.")}</span>
+                            </div>
+                          )}
+                          <div className="relative">
+                            <BufferedInput
+                              ref={(el) =>
+                                (checkoutInputRefs.current.country = el)
+                              }
+                              type="text"
+                              value={countrySearch}
+                              onValueChange={handleCountryInputChange}
+                              onFocus={() => openCountryDropdown()}
+                              placeholder={tx(
+                                "Country * (pick from the list)",
+                                "Страна * (выберите из списка)",
+                                "Країна * (оберіть зі списку)",
+                                undefined,
+                                "País * (elige de la lista)"
+                              )}
+                              className={`w-full rounded-2xl border px-4 py-3 pr-12 text-sm text-white placeholder:text-white outline-none transition ${
+                                checkoutErrors.country && countrySearch.trim().length === 0
+                                  ? "border-red-300 bg-red-500/10"
+                                  : "border-white/20 bg-black/10 focus:border-white/30"
+                              }`}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isCountryDropdownOpen) {
+                                  setIsCountryDropdownOpen(false);
+                                  setCountryDropdownRect(null);
+                                } else {
+                                  openCountryDropdown();
+                                }
+                              }}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-white/75 hover:text-white p-3 sm:p-1"
+                              aria-label="Toggle country list"
+                            >
+                              <span
+                                className={`block text-sm ${
+                                  isCountryDropdownOpen
+                                    ? "rotate-180"
+                                    : "rotate-0"
+                                }`}
+                              >
+                                ▼
+                              </span>
+                            </button>
+                          </div>
+
+                          {isCountryDropdownOpen && countryDropdownRect && (
+                            <div
+                              ref={countryDropdownMenuRef}
+                              className="z-[9999] rounded-[1.3rem] border border-white/15 bg-gradient-to-br from-[#1a2229] via-[#10161b] to-[#080b0e] shadow-[0_20px_50px_rgba(0,0,0,0.68)] backdrop-blur-lg"
+                              style={{ position: "fixed", top: countryDropdownRect.top, left: countryDropdownRect.left, width: countryDropdownRect.width }}
+                            >
+                              <div ref={countryDropdownScrollRef} className="max-h-[260px] py-2 always-scrollbar" style={{ direction: "ltr" }}>
+                                {sortedCountryOptions.length > 0 ? sortedCountryOptions.map((country, idx) => {
+                                    const expressRestricted = !EXPRESS_ALLOWED_COUNTRIES.has(country);
+                                    const blockedByExpress = shippingType === "express" && expressRestricted;
+                                    const isDivider = expressFirstCount > 0 && expressFirstCount < sortedCountryOptions.length && idx === expressFirstCount;
+                                    return (
+                                      <div key={country}>
+                                        {isDivider && <div className="mx-4 my-1 border-t border-white/10" />}
+                                        <button
+                                          type="button"
+                                          onClick={() => !blockedByExpress && selectCountry(country)}
+                                          disabled={blockedByExpress}
+                                          className={`flex w-full items-center justify-between px-4 py-3 text-left text-sm ${blockedByExpress ? "cursor-not-allowed opacity-40 text-white/40" : "text-white hover:bg-black/20"}`}
+                                          style={{ textAlign: "left" }}
+                                        >
+                                          <span>{country}</span>
+                                          {shippingType === "express" && !expressRestricted && (
+                                            <span className="ml-2 shrink-0 rounded-md bg-emerald-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-emerald-300">
+                                              ✓ Express available
+                                            </span>
+                                          )}
+                                          {shippingType === "express" && expressRestricted && (<>
+                                            <span className="ml-2 shrink-0 hidden sm:inline rounded-md bg-red-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-red-300">
+                                              Express unavailable · Please select Standard
+                                            </span>
+                                            <span className="ml-2 shrink-0 sm:hidden w-[160px] overflow-hidden rounded-md bg-red-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-red-300">
+                                              <span className="badge-marquee-inner">
+                                                Express unavailable · Please select Standard &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                                                Express unavailable · Please select Standard &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                                              </span>
+                                            </span>
+                                          </>)}
+                                        </button>
+                                      </div>
+                                    );
+                                  })
+                                : (
+                                  <div className="px-4 py-3 text-sm text-white/60">
+                                    {t("noCountryFound")}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {checkoutForm.country === "Mexico" && (
+                          <BufferedInput
+                            type="text"
+                            ref={(el) => (checkoutInputRefs.current.taxId = el)}
+                            value={checkoutForm.taxId}
+                            onImmediateInput={(value) => rememberCheckoutField("taxId", value)}
+                            onValueChange={(value) => updateCheckoutField("taxId", value)}
+                            placeholder={
+                              language === "ES"
+                                ? "RFC / Tax ID (requerido para México)"
+                                : "RFC / Tax ID (required for Mexico)"
+                            }
+                            className={`rounded-2xl border px-4 py-3 text-sm text-white placeholder:text-white/60 outline-none transition ${checkoutErrors.taxId ? "border-red-300 bg-red-500/10" : "border-white/20 bg-black/10 focus:border-white/30"}`}
+                          />
+                        )}
+
+                        <BufferedInput
+                          ref={(el) => (checkoutInputRefs.current.address = el)}
+                          type="text"
+                          value={checkoutForm.address}
+                          onImmediateInput={(value) => rememberCheckoutField("address", value)}
+                          onValueChange={(value) => updateCheckoutField("address", value)}
+                          placeholder={tx(
+                            "Street address *",
+                            "Адрес улицы *",
+                            "Адреса вулиці *",
+                            undefined,
+                            "Dirección *"
+                          )}
+                          className={`rounded-2xl border px-4 py-3 text-sm text-white placeholder:text-white outline-none transition ${
+                            checkoutErrors.address
+                              ? "border-red-300 bg-red-500/10"
+                              : "border-white/20 bg-black/10"
+                          }`}
+                        />
+
+                        <BufferedInput
+                          type="text"
+                          ref={(el) => (checkoutInputRefs.current.address2 = el)}
+                          value={checkoutForm.address2}
+                          onImmediateInput={(value) => rememberCheckoutField("address2", value)}
+                          onValueChange={(value) => updateCheckoutField("address2", value)}
+                          placeholder={tx(
+                            "Apt/Suite (Optional)",
+                            "Квартира/офис (необязательно)",
+                            "Квартира/офіс (необов'язково)",
+                            undefined,
+                            "Apt/Suite (Opcional)"
+                          )}
+                          className="rounded-2xl border border-white/20 bg-black/10 px-4 py-3 text-sm text-white placeholder:text-white outline-none transition"
+                        />
+
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <BufferedInput
+                            ref={(el) => (checkoutInputRefs.current.city = el)}
+                            type="text"
+                            value={checkoutForm.city}
+                            onImmediateInput={(value) => rememberCheckoutField("city", value)}
+                            onValueChange={(value) => updateCheckoutField("city", value)}
+                            placeholder={tx(
+                              "City *",
+                              "Город *",
+                              "Місто *",
+                              undefined,
+                              "Ciudad *"
+                            )}
+                            className={`rounded-2xl border px-4 py-3 text-sm text-white placeholder:text-white outline-none transition ${
+                              checkoutErrors.city
+                                ? "border-red-300 bg-red-500/10"
+                                : "border-white/20 bg-black/10"
+                            }`}
+                          />
+                          <BufferedInput
+                            ref={(el) =>
+                              (checkoutInputRefs.current.postalCode = el)
+                            }
+                            type="text"
+                            value={checkoutForm.postalCode}
+                            onImmediateInput={(value) => rememberCheckoutField("postalCode", value)}
+                            onValueChange={(value) => updateCheckoutField("postalCode", value)}
+                            placeholder={tx(
+                              "Postal code *",
+                              "Почтовый индекс *",
+                              "Поштовий індекс *",
+                              undefined,
+                              "Código postal *"
+                            )}
+                            className={`rounded-2xl border px-4 py-3 text-sm text-white placeholder:text-white outline-none transition ${
+                              checkoutErrors.postalCode
+                                ? "border-red-300 bg-red-500/10"
+                                : "border-white/20 bg-black/10"
+                            }`}
+                          />
+                        </div>
+
+                        <BufferedInput
+                          type="text"
+                          ref={(el) => (checkoutInputRefs.current.state = el)}
+                          value={checkoutForm.state}
+                          onImmediateInput={(value) => rememberCheckoutField("state", value)}
+                          onValueChange={(value) => updateCheckoutField("state", value)}
+                          placeholder={tx("State / Province (if applicable)", "Штат / Провинция (если применимо)", "Штат / Провінція (якщо застосовно)", "Bundesland / Provinz (falls zutreffend)", "Estado / Provincia (si aplica)")}
+                          className="rounded-2xl border border-white/20 bg-black/10 px-4 py-3 text-sm text-white placeholder:text-white outline-none transition"
+                        />
+                        <BufferedInput
+                          ref={(el) => (checkoutInputRefs.current.phone = el)}
+                          type="tel"
+                          value={checkoutForm.phone}
+                          onImmediateInput={(value) => rememberCheckoutField("phone", value)}
+                          onValueChange={(value) => updateCheckoutField("phone", value)}
+                          placeholder={t("phoneNumber")}
+                          className={`rounded-2xl border px-4 py-3 text-sm text-white placeholder:text-white outline-none transition ${
+                            checkoutErrors.phone
+                              ? "border-red-300 bg-red-500/10"
+                              : "border-white/20 bg-black/10"
+                          }`}
+                        />
+
+                        {/* Carrier preference — optional, worldwide only */}
+                        {(() => {
+                          const hasWorldwide = cart.some(i => i.fromWarehouse !== "us");
+                          const hasUS = cart.some(i => i.fromWarehouse === "us");
+                          const onlyUS = hasUS && !hasWorldwide;
+                          if (onlyUS) return null;
+                          return (
+                            <div>
+                              <div className="mb-1.5 text-[11px] uppercase tracking-[0.18em] text-white/50">
+                                Carrier preference (optional)
+                              </div>
+                              {hasUS && (
+                                <div className="mb-2 space-y-0.5 text-[10px] text-white/60 tracking-wide">
+                                  <p>Applies to Shop Worldwide items only.</p>
+                                  <p>US Warehouse always ships via USPS.</p>
+                                </div>
+                              )}
+                              <div className="flex gap-2">
+                                {["FedEx", "USPS", "UPS"].map((carrier) => (
+                                  <button
+                                    key={carrier}
+                                    type="button"
+                                    onClick={() => updateCheckoutField("carrierPreference", checkoutForm.carrierPreference === carrier ? "" : carrier)}
+                                    className={`flex-1 rounded-2xl border py-2.5 text-[12px] font-semibold tracking-wide ${
+                                      checkoutForm.carrierPreference === carrier
+                                        ? "border-white/60 bg-white/15 text-white"
+                                        : "border-white/20 bg-black/40 text-white/50 hover:border-white/40 hover:bg-white/10 hover:text-white/80"
+                                    }`}
+                                  >
+                                    {carrier}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+
+                    <div className="mt-4">
+                      <BufferedTextarea
+                        ref={(el) => (checkoutInputRefs.current.orderNotes = el)}
+                        value={checkoutForm.orderNotes}
+                        onValueChange={(value) => updateCheckoutField("orderNotes", value.slice(0, 500))}
+                        placeholder={tx(
+                          "Order notes (optional) — special instructions, anything else…",
+                          "Примечание к заказу (необязательно) — особые пожелания…",
+                          "Примітка до замовлення (необов'язково) — особливі побажання…",
+                          "Bestellnotiz (optional) — besondere Hinweise…",
+                          "Notas del pedido (opcional) — instrucciones especiales…"
+                        )}
+                        maxLength={500}
+                        rows={2}
+                        className="w-full rounded-2xl border border-white/20 bg-black/60 px-4 py-2 text-sm text-white placeholder:text-white/50 outline-none resize-none transition focus:border-white/40"
+                      />
+                      {(checkoutForm.orderNotes || "").length > 0 && (
+                        <div className="mt-1 text-right text-xs text-white/30">
+                          {(checkoutForm.orderNotes || "").length}/500
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-2">
+                      {checkoutMessage && (
+                        <div className="mt-3 rounded-xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-white/80">
+                          {checkoutMessage}
+                        </div>
+                      )}
+                      {ownerFreeShippingActive && (
+                        <div className="mt-3 flex items-center justify-between rounded-xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-white/90">
+                          <div>
+                            <span className="font-semibold text-white">OWNERFREESHIP</span>{" "}
+                            — {tx("free shipping applied", "бесплатная доставка применена", "безкоштовна доставка застосована", "kostenloser Versand aktiv", "envío gratuito aplicado")}.
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => { setOwnerFreeShippingActive(false); setPromoInput("OWNERFREESHIP"); }}
+                            className="ml-4 text-lg leading-none text-white/70 transition hover:text-white"
+                            aria-label="Remove free shipping"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {hasOutOfStockInCart && (
+                      <div className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-[13px] text-red-300">
+                        {tx(
+                          "Some items in your cart are out of stock. Please remove them to continue.",
+                          "Некоторые товары в корзине недоступны. Удалите их, чтобы продолжить.",
+                          "Деякі товари в кошику недоступні. Видаліть їх, щоб продовжити.",
+                          "Einige Artikel sind nicht vorrätig. Bitte entferne sie, um fortzufahren.",
+                          "Algunos artículos no están disponibles. Elimínalos para continuar."
+                        )}
+                      </div>
+                    )}
+                    {cartTotal === 0 && storeCreditApplied > 0 && cart.length > 0 && !hasOutOfStockInCart ? (
+                      <button
+                        type="button"
+                        onClick={requestCheckoutAttestation}
+                        className="mt-2 w-full rounded-full px-6 py-3 text-[13px] font-bold uppercase tracking-[0.22em] transition shadow-[0_0_32px_rgba(234,179,8,0.35)] hover:shadow-[0_0_48px_rgba(234,179,8,0.55)]"
+                        style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)", color: "#fff" }}
+                      >
+                        💳 {tx("Pay with Credits", "Оплатить кредитами", "Оплатити кредитами", "Mit Credits bezahlen", "Pagar con créditos")} —{" "}
+                        <span style={{ fontSize: "15px", fontWeight: 900, letterSpacing: "0.04em", color: "#fff", textShadow: "0 1px 6px rgba(0,0,0,0.35)" }}>${storeCreditApplied.toFixed(2)}</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={requestCheckoutAttestation}
+                        disabled={
+                          cart.length === 0 ||
+                          hasOutOfStockInCart
+                        }
+                        className={`mt-2 w-full rounded-full px-6 py-3 text-[13px] font-bold uppercase tracking-[0.22em] transition ${
+                          cart.length === 0 ||
+                          hasOutOfStockInCart
+                            ? "cursor-not-allowed bg-white/50 text-black/50"
+                            : "bg-white text-black hover:bg-white/90"
+                        }`}
+                      >
+                        {cart.length === 0
+                          ? language === "RU"
+                            ? "Корзина пуста"
+                            : language === "UA"
+                            ? "Кошик порожній"
+                            : language === "ES"
+                            ? "Carrito vacio"
+                            : "Cart is empty"
+                          : hasOutOfStockInCart
+                          ? tx("Remove out-of-stock items", "Удалите недоступные товары", "Видаліть недоступні товари", "Nicht vorrätigen Artikel entfernen", "Eliminar artículos sin stock")
+                          : t("proceedCheckout")}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+            {checkoutStep === "details" && cart.length > 0 && (
+              <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/20 bg-black/80 px-3 py-2.5 backdrop-blur-md sm:px-4 sm:py-3 xl:hidden">
+                <div className="flex items-center justify-between gap-2 sm:gap-3">
+                  <div className="shrink-0">
+                    <div className="text-[9px] uppercase tracking-[0.16em] text-white/60 sm:text-[10px] sm:tracking-[0.22em]">
+                      {t("total")}
+                    </div>
+                    <div className="whitespace-nowrap text-[16px] font-semibold leading-tight text-white sm:text-[18px]">
+                      {formatPricePrecise(cartTotal)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={requestCheckoutAttestation}
+                    disabled={cart.length === 0 || hasOutOfStockInCart}
+                    className="max-w-[calc(100vw-116px)] shrink-0 whitespace-nowrap rounded-full bg-white px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:bg-white/50 disabled:text-black/50 sm:max-w-none sm:px-5 sm:py-3 sm:text-[13px] sm:tracking-[0.22em]"
+                  >
+                    {t("proceedCheckout")}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {attestationModalOpen && (
+              <div
+                className="fixed inset-0 z-[10020] flex items-end justify-center bg-black/80 px-4 sm:items-center"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="purchaser-attestation-title"
+                onMouseDown={(event) => {
+                  if (event.target === event.currentTarget) setAttestationModalOpen(false);
+                }}
+              >
+                <div
+                  ref={termsSectionRef}
+                  className="max-h-[92vh] w-full max-w-[58rem] overflow-y-auto rounded-[1.2rem] border border-white/20 bg-[#30343a] p-5 md:rounded-[1.6rem] md:p-8"
+                  style={{
+                    backgroundColor: "#30343a",
+                    width: "min(calc(100vw - 2rem), 58rem)",
+                  }}
+                >
+                  <div className="mb-6 flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <h2 id="purchaser-attestation-title" className="text-[15px] font-bold uppercase leading-tight tracking-[0.12em] text-white sm:text-2xl sm:tracking-[0.16em]">
+                        {tx("Purchaser attestation", "Подтверждение покупателя", "Підтвердження покупця", "Käuferbestätigung", "Declaración del comprador")}
+                      </h2>
+                      <p className="mt-1.5 text-[10px] uppercase leading-4 tracking-[0.12em] text-white/75 sm:text-[11px] sm:leading-5 sm:tracking-[0.14em]">
+                        {tx(
+                          "All confirmations are required before checkout.",
+                          "Для перехода к оплате необходимы все подтверждения.",
+                          "Для переходу до оплати потрібні всі підтвердження.",
+                          "Vor dem Checkout sind alle Bestätigungen erforderlich.",
+                          "Todas las confirmaciones son obligatorias antes del pago."
+                        )}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setAttestationModalOpen(false)}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                      aria-label="Close"
+                    >
+                      <X size={20} strokeWidth={2.5} aria-hidden="true" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label
+                      className="flex cursor-pointer items-start gap-4 rounded-[1.35rem] border border-black/25 bg-black/25 px-5 py-5 text-[11px] uppercase leading-[1.75] tracking-[0.12em] text-white"
+                    >
+                      <input
+                        ref={attestationResearchRef}
+                        type="checkbox"
+                        defaultChecked={researchAccepted}
+                        onChange={syncAttestationConfirmButton}
+                        className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-green-500 transition-none"
+                      />
+                      <span className="font-semibold">{i18n(legal.ageResearchCheckbox)}</span>
+                    </label>
+
+                    <label
+                      className="flex cursor-pointer items-start gap-4 rounded-[1.35rem] border border-black/25 bg-black/25 px-5 py-5 text-[11px] uppercase leading-[1.75] tracking-[0.12em] text-white"
+                    >
+                      <input
+                        ref={attestationQualifiedRef}
+                        type="checkbox"
+                        defaultChecked={qualifiedAccepted}
+                        onChange={syncAttestationConfirmButton}
+                        className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-green-500 transition-none"
+                      />
+                      <span className="font-semibold">{i18n(legal.qualifiedResearchCheckbox)}</span>
+                    </label>
+
+                    <label
+                      className="flex cursor-pointer items-start gap-4 rounded-[1.35rem] border border-black/25 bg-black/25 px-5 py-5 text-[11px] uppercase leading-[1.75] tracking-[0.12em] text-white"
+                    >
+                      <input
+                        ref={attestationTermsRef}
+                        type="checkbox"
+                        defaultChecked={termsAccepted}
+                        onChange={syncAttestationConfirmButton}
+                        className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-green-500 transition-none"
+                      />
+                      <span>
+                        {i18n(legal.termsCheckboxStart)}{" "}
+                        <a href="/terms-and-conditions" onClick={(event) => event.stopPropagation()} className="font-semibold text-white underline underline-offset-4">{i18n(legal.termsAndConditions)}</a>,{" "}
+                        <a href="/privacy-policy" onClick={(event) => event.stopPropagation()} className="font-semibold text-white underline underline-offset-4">{i18n(legal.privacyPolicy)}</a>,
+                        <br />
+                        <a href="/refund-policy" onClick={(event) => event.stopPropagation()} className="font-semibold text-white underline underline-offset-4">{i18n(legal.refundPolicy)}</a>,{" "}
+                        <a href="/shipping-policy" onClick={(event) => event.stopPropagation()} className="font-semibold text-white underline underline-offset-4">{i18n(legal.shippingPolicy)}</a>.
+                      </span>
+                    </label>
+                  </div>
+
+                  <button
+                    ref={attestationConfirmRef}
+                    type="button"
+                    onClick={() => {
+                      const attestation = {
+                        researchAccepted: Boolean(attestationResearchRef.current?.checked),
+                        qualifiedAccepted: Boolean(attestationQualifiedRef.current?.checked),
+                        termsAccepted: Boolean(attestationTermsRef.current?.checked),
+                      };
+                      if (!attestation.researchAccepted || !attestation.qualifiedAccepted || !attestation.termsAccepted) return;
+                      setResearchAccepted(attestation.researchAccepted);
+                      setQualifiedAccepted(attestation.qualifiedAccepted);
+                      setTermsAccepted(attestation.termsAccepted);
+                      setAttestationModalOpen(false);
+                      if (checkoutMessage) setCheckoutMessage("");
+                      if (pendingAttestationAction === "credits") {
+                        handlePayWithCredits(attestation);
+                      } else {
+                        handleCheckout(attestation);
+                      }
+                    }}
+                    className={`mt-6 w-full rounded-full px-6 py-4 text-[13px] font-bold uppercase tracking-[0.22em] ${
+                      researchAccepted && qualifiedAccepted && termsAccepted
+                        ? "bg-white text-black"
+                        : "cursor-not-allowed bg-white/45 text-black/45"
+                    }`}
+                  >
+                    {tx("Confirm & proceed to checkout", "Подтвердить и перейти к оплате", "Підтвердити та перейти до оплати", "Bestätigen und zum Checkout", "Confirmar y continuar al pago")}
+                  </button>
+                </div>
+              </div>
+            )}
+
+          </main>
+        )}
       </div>
 
       <PaymentOpeningDialog open={paylioPaymentLoading || catalystPayLoading} tx={tx} />

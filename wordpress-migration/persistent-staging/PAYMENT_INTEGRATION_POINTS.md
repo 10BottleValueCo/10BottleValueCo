@@ -5,7 +5,7 @@ The staging site deliberately has **no** payment processor. These are the seams 
 ## 1. Gateway slot
 - Staging registers exactly one WooCommerce gateway, `tbv_staging_test` (`TBV_Staging_Test_Gateway` in `mu-plugins/tbv-persistent-staging.php`). Its `process_payment()` saves the order as `pending` and returns the order-received URL.
 - The theme hard-allowlists gateways (`woocommerce_payment_gateways` and `woocommerce_available_payment_gateways` filters at `PHP_INT_MAX` in `functions.php`). An approved gateway ID must be added to that allowlist; any other gateway stays hidden. For production, replace the hardcoded staging ID with a configured allowlist.
-- Use a standard `WC_Payment_Gateway` (official processor plugin or a custom gateway). Checkout is the **classic shortcode** checkout; the Store API checkout route is blocked by the theme. If a processor requires block checkout, that block must be lifted deliberately.
+- Use a standard `WC_Payment_Gateway` (official processor plugin or a custom gateway). The storefront cart page (`/cart`) collects shipping details and the purchaser attestation, then posts to the **classic** checkout (`?wc-ajax=checkout`) with `payment_method` set to the gateway ID from `window.TBV_COMMERCE.gatewayId`; the Store API checkout route is blocked by the theme. A processor that needs on-page fields or a hosted redirect plugs in at that step (today the live site shows its payment step after the attestation). If a processor requires block checkout, that block must be lifted deliberately.
 
 ## 2. Order state contract
 - Created by checkout: `pending` (unpaid). The processor confirms payment server-side (webhook or verified redirect) and then calls `$order->payment_complete($transaction_id)` → `processing`.
@@ -18,6 +18,7 @@ The staging site deliberately has **no** payment processor. These are the seams 
 ## 4. Order metadata for reconciliation
 - Keep processor identity, payment-attempt IDs, transaction IDs and fees in **internal** order meta for accounting and reconciliation. Customer-facing checkout, status pages, emails and receipts show customer-recognizable payment methods (owner requirement), not the routing processor name.
 - Staging test orders carry `_tbv_staging_test_order=1` and `_tbv_payment_integration_point=pending_payment_team`.
+- Every order carries `_tbv_purchaser_attestation` (JSON, with time), `_tbv_storefront_rules_version`, and when given `_tbv_carrier_preference`, `_tbv_tax_id` (Mexico) and `_tbv_order_bonus`. The automatic discount is a negative fee line named `Automatic discount (N%)`.
 - Shipping rates carry `tbv_rule_version` meta from the warehouse shipping plugin, so later rate edits do not rewrite historical orders.
 
 ## 5. Store credit and affiliates
