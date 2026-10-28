@@ -135,10 +135,10 @@ async function guardChecks() {
   check('legacy_account_redirects_to_my_account', /\/my-account\/?$/.test((await c.req('/account')).location));
 }
 
-async function register(c, email, password) {
+async function register(c, email, password, extra = {}) {
   const page = await c.follow('/my-account/');
   const nonce = hidden(page.text, 'woocommerce-register-nonce');
-  const r = await c.req('/my-account/', {method: 'POST', headers: {...formHeaders, origin: base}, body: form({email, password, 'woocommerce-register-nonce': nonce, _wp_http_referer: '/my-account/', register: 'Register'})});
+  const r = await c.req('/my-account/', {method: 'POST', headers: {...formHeaders, origin: base}, body: form({email, password, password_confirm: password, 'woocommerce-register-nonce': nonce, _wp_http_referer: '/my-account/', register: 'Register', ...extra})});
   return {r, dash: await c.follow('/my-account/')};
 }
 async function login(c, username, password) {
@@ -180,6 +180,13 @@ async function accountChecksBeforeRestart(offers) {
   check('login_with_new_account', loggedIn(back.text), 'login failed');
   const bad = await login(new Client(), email, 'wrong-password-123');
   check('wrong_password_rejected', !loggedIn(bad.text));
+  // Live sign-up card: confirm password and affiliate code (fixture REVIEWAFF).
+  const mismatch = await register(new Client(), `e2e.mismatch.${Date.now()}@example.test`, env.E2E_RUN_PASSWORD, {password_confirm: env.E2E_RUN_PASSWORD + 'x'});
+  check('register_password_mismatch_rejected', !loggedIn(mismatch.dash.text) && /Passwords do not match/.test(mismatch.r.text + mismatch.dash.text), 'mismatch accepted');
+  const unknownCode = await register(new Client(), `e2e.badcode.${Date.now()}@example.test`, env.E2E_RUN_PASSWORD, {tbv_registration_code: 'NOSUCHCODE'});
+  check('register_unknown_affiliate_code_rejected', !loggedIn(unknownCode.dash.text) && /Invalid affiliate code/.test(unknownCode.r.text + unknownCode.dash.text), 'unknown code accepted');
+  const withCode = await register(new Client(), `e2e.affiliate.${Date.now()}@example.test`, env.E2E_RUN_PASSWORD, {tbv_registration_code: 'reviewaff'});
+  check('register_with_affiliate_code', loggedIn(withCode.dash.text), 'not logged in');
 
   const offer = offers.find(o => o.warehouse === 'worldwide' && Number(o.price) < 300) || offers[0];
   const guest = new Client();

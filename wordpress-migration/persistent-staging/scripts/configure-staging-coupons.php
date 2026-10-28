@@ -13,4 +13,8 @@ $coupon->set_individual_use(true);
 $coupon->set_usage_limit_per_user(0);
 $coupon->update_meta_data('_tbv_staging_fixture', 'promo-2026-10-28');
 $coupon->save();
-echo json_encode(['coupon' => $coupon->get_code(), 'id' => $coupon->get_id(), 'type' => $coupon->get_discount_type(), 'amount' => $coupon->get_amount()]), "\n";
+// Sign-up affiliate code fixture: the live sign-up card accepts an active
+// affiliate code and locks the account to it. Records attribution only; no
+// discount or commission is connected on staging.
+update_option('tbv_affiliate_codes', ['REVIEWAFF'], false);
+echo json_encode(['coupon' => $coupon->get_code(), 'id' => $coupon->get_id(), 'type' => $coupon->get_discount_type(), 'amount' => $coupon->get_amount(), 'affiliateCodes' => get_option('tbv_affiliate_codes')]), "\n";

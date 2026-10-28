@@ -93,6 +93,8 @@ await page.getByRole('button', {name: /^create account$/i}).click();
 const email = `ui.${Date.now()}@example.test`;
 await page.locator('#reg_email').pressSequentially(email, {delay: 15});
 await page.locator('#reg_password').pressSequentially(env.E2E_RUN_PASSWORD, {delay: 15});
+check('sign-up card has the live fields', await page.locator('#reg_password_confirm').isVisible() && await page.locator('#reg_tbv_code').isVisible() && await page.locator('.tbv-auth form.register').getByText(/privacy policy/i).count() === 0);
+await page.locator('#reg_password_confirm').pressSequentially(env.E2E_RUN_PASSWORD, {delay: 15});
 await page.waitForTimeout(500);
 await Promise.all([page.waitForNavigation({timeout: 15000}).catch(() => {}), page.locator('button[name="register"]').click()]);
 await page.waitForLoadState('networkidle'); await page.waitForTimeout(2000);

@@ -2,7 +2,9 @@
    React bundle stylesheet). Only what the bundle's utility classes lack. */
 .tbv-auth [data-show]{display:none}
 .tbv-auth[data-mode="signin"] [data-show="signin"],.tbv-auth[data-mode="create"] [data-show="create"]{display:revert}
-.tbv-auth[data-mode="signin"] h1 [data-show="signin"].self-center{display:block}
+.tbv-auth .tbv-padlock{display:block}
+@media (max-width:767.98px){.tbv-auth[data-mode="create"] .tbv-padlock{display:none}}
+.tbv-auth-register-extra:empty{display:none}
 .tbv-auth form[data-show]{display:none}
 .tbv-auth[data-mode="signin"] form[data-show="signin"],.tbv-auth[data-mode="create"] form[data-show="create"]{display:grid}
 .tbv-auth [data-tbv-mode]{border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.04);color:#fff}

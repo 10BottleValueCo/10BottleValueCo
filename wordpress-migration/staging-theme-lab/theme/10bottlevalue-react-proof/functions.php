@@ -420,6 +420,31 @@ add_action('rest_api_init', function () {
         return ['avatarId' => $id];
     }]);
 });
+// Live sign-up card: confirm password, and an optional affiliate code that
+// locks the new account to that affiliate (live: affiliateCode/promoLockedAt
+// user metadata). Active codes come from the tbv_affiliate_codes option until
+// the affiliate program is migrated; unknown codes are rejected as on live.
+function tbv_react_proof_registration_code() {
+    return strtoupper(trim(sanitize_text_field(wp_unslash($_POST['tbv_registration_code'] ?? ''))));
+}
+function tbv_react_proof_affiliate_code_active($code) {
+    return $code !== '' && in_array($code, array_map('strtoupper', (array)get_option('tbv_affiliate_codes', [])), true);
+}
+add_filter('woocommerce_process_registration_errors', function ($errors, $username, $password) {
+    if ('no' === get_option('woocommerce_registration_generate_password') && wp_unslash((string)$password) !== wp_unslash((string)($_POST['password_confirm'] ?? ''))) {
+        $errors->add('tbv_password_mismatch', 'Passwords do not match.');
+    }
+    $code = tbv_react_proof_registration_code();
+    if ($code !== '' && !tbv_react_proof_affiliate_code_active($code)) $errors->add('tbv_affiliate_code', 'Invalid affiliate code.');
+    return $errors;
+}, 10, 3);
+add_action('woocommerce_created_customer', function ($customer_id) {
+    if (!isset($_POST['register'])) return; // My Account sign-up only, not checkout
+    $code = tbv_react_proof_registration_code();
+    if (!tbv_react_proof_affiliate_code_active($code)) return;
+    update_user_meta($customer_id, 'tbv_affiliate_code', $code);
+    update_user_meta($customer_id, 'tbv_promo_locked_at', gmdate('c'));
+});
 // Return to the cart page after signing in or registering from it.
 function tbv_react_proof_cart_return_field() {
     if (tbv_staging_commerce_test_enabled() && ($_GET['tbv_return'] ?? '') === 'cart') echo '<input type="hidden" name="redirect" value="' . esc_url(wc_get_cart_url()) . '">';
