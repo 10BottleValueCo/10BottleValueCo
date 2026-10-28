@@ -52,7 +52,6 @@ import { productSelectionFromProduct, readProductSelection, productSelectionUrl,
 import UsFlag from "./components/UsFlag.jsx";
 import SocialChannels from "./components/SocialChannels.jsx";
 import vialCManifest from "./data/vialCManifest.json";
-import melanotan2VialInline from "./assets/vials/melanotan-2-mt2-10mg.webp?inline";
 import cashAppLogo from "./assets/payment-logos/cash-app.svg";
 import bitcoinLogo from "./assets/payment-logos/bitcoin.svg";
 import bankCardIcon from "./assets/payment-logos/bank-card.svg";
@@ -13813,17 +13812,6 @@ export default function App() {
     const vialKey = JSON.stringify([artworkName, product.dose, product.noteLabel ?? ""]);
     const vialImage = vialCManifest[vialKey];
     if (vialImage) {
-      if (
-        product.name === "Melanotan-2" &&
-        product.dose === "10 mg" &&
-        !(product.noteLabel ?? "")
-      ) {
-        return {
-          imgUrl: melanotan2VialInline,
-          baseImgUrl: melanotan2VialInline,
-          isOptionC: true,
-        };
-      }
       const baseImage = vialBaseImages.get(JSON.stringify([artworkName, product.noteLabel ?? ""])) || vialImage;
       return {
         imgUrl: getPreloadedDisplayImageUrl(`${import.meta.env.BASE_URL}vials-c/${vialImage}`),
@@ -13933,8 +13921,6 @@ export default function App() {
     // Десктоп: обычные размеры
     const subtitleSize = mob ? (visual.isCombo ? "7.5px" : "8px") : (visual.isCombo ? "11px" : "13px");
     const subtitleMT   = mob ? "1px" : (visual.isCombo ? "2px" : "3px");
-    const ruoSize      = visual.isCombo ? "3.8px" : "5.5px";
-    const ruoMT        = visual.isCombo ? "1px" : "4px";
 
     // Масштаб для large-режима: inline style, иначе перебивается transform: translate(...)
     const isDesktop = typeof window !== "undefined" && window.innerWidth >= 768;
@@ -14028,16 +14014,6 @@ export default function App() {
             >
               {visual.subtitle}
             </span>
-
-            {/* RESEARCH USE ONLY — только десктоп */}
-            {!mob && (
-              <span
-                className="font-semibold text-black uppercase text-center"
-                style={{ fontSize: ruoSize, marginTop: ruoMT, letterSpacing: "0.06em", display: "block", whiteSpace: "nowrap" }}
-              >
-                Research Use Only
-              </span>
-            )}
           </div>
         </div>
       </div>
@@ -14431,13 +14407,11 @@ export default function App() {
             <div className="shipping-announcement-viewport w-full overflow-hidden">
               <div className="shipping-announcement-track">
                 <div className="shipping-announcement-group">
-                  <span className="text-[7px] text-white/65">{i18n(legal.ruoStrict)}</span>
                   <span>US WAREHOUSE FREE SHIPPING</span>
                   <span>FREE STANDARD SHIPPING $300+</span>
                   <span>FREE EXPRESS SHIPPING $550+</span>
                 </div>
                 <div className="shipping-announcement-group" aria-hidden="true">
-                  <span className="text-[7px] text-white/65">{i18n(legal.ruoStrict)}</span>
                   <span>US WAREHOUSE FREE SHIPPING</span>
                   <span>FREE STANDARD SHIPPING $300+</span>
                   <span>FREE EXPRESS SHIPPING $550+</span>
@@ -14448,8 +14422,6 @@ export default function App() {
         </div>
         {/* Desktop: static row */}
         <div data-nosnippet className="hidden lg:flex relative z-[100] w-full bg-black px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white items-center justify-center gap-4">
-          <span className="text-center leading-tight">{i18n(legal.ruoStrict)}</span>
-          <span className="text-white/30 font-light shrink-0">|</span>
           <span className="whitespace-nowrap shrink-0">US WAREHOUSE FREE SHIPPING</span>
           <span className="text-white/30 font-light shrink-0">|</span>
           <span className="whitespace-nowrap shrink-0">FREE STANDARD SHIPPING $300+</span>
@@ -14805,25 +14777,7 @@ export default function App() {
             <section className="tbv-home__legal w-full px-6 py-8 md:px-10 md:py-10">
               <div className="mx-auto max-w-4xl text-center lg:grid lg:max-w-6xl lg:grid-cols-[0.95fr_1.05fr] lg:items-start lg:gap-x-8">
                 <div className="min-w-0 text-center">
-                <div className="text-[10px] uppercase tracking-[0.28em] text-white">
-                  {language === "RU"
-                    ? "Только для исследований"
-                    : language === "UA"
-                    ? "Лише для досліджень"
-                    : language === "DE"
-                    ? "Nur für Forschungszwecke. Nicht für den menschlichen oder tierischen Gebrauch."
-                    : language === "ES"
-                    ? "Solo para uso en investigacion"
-                    : "Research Use Only"}
-                </div>
-
-                <div className="mx-auto mt-2 max-w-3xl text-[12px] font-semibold uppercase leading-5 tracking-[0.06em] text-white md:max-w-3xl md:text-[13px]">
-                  {i18n(legal.ruoStrict)}
-                </div>
-
-                <div className="mx-auto mt-4 h-px w-16 bg-white/30" />
-
-                <div className="mx-auto mt-4 flex max-w-3xl flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-white md:max-w-[46rem] md:gap-x-6">
+                <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-white md:max-w-[46rem] md:gap-x-6">
                   <a
                     href={tbvSitePath("/terms-and-conditions")}
                     className="transition hover:text-white hover:underline hover:underline-offset-4"

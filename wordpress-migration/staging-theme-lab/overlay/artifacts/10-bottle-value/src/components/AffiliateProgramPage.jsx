@@ -349,8 +349,8 @@ export default function AffiliateProgramPage({
               onError={onVialImageError}
             />
             <img
-              src={publicImage("vials-c/retatrutide-glp-3-0efb04b0071d.webp")}
-              data-original-src={`${base}vials-c/retatrutide-glp-3-0efb04b0071d.webp`}
+              src={publicImage("vials-c/retatrutide-label-0efb04b0071d.webp")}
+              data-original-src={`${base}vials-c/retatrutide-label-0efb04b0071d.webp`}
               alt=""
               aria-hidden="true"
               className="relative z-[1] h-[78%] max-h-[360px] w-[34%] -translate-x-5 object-contain drop-shadow-[0_20px_22px_rgba(0,0,0,.55)] sm:h-[62%] sm:max-h-[310px] sm:w-[28%] sm:-translate-x-12 lg:-translate-x-16"

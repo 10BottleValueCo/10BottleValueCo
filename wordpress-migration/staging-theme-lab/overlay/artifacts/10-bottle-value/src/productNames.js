@@ -26,9 +26,6 @@ const compoundAliases = {
 
 const labelNames = {
   "melanotan-1": "MT1",
-  "melanotan-2": "MT-2",
-  melanotan2: "MT-2",
-  "melanotan 2": "MT-2",
   "bac water": "Reconstitution Solution",
   "ara290 (cibinetide)": "ARA290",
   epitalon: "Epithalon",
@@ -115,6 +112,6 @@ export function matchesProductSearch(product, searchTerm) {
     product.note,
   ];
   if (publicName === "MT1") searchValues.push("Melanotan1", "Melanotan I");
-  if (publicName === "MT-2") searchValues.push("Melanotan2");
+  if (product.name === "Melanotan-2") searchValues.push("Melanotan2", "MT-2");
   return searchValues.some((value) => normalize(value).includes(query));
 }

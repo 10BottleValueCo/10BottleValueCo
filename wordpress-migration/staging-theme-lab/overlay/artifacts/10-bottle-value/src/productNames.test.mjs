@@ -46,11 +46,9 @@ test("Melanotan-1 displays as MT1 while preserving its catalog identity and rout
   assert.equal(matchesProductSearch(product, "Melanotan I"), true);
 });
 
-test("Melanotan-2 displays as MT-2 while preserving its catalog identity and route", () => {
+test("Melanotan-2 keeps its full name and still matches the MT-2 search", () => {
   const product = { name: "Melanotan-2", dose: "10 mg" };
-  assert.equal(publicProductName(product.name), "MT-2");
-  assert.equal(publicProductName("Melanotan2"), "MT-2");
-  assert.equal(publicProductName("Melanotan 2"), "MT-2");
+  assert.equal(publicProductName(product.name), "Melanotan-2");
   assert.equal(catalogProductName("MT-2"), "Melanotan-2");
   assert.equal(productSlug(product), "melanotan-2-10mg");
   assert.equal(matchesProductSearch(product, "MT-2"), true);
