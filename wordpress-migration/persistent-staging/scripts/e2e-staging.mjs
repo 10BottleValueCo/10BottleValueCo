@@ -104,6 +104,15 @@ async function guestChecks() {
   const express = rates.find(r => r.meta_data?.some(m => m.key === 'tbv_service' && m.value === 'express'));
   const picked = express ? await cartApi(d, 'select-shipping-rate', {package_id: 0, rate_id: express.rate_id}) : {status: 0, json: {}};
   check('select_express_rate', picked.status === 200 && picked.json.shipping_rates?.[0]?.shipping_rates?.find(r => r.selected)?.rate_id === express?.rate_id, picked.status);
+  // Promo codes are WooCommerce coupons; like the live cart, a promo code
+  // replaces the automatic discount instead of stacking with it.
+  const promo = await cartApi(d, 'apply-coupon', {code: 'REVIEW10'});
+  check('promo_code_applies_10_percent', promo.status === 200 && Number(promo.json.totals?.total_discount) === Math.round(sub * 0.1), `${promo.status} ${promo.json.totals?.total_discount}`);
+  check('promo_code_replaces_automatic_discount', promo.status === 200 && !(promo.json.fees || []).some(f => /Automatic discount/.test(f.name)), JSON.stringify(promo.json.fees));
+  const bogus = await cartApi(d, 'apply-coupon', {code: 'NOT-A-REAL-CODE'});
+  check('unknown_promo_code_rejected', bogus.status >= 400 && bogus.status < 500, bogus.status);
+  const unpromo = await cartApi(d, 'remove-coupon', {code: 'review10'});
+  check('removing_promo_restores_automatic_discount', unpromo.status === 200 && (unpromo.json.fees || []).some(f => /Automatic discount \(10%\)/.test(f.name)), unpromo.status);
   const small = await cartApi(new Client(), 'add-item', {id: o1.variation_id, quantity: 1});
   check('no_discount_below_threshold', !(small.json.fees || []).length || Number(o1.price) >= 1000, JSON.stringify(small.json.fees));
   return offers;

@@ -10881,7 +10881,14 @@ export default function App() {
     });
     const fees = Array.isArray(response?.fees) ? response.fees : [];
     const discount = fees.reduce((sum, fee) => { const amount = money(fee?.totals?.total); return amount < 0 ? sum - amount : sum; }, 0);
+    const coupons = (Array.isArray(response?.coupons) ? response.coupons : []).map((coupon) => ({
+      code: String(coupon?.code || "").toUpperCase(),
+      percent: coupon?.discount_type === "percent",
+      discount: money(coupon?.totals?.total_discount),
+    })).filter((coupon) => coupon.code);
     return {
+      coupons,
+      couponDiscount: Math.round(coupons.reduce((sum, coupon) => sum + coupon.discount, 0) * 100) / 100,
       itemCount: Number(response?.items_count) || 0,
       subtotal: money(totals.total_items),
       shipping: money(totals.total_shipping),
@@ -11708,9 +11715,46 @@ export default function App() {
     }
   }
 
+  // Staging commerce test: promo codes are WooCommerce coupons, validated and
+  // priced by WooCommerce. Affiliate codes and store credit are not connected.
+  async function wooCouponPost(endpoint, code) {
+    const action = async () => {
+      try {
+        const nonce = await initWooCart();
+        const response = await fetch(`${tbvCartApi}/${endpoint}`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "Nonce": nonce }, body: JSON.stringify({ code }) });
+        if (response.status === 401 || response.status === 403) wooCartNonceRef.current = null;
+        else wooCartNonceRef.current = response.headers.get("Nonce") || nonce;
+        const data = await response.json().catch(() => null);
+        if (!response.ok) return { ok: false, message: String(data?.message || "").replace(/<[^>]*>/g, "").trim() };
+        const next = wooCartState(data);
+        wooCartItemsRef.current = next;
+        setCart(next);
+        setWooCartMeta(wooCartMetaFrom(data));
+        return { ok: true };
+      } catch { return { ok: false, message: "" }; }
+    };
+    const pending = wooQueueRef.current.then(action, action);
+    wooQueueRef.current = pending;
+    return pending;
+  }
   async function applyPromoCode() {
     if (tbvCommerce) {
-      setPromoMessage("Promo codes are not active on this staging site.");
+      const code = promoInput.trim().toUpperCase();
+      if (!code) {
+        setPromoMessage(tx("Enter a promo code.", "Введите промокод.", "Введіть промокод.", "Geben Sie einen Promocode ein.", "Introduce un código promocional."));
+        return;
+      }
+      if (appliedPromo) {
+        setPromoMessage(tx("Remove the current promo code before applying another one.", "Удалите текущий промокод перед применением другого.", "Видаліть поточний промокод перед застосуванням іншого.", "Entfernen Sie den aktuellen Promocode, bevor Sie einen anderen anwenden.", "Elimina el código promocional actual antes de aplicar otro."));
+        return;
+      }
+      const result = await wooCouponPost("apply-coupon", code);
+      if (!result.ok) {
+        setPromoMessage(result.message || tx("Invalid promo code.", "Неверный промокод.", "Недійсний промокод.", "Ungültiger Promocode.", "Código promocional no válido."));
+        return;
+      }
+      setPromoInput("");
+      setPromoMessage(tx(`${code} applied successfully.`, `${code} успешно применён.`, `${code} успішно застосовано.`, `${code} erfolgreich angewendet.`, `${code} aplicado correctamente.`));
       return;
     }
     const requestId = ++promoApplyRequestRef.current;
@@ -11981,6 +12025,15 @@ export default function App() {
   }
 
   function removePromoCode() {
+    if (tbvCommerce && appliedPromo) {
+      const removedCode = appliedPromo.code;
+      wooCouponPost("remove-coupon", removedCode).then((result) => {
+        if (!result.ok) return;
+        setPromoInput(removedCode);
+        setPromoMessage(tx("Promo code removed. You can reapply it anytime.", "Промокод снят. Вы можете применить его снова.", "Промокод знято. Ви можете застосувати його знову.", "Promocode entfernt. Sie können ihn jederzeit erneut anwenden.", "Código eliminado. Puedes volver a aplicarlo cuando quieras."));
+      });
+      return;
+    }
     promoApplyRequestRef.current += 1;
     if (appliedPromo) {
       const removedCode = appliedPromo.code;
@@ -14123,6 +14176,13 @@ export default function App() {
   useEffect(() => {
     if (page === "account" && tbvCommerce?.account) loadWooAccountOrders();
   }, [page]);
+  useEffect(() => {
+    if (!tbvCommerce || !wooCartMeta) return;
+    const coupon = wooCartMeta.coupons[0];
+    setAppliedPromo((current) => coupon
+      ? (current?.code === coupon.code ? current : { code: coupon.code, rate: 0, label: coupon.code, type: "woo_coupon" })
+      : null);
+  }, [wooCartMeta]);
 
   const navigateAccountSection = (section) => {
     setActiveAccountSection(section);
@@ -21573,13 +21633,19 @@ export default function App() {
                   </div>
 
                   {/* Promo code */}
-                  {promoDiscountRate > 0 && (
+                  {(wooView ? wooView.couponDiscount > 0 : promoDiscountRate > 0) && (
                     <div className="flex items-center justify-between text-[13px] text-white">
                       <span className="uppercase tracking-[0.1em]">
                         {t("promoCode")} <span className="font-bold">{appliedPromo?.code}</span>
-                        <span className="ml-1 text-white/50">({+(((appliedPromo?.rate || 0) * 100).toFixed(2))}% off)</span>
+                        {wooView ? (
+                          wooView.coupons[0]?.percent && wooView.subtotal > 0 && (
+                            <span className="ml-1 text-white/50">({+((wooView.couponDiscount / wooView.subtotal) * 100).toFixed(2)}% off)</span>
+                          )
+                        ) : (
+                          <span className="ml-1 text-white/50">({+(((appliedPromo?.rate || 0) * 100).toFixed(2))}% off)</span>
+                        )}
                       </span>
-                      <span className="tabular-nums font-semibold text-emerald-300">−${Number(promoDiscount).toFixed(2)}</span>
+                      <span className="tabular-nums font-semibold text-emerald-300">−${Number(wooView ? wooView.couponDiscount : promoDiscount).toFixed(2)}</span>
                     </div>
                   )}
 

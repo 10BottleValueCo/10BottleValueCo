@@ -28,8 +28,9 @@ add_filter('rest_pre_dispatch', function ($result, $server, $request) {
     $method = strtoupper($request->get_method());
     $read = $method === 'GET' && in_array($route, ['/wc/store/v1/cart', '/tbv-catalog/v1/products'], true);
     $write = $method === 'POST' && in_array($route, ['/wc/store/v1/cart/add-item', '/wc/store/v1/cart/update-item', '/wc/store/v1/cart/remove-item'], true);
-    // The storefront cart page picks the shipping service and destination country.
-    if (tbv_staging_commerce_test_enabled() && $method === 'POST' && in_array($route, ['/wc/store/v1/cart/select-shipping-rate', '/wc/store/v1/cart/update-customer'], true)) $write = true;
+    // The storefront cart page picks the shipping service and destination country
+    // and applies WooCommerce coupons from its promo box.
+    if (tbv_staging_commerce_test_enabled() && $method === 'POST' && in_array($route, ['/wc/store/v1/cart/select-shipping-rate', '/wc/store/v1/cart/update-customer', '/wc/store/v1/cart/apply-coupon', '/wc/store/v1/cart/remove-coupon'], true)) $write = true;
     // The storefront account dashboard reads the customer's own orders and saves the avatar.
     if (tbv_staging_commerce_test_enabled() && is_user_logged_in()) {
         if ($method === 'GET' && $route === '/tbv-account/v1/orders') $read = true;

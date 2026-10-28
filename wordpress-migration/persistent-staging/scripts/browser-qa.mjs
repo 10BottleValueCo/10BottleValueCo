@@ -149,6 +149,18 @@ check('signed out after dashboard sign out', await page.locator('.lab-dashboard'
 await page.goto(LOCAL + '/my-account/lost-password/', {waitUntil: 'networkidle'});
 check('lost-password uses the storefront card', await page.locator('.tbv-native-card #user_login').count() === 1);
 check('flow no JS errors', jsErrors.length === 0, jsErrors.join(' | '));
+// Promo box applies a WooCommerce coupon (desktop, fresh guest cart).
+const promoCtx = await browser.newContext({viewport: {width: 1440, height: 900}});
+const promoPage = await promoCtx.newPage();
+await promoPage.goto(LOCAL + '/retatrutide-5mg', {waitUntil: 'networkidle'});
+await promoPage.getByRole('button', {name: /add to cart/i}).first().click(); await promoPage.waitForTimeout(1500);
+await promoPage.goto(LOCAL + '/cart', {waitUntil: 'networkidle'}); await promoPage.waitForTimeout(1500);
+await promoPage.getByPlaceholder('Enter code').first().fill('review10');
+await promoPage.getByRole('button', {name: /^apply$/i}).first().click(); await promoPage.waitForTimeout(2000);
+check('cart promo box applies REVIEW10 as a WooCommerce coupon', /PROMO CODE\s*REVIEW10/i.test(await promoPage.locator('body').innerText()));
+await promoPage.getByRole('button', {name: /remove code/i}).first().click(); await promoPage.waitForTimeout(1500);
+check('cart promo code can be removed', await promoPage.getByRole('button', {name: /remove code/i}).count() === 0);
+await promoCtx.close();
 await browser.close();
 
 const failed = results.filter(r => !r.ok);

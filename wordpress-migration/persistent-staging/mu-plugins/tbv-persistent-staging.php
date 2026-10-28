@@ -40,7 +40,7 @@ add_action('wp_body_open', function () {
 add_filter('wp_robots', function ($robots) { $robots['noindex'] = true; $robots['nofollow'] = true; return $robots; });
 add_filter('pre_option_blog_public', function () { return '0'; });
 add_filter('woocommerce_allow_tracking', '__return_false');
-add_filter('woocommerce_coupons_enabled', '__return_false');
+// Coupons stay on: the storefront promo box applies WooCommerce coupons (no money moves).
 add_filter('show_admin_bar', function ($show) { return $show && current_user_can('manage_options'); });
 add_action('send_headers', function () { header('X-Robots-Tag: noindex, nofollow'); });
 
