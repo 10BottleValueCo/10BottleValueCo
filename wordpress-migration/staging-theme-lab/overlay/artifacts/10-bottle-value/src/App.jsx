@@ -1,4 +1,3 @@
-import ResearcherEntryGate, { hasResearcherEntryAcceptance } from "./components/ResearcherEntryGate.jsx";
 import { tbvLocal, tbvSession } from './previewStorage.js';
 import { uniqueWooOffers } from './woo-offer-identity.js';
 import { mergeWooDisplayMetadata } from './woo-display-metadata.js';
@@ -3787,12 +3786,8 @@ export default function App() {
   const [publicImagesState, setPublicImagesState] = useState("ready");
   const [publicImageRetry, setPublicImageRetry] = useState(0);
   // Same first-visit researcher verification as the live storefront.
-  const [researcherEntryAccepted, setResearcherEntryAccepted] = useState(() => hasResearcherEntryAcceptance());
-  const researcherEntryGateActive =
-    !researcherEntryAccepted && page !== "terms" && page !== "privacy";
 
   useEffect(() => {
-    if (researcherEntryGateActive) return undefined;
 
     const prefetchFromIntent = (event) => {
       const target = event.target;
@@ -3828,10 +3823,10 @@ export default function App() {
       document.removeEventListener("pointerdown", prefetchFromIntent);
       document.removeEventListener("focusin", prefetchFromIntent);
     };
-  }, [researcherEntryGateActive]);
+  }, []);
 
   useEffect(() => {
-    if (researcherEntryGateActive || page !== "home") return undefined;
+    if (page !== "home") return undefined;
     const stopWarmup = scheduleInfoPageWarmup({
       view: window,
       onWarm: () => infoPageImageWarmup.warmAll(),
@@ -3840,7 +3835,7 @@ export default function App() {
       stopWarmup();
       infoPageImageWarmup.cancelBackground();
     };
-  }, [page, researcherEntryGateActive]);
+  }, [page]);
 
   // WordPress's own cart uses the same WooCommerce cookie session as our
   // Store API requests. Account and payment remain disabled in this proof.
@@ -4600,7 +4595,6 @@ export default function App() {
   const [salesRanking, setSalesRanking] = useState([]);
   const [usSalesRanking, setUsSalesRanking] = useState([]);
   useEffect(() => {
-    if (researcherEntryGateActive) return undefined;
 
     let active = true;
     const base = import.meta.env.BASE_URL;
@@ -4647,7 +4641,7 @@ export default function App() {
       if (idleHandle !== null) window.cancelIdleCallback(idleHandle);
       if (preloadTimer !== null) window.clearTimeout(preloadTimer);
     };
-  }, [page, language, publicImageRetry, researcherEntryGateActive]);
+  }, [page, language, publicImageRetry]);
   useEffect(() => {
     if (page === "shop") {
       setShopPrimed(true);
@@ -10982,7 +10976,7 @@ export default function App() {
 
   // Submit the staging test order through WooCommerce's classic checkout. The
   // offline staging gateway saves it unpaid; WooCommerce recalculates every total.
-  async function submitWooCheckout(form, attestation) {
+  async function submitWooCheckout(form) {
     const country = tbvWooCountryCode(form.country);
     if (!country) {
       setCheckoutMessage(tx("Shipping to this country is not available.", "Доставка в эту страну недоступна."));
@@ -11004,11 +10998,6 @@ export default function App() {
       order_comments: getCheckoutOrderNotes(form),
       payment_method: String(tbvCommerce.gatewayId || ""),
       "shipping_method[0]": rate?.id || "",
-      terms: "on",
-      "terms-field": "1",
-      tbv_attestation_research: attestation.acceptedResearch ? "1" : "",
-      tbv_attestation_qualified: attestation.acceptedQualified ? "1" : "",
-      tbv_attestation_terms: attestation.acceptedTerms ? "1" : "",
       tbv_carrier_preference: form.carrierPreference || "",
       tbv_tax_id: form.taxId || "",
       "woocommerce-process-checkout-nonce": String(tbvCommerce.checkoutNonce || ""),
@@ -12346,6 +12335,8 @@ export default function App() {
 
   function requestCheckoutAttestation() {
     if (cart.length === 0 || hasOutOfStockInCart) return;
+    // Owner decision (2026-10-28): no purchaser attestation on the WordPress store.
+    if (tbvCommerce) { handleCheckout(); return; }
     if (cartUser?.email && !validateCheckoutBeforeAttestation()) return;
     setPendingAttestationAction(
       finalTotal === 0 && storeCreditApplied > 0 ? "credits" : "checkout"
@@ -12437,7 +12428,7 @@ export default function App() {
       return;
     }
 
-    if (!acceptedResearch || !acceptedQualified || !acceptedTerms) {
+    if (!tbvCommerce && (!acceptedResearch || !acceptedQualified || !acceptedTerms)) {
       setCheckoutMessage(
         !acceptedResearch
           ? tx(
@@ -12474,7 +12465,7 @@ export default function App() {
     }
 
     if (tbvCommerce) {
-      await submitWooCheckout(syncedForm, { acceptedResearch, acceptedQualified, acceptedTerms });
+      await submitWooCheckout(syncedForm);
       return;
     }
 
@@ -14117,9 +14108,6 @@ export default function App() {
   return (
     <>
       {scrollbarStyles}
-      {researcherEntryGateActive && (
-        <ResearcherEntryGate onAccept={() => setResearcherEntryAccepted(true)} />
-      )}
       {cartToast && <div role="alert" style={{position:"fixed",zIndex:2147483647,bottom:16,left:16,right:16,padding:12,background:"#fff1d7",color:"#111",font:"600 14px Arial",borderRadius:8}}>{cartToast}<button type="button" onClick={() => setCartToast("")} style={{float:"right"}}>×</button></div>}
       {publicImagesState === "error" && (
         <div
@@ -14902,46 +14890,8 @@ export default function App() {
                   >
                     {t("contact")}
                   </a>
-                  <span className="text-white/30">•</span>
-                  <a
-                    href={tbvSitePath("/researcher-attestation")}
-                    className="transition hover:text-white hover:underline hover:underline-offset-4"
-                  >
-                    {tx("Researcher Attestation", "Подтверждение исследователя", "Підтвердження дослідника", "Forscherbestätigung", "Declaración del investigador")}
-                  </a>
                 </div>
 
-                <details className="mx-auto mt-3 max-w-3xl rounded-xl border border-white/15 bg-black/20 text-left text-[10px] uppercase leading-5 tracking-[0.1em] text-white md:max-w-[46rem]">
-                  <summary className="cursor-pointer select-none px-4 py-2.5 font-semibold text-white">
-                    {tx("Researcher & purchaser attestation", "Подтверждение исследователя и покупателя", "Підтвердження дослідника та покупця", "Forscher- und Käuferbestätigung", "Declaración del investigador y comprador")}
-                  </summary>
-                  <div className="px-4 pb-4">
-                    <span className="block">
-                      {tx(
-                        "Every purchaser must confirm they are over 21 years old and that all products are sold strictly for research purposes only, not for human or animal use.",
-                        "Каждый покупатель обязан подтвердить, что ему больше 21 года и что все продукты продаются исключительно для исследовательских целей, а не для использования на людях или животных.",
-                        "Кожен покупець зобовʼязаний підтвердити, що йому більше 21 року і що всі продукти продаються виключно для дослідницьких цілей, а не для використання на людях чи тваринах.",
-                        "Jeder Käufer muss bestätigen, über 21 Jahre alt zu sein und dass alle Produkte ausschließlich für Forschungszwecke verkauft werden, nicht für den Gebrauch an Menschen oder Tieren.",
-                        "Todo comprador debe confirmar que tiene más de 21 años y que todos los productos se venden estrictamente para fines de investigación, no para uso en humanos o animales."
-                      )}
-                    </span>
-                    <span className="mt-2 block">
-                      {tx(
-                        "Every purchaser must also confirm they are a qualified researcher, licensed professional, or authorized representative of a qualified research organization, and will not use these products on humans or animals. This attestation is required and logged with every order before checkout.",
-                        "Каждый покупатель также обязан подтвердить, что является квалифицированным исследователем, лицензированным специалистом или уполномоченным представителем исследовательской организации и не будет использовать продукты на людях или животных. Это подтверждение обязательно и фиксируется с каждым заказом перед оформлением.",
-                        "Кожен покупець також зобовʼязаний підтвердити, що є кваліфікованим дослідником, ліцензованим фахівцем або уповноваженим представником дослідницької організації і не використовуватиме продукти на людях чи тваринах. Це підтвердження є обовʼязковим і фіксується з кожним замовленням перед оформленням.",
-                        "Jeder Käufer muss außerdem bestätigen, ein qualifizierter Forscher, lizenzierter Fachmann oder autorisierter Vertreter einer qualifizierten Forschungsorganisation zu sein und die Produkte nicht an Menschen oder Tieren zu verwenden. Diese Bestätigung ist erforderlich und wird bei jeder Bestellung vor dem Checkout protokolliert.",
-                        "Todo comprador también debe confirmar que es un investigador calificado, profesional con licencia o representante autorizado de una organización de investigación calificada, y que no usará estos productos en humanos o animales. Esta declaración es obligatoria y se registra con cada pedido antes de finalizar la compra."
-                      )}
-                    </span>
-                    <a
-                      href={tbvSitePath("/researcher-attestation")}
-                      className="mt-2 inline-block font-semibold text-white underline underline-offset-4"
-                    >
-                      {tx("Read the full researcher attestation", "Полное подтверждение исследователя", "Повне підтвердження дослідника", "Vollständige Forscherbestätigung lesen", "Leer la declaración completa del investigador")}
-                    </a>
-                  </div>
-                </details>
                 </div>
                 <div className="mx-auto max-w-3xl text-center md:mt-4 md:max-w-[52rem] md:grid md:grid-cols-2 md:items-start md:gap-x-5 md:text-left lg:mx-0 lg:mt-0 lg:max-w-none">
                   <div className="md:rounded-xl md:border md:border-white/10 md:bg-black/15 md:px-4 md:py-3">

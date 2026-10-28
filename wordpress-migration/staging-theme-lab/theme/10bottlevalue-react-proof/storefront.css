@@ -1,0 +1,30 @@
+/* Native WooCommerce pages rendered in the live storefront layout (with the
+   React bundle stylesheet). Only what the bundle's utility classes lack. */
+.tbv-auth [data-show]{display:none}
+.tbv-auth[data-mode="signin"] [data-show="signin"],.tbv-auth[data-mode="create"] [data-show="create"]{display:revert}
+.tbv-auth[data-mode="signin"] h1 [data-show="signin"].self-center{display:block}
+.tbv-auth form[data-show]{display:none}
+.tbv-auth[data-mode="signin"] form[data-show="signin"],.tbv-auth[data-mode="create"] form[data-show="create"]{display:grid}
+.tbv-auth [data-tbv-mode]{border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.04);color:#fff}
+.tbv-auth [data-tbv-mode]:hover{background:rgba(255,255,255,.08)}
+.tbv-auth[data-mode="signin"] [data-tbv-mode="signin"],.tbv-auth[data-mode="create"] [data-tbv-mode="create"]{border-color:transparent;background:#000;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.tbv-auth-notices:empty{display:none}
+.tbv-auth-notices .woocommerce-error,.tbv-auth-notices .woocommerce-info,.tbv-auth-notices .woocommerce-message{list-style:none;margin:0 0 10px;padding:14px 18px;border:1px solid rgba(255,255,255,.15);border-radius:12px;background:rgba(0,0,0,.25);color:rgba(255,255,255,.9);font-size:13px;line-height:1.5}
+.tbv-auth-notices .woocommerce-error{border-color:rgba(248,113,113,.45);background:rgba(127,29,29,.25)}
+.tbv-auth-notices .woocommerce-error li{list-style:none}
+.tbv-auth-notices a{color:#fff;text-decoration:underline}
+.tbv-auth-register-extra:empty{display:none}
+.tbv-auth-register-extra a{color:#fff;text-decoration:underline}
+.tbv-auth .woocommerce-password-strength{margin-top:-6px;padding:8px 14px;border-radius:12px;font-size:12px;color:#111}
+.tbv-auth .woocommerce-password-hint{display:block;font-size:12px;line-height:1.5;color:rgba(255,255,255,.7)}
+.tbv-auth .show-password-input{display:none}
+.tbv-storefront-menu summary::-webkit-details-marker{display:none}
+.tbv-storefront-menu summary{list-style:none;cursor:pointer}
+.tbv-storefront-menu nav{position:absolute;right:0;top:48px;z-index:300;display:grid;min-width:240px;gap:4px;padding:12px;border:1px solid rgba(255,255,255,.2);border-radius:16px;background:rgba(0,0,0,.9);box-shadow:0 24px 80px rgba(0,0,0,.3);-webkit-backdrop-filter:blur(40px);backdrop-filter:blur(40px)}
+.tbv-storefront-menu nav a{display:block;padding:10px 16px;border-radius:999px;color:#fff;text-decoration:none;font-size:13px;font-weight:700;letter-spacing:.18em;text-transform:uppercase}
+.tbv-storefront-menu nav a:hover{background:rgba(255,255,255,.1)}
+/* WooCommerce's general stylesheet targets .woocommerce-page img and forms. */
+.tbv-storefront-native header img{height:46px;max-width:none}
+@media (min-width:768px){.tbv-storefront-native header img{height:66px}}
+.tbv-auth form.woocommerce-form{margin:28px 0 0;padding:0;border:0;border-radius:0}
+.tbv-auth-notices .woocommerce-info::before,.tbv-auth-notices .woocommerce-message::before,.tbv-auth-notices .woocommerce-error::before{display:none}

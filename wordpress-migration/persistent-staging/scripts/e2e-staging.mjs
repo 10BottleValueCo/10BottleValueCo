@@ -148,7 +148,7 @@ async function checkout(c, offer, email, overrides = {}) {
   const config = JSON.parse((page.text.match(/window\.TBV_COMMERCE = (\{.*?\});<\/script>/) || [])[1] || '{}');
   const cart = await cartApi(c);
   const ship = cart.json.shipping_rates?.[0]?.shipping_rates?.find(r => r.selected)?.rate_id;
-  const body = {billing_first_name: 'Test', billing_last_name: 'Researcher', billing_country: 'US', billing_address_1: '123 Example Lane', billing_city: 'Springfield', billing_state: 'IL', billing_postcode: '62701', billing_phone: '5550100', billing_email: email, payment_method: config.gatewayId || '', terms: 'on', 'terms-field': '1', tbv_attestation_research: '1', tbv_attestation_qualified: '1', tbv_attestation_terms: '1', tbv_carrier_preference: 'USPS', 'woocommerce-process-checkout-nonce': config.checkoutNonce || '', _wp_http_referer: '/cart/', ...(ship ? {'shipping_method[0]': ship} : {}), ...overrides};
+  const body = {billing_first_name: 'Test', billing_last_name: 'Researcher', billing_country: 'US', billing_address_1: '123 Example Lane', billing_city: 'Springfield', billing_state: 'IL', billing_postcode: '62701', billing_phone: '5550100', billing_email: email, payment_method: config.gatewayId || '', tbv_carrier_preference: 'USPS', 'woocommerce-process-checkout-nonce': config.checkoutNonce || '', _wp_http_referer: '/cart/', ...(ship ? {'shipping_method[0]': ship} : {}), ...overrides};
   for (const [k, v] of Object.entries(body)) if (v === null) delete body[k];
   const r = await c.req('/?wc-ajax=checkout', {method: 'POST', headers: {...formHeaders, origin: base, 'x-requested-with': 'XMLHttpRequest'}, body: form(body)});
   let json = {}; try { json = JSON.parse(r.text); } catch {}
@@ -173,8 +173,7 @@ async function accountChecksBeforeRestart(offers) {
   const guest = new Client();
   const guestTry = await checkout(guest, offer, `e2e.guest.${Date.now()}@example.test`);
   check('guest_checkout_requires_login', guestTry.json.result !== 'success' && guestTry.config.user === null, JSON.stringify(guestTry.json).slice(0, 200));
-  const noAttest = await checkout(c2, offer, email, {tbv_attestation_qualified: null});
-  check('checkout_requires_attestation', noAttest.json.result !== 'success' && /attestation/i.test(noAttest.json.messages || ''), JSON.stringify(noAttest.json).slice(0, 200));
+  await cartApi(c2, 'add-item', {id: offer.variation_id, quantity: 1});
   const otherGateway = await checkout(c2, null, email, {payment_method: 'cod'});
   check('checkout_rejects_other_gateway', otherGateway.json.result !== 'success', JSON.stringify(otherGateway.json).slice(0, 200));
   const co = await checkout(c2, null, email);

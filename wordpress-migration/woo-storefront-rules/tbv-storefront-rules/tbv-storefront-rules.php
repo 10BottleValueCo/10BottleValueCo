@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: 10BottleValue storefront checkout rules
- * Description: Checkout rules carried over from the live storefront: automatic order discounts, the purchaser attestation, carrier preference and the order bonus. Rule values are an editable option, not code constants.
+ * Description: Checkout rules carried over from the live storefront: automatic order discounts, carrier preference and the order bonus, plus an optional purchaser attestation (off by default). Rule values are an editable option, not code constants.
  * Version: 0.1.0
  * Requires Plugins: woocommerce
  * Requires PHP: 8.1
@@ -14,7 +14,7 @@ const TBV_STOREFRONT_RULES_OPTION = 'tbv_storefront_rules';
 function tbv_storefront_rules() {
     $defaults = [
         'metadata' => [
-            'source' => 'live storefront App.jsx (automaticDiscountRate, order bonus, purchaser attestation)',
+            'source' => 'live storefront App.jsx (automaticDiscountRate, order bonus)',
             'status' => 'copied from the live storefront; confirm before production',
             'version' => '2026-10-28',
         ],
@@ -24,7 +24,9 @@ function tbv_storefront_rules() {
             ['min_subtotal' => '2000', 'rate_bps' => 1500],
             ['min_subtotal' => '4000', 'rate_bps' => 2000],
         ],
-        'require_attestation' => true,
+        // Owner decision 2026-10-28: no researcher verification or purchaser
+        // attestation on the WordPress store. Kept as a switch, off.
+        'require_attestation' => false,
         'carriers' => ['FedEx', 'USPS', 'UPS'],
         'order_bonus' => ['min_worldwide_subtotal' => '350', 'label' => 'Reconstitution Solution (10 vials × 3 ml)'],
     ];

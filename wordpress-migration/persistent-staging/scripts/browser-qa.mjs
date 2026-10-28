@@ -19,17 +19,6 @@ const env = Object.fromEntries(fs.readFileSync(new URL('../private/test-accounts
 const browser = await chromium.launch();
 const profiles = {mobile: devices['iPhone 13'], desktop: {viewport: {width: 1440, height: 900}}};
 
-// Complete the first-visit researcher verification through its real controls.
-async function acceptGate(page) {
-  const dialog = page.locator('[role="dialog"][aria-modal="true"]');
-  if (!(await dialog.count())) return false;
-  await dialog.locator('select').selectOption('laboratory');
-  for (const box of await dialog.locator('input[type="checkbox"]').all()) await box.check();
-  await dialog.locator('button[type="submit"]').click();
-  await page.waitForTimeout(500);
-  return (await dialog.count()) === 0;
-}
-
 async function visit(ctx, origin, label, route) {
   const page = await ctx.newPage();
   const errors = [], failed = [];
@@ -54,7 +43,8 @@ for (const [pname, profile] of Object.entries(profiles)) {
     const p = await visit(prod, PROD, `${pname}-prod`, route);
     const s = await visit(stage, STAGE, `${pname}-stage`, route);
     check(`${pname} ${route} staging 200`, s.status === 200, s.status);
-    check(`${pname} ${route} researcher gate matches production`, (p.gate > 0) === (s.gate > 0), `prod ${p.gate} stage ${s.gate}`);
+    // Owner decision 2026-10-28: the WordPress store has no researcher verification.
+    check(`${pname} ${route} staging has no researcher gate`, s.gate === 0, `stage ${s.gate}`);
     check(`${pname} ${route} staging no horizontal overflow`, s.overflow <= 1, `overflow ${s.overflow}px`);
     check(`${pname} ${route} staging no JS errors`, s.errors.length === 0, s.errors.join(' | '));
     check(`${pname} ${route} staging no failed same-origin requests`, s.failed.length === 0, s.failed.join(', '));
@@ -68,10 +58,7 @@ const ctx = await browser.newContext({...devices['iPhone 13']});
 const page = await ctx.newPage();
 const jsErrors = []; page.on('pageerror', e => jsErrors.push(e.message));
 await page.goto(LOCAL + '/retatrutide-5mg', {waitUntil: 'networkidle'});
-check('fresh visit shows researcher gate', await page.getByText(/researcher verification/i).count() > 0);
-check('researcher gate accepts through real controls', await acceptGate(page));
-await page.reload({waitUntil: 'networkidle'});
-check('researcher acceptance remembered on reload', await page.getByText(/researcher verification/i).count() === 0);
+check('fresh visit has no researcher gate', await page.getByText(/researcher verification/i).count() === 0);
 const addBtn = page.getByRole('button', {name: /add to cart/i}).first();
 await addBtn.scrollIntoViewIfNeeded(); await addBtn.click();
 await page.waitForTimeout(1500);
@@ -91,6 +78,8 @@ await page.getByRole('button', {name: /^sign in$/i}).first().click();
 await page.waitForURL(/my-account\/\?tbv_return=cart/, {timeout: 10000}).catch(() => {});
 check('cart sign-in opens My Account with return to cart', /tbv_return=cart/.test(page.url()), page.url());
 await page.screenshot({path: path.join(out, 'flow-mobile-account-logged-out.png'), fullPage: true});
+check('signed-out account page uses the storefront card', await page.locator('.tbv-auth h1').filter({hasText: /sign in/i}).count() === 1 && await page.locator('header a[aria-label="Cart"]').count() === 1);
+await page.getByRole('button', {name: /^create account$/i}).click();
 const email = `ui.${Date.now()}@example.test`;
 await page.locator('#reg_email').pressSequentially(email, {delay: 15});
 await page.locator('#reg_password').pressSequentially(env.E2E_RUN_PASSWORD, {delay: 15});
@@ -109,11 +98,6 @@ await field(/State/).fill('Illinois'); await field(/Phone/i).fill('5550100');
 await page.waitForTimeout(1500);
 await page.screenshot({path: path.join(out, 'flow-mobile-checkout.png'), fullPage: true});
 await page.getByRole('button', {name: /proceed to checkout/i}).last().click();
-const attest = page.locator('[role="dialog"][aria-modal="true"]');
-await attest.waitFor({timeout: 5000}).catch(() => {});
-check('purchaser attestation shown before order', await attest.getByText(/purchaser attestation/i).count() === 1);
-for (const box of await attest.locator('input[type="checkbox"]').all()) await box.check();
-await attest.getByRole('button', {name: /confirm/i}).click();
 await page.waitForURL(/order-received/, {timeout: 20000}).catch(() => {});
 check('mobile UI test order reaches order-received', /order-received/.test(page.url()), page.url());
 check('order uses staging test payment', /Test order — no payment \(staging\)/.test(await page.locator('body').innerText()));
