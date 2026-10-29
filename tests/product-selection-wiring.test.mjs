@@ -133,7 +133,7 @@ test("the actual US dose button updates URL and US price without overwriting nav
   assert.equal(selected.dose, "20 mg");
   assert.equal(selected.price, 285, "use US base plus the existing adjustment, not the raw $259 row price");
   assert.equal(selected.fromWarehouse, "us");
-  assert.equal(window.location.pathname, "/glp-3-r-20mg");
+  assert.equal(window.location.pathname, "/retatrutide-20mg");
   assert.equal(window.location.searchParams.get("warehouse"), "us");
   assert.equal(window.location.searchParams.get("utm_source"), "test");
   assert.equal(context.productOriginPage.current, "us-warehouse");

@@ -53,12 +53,7 @@ function makeCheckout(overrides = {}) {
     affiliateCode: "",
     storeCreditUsed: 178.99,
     orderNotes: "",
-    purchaserAttestation: {
-      over21AndResearchUseOnly: true,
-      qualifiedResearcherOrLicensedProfessional: true,
-      noHumanOrAnimalUse: true,
-      policiesAccepted: true,
-    },
+    purchaserAttestation: { policiesAccepted: true },
     ...overrides,
   };
 }
@@ -198,6 +193,20 @@ test("full-credit checkout rejects unsupported pack and warehouse selectors befo
   }
 });
 
+test("full-credit checkout still requires the store policy agreement", async (t) => {
+  withTestEnvironment(t, async (url, options = {}) => {
+    assert.equal(options.method ?? "GET", "GET", "a checkout without policy agreement must not reach a financial write");
+    if (String(url).endsWith("/auth/v1/user")) return authResponse();
+    if (String(url).includes("/rest/v1/orders?")) return orderLookupResponse();
+    throw new Error(`Unexpected request: ${url}`);
+  });
+  for (const purchaserAttestation of [undefined, {}, { policiesAccepted: "true" }]) {
+    const res = mockRes();
+    await handler(makeRequest(makeCheckout({ purchaserAttestation })), res);
+    assert.equal(res.statusCode, 400, JSON.stringify(purchaserAttestation));
+  }
+});
+
 test("server verifies identity, re-prices the cart, and sends only a paid order to the RPC", async (t) => {
   const calls = [];
   withTestEnvironment(t, async (url, options = {}) => {
@@ -239,6 +248,7 @@ test("server verifies identity, re-prices the cart, and sends only a paid order 
   assert.equal(rpcBody.p_customer_email, TEST_EMAIL);
   assert.equal(rpcBody.p_customer_id, "verified-user-id");
   assert.equal(rpcBody.p_order.status, "paid");
+  assert.deepEqual(Object.keys(rpcBody.p_order.purchaserAttestation), ["policiesAccepted", "acceptedAt"]);
   assert.equal(rpcBody.p_order.total, 0);
   assert.equal(rpcBody.p_store_credit_used, 178.99);
   assert.equal(rpcBody.p_user_promo_id, null);

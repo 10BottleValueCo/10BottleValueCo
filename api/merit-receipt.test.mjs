@@ -63,11 +63,11 @@ test("shared receipt preserves branded content, display names and the exact stor
   const html = renderPaymentConfirmationEmail(buildMeritReceipt(attemptFixture()), { escapeValues: true });
   for (const content of ["Payment confirmed", "Shipping address", "Total paid", "What happens next:",
     "Go to account", "Review on Trustpilot", "For laboratory research use only.",
-    "20 vials × GLP-1-S 10mg", "Card surcharge (3%)", "+$3.30", "$113.30"]) {
+    "20 vials × Semaglutide 10mg", "Card surcharge (3%)", "+$3.30", "$113.30"]) {
     assert.ok(html.includes(content), content);
   }
   assert.match(html, /<strong>Payment method:<\/strong> Card<\/p>/);
-  for (const excluded of [PRIVATE, "Card processing fee (5%)", "$999.00", "Semaglutide", "Merit"]) {
+  for (const excluded of [PRIVATE, "Card processing fee (5%)", "$999.00", "GLP-1-S", "Merit"]) {
     assert.equal(html.includes(excluded), false, excluded);
   }
 });
@@ -92,7 +92,7 @@ test("a legacy receipt retains its existing fee label and original field contrac
   });
   assert.match(html, /Card processing fee \(5%\)/);
   assert.match(html, /\+\$5\.00/);
-  assert.match(html, /GLP-2-T/);
+  assert.match(html, /Tirzepatide/);
   assert.match(html, /Express delivery: 5–7 business days/);
   assert.doesNotMatch(html, /Card surcharge/);
 });

@@ -150,11 +150,6 @@ export function useSEO({ page, product }) {
         title: `Contact 10BottleValueCo SIA | ${SITE_NAME}`,
         description: "Contact 10BottleValueCo SIA for order and product support. Business address: Avotu iela 8, Lielvārde, Ogres nov., LV-5071, Latvia.",
       },
-      attestation: {
-        path: "/researcher-attestation",
-        title: `Qualified Purchaser & Researcher Attestation | ${SITE_NAME}`,
-        description: "Mandatory qualified researcher or licensed professional attestation and no-human-or-animal-use commitment required before purchase.",
-      },
       track: {
         path: "/track-order",
         title: `Track Your Order | ${SITE_NAME}`,
@@ -298,7 +293,7 @@ export function useSEO({ page, product }) {
       // ── Home / other pages ──────────────────────────────────────────────────
       const canonical = SITE_URL + "/";
       const title = "10BottleValueCo — Research Peptides At Wholesale Prices";
-      const desc  = "Buy research peptides in 10-vial kits. Up to 4× cheaper than most brands. BPC-157, TB-500, GLP-1-S, GLP-2-T, GLP-3-R and more. Ships worldwide. Research use only.";
+      const desc  = "Buy research peptides in 10-vial kits. Up to 4× cheaper than most brands. BPC-157, TB-500, Semaglutide, Tirzepatide, Retatrutide and more. Ships worldwide. Research use only.";
 
       document.title = title;
       setCanonical(canonical);

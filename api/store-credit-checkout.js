@@ -207,16 +207,10 @@ function readCheckoutInput(body, customerEmail) {
   }
   const requestedCents = Math.round(requestedStoreCredit * 100);
 
-  const attestation = body.purchaserAttestation;
-  if (
-    attestation?.over21AndResearchUseOnly !== true ||
-    attestation?.qualifiedResearcherOrLicensedProfessional !== true ||
-    attestation?.noHumanOrAnimalUse !== true ||
-    attestation?.policiesAccepted !== true
-  ) {
+  if (body.purchaserAttestation?.policiesAccepted !== true) {
     throw new CheckoutError(
       400,
-      "Confirm all purchaser attestations before placing the order.",
+      "Agree to the store policies before placing the order.",
     );
   }
 
@@ -241,6 +235,8 @@ function readCheckoutInput(body, customerEmail) {
     requestedCents,
     checkoutForm: form,
     orderNotes,
+    // Unchanged so a retry of an attempt started before the purchaser
+    // checkboxes were retired still matches its saved order.
     purchaserAttestation: {
       over21AndResearchUseOnly: true,
       qualifiedResearcherOrLicensedProfessional: true,
@@ -495,9 +491,6 @@ async function handler(req, res) {
       phone: input.form.phone,
       taxId: input.form.taxId,
       purchaserAttestation: {
-        over21AndResearchUseOnly: true,
-        qualifiedResearcherOrLicensedProfessional: true,
-        noHumanOrAnimalUse: true,
         policiesAccepted: true,
         acceptedAt: paidAt,
       },

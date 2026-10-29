@@ -1,18 +1,10 @@
+import { publicProductName } from "./_public-product-name.js";
+
 const FROM = "2026-04-01";
 const PAGE_SIZE = 1000;
 const CACHE_MS = 5 * 60 * 1000;
 
 const aliases = {
-  "retatrutide / glp-3": "GLP RT-3",
-  retatrutide: "GLP RT-3",
-  "glp-3-r": "GLP RT-3",
-  "tirzepatide / glp-2": "GLP TZ-2",
-  tirzepatide: "GLP TZ-2",
-  "glp-2-t": "GLP TZ-2",
-  semaglutide: "GLP SG-1",
-  "glp-1-s": "GLP SG-1",
-  "cagrilintide + semaglutide": "Cagrilintide + GLP SG-1",
-  "cagrilintide + glp-1-s": "Cagrilintide + GLP SG-1",
   "bac water": "Reconstitution Solution",
   hgh: "10-GH",
   "ara290 (cibinetide)": "ARA290",
@@ -66,7 +58,7 @@ async function calculateRanking(through) {
         || String(meta.shippingType || "").toLowerCase() === "us-warehouse";
       for (const item of items) {
         if (!item || typeof item !== "object" || typeof item.name !== "string") continue;
-        const name = aliases[item.name.trim().toLowerCase()] ?? item.name.trim();
+        const name = publicProductName(aliases[item.name.trim().toLowerCase()] ?? item.name.trim());
         const quantity = Number(item.quantity || item.qty || 1);
         if (!name || !Number.isFinite(quantity) || quantity <= 0) continue;
         units.set(name, (units.get(name) ?? 0) + quantity);

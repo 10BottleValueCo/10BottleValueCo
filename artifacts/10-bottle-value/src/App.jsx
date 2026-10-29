@@ -24,7 +24,7 @@ import { startVisiblePolling } from "./visible-poll.js";
 import { observeAnnouncementHeight } from "./announcement-height.js";
 import { createInfoPageImageWarmup, scheduleInfoPageWarmup } from "./preloadInfoPageImages.js";
 import { createLegacyAttemptManager } from "./legacy-checkout-attempt.js";
-import { buildMeritCheckoutPayload, estimateMeritCreditSplit, meritCheckoutBusinessError, meritCartMatchesOrder, meritOrderCardSurcharge, createMeritApiClient, meritPayloadDigest, readMeritAttempt, saveMeritAttempt, verifyMeritCheckoutBuyer, MERIT_ATTEMPT_STORAGE_KEY } from "./merit-checkout-client.js";
+import { meritCartMatchesOrder, meritOrderCardSurcharge, createMeritReconciliationClient, readMeritAttempt, MERIT_ATTEMPT_STORAGE_KEY } from "./merit-checkout-client.js";
 import { ACCOUNT_AVATARS, getAccountAvatar } from "./account-avatars.js";
 import { track, trackPageView } from "./analytics.js";
 import { useSEO } from "./useSEO.js";
@@ -51,10 +51,6 @@ import melanotan2VialInline from "./assets/vials/melanotan-2-mt2-10mg.webp?inlin
 import cashAppLogo from "./assets/payment-logos/cash-app.svg";
 import bitcoinLogo from "./assets/payment-logos/bitcoin.svg";
 import bankCardIcon from "./assets/payment-logos/bank-card.svg";
-import applePayMark from "./assets/payment-logos/apple-pay.svg";
-import applePayMarkDark from "./assets/payment-logos/apple-pay-dark.svg";
-import googlePayMark from "./assets/payment-logos/google-pay.svg";
-import googlePayMarkDark from "./assets/payment-logos/google-pay-dark.svg";
 import faqBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_34_14_1791041667847.webp";
 import laboratoryBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791041778846.webp";
 import legalPolicyBackgroundImage from "@assets/ChatGPT_Image_3_окт._2026_г.,_18_33_27_1791210990340.webp";
@@ -95,7 +91,6 @@ const PublicInfoPages = lazy(importPublicInfoPages);
 const ShippingRefundPolicyPages = lazy(importShippingRefundPolicyPages);
 const PrivacyPolicyPage = lazy(importPrivacyPolicyPage);
 const TermsConditionsPage = lazy(importTermsConditionsPage);
-const MeritCheckoutPanel = lazy(() => import("./components/MeritCheckoutPanel.jsx"));
 const AdminChart = lazy(() => import("./components/AdminChart.jsx"));
 const publicPolicyPageFallback = (
   <main className="mx-auto max-w-5xl px-4 pt-8 pb-16 md:px-10 md:pt-12">
@@ -115,7 +110,7 @@ const publicPathToPage = {
   about: "about",
   faq: "faq",
   contact: "contact",
-  "researcher-attestation": "attestation",
+  "researcher-attestation": "terms",
   "track-order": "track",
   account: "account",
   cart: "cart",
@@ -138,7 +133,6 @@ const publicPageToPath = {
   about: "/about",
   faq: "/faq",
   contact: "/contact",
-  attestation: "/researcher-attestation",
   track: "/track-order",
   account: "/account",
   cart: "/cart",
@@ -209,13 +203,13 @@ const isTopProduct = (product) =>
   product.name !== "MOTS-C" && (topProductNames.has(product.name) || Boolean(product.isHot));
 
 const homeUsPopularityOrder = [
-  "GLP RT-3",
+  "Retatrutide",
   "Reconstitution Solution",
   "GHK-CU",
   "TB-500 + BPC-157",
   "BPC-157",
   "MOTS-C",
-  "GLP TZ-2",
+  "Tirzepatide",
   "10-GH",
   "KLOW80",
   "CJC-1295 + Ipamorelin",
@@ -4406,7 +4400,6 @@ export default function App() {
   }, [currentUser?.id]);
   const [isBonusExpanded, setIsBonusExpanded] = useState(false);
   const [shippingHighlight, setShippingHighlight] = useState(false);
-  const [checkboxHighlight, setCheckboxHighlight] = useState(false);
   const shippingSectionRef = useRef(null);
   const formSectionRef = useRef(null);
   const inboxScrollRef = useRef(null);
@@ -4415,41 +4408,7 @@ export default function App() {
   const typingStopTimerRef = useRef(null);
   const userFileInputRef = useRef(null);
   const adminFileInputRef = useRef(null);
-  const termsSectionRef = useRef(null);
-  const attestationResearchRef = useRef(null);
-  const attestationQualifiedRef = useRef(null);
-  const attestationTermsRef = useRef(null);
-  const attestationConfirmRef = useRef(null);
   const stickyClickCountRef = useRef(0);
-  const [researchAccepted, setResearchAccepted] = useState(false);
-  const [qualifiedAccepted, setQualifiedAccepted] = useState(false);
-  const [termsAccepted, setTermsAccepted] = useState(false);
-  const [attestationModalOpen, setAttestationModalOpen] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.location.pathname.replace(/\/+$/, "").toLowerCase() === "/cart/confirmation";
-  });
-  const [pendingAttestationAction, setPendingAttestationAction] = useState("checkout");
-  useEffect(() => {
-    if (page !== "cart") return;
-    const targetPath = attestationModalOpen ? "/cart/confirmation" : "/cart";
-    if (window.location.pathname !== targetPath) {
-      window.history.replaceState({}, "", targetPath);
-    }
-  }, [attestationModalOpen, page]);
-  const syncAttestationConfirmButton = () => {
-    if (!attestationConfirmRef.current) return;
-    const enabled = Boolean(
-      attestationResearchRef.current?.checked &&
-      attestationQualifiedRef.current?.checked &&
-      attestationTermsRef.current?.checked
-    );
-    attestationConfirmRef.current.disabled = false;
-    attestationConfirmRef.current.className = `mt-6 w-full rounded-full px-6 py-4 text-[13px] font-bold uppercase tracking-[0.22em] ${
-      enabled
-        ? "bg-white text-black"
-        : "cursor-not-allowed bg-white/45 text-black/45"
-    }`;
-  };
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [language] = useState("EN");
   const catalogShippingCopy = {
@@ -8352,40 +8311,12 @@ export default function App() {
       DE: "UND",
       ES: "Y",
     },
-    ruoStrict: {
-      EN: "FOR LABORATORY RESEARCH USE ONLY. NOT FOR HUMAN OR ANIMAL USE.",
-      RU: "ТОЛЬКО ДЛЯ ЛАБОРАТОРНЫХ ИССЛЕДОВАНИЙ. НЕ ДЛЯ ИСПОЛЬЗОВАНИЯ ЛЮДЬМИ ИЛИ ЖИВОТНЫМИ.",
-      UA: "ЛИШЕ ДЛЯ ЛАБОРАТОРНИХ ДОСЛІДЖЕНЬ. НЕ ДЛЯ ВИКОРИСТАННЯ ЛЮДЬМИ АБО ТВАРИНАМИ.",
-      DE: "NUR FÜR LABORFORSCHUNGSZWECKE. NICHT FÜR DIE ANWENDUNG BEI MENSCHEN ODER TIEREN BESTIMMT.",
-      ES: "SOLO PARA USO EN INVESTIGACIÓN DE LABORATORIO. NO PARA USO HUMANO O ANIMAL.",
-    },
     checkoutDataNotice: {
       EN: "YOUR PERSONAL DATA WILL BE USED TO PROCESS YOUR ORDER, SUPPORT YOUR EXPERIENCE THROUGHOUT THIS WEBSITE, AND FOR OTHER PURPOSES DESCRIBED IN OUR",
       RU: "ВАШИ ПЕРСОНАЛЬНЫЕ ДАННЫЕ БУДУТ ИСПОЛЬЗОВАНЫ ДЛЯ ОБРАБОТКИ ЗАКАЗА, ПОДДЕРЖКИ ВАШЕГО ОПЫТА НА САЙТЕ И ДРУГИХ ЦЕЛЕЙ, ОПИСАННЫХ В НАШЕЙ",
       UA: "ВАШІ ПЕРСОНАЛЬНІ ДАНІ БУДУТЬ ВИКОРИСТАНІ ДЛЯ ОБРОБКИ ЗАМОВЛЕННЯ, ПІДТРИМКИ ВАШОГО ДОСВІДУ НА САЙТІ ТА ІНШИХ ЦІЛЕЙ, ОПИСАНИХ У НАШІЙ",
       DE: "IHRE PERSONENBEZOGENEN DATEN WERDEN VERWENDET, UM IHRE BESTELLUNG ZU BEARBEITEN, IHRE ERFAHRUNG AUF DIESER WEBSITE ZU UNTERSTÜTZEN UND FÜR WEITERE ZWECKE, DIE IN UNSERER",
       ES: "SUS DATOS PERSONALES SE UTILIZARÁN PARA PROCESAR SU PEDIDO, MEJORAR SU EXPERIENCIA EN ESTE SITIO WEB Y PARA OTROS FINES DESCRITOS EN NUESTRA",
-    },
-    ageResearchCheckbox: {
-      EN: "I CONFIRM THAT I AM OVER 21 YEARS OLD AND UNDERSTAND THAT ALL PRODUCTS ARE SOLD STRICTLY FOR RESEARCH PURPOSES ONLY AND NOT FOR HUMAN OR ANIMAL USE.",
-      RU: "Я ПОДТВЕРЖДАЮ, ЧТО МНЕ БОЛЬШЕ 21 ГОДА, И ПОНИМАЮ, ЧТО ВСЕ ПРОДУКТЫ ПРОДАЮТСЯ СТРОГО ТОЛЬКО ДЛЯ ИССЛЕДОВАТЕЛЬСКИХ ЦЕЛЕЙ И НЕ ДЛЯ ИСПОЛЬЗОВАНИЯ ЛЮДЬМИ ИЛИ ЖИВОТНЫМИ.",
-      UA: "Я ПІДТВЕРДЖУЮ, ЩО МЕНІ БІЛЬШЕ 21 РОКУ, І РОЗУМІЮ, ЩО ВСІ ПРОДУКТИ ПРОДАЮТЬСЯ СУВОРО ЛИШЕ ДЛЯ ДОСЛІДНИЦЬКИХ ЦІЛЕЙ І НЕ ДЛЯ ВИКОРИСТАННЯ ЛЮДЬМИ АБО ТВАРИНАМИ.",
-      DE: "ICH BESTÄTIGE, DASS ICH ÜBER 21 JAHRE ALT BIN UND VERSTEHE, DASS ALLE PRODUKTE AUSSCHLIESSLICH FÜR FORSCHUNGSZWECKE VERKAUFT WERDEN UND NICHT FÜR DIE ANWENDUNG BEI MENSCHEN ODER TIEREN BESTIMMT SIND.",
-      ES: "CONFIRMO QUE TENGO MÁS DE 21 AÑOS Y ENTIENDO QUE TODOS LOS PRODUCTOS SE VENDEN ESTRICTAMENTE PARA FINES DE INVESTIGACIÓN Y NO PARA USO HUMANO O ANIMAL.",
-    },
-    qualifiedResearchCheckbox: {
-      EN: "I CONFIRM THAT I AM A QUALIFIED RESEARCHER, LICENSED PROFESSIONAL, OR AUTHORIZED REPRESENTATIVE OF A QUALIFIED RESEARCH ORGANIZATION. I WILL NOT USE THESE PRODUCTS ON HUMANS OR ANIMALS.",
-      RU: "Я ПОДТВЕРЖДАЮ, ЧТО Я ЯВЛЯЮСЬ КВАЛИФИЦИРОВАННЫМ ИССЛЕДОВАТЕЛЕМ, ЛИЦЕНЗИРОВАННЫМ СПЕЦИАЛИСТОМ ИЛИ УПОЛНОМОЧЕННЫМ ПРЕДСТАВИТЕЛЕМ КВАЛИФИЦИРОВАННОЙ ИССЛЕДОВАТЕЛЬСКОЙ ОРГАНИЗАЦИИ. Я НЕ БУДУ ИСПОЛЬЗОВАТЬ ЭТИ ПРОДУКТЫ НА ЛЮДЯХ ИЛИ ЖИВОТНЫХ.",
-      UA: "Я ПІДТВЕРДЖУЮ, ЩО Я Є КВАЛІФІКОВАНИМ ДОСЛІДНИКОМ, ЛІЦЕНЗОВАНИМ ФАХІВЦЕМ АБО УПОВНОВАЖЕНИМ ПРЕДСТАВНИКОМ КВАЛІФІКОВАНОЇ ДОСЛІДНИЦЬКОЇ ОРГАНІЗАЦІЇ. Я НЕ БУДУ ВИКОРИСТОВУВАТИ ЦІ ПРОДУКТИ НА ЛЮДЯХ АБО ТВАРИНАХ.",
-      DE: "ICH BESTÄTIGE, DASS ICH EIN QUALIFIZIERTER FORSCHER, EIN LIZENZIERTER FACHMANN ODER EIN BEVOLLMÄCHTIGTER VERTRETER EINER QUALIFIZIERTEN FORSCHUNGSORGANISATION BIN. ICH WERDE DIESE PRODUKTE NICHT AN MENSCHEN ODER TIEREN ANWENDEN.",
-      ES: "CONFIRMO QUE SOY UN INVESTIGADOR CUALIFICADO, UN PROFESIONAL CON LICENCIA O UN REPRESENTANTE AUTORIZADO DE UNA ORGANIZACIÓN DE INVESTIGACIÓN CUALIFICADA. NO UTILIZARÉ ESTOS PRODUCTOS EN SERES HUMANOS NI EN ANIMALES.",
-    },
-    termsCheckboxStart: {
-      EN: "I HAVE READ AND AGREE TO THE WEBSITE",
-      RU: "Я ПОДТВЕРЖДАЮ, ЧТО ПРОЧИТАЛ И СОГЛАСЕН С",
-      UA: "Я ПІДТВЕРДЖУЮ, ЩО ПРОЧИТАВ І ПОГОДЖУЮСЯ З",
-      DE: "ICH HABE GELESEN UND STIMME ZU:",
-      ES: "HE LEÍDO Y ACEPTO LOS",
     },
   };
 
@@ -8667,10 +8598,9 @@ export default function App() {
   }, [page, checkoutStep]);
   const [paymentMethod, setPaymentMethodState] = useState("paylio");
   function setPaymentMethod(next) {
-    if (next === paymentMethod || legacyStartLockRef.current) return;
-    if (meritAttemptRef.current?.submitted || (meritAttemptRef.current?.createRequested && next !== "stripe")) { showMeritReservedAttempt(); return; }
-    if (next === "stripe" && meritSession) setOrderNumber(meritSession.orderId);
-    else if (deferredLegacyOrderRef.current?.id) setOrderNumber(deferredLegacyOrderRef.current.id);
+    if (next === "stripe" || next === paymentMethod || legacyStartLockRef.current) return;
+    if (meritAttemptRef.current?.submitted || meritAttemptRef.current?.createRequested) { showMeritReservedAttempt(); return; }
+    if (deferredLegacyOrderRef.current?.id) setOrderNumber(deferredLegacyOrderRef.current.id);
     meritSelectionRef.current = { method: next, step: checkoutStep };
     setPaymentMethodState(next);
   }
@@ -8735,53 +8665,20 @@ export default function App() {
   const [paylioPaymentError, setPaylioPaymentError] = useState("");
   const [catalystPayLoading, setCatalystPayLoading] = useState(false);
   const [catalystPayError, setCatalystPayError] = useState("");
-  const [stripeLoading, setStripeLoading] = useState(false);
-  const [stripeError, setStripeError] = useState("");
-  const [meritConfig, setMeritConfig] = useState(null);
-  const [meritSession, setMeritSession] = useState(null);
   const [meritReturnChecking, setMeritReturnChecking] = useState(false);
   const [meritReturnError, setMeritReturnError] = useState("");
-  const meritCreateBusyRef = useRef(false);
-  const meritVerificationAbortRef = useRef(null);
-  useEffect(() => () => meritVerificationAbortRef.current?.abort(), []);
   const meritReturnBusyRef = useRef(false);
   const meritAttemptRef = useRef(readMeritAttempt(window.sessionStorage));
-  const meritInputsRef = useRef("");
   const meritSelectionRef = useRef({});
   meritSelectionRef.current = { method: paymentMethod, step: checkoutStep };
   const meritBuyerEmailRef = useRef("");
   meritBuyerEmailRef.current = normalizeEmail(currentUser?.email);
-  const meritApi = useMemo(() => createMeritApiClient({ getAccessToken: async () => {
+  const meritApi = useMemo(() => createMeritReconciliationClient({ getAccessToken: async () => {
     const { data, error } = await supabase.auth.getSession();
     return error ? "" : data?.session?.access_token || "";
   } }), []);
   useEffect(() => {
-    let active = true;
-    meritApi.configuration().then(config => { if (active) setMeritConfig(config); }).catch(() => { if (active) setMeritConfig(null); });
-    return () => { active = false; };
-  }, [meritApi]);
-  useEffect(() => {
-    if (page !== "cart" || checkoutStep !== "payment") return undefined;
-    let active = true;
-    const refreshMeritConfig = () => {
-      meritApi.configuration()
-        .then(config => { if (active) setMeritConfig(config); })
-        .catch(() => {});
-    };
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") refreshMeritConfig();
-    };
-    refreshMeritConfig();
-    window.addEventListener("focus", refreshMeritConfig);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    return () => {
-      active = false;
-      window.removeEventListener("focus", refreshMeritConfig);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-    };
-  }, [meritApi, page, checkoutStep]);
-  useEffect(() => {
-    if (paymentReturn.provider !== "merit" && meritAttemptRef.current?.submitted && meritAttemptRef.current.orderId) openMeritPending();
+    if (paymentReturn.provider !== "merit" && (meritAttemptRef.current?.submitted || meritAttemptRef.current?.createRequested) && meritAttemptRef.current.orderId) openMeritPending();
   }, []);
   const [wireLoading, setWireLoading] = useState(false);
   const [wireConfirmed, setWireConfirmed] = useState(false);
@@ -10720,48 +10617,17 @@ export default function App() {
   const cryptoDiscountAmount = (paymentMethod === "crypto" && checkoutStep === "payment")
     ? discountAmount(baseTotal, 0.025)
     : 0;
-  const meritPayload = buildMeritCheckoutPayload({
-    items: cart, checkoutForm, shippingType: effectiveShippingType,
-    promoCode: appliedPromo?.code, affiliateCode: affiliateTrackingCode,
-    affiliateDiscountDisabled, ownerFreeShipping: ownerFreeShippingActive,
-    // A recovered hold has already reduced the available balance. Preserve its
-    // original credit intent so this same checkout can recover after reload.
-    orderNotes: getCheckoutOrderNotes(checkoutForm), useStoreCredit: Boolean(currentUser && (storeCredit > 0 || meritAttemptRef.current?.createRequested)),
-    purchaserAttestation: { over21AndResearchUseOnly: Boolean(researchAccepted),
-      qualifiedResearcherOrLicensedProfessional: Boolean(qualifiedAccepted),
-      noHumanOrAnimalUse: Boolean(qualifiedAccepted), policiesAccepted: Boolean(termsAccepted) },
-  });
-  const meritInputsKey = JSON.stringify({ payload: meritPayload, email: normalizeEmail(currentUser?.email), surchargeBps: meritConfig?.surchargeBps });
-  meritInputsRef.current = meritInputsKey;
-  const meritActiveSession = meritSession?.inputsKey === meritInputsKey ? meritSession : null;
-  const meritSelected = paymentMethod === "stripe" && checkoutStep === "payment";
-  const meritSurchargePercent = Number(meritActiveSession?.order?.customerCardSurchargeBps ?? meritConfig?.surchargeBps ?? 0) / 100;
-  const meritCreditSplit = meritActiveSession || estimateMeritCreditSplit(baseTotal, currentUser ? storeCredit : 0, meritConfig?.surchargeBps);
-  const stripeFeeAmount = meritSelected ? meritCreditSplit.surchargeCents / 100 : 0;
-  const totalAfterDiscount = baseTotal - cryptoDiscountAmount + stripeFeeAmount;
+  const totalAfterDiscount = baseTotal - cryptoDiscountAmount;
   const PAYPAL_FEE_RATE = 0;
   const paypalFee = 0;
   const totalWithFee = totalAfterDiscount + paypalFee;
   const paypalSnapshotRef = useRef(null);
-  // Preview credit is informational. The authenticated Merit response replaces
-  // every amount before its card form mounts; full-credit uses its existing RPC.
-  const storeCreditApplied = meritSelected ? meritCreditSplit.storeCreditUsedCents / 100
-    : currentUser && storeCredit > 0 && totalWithFee > 0 && Math.round(storeCredit * 100) >= Math.round(totalWithFee * 100) ? totalWithFee : 0;
-  const finalTotal = meritSelected ? meritCreditSplit.amountCents / 100 : Math.max(0, totalWithFee - storeCreditApplied);
-  const stripeTemporarilyDisabled = meritConfig?.enabled !== true;
-  const meritUnavailableMessage = meritConfig?.temporarilyClosed || meritConfig?.reopensAt
-    ? tx("Opens October 26–28", "Откроется 26–28 октября", "Відкриється 26–28 жовтня", "Öffnet 26.–28. Oktober", "Disponible del 26 al 28 de octubre")
-    : tx("Unavailable", "Недоступно");
-  const checkoutInvoice = meritSelected && meritActiveSession?.order ? meritActiveSession.order : {
+  const storeCreditApplied = currentUser && storeCredit > 0 && totalWithFee > 0 && Math.round(storeCredit * 100) >= Math.round(totalWithFee * 100) ? totalWithFee : 0;
+  const finalTotal = Math.max(0, totalWithFee - storeCreditApplied);
+  const checkoutInvoice = {
     items: cart, subtotal, shipping, automaticDiscount, promoDiscount, affiliateDiscount,
     promoCode: appliedPromo?.code, shippingType: effectiveShippingType,
   };
-  useEffect(() => {
-    if (meritSession && meritSession.inputsKey !== meritInputsKey) {
-      if (meritAttemptRef.current?.submitted || meritAttemptRef.current?.createRequested) showMeritReservedAttempt();
-      else setMeritSession(null);
-    }
-  }, [meritInputsKey, meritSession]);
   useEffect(() => {
     if (currentUser?.email && paymentReturn.provider === "merit" && paymentReturn.status === "pending") setPage("payment-return");
   }, [currentUser?.email]);
@@ -10882,12 +10748,12 @@ export default function App() {
   }
 
   const homePopularOrder = [
-    "GLP RT-3",
+    "Retatrutide",
     "Reconstitution Solution",
     "GHK-CU",
     "TB-500 + BPC-157",
     "MOTS-C",
-    "GLP TZ-2",
+    "Tirzepatide",
     "10-GH",
     "KLOW80",
     "CJC-1295 + Ipamorelin",
@@ -11393,15 +11259,14 @@ export default function App() {
   function assertPaypalCheckoutReady() {
     if (meritSelectionRef.current.method !== "paypal" || meritSelectionRef.current.step !== "payment"
       || finalTotal <= 0 || storeCreditApplied > 0 || meritAttemptRef.current?.createRequested || meritAttemptRef.current?.submitted) {
-      throw new Error(tx("Select PayPal to pay the full amount. Choose card payment to combine it with store credit, or Pay with Credits when credit covers the order.", "Выберите PayPal для полной оплаты через PayPal. Для частичной оплаты кредитом магазина выберите карту, а при полном покрытии — оплату кредитами."));
+      throw new Error(tx("Select PayPal to pay the full amount, or Pay with Credits when store credit covers the order.", "Выберите PayPal для полной оплаты или оплату кредитами, когда кредит магазина покрывает заказ."));
     }
   }
 
   function showMeritReservedAttempt() {
     const message = tx("This payment may already be in progress. Continue this same checkout, or contact support before starting another payment.", "Эта оплата уже могла начаться. Продолжите то же оформление или обратитесь в поддержку перед новой оплатой.");
-    setStripeError(message);
     setCheckoutMessage(message);
-    if (meritAttemptRef.current?.submitted && meritAttemptRef.current?.orderId) openMeritPending();
+    if (meritAttemptRef.current?.orderId) openMeritPending();
   }
 
   function openMeritPending(orderId = meritAttemptRef.current?.orderId) {
@@ -11410,7 +11275,7 @@ export default function App() {
     setPage("payment-return");
   }
 
-  async function acceptMeritPaid(result, expectedId = meritSession?.orderId || paymentReturn.order) {
+  async function acceptMeritPaid(result, expectedId = paymentReturn.order) {
     if (result?.ok !== true || result?.paid !== true || result.orderId !== expectedId || result.order?.id !== expectedId) return;
     const order = { ...result.order.metadata, ...result.order };
     setPaymentReturnOrder(order);
@@ -11422,7 +11287,6 @@ export default function App() {
       try { window.sessionStorage.removeItem(MERIT_ATTEMPT_STORAGE_KEY); } catch { /* Local cleanup cannot undo confirmation. */ }
       meritAttemptRef.current = null;
     }
-    setMeritSession(null);
     if (currentUser?.email) {
       refreshUserOrdersFromSupabase(currentUser.email);
       void loadStoreCredit(currentUser.email);
@@ -11444,96 +11308,6 @@ export default function App() {
         ? tx("Sign in to the account used for this order, then check its status.", "Войдите в аккаунт, с которого сделан заказ, и проверьте статус.")
         : tx("We could not confirm the payment yet. Check its status before trying another payment.", "Пока не удалось подтвердить оплату. Проверьте статус, прежде чем оплачивать повторно."));
     } finally { meritReturnBusyRef.current = false; setMeritReturnChecking(false); }
-  }
-
-  function handleMeritState(state) {
-    const attempt = meritAttemptRef.current;
-    if (!attempt) return;
-    // Persist before confirmation starts, so refresh/redirect recovers status.
-    if (state.phase === "confirming" || state.submitted) attempt.submitted = true;
-    else if (state.phase === "error" && !state.submitted) attempt.submitted = false;
-    try { saveMeritAttempt(window.sessionStorage, attempt); } catch { /* In-memory lock remains active. */ }
-  }
-
-  async function handleStripePayment() {
-    if (meritCreateBusyRef.current || stripeTemporarilyDisabled) return;
-    if (meritAttemptRef.current?.submitted) { openMeritPending(); return; }
-    if (!currentUser?.email) { setPage("account"); return; }
-    const syncedForm = readCheckoutSnapshot();
-    const errors = validateCheckoutForm(syncedForm);
-    if (Object.keys(errors).length || !researchAccepted || !qualifiedAccepted || !termsAccepted) {
-      setCheckoutErrors(errors); setCheckoutStep("details");
-      setCheckoutMessage(tx("Review your contact details and checkout confirmations.", "Проверьте контактные данные и подтверждения при оформлении."));
-      return;
-    }
-    rememberValidCheckoutDetails(syncedForm);
-    // Buffered fields must be committed before requesting the canonical quote.
-    const payload = buildMeritCheckoutPayload({ ...meritPayload, checkoutForm: syncedForm, orderNotes: getCheckoutOrderNotes(syncedForm) });
-    const requestedInputs = JSON.stringify({ payload, email: normalizeEmail(currentUser.email), surchargeBps: meritConfig.surchargeBps });
-    meritCreateBusyRef.current = true;
-    setStripeLoading(true); setStripeError("");
-    try {
-      const digest = await meritPayloadDigest(payload, currentUser.email, meritConfig.surchargeBps);
-      const previous = meritAttemptRef.current;
-      if (previous?.createRequested && previous.digest !== digest) { showMeritReservedAttempt(); return; }
-      const attempt = previous?.digest === digest ? previous : { key: window.crypto.randomUUID(), digest, orderId: "", submitted: false };
-      meritAttemptRef.current = attempt;
-      saveMeritAttempt(window.sessionStorage, attempt);
-      const verificationAbort = new AbortController();
-      meritVerificationAbortRef.current = verificationAbort;
-      const proof = await verifyMeritCheckoutBuyer(currentUser.email, undefined, { signal: verificationAbort.signal });
-      if (!proof) return;
-      if (meritInputsRef.current !== requestedInputs || meritSelectionRef.current.method !== "stripe" || meritSelectionRef.current.step !== "payment") throw new Error("checkout_changed");
-      // Persist before network I/O: a lost create response may already hold
-      // credit. Only this key and unchanged input may recover that reservation.
-      attempt.createRequested = payload.useStoreCredit === true;
-      saveMeritAttempt(window.sessionStorage, attempt);
-      const result = await meritApi.create({ checkoutKey: attempt.key, payload, proof });
-      attempt.orderId = result.session.orderId;
-      if (result.session.storeCreditUsedCents === 0) attempt.createRequested = false;
-      if (result.paid === true) {
-        // A recovered create response may describe an already-paid attempt.
-        // Reconcile it immediately; never remount a form that can confirm again.
-        attempt.submitted = true;
-        saveMeritAttempt(window.sessionStorage, attempt);
-        meritReturnBusyRef.current = true;
-        setMeritReturnChecking(true);
-        openMeritPending(attempt.orderId);
-        try {
-          const confirmed = await meritApi.reconcile({ orderId: attempt.orderId });
-          if (meritBuyerEmailRef.current === normalizeEmail(currentUser.email) && confirmed.paid === true) {
-            await acceptMeritPaid(confirmed, attempt.orderId);
-          }
-        } catch {
-          setMeritReturnError(tx("We could not confirm the payment yet. Check its status before trying another payment.", "Пока не удалось подтвердить оплату. Проверьте статус, прежде чем оплачивать повторно."));
-        } finally {
-          meritReturnBusyRef.current = false;
-          setMeritReturnChecking(false);
-        }
-        return;
-      }
-      saveMeritAttempt(window.sessionStorage, attempt);
-      if (meritInputsRef.current !== requestedInputs || meritSelectionRef.current.method !== "stripe" || meritSelectionRef.current.step !== "payment") throw new Error("checkout_changed");
-      setOrderNumber(result.session.orderId);
-      setMeritSession({ ...result.session, order: { ...result.order.metadata, ...result.order }, inputsKey: requestedInputs });
-    } catch (error) {
-      if (["MERIT_PROMO_UNVERIFIED", "MERIT_AFFILIATE_UNVERIFIED", "MERIT_AFFILIATE_UNAVAILABLE", "MERIT_AFFILIATE_RULES_UNAVAILABLE", "MERIT_AFFILIATE_LOOKUP_UNAVAILABLE", "MERIT_FULL_CREDIT_AVAILABLE", "MERIT_CREDIT_PENDING", "MERIT_CREDIT_BALANCE_UNAVAILABLE"].includes(error?.code) && !meritAttemptRef.current?.orderId) {
-        meritAttemptRef.current.createRequested = false;
-        saveMeritAttempt(window.sessionStorage, meritAttemptRef.current);
-      }
-      if (error?.code === "MERIT_FULL_CREDIT_AVAILABLE") await loadStoreCredit(currentUser.email);
-      const businessError = meritCheckoutBusinessError(error, language);
-      setStripeError(businessError || (error?.code === "authentication_required"
-        ? tx("Your sign-in has expired. Sign in again, then continue.", "Срок входа истёк. Войдите снова и продолжите.")
-        : error?.message === "checkout_changed"
-          ? tx("Your checkout changed. Review the total and continue again.", "Данные заказа изменились. Проверьте сумму и продолжите снова.")
-          : tx("We could not open secure payment. Continue again to recover the same checkout.", "Не удалось открыть защищённую оплату. Продолжите снова, чтобы восстановить то же оформление.")));
-    } finally {
-      meritVerificationAbortRef.current?.abort();
-      meritVerificationAbortRef.current = null;
-      meritCreateBusyRef.current = false;
-      setStripeLoading(false);
-    }
   }
 
   async function onPaypalApprove(data) {
@@ -12260,49 +12034,14 @@ export default function App() {
     return errors;
   }
 
-  function validateCheckoutBeforeAttestation() {
-    const syncedForm = readCheckoutSnapshot();
-    setCheckoutForm(syncedForm);
-    setCountrySearch(syncedForm.country || "");
-
-    const errors = validateCheckoutForm(syncedForm);
-    setCheckoutErrors(errors);
-    if (Object.keys(errors).length === 0) {
-      setCheckoutMessage("");
-      return true;
-    }
-
-    setCheckoutMessage(
-      tx(
-        "Please correctly fill in all required fields.",
-        "Заполните все обязательные поля корректно.",
-        "Заповніть усі обовʼязкові поля коректно.",
-        "Bitte füllen Sie alle Pflichtfelder korrekt aus.",
-        "Completa correctamente todos los campos obligatorios."
-      )
-    );
-    const firstErrorField = Object.keys(errors)[0];
-    const fieldRef = checkoutInputRefs.current[firstErrorField];
-    if (fieldRef) {
-      setTimeout(() => {
-        fieldRef.scrollIntoView({ behavior: "smooth", block: "center" });
-        fieldRef.focus();
-      }, 50);
-    } else if (formSectionRef.current) {
-      setTimeout(() => {
-        formSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 50);
-    }
-    return false;
-  }
-
-  function requestCheckoutAttestation() {
+  function proceedToCheckout() {
     if (cart.length === 0 || hasOutOfStockInCart) return;
-    if (currentUser?.email && !validateCheckoutBeforeAttestation()) return;
-    setPendingAttestationAction(
-      finalTotal === 0 && storeCreditApplied > 0 ? "credits" : "checkout"
-    );
-    setAttestationModalOpen(true);
+    if (checkoutMessage) setCheckoutMessage("");
+    if (finalTotal === 0 && storeCreditApplied > 0) {
+      handlePayWithCredits();
+    } else {
+      handleCheckout();
+    }
   }
 
   function rememberValidCheckoutDetails(snapshot) {
@@ -12317,11 +12056,8 @@ export default function App() {
     });
   }
 
-  async function handleCheckout(attestationOverride = null) {
-    if (meritAttemptRef.current?.submitted) { openMeritPending(); return; }
-    const acceptedResearch = attestationOverride?.researchAccepted ?? researchAccepted;
-    const acceptedQualified = attestationOverride?.qualifiedAccepted ?? qualifiedAccepted;
-    const acceptedTerms = attestationOverride?.termsAccepted ?? termsAccepted;
+  async function handleCheckout() {
+    if (meritAttemptRef.current?.submitted || meritAttemptRef.current?.createRequested) { showMeritReservedAttempt(); return; }
     if (!currentUser?.email) {
       setPendingCheckoutAfterAuth(true);
       setAuthMode("create");
@@ -12389,42 +12125,6 @@ export default function App() {
       return;
     }
 
-    if (!acceptedResearch || !acceptedQualified || !acceptedTerms) {
-      setCheckoutMessage(
-        !acceptedResearch
-          ? tx(
-              "Please confirm that you are over 21 and understand that all products are for research use only before continuing.",
-              "Перед продолжением подтвердите, что вам больше 21 года и вы понимаете, что все продукты только для исследовательского использования.",
-              "Перед продовженням підтвердіть, що вам більше 21 року і ви розумієте, що всі продукти лише для дослідницького використання.",
-              "Bitte bestätigen Sie vor dem Fortfahren, dass Sie über 21 Jahre alt sind und verstehen, dass alle Produkte nur für Forschungszwecke bestimmt sind.",
-              "Antes de continuar, confirma que tienes más de 21 años y entiendes que todos los productos son solo para uso de investigación."
-            )
-          : !acceptedQualified
-          ? tx(
-              "Please confirm that you are purchasing for laboratory, analytical, or scientific research purposes only and are qualified to handle such materials.",
-              "Подтвердите, что покупаете только для лабораторных, аналитических или научных исследовательских целей и квалифицированы для работы с такими материалами.",
-              "Підтвердіть, що купуєте лише для лабораторних, аналітичних або наукових дослідницьких цілей і кваліфіковані для роботи з такими матеріалами.",
-              "Bitte bestätigen Sie, dass Sie ausschließlich für Labor-, Analyse- oder wissenschaftliche Forschungszwecke kaufen und für den Umgang mit solchen Materialien qualifiziert sind.",
-              "Confirma que compras únicamente para fines de investigación de laboratorio, analíticos o científicos y que estás cualificado para manejar dichos materiales."
-            )
-          : tx(
-              "Please read and agree to the Terms, Privacy, Refund, and Shipping policies before continuing.",
-              "Перед продолжением прочитайте и согласитесь с условиями, политикой конфиденциальности, возврата и доставки.",
-              "Перед продовженням прочитайте та погодьтеся з умовами, політикою конфіденційності, повернення та доставки.",
-              "Bitte lesen und akzeptieren Sie vor dem Fortfahren die Bedingungen, Datenschutz-, Rückerstattungs- und Versandrichtlinien.",
-              "Antes de continuar, lee y acepta los términos, la política de privacidad, reembolso y envío."
-            )
-      );
-      if (termsSectionRef.current) {
-        setTimeout(() => {
-          termsSectionRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-        }, 50);
-      }
-      setCheckboxHighlight(true);
-      setTimeout(() => setCheckboxHighlight(false), 900);
-      return;
-    }
-
     const generatedOrderNumber = generateInvoiceNumber();
     const normalizedEmail = currentUser.email.trim().toLowerCase();
     setOrderNumber(generatedOrderNumber);
@@ -12453,10 +12153,7 @@ export default function App() {
       phone: syncedForm.phone || "",
       taxId: syncedForm.taxId || "",
       purchaserAttestation: {
-        over21AndResearchUseOnly: acceptedResearch,
-        qualifiedResearcherOrLicensedProfessional: acceptedQualified,
-        noHumanOrAnimalUse: acceptedQualified,
-        policiesAccepted: acceptedTerms,
+        policiesAccepted: true,
         acceptedAt: new Date().toISOString(),
       },
       orderNotes: getCheckoutOrderNotes(syncedForm),
@@ -12500,19 +12197,10 @@ export default function App() {
 
   }
 
-  async function handlePayWithCredits(attestationOverride = null) {
+  async function handlePayWithCredits() {
     if (meritAttemptRef.current?.submitted || meritAttemptRef.current?.createRequested) { showMeritReservedAttempt(); return; }
-    const acceptedResearch = attestationOverride?.researchAccepted ?? researchAccepted;
-    const acceptedQualified = attestationOverride?.qualifiedAccepted ?? qualifiedAccepted;
-    const acceptedTerms = attestationOverride?.termsAccepted ?? termsAccepted;
     if (!currentUser?.email) return;
     if (creditCheckoutInFlightRef.current || isCreditCheckoutSubmitting || creditPayAnimating) return;
-    if (!acceptedResearch || !acceptedQualified || !acceptedTerms) {
-      setCheckboxHighlight(true);
-      setTimeout(() => setCheckboxHighlight(false), 900);
-      if (termsSectionRef.current) termsSectionRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-      return;
-    }
     const syncedForm = readCheckoutSnapshot();
     const errors = validateCheckoutForm(syncedForm);
     setCheckoutErrors(errors);
@@ -12584,10 +12272,7 @@ export default function App() {
       storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
       orderNotes: getCheckoutOrderNotes(syncedForm),
       purchaserAttestation: {
-        over21AndResearchUseOnly: Boolean(acceptedResearch),
-        qualifiedResearcherOrLicensedProfessional: Boolean(acceptedQualified),
-        noHumanOrAnimalUse: Boolean(acceptedQualified),
-        policiesAccepted: Boolean(acceptedTerms),
+        policiesAccepted: true,
       },
     };
     const attemptStorageKey = "tbv-store-credit-attempt";
@@ -14380,13 +14065,11 @@ export default function App() {
             <div className="shipping-announcement-viewport w-full overflow-hidden">
               <div className="shipping-announcement-track">
                 <div className="shipping-announcement-group">
-                  <span className="text-[7px] text-white/65">{i18n(legal.ruoStrict)}</span>
                   <span>US WAREHOUSE FREE SHIPPING</span>
                   <span>FREE STANDARD SHIPPING $300+</span>
                   <span>FREE EXPRESS SHIPPING $550+</span>
                 </div>
                 <div className="shipping-announcement-group" aria-hidden="true">
-                  <span className="text-[7px] text-white/65">{i18n(legal.ruoStrict)}</span>
                   <span>US WAREHOUSE FREE SHIPPING</span>
                   <span>FREE STANDARD SHIPPING $300+</span>
                   <span>FREE EXPRESS SHIPPING $550+</span>
@@ -14397,8 +14080,6 @@ export default function App() {
         </div>
         {/* Desktop: static row */}
         <div data-nosnippet className="hidden lg:flex relative z-[100] w-full bg-black px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white items-center justify-center gap-4">
-          <span className="text-center leading-tight">{i18n(legal.ruoStrict)}</span>
-          <span className="text-white/30 font-light shrink-0">|</span>
           <span className="whitespace-nowrap shrink-0">US WAREHOUSE FREE SHIPPING</span>
           <span className="text-white/30 font-light shrink-0">|</span>
           <span className="whitespace-nowrap shrink-0">FREE STANDARD SHIPPING $300+</span>
@@ -14754,25 +14435,7 @@ export default function App() {
             <section className="tbv-home__legal w-full px-6 py-8 md:px-10 md:py-10">
               <div className="mx-auto max-w-4xl text-center lg:grid lg:max-w-6xl lg:grid-cols-[0.95fr_1.05fr] lg:items-start lg:gap-x-8">
                 <div className="min-w-0 text-center">
-                <div className="text-[10px] uppercase tracking-[0.28em] text-white">
-                  {language === "RU"
-                    ? "Только для исследований"
-                    : language === "UA"
-                    ? "Лише для досліджень"
-                    : language === "DE"
-                    ? "Nur für Forschungszwecke. Nicht für den menschlichen oder tierischen Gebrauch."
-                    : language === "ES"
-                    ? "Solo para uso en investigacion"
-                    : "Research Use Only"}
-                </div>
-
-                <div className="mx-auto mt-2 max-w-3xl text-[12px] font-semibold uppercase leading-5 tracking-[0.06em] text-white md:max-w-3xl md:text-[13px]">
-                  {i18n(legal.ruoStrict)}
-                </div>
-
-                <div className="mx-auto mt-4 h-px w-16 bg-white/30" />
-
-                <div className="mx-auto mt-4 flex max-w-3xl flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-white md:max-w-[46rem] md:gap-x-6">
+                <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-white md:max-w-[46rem] md:gap-x-6">
                   <a
                     href="/terms-and-conditions"
                     className="transition hover:text-white hover:underline hover:underline-offset-4"
@@ -14839,46 +14502,8 @@ export default function App() {
                   >
                     {t("contact")}
                   </a>
-                  <span className="text-white/30">•</span>
-                  <a
-                    href="/researcher-attestation"
-                    className="transition hover:text-white hover:underline hover:underline-offset-4"
-                  >
-                    {tx("Researcher Attestation", "Подтверждение исследователя", "Підтвердження дослідника", "Forscherbestätigung", "Declaración del investigador")}
-                  </a>
                 </div>
 
-                <details className="mx-auto mt-3 max-w-3xl rounded-xl border border-white/15 bg-black/20 text-left text-[10px] uppercase leading-5 tracking-[0.1em] text-white md:max-w-[46rem]">
-                  <summary className="cursor-pointer select-none px-4 py-2.5 font-semibold text-white">
-                    {tx("Researcher & purchaser attestation", "Подтверждение исследователя и покупателя", "Підтвердження дослідника та покупця", "Forscher- und Käuferbestätigung", "Declaración del investigador y comprador")}
-                  </summary>
-                  <div className="px-4 pb-4">
-                    <span className="block">
-                      {tx(
-                        "Every purchaser must confirm they are over 21 years old and that all products are sold strictly for research purposes only, not for human or animal use.",
-                        "Каждый покупатель обязан подтвердить, что ему больше 21 года и что все продукты продаются исключительно для исследовательских целей, а не для использования на людях или животных.",
-                        "Кожен покупець зобовʼязаний підтвердити, що йому більше 21 року і що всі продукти продаються виключно для дослідницьких цілей, а не для використання на людях чи тваринах.",
-                        "Jeder Käufer muss bestätigen, über 21 Jahre alt zu sein und dass alle Produkte ausschließlich für Forschungszwecke verkauft werden, nicht für den Gebrauch an Menschen oder Tieren.",
-                        "Todo comprador debe confirmar que tiene más de 21 años y que todos los productos se venden estrictamente para fines de investigación, no para uso en humanos o animales."
-                      )}
-                    </span>
-                    <span className="mt-2 block">
-                      {tx(
-                        "Every purchaser must also confirm they are a qualified researcher, licensed professional, or authorized representative of a qualified research organization, and will not use these products on humans or animals. This attestation is required and logged with every order before checkout.",
-                        "Каждый покупатель также обязан подтвердить, что является квалифицированным исследователем, лицензированным специалистом или уполномоченным представителем исследовательской организации и не будет использовать продукты на людях или животных. Это подтверждение обязательно и фиксируется с каждым заказом перед оформлением.",
-                        "Кожен покупець також зобовʼязаний підтвердити, що є кваліфікованим дослідником, ліцензованим фахівцем або уповноваженим представником дослідницької організації і не використовуватиме продукти на людях чи тваринах. Це підтвердження є обовʼязковим і фіксується з кожним замовленням перед оформленням.",
-                        "Jeder Käufer muss außerdem bestätigen, ein qualifizierter Forscher, lizenzierter Fachmann oder autorisierter Vertreter einer qualifizierten Forschungsorganisation zu sein und die Produkte nicht an Menschen oder Tieren zu verwenden. Diese Bestätigung ist erforderlich und wird bei jeder Bestellung vor dem Checkout protokolliert.",
-                        "Todo comprador también debe confirmar que es un investigador calificado, profesional con licencia o representante autorizado de una organización de investigación calificada, y que no usará estos productos en humanos o animales. Esta declaración es obligatoria y se registra con cada pedido antes de finalizar la compra."
-                      )}
-                    </span>
-                    <a
-                      href="/researcher-attestation"
-                      className="mt-2 inline-block font-semibold text-white underline underline-offset-4"
-                    >
-                      {tx("Read the full researcher attestation", "Полное подтверждение исследователя", "Повне підтвердження дослідника", "Vollständige Forscherbestätigung lesen", "Leer la declaración completa del investigador")}
-                    </a>
-                  </div>
-                </details>
                 </div>
                 <div className="mx-auto max-w-3xl text-center md:mt-4 md:max-w-[52rem] md:grid md:grid-cols-2 md:items-start md:gap-x-5 md:text-left lg:mx-0 lg:mt-0 lg:max-w-none">
                   <div className="md:rounded-xl md:border md:border-white/10 md:bg-black/15 md:px-4 md:py-3">
@@ -15625,7 +15250,7 @@ export default function App() {
               </div>
 
             </div>
-            {!productPrimaryActionVisible && !coaLightbox && !attestationModalOpen && (
+            {!productPrimaryActionVisible && !coaLightbox && (
               <div
                 className="fixed inset-x-0 z-[80] border-t border-white/20 bg-[#4b4b4b]/95 px-4 pt-2 shadow-[0_-12px_35px_rgba(0,0,0,0.3)] backdrop-blur-xl md:hidden"
                 style={{
@@ -22194,7 +21819,7 @@ export default function App() {
                     {finalTotal === 0 && storeCreditApplied > 0 && cart.length > 0 && !hasOutOfStockInCart ? (
                       <button
                         type="button"
-                        onClick={requestCheckoutAttestation}
+                        onClick={proceedToCheckout}
                         className="mt-2 w-full rounded-full px-6 py-3 text-[13px] font-bold uppercase tracking-[0.22em] transition shadow-[0_0_32px_rgba(234,179,8,0.35)] hover:shadow-[0_0_48px_rgba(234,179,8,0.55)]"
                         style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)", color: "#fff" }}
                       >
@@ -22204,7 +21829,7 @@ export default function App() {
                     ) : (
                       <button
                         type="button"
-                        onClick={requestCheckoutAttestation}
+                        onClick={proceedToCheckout}
                         disabled={
                           cart.length === 0 ||
                           hasOutOfStockInCart
@@ -22229,6 +21854,15 @@ export default function App() {
                           : t("proceedCheckout")}
                       </button>
                     )}
+                    <p className="mt-3 text-center text-[10px] uppercase leading-5 tracking-[0.12em] text-white/70">
+                      {tx("By placing an order, you agree to our", "Оформляя заказ, вы соглашаетесь с нашими", "Оформлюючи замовлення, ви погоджуєтеся з нашими", "Mit Ihrer Bestellung stimmen Sie unseren", "Al realizar un pedido, aceptas nuestros")}{" "}
+                      <a href="/terms-and-conditions" className="font-semibold text-white underline underline-offset-4">{i18n(legal.termsAndConditions)}</a>,{" "}
+                      <a href="/privacy-policy" className="font-semibold text-white underline underline-offset-4">{i18n(legal.privacyPolicy)}</a>,{" "}
+                      <a href="/refund-policy" className="font-semibold text-white underline underline-offset-4">{i18n(legal.refundPolicy)}</a>{" "}
+                      {tx("and", "и", "та", "und", "y")}{" "}
+                      <a href="/shipping-policy" className="font-semibold text-white underline underline-offset-4">{i18n(legal.shippingPolicy)}</a>
+                      {tx(".", ".", ".", " zu.", ".")}
+                    </p>
                   </>
                 )}
                 <div
@@ -22291,42 +21925,11 @@ export default function App() {
                         <div className="text-[13px] font-semibold uppercase tracking-[0.2em] text-black/50">
                           {t("choosePaymentMethod")}
                         </div>
-                        {currentUser && storeCredit > 0 && paymentMethod !== "stripe" && storeCreditApplied === 0 && <p className="mt-3 text-sm leading-6 text-black/65">
-                          {tx("Choose card payment to use your store credit toward this order.", "Выберите оплату картой, чтобы использовать кредит магазина для этого заказа.")}
+                        {currentUser && storeCredit > 0 && storeCreditApplied === 0 && <p className="mt-3 text-sm leading-6 text-black/65">
+                          {tx("Store credit is available when it covers the full order total.", "Кредит магазина доступен, когда покрывает полную сумму заказа.")}
                         </p>}
                         {/* ── Payment method list (same style on all screen sizes) ── */}
                         <div className="mt-3 grid grid-cols-1 gap-2 pt-2 md:w-full md:grid-cols-2 md:grid-flow-col md:grid-rows-3 md:gap-4">
-
-                          {/* M1 — Stripe */}
-                          <button
-                            type="button"
-                            disabled={stripeTemporarilyDisabled}
-                            onClick={() => { if (stripeTemporarilyDisabled) return; setPaymentMethod("stripe"); requestAnimationFrame(() => { const el = choosePaymentMethodRef.current; if (!el) return; window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - 130), behavior: "auto" }); }); }}
-                            className={`relative flex min-w-0 min-h-[80px] md:h-[80px] items-center gap-2.5 rounded-2xl border px-3 py-3 md:gap-3.5 md:px-4 md:py-1 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 ${stripeTemporarilyDisabled ? "border-slate-300 bg-slate-50 cursor-not-allowed" : paymentMethod === "stripe" ? "border-black bg-black text-white ring-1 ring-slate-300 shadow-[0_4px_20px_rgba(0,0,0,0.18)]" : "border-slate-300 bg-white text-black hover:border-slate-500 hover:shadow-[0_4px_14px_rgba(0,0,0,0.06)]"}`}
-                          >
-                            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${stripeTemporarilyDisabled ? "bg-slate-100 text-slate-400" : "bg-slate-800 text-white"}`}>
-                              <svg width="27" height="21" viewBox="0 0 28 22" fill="none" aria-hidden="true">
-                                <rect x="1.25" y="1.25" width="25.5" height="19.5" rx="3.5" stroke="currentColor" strokeWidth="1.7" />
-                                <path d="M2 7h24M5.5 15h5M19 14h3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-                              </svg>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 md:h-5 md:flex-nowrap md:gap-3 md:whitespace-nowrap">
-                                <span className="shrink-0 whitespace-nowrap text-[14px] font-semibold leading-5">{tx("Card", "Карта")}</span>
-                                <span className="inline-flex shrink-0 items-center gap-2 md:gap-3">
-                                  <img src={paymentMethod === "stripe" && !stripeTemporarilyDisabled ? applePayMarkDark : applePayMark} alt="Apple Pay" width="43" height="18" className="h-[18px] w-[43px] object-contain" />
-                                  <img src={paymentMethod === "stripe" && !stripeTemporarilyDisabled ? googlePayMarkDark : googlePayMark} alt="Google Pay" width="46" height="18" className="h-[18px] w-[46px] object-contain" />
-                                </span>
-                              </div>
-                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                {stripeTemporarilyDisabled ? (
-                                  <span className="inline-flex rounded-md border border-gray-300 bg-gray-100 px-2 py-0.5 text-[11px] font-black text-black">{meritUnavailableMessage}</span>
-                                ) : (
-                                  <span className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] ${paymentMethod === "stripe" ? "border-white/20 bg-white/15 text-white" : "border-slate-200 bg-slate-100 text-slate-700"}`}>{meritSurchargePercent}% {tx("fee", "комиссия")}</span>
-                                )}
-                              </div>
-                            </div>
-                          </button>
 
                           {/* M2 — Crypto */}
                           <button
@@ -22582,70 +22185,6 @@ export default function App() {
                             </div>
                           </div>
                         </div>}
-
-                        {paymentMethod === "stripe" && (
-                          <div className="mt-6 rounded-[1.8rem] border border-black/10 bg-white p-4 shadow-[0_20px_50px_rgba(0,0,0,0.05)] md:p-6">
-                            <div className="mt-0 hidden rounded-[1.4rem] border border-black/10 bg-black/[0.03] px-4 py-3 md:block md:px-5 md:py-3">
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="flex items-baseline gap-2">
-                                  <span className="text-2xl font-semibold tracking-[-0.03em] text-black md:text-3xl md:tracking-[-0.04em]">
-                                    {formatPricePrecise(finalTotal)}
-                                  </span>
-
-                                </div>
-                                <div className="hidden shrink-0 items-center gap-1.5 md:flex">
-                                  <span className="flex items-center justify-center rounded-full border border-black/10 bg-white px-3 py-1">
-                                    <svg width="28" height="10" viewBox="0 0 72 23" fill="none"><path d="M30.5 22H24.2L28.1 1H34.4L30.5 22ZM20.4 1L14.4 15.4L13.7 11.8L11.6 3.2C11.6 3.2 11.3 1 8.9 1H0.1L0 1.4C0 1.4 2.6 1.9 5.7 3.8L11.2 22H17.8L27.4 1H20.4ZM66.6 22H72.4L67.3 1H62.2C60.2 1 59.7 2.5 59.7 2.5L50.8 22H57.4L58.7 18.5H66.8L66.6 22ZM60.5 13.6L63.7 5L65.6 13.6H60.5ZM51 6.8L51.9 1.7C51.9 1.7 49.5 0.8 47 0.8C44.3 0.8 37.9 2 37.9 7.7C37.9 13.1 45.6 13.2 45.6 16.1C45.6 19 38.8 18.4 36.6 16.6L35.7 22C35.7 22 38.2 23.2 42 23.2C45.9 23.2 51 21.3 51 16.1C51 10.7 43.2 10.2 43.2 7.7C43.2 5.3 48.4 5.6 51 6.8Z" fill="#1A1F71"/></svg>
-                                  </span>
-                                  <span className="flex items-center gap-1 rounded-full border border-black/10 bg-white px-2 py-1">
-                                    <svg width="13" height="9" viewBox="0 0 38 24"><circle cx="13" cy="12" r="11" fill="#EB001B"/><circle cx="25" cy="12" r="11" fill="#F79E1B"/><path d="M19 4.8A11 11 0 0 1 23.3 12 11 11 0 0 1 19 19.2 11 11 0 0 1 14.7 12 11 11 0 0 1 19 4.8z" fill="#FF5F00"/></svg>
-                                    <span className="text-[10px] font-semibold text-black/60">Card</span>
-                                  </span>
-                                  <span className="flex items-center gap-1 rounded-full border border-black/10 bg-white px-2 py-1">
-                                    <svg width="9" height="11" viewBox="0 0 170 209" fill="currentColor" className="text-black/80"><path d="M150.37 70.63c-1.16.9-21.64 12.44-21.64 38.12 0 29.69 26.07 40.21 26.83 40.45-.12.64-4.14 14.38-13.74 28.38-8.56 12.32-17.5 24.62-31.11 24.62s-17.1-7.9-32.8-7.9c-15.3 0-20.74 8.16-33.18 8.16s-21.06-11.5-31.06-25.59C4.68 158.16 0 132.63 0 108.38c0-41.51 27.09-63.49 53.55-63.49 14.02 0 25.68 9.28 34.62 9.28 8.54 0 21.84-9.8 37.64-9.8 6.02 0 21.64.52 32.89 21.42l-.33.84zM132.28 30.1c-7.3-8.64-20.1-15.3-30.62-15.3-11.94 0-21.92 8.64-28.7 17.28-6.02 7.7-11.38 19.34-11.38 30.62 0 1.66.26 3.32.52 3.32 1.04 0 2.72 0 3.72-.12 10.76 0 20.62-6.38 26.93-13.26 4.8-5.26 9.96-14.14 9.96-23.88 0-1.66-.14-3.2-.52-3.32"/></svg>
-                                    <span className="text-[10px] font-semibold text-black/60">Apple Pay</span>
-                                  </span>
-                                  <span className="flex items-center gap-1 rounded-full border border-black/10 bg-white px-2 py-1">
-                                    <svg width="13" height="13" viewBox="0 0 24 24"><path fill="#4285F4" d="M12 11v2.4h5.6c-.2 1.3-.9 2.4-2 3.1v2.6h3.2c1.9-1.7 3-4.3 3-7.3 0-.7-.1-1.3-.2-1.9H12z"/><path fill="#34A853" d="M12 21c2.7 0 5-.9 6.7-2.4l-3.2-2.6c-.9.6-2 1-3.5 1-2.7 0-5-1.8-5.8-4.3H2.9v2.7C4.6 18.7 8 21 12 21z"/><path fill="#FBBC05" d="M6.2 12.7c-.2-.6-.3-1.2-.3-1.9s.1-1.3.3-1.9V6.2H2.9C2.3 7.4 2 8.9 2 10.8s.3 3.4.9 4.6l3.3-2.7z"/><path fill="#EA4335" d="M12 5.4c1.5 0 2.8.5 3.8 1.5l2.8-2.8C16.9 2.4 14.6 1.4 12 1.4c-4 0-7.4 2.3-9.1 5.6l3.3 2.7c.8-2.5 3.1-4.3 5.8-4.3z"/></svg>
-                                    <span className="text-[10px] font-semibold text-black/60">Google Pay</span>
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                            {(storeCreditApplied > 0 || meritActiveSession?.storeCreditUsedCents > 0) && <p className="mt-2 text-sm leading-6 text-black/65">
-                              {meritActiveSession
-                                ? tx("Your store credit is applied. The card surcharge is calculated on the order total before credit.", "Кредит магазина применён. Доплата за карту рассчитывается на сумму заказа до вычета кредита.")
-                                : tx("Your store credit will be checked before payment. The card surcharge is calculated on the order total before credit.", "Кредит магазина будет проверен до оплаты. Доплата за карту рассчитывается на сумму заказа до вычета кредита.")}
-                            </p>}
-                            {stripeError && <p className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">{stripeError}</p>}
-                            {stripeTemporarilyDisabled ? (
-                              <p role="status" className="mt-4 rounded-xl border border-slate-300 bg-slate-50 p-4 text-sm font-semibold text-black">{meritUnavailableMessage}</p>
-                            ) : meritActiveSession ? (
-                              <Suspense fallback={<div className="mt-4 min-h-[190px]" aria-busy="true" />}>
-                                <MeritCheckoutPanel session={meritActiveSession} language={language.toLowerCase()}
-                                  onReconcile={meritApi.reconcile} onPaid={acceptMeritPaid} onState={handleMeritState} />
-                              </Suspense>
-                            ) : (
-                              <div className="mt-1">
-                                <button type="button" disabled={stripeLoading || stripeTemporarilyDisabled}
-                                  onClick={handleStripePayment}
-                                  aria-describedby="card-verification-email-help"
-                                  className="mt-1 min-h-12 w-full rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white disabled:opacity-40">
-                                  {stripeLoading ? tx("Preparing secure payment…", "Подготавливаем защищённую оплату…") : tx("Verify email and continue", "Подтвердить email и продолжить")}
-                                </button>
-                                <p id="card-verification-email-help" className="mt-3 text-sm leading-6 text-black/65 uppercase">
-                                  {tx(
-                                    "If you don’t see the verification email, check your spam or junk folder.",
-                                    "Если письмо с кодом не пришло, проверьте папку «Спам» или «Нежелательная почта».",
-                                    "Якщо листа з кодом немає, перевірте папку «Спам» або «Небажана пошта».",
-                                    "Falls die Bestätigungs-E-Mail nicht ankommt, prüfen Sie Ihren Spam- oder Junk-Ordner.",
-                                    "Si no ves el correo de verificación, revisa la carpeta de spam o correo no deseado."
-                                  )}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        )}
 
                         {paymentMethod === "crypto" && (
                           <>
@@ -22911,7 +22450,7 @@ export default function App() {
                           </div>
                           <div className="mt-4 space-y-3 text-sm text-black/70">
                             {checkoutInvoice.items.map((item) => {
-                              const isOOS = !meritActiveSession && !isCartOfferAvailable(item);
+                              const isOOS = !isCartOfferAvailable(item);
                               return (
                               <div
                                 key={getProductId(item)}
@@ -22968,12 +22507,6 @@ export default function App() {
                                 <span>-{formatPricePrecise(cryptoDiscountAmount)}</span>
                               </div>
                             )}
-                            {stripeFeeAmount > 0 && (
-                              <div className="flex items-center justify-between">
-                                <span>{tx("Card surcharge", "Доплата за карту")} ({meritSurchargePercent}%)</span>
-                                <span>+{formatPricePrecise(stripeFeeAmount)}</span>
-                              </div>
-                            )}
                             <div className="flex items-center justify-between">
                               <span>
                                 {t("shipping")}
@@ -23002,12 +22535,8 @@ export default function App() {
                                 <span className="font-semibold text-emerald-600">−{formatPricePrecise(storeCreditApplied)}</span>
                               </div>
                             )}
-                            {meritSelected && storeCreditApplied > 0 && <div className="flex items-center justify-between text-black/65">
-                              <span>{tx("Remaining before card surcharge", "Остаток до доплаты за карту")}</span>
-                              <span>{formatPricePrecise(meritCreditSplit.cardBaseAmountCents / 100)}</span>
-                            </div>}
                             <div className="flex items-center justify-between border-t border-black/10 pt-3 text-base font-semibold text-black">
-                              <span>{meritSelected ? tx("Card payment", "Оплата картой") : t("total")}</span>
+                              <span>{t("total")}</span>
                               <span>
                                 {formatPricePrecise(finalTotal)}
                               </span>
@@ -23032,135 +22561,11 @@ export default function App() {
                   </div>
                   <button
                     type="button"
-                    onClick={requestCheckoutAttestation}
+                    onClick={proceedToCheckout}
                     disabled={cart.length === 0 || hasOutOfStockInCart}
                     className="max-w-[calc(100vw-116px)] shrink-0 whitespace-nowrap rounded-full bg-white px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:bg-white/50 disabled:text-black/50 sm:max-w-none sm:px-5 sm:py-3 sm:text-[13px] sm:tracking-[0.22em]"
                   >
                     {t("proceedCheckout")}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {attestationModalOpen && (
-              <div
-                className="fixed inset-0 z-[10020] flex items-end justify-center bg-black/80 px-4 sm:items-center"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="purchaser-attestation-title"
-                onMouseDown={(event) => {
-                  if (event.target === event.currentTarget) setAttestationModalOpen(false);
-                }}
-              >
-                <div
-                  ref={termsSectionRef}
-                  className="max-h-[92vh] w-full max-w-[58rem] overflow-y-auto rounded-[1.2rem] border border-white/20 bg-[#30343a] p-5 md:rounded-[1.6rem] md:p-8"
-                  style={{
-                    backgroundColor: "#30343a",
-                    width: "min(calc(100vw - 2rem), 58rem)",
-                  }}
-                >
-                  <div className="mb-6 flex items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1">
-                      <h2 id="purchaser-attestation-title" className="text-[15px] font-bold uppercase leading-tight tracking-[0.12em] text-white sm:text-2xl sm:tracking-[0.16em]">
-                        {tx("Purchaser attestation", "Подтверждение покупателя", "Підтвердження покупця", "Käuferbestätigung", "Declaración del comprador")}
-                      </h2>
-                      <p className="mt-1.5 text-[10px] uppercase leading-4 tracking-[0.12em] text-white/75 sm:text-[11px] sm:leading-5 sm:tracking-[0.14em]">
-                        {tx(
-                          "All confirmations are required before checkout.",
-                          "Для перехода к оплате необходимы все подтверждения.",
-                          "Для переходу до оплати потрібні всі підтвердження.",
-                          "Vor dem Checkout sind alle Bestätigungen erforderlich.",
-                          "Todas las confirmaciones son obligatorias antes del pago."
-                        )}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setAttestationModalOpen(false)}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-                      aria-label="Close"
-                    >
-                      <X size={20} strokeWidth={2.5} aria-hidden="true" />
-                    </button>
-                  </div>
-
-                  <div className="space-y-3">
-                    <label
-                      className="flex cursor-pointer items-start gap-4 rounded-[1.35rem] border border-black/25 bg-black/25 px-5 py-5 text-[11px] uppercase leading-[1.75] tracking-[0.12em] text-white"
-                    >
-                      <input
-                        ref={attestationResearchRef}
-                        type="checkbox"
-                        defaultChecked={researchAccepted}
-                        onChange={syncAttestationConfirmButton}
-                        className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-green-500 transition-none"
-                      />
-                      <span className="font-semibold">{i18n(legal.ageResearchCheckbox)}</span>
-                    </label>
-
-                    <label
-                      className="flex cursor-pointer items-start gap-4 rounded-[1.35rem] border border-black/25 bg-black/25 px-5 py-5 text-[11px] uppercase leading-[1.75] tracking-[0.12em] text-white"
-                    >
-                      <input
-                        ref={attestationQualifiedRef}
-                        type="checkbox"
-                        defaultChecked={qualifiedAccepted}
-                        onChange={syncAttestationConfirmButton}
-                        className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-green-500 transition-none"
-                      />
-                      <span className="font-semibold">{i18n(legal.qualifiedResearchCheckbox)}</span>
-                    </label>
-
-                    <label
-                      className="flex cursor-pointer items-start gap-4 rounded-[1.35rem] border border-black/25 bg-black/25 px-5 py-5 text-[11px] uppercase leading-[1.75] tracking-[0.12em] text-white"
-                    >
-                      <input
-                        ref={attestationTermsRef}
-                        type="checkbox"
-                        defaultChecked={termsAccepted}
-                        onChange={syncAttestationConfirmButton}
-                        className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-green-500 transition-none"
-                      />
-                      <span>
-                        {i18n(legal.termsCheckboxStart)}{" "}
-                        <a href="/terms-and-conditions" onClick={(event) => event.stopPropagation()} className="font-semibold text-white underline underline-offset-4">{i18n(legal.termsAndConditions)}</a>,{" "}
-                        <a href="/privacy-policy" onClick={(event) => event.stopPropagation()} className="font-semibold text-white underline underline-offset-4">{i18n(legal.privacyPolicy)}</a>,
-                        <br />
-                        <a href="/refund-policy" onClick={(event) => event.stopPropagation()} className="font-semibold text-white underline underline-offset-4">{i18n(legal.refundPolicy)}</a>,{" "}
-                        <a href="/shipping-policy" onClick={(event) => event.stopPropagation()} className="font-semibold text-white underline underline-offset-4">{i18n(legal.shippingPolicy)}</a>.
-                      </span>
-                    </label>
-                  </div>
-
-                  <button
-                    ref={attestationConfirmRef}
-                    type="button"
-                    onClick={() => {
-                      const attestation = {
-                        researchAccepted: Boolean(attestationResearchRef.current?.checked),
-                        qualifiedAccepted: Boolean(attestationQualifiedRef.current?.checked),
-                        termsAccepted: Boolean(attestationTermsRef.current?.checked),
-                      };
-                      if (!attestation.researchAccepted || !attestation.qualifiedAccepted || !attestation.termsAccepted) return;
-                      setResearchAccepted(attestation.researchAccepted);
-                      setQualifiedAccepted(attestation.qualifiedAccepted);
-                      setTermsAccepted(attestation.termsAccepted);
-                      setAttestationModalOpen(false);
-                      if (checkoutMessage) setCheckoutMessage("");
-                      if (pendingAttestationAction === "credits") {
-                        handlePayWithCredits(attestation);
-                      } else {
-                        handleCheckout(attestation);
-                      }
-                    }}
-                    className={`mt-6 w-full rounded-full px-6 py-4 text-[13px] font-bold uppercase tracking-[0.22em] ${
-                      researchAccepted && qualifiedAccepted && termsAccepted
-                        ? "bg-white text-black"
-                        : "cursor-not-allowed bg-white/45 text-black/45"
-                    }`}
-                  >
-                    {tx("Confirm & proceed to checkout", "Подтвердить и перейти к оплате", "Підтвердити та перейти до оплати", "Bestätigen und zum Checkout", "Confirmar y continuar al pago")}
                   </button>
                 </div>
               </div>
