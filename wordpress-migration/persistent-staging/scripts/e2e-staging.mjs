@@ -352,6 +352,10 @@ async function affiliateChecks(offers) {
   const buyerDash = await buyer.follow('/my-account/');
   const notAffiliate = JSON.parse((await buyer.req('/wp-json/tbv-affiliates/v1/account?orders=1', {headers: {'x-wp-nonce': restNonce(buyerDash.text)}})).text || '{}');
   check('non_affiliate_gets_no_panel', notAffiliate.ok && notAffiliate.affiliate === null, JSON.stringify(notAffiliate).slice(0, 200));
+  // The admin panel API is for shop managers only.
+  const custAdmin = await buyer.req('/wp-json/tbv-admin/v1/orders', {headers: {'x-wp-nonce': restNonce(buyerDash.text)}});
+  const anonAdmin = await new Client().req('/wp-json/tbv-admin/v1/orders');
+  check('admin_api_refuses_customers_and_guests', [401, 403].includes(custAdmin.status) && [401, 403].includes(anonAdmin.status), `${custAdmin.status}/${anonAdmin.status}`);
   const anon = await new Client().req('/wp-json/tbv-affiliates/v1/account?orders=1');
   check('affiliate_orders_require_login', anon.status === 401 || anon.status === 403, anon.status);
   const lookup = JSON.parse((await new Client().req('/wp-json/tbv-affiliates/v1/account?code=reviewaff')).text || '{}');

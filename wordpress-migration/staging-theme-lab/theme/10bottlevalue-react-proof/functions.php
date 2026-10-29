@@ -340,6 +340,8 @@ function tbv_react_proof_commerce_config() {
             'affiliateEndpoint' => esc_url_raw(rest_url('tbv-affiliates/v1/account')),
             'restNonce' => wp_create_nonce('wp_rest'),
         ] : null,
+        // The live admin panel, for shop managers only (tbv-storefront-admin).
+        'admin' => $user->exists() && current_user_can('manage_woocommerce') && function_exists('tbv_sa_order') ? ['endpoint' => esc_url_raw(rest_url('tbv-admin/v1')), 'nonce' => wp_create_nonce('wp_rest')] : null,
         'receivedOrder' => ($received = tbv_react_proof_received_order()) ? tbv_react_proof_received_order_data($received) : null,
         'countries' => array_map(fn($name) => html_entity_decode($name, ENT_QUOTES, 'UTF-8'), WC()->countries->get_shipping_countries()),
     ];
@@ -519,3 +521,6 @@ function tbv_react_proof_catalog_background() {
     $files = glob(get_template_directory() . '/public/assets/ChatGPT_Image_3_*18_33_27_*.webp') ?: [];
     return count($files) === 1 ? trailingslashit(get_template_directory_uri()) . 'public/assets/' . rawurlencode(basename($files[0])) : '';
 }
+
+// The storefront shows no WordPress toolbar (live has none); /wp-admin keeps it.
+add_filter('show_admin_bar', fn($show) => is_admin() ? $show : false);

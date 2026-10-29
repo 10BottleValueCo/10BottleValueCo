@@ -249,6 +249,50 @@ check('affiliate panel lists the credit order', creditOrder !== '' && affText.in
 await affPage.screenshot({path: path.join(out, 'flow-desktop-affiliate-panel.png'), fullPage: true});
 check('affiliate/credit flow no JS errors', affErrors.length === 0, affErrors.join(' | '));
 await affCtx.close();
+
+// The live admin panel for a WooCommerce shop manager (staging admin account).
+const stagingEnv = Object.fromEntries(fs.readFileSync(new URL('../private/staging.env', import.meta.url), 'utf8').split('\n').filter(l => /^[A-Z0-9_]+=/.test(l)).map(l => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1).replace(/^'|'$/g, '')]));
+const adminOrder = wp('eval', `$v = wc_get_products(['limit' => 1, 'type' => 'variation'])[0]; $o = wc_create_order(); $o->add_product($v, 1); $o->set_billing_email('admin.qa@example.test'); $o->set_billing_first_name('Admin'); $o->set_billing_last_name('QA'); $o->set_billing_country('US'); $o->set_payment_method('tbv_staging_test'); $o->update_meta_data('_tbv_staging_test_order', '1'); $o->calculate_totals(false); $o->save(); echo $o->get_id();`);
+const adminCtx = await browser.newContext({viewport: {width: 1440, height: 1000}});
+const adminPage = await adminCtx.newPage();
+const adminErrors = []; adminPage.on('pageerror', e => adminErrors.push(String(e))); adminPage.on('dialog', d => d.accept());
+await adminPage.goto(LOCAL + '/my-account/', {waitUntil: 'networkidle'});
+await adminPage.locator('#username').fill(stagingEnv.WP_ADMIN_USER);
+await adminPage.locator('#password').fill(stagingEnv.WP_ADMIN_PASSWORD);
+await Promise.all([adminPage.waitForNavigation({timeout: 15000}).catch(() => {}), adminPage.locator('button[name="login"]').click()]);
+await adminPage.goto(LOCAL + '/shop', {waitUntil: 'networkidle'});
+check('storefront hides the WordPress toolbar', await adminPage.locator('#wpadminbar').count() === 0);
+await adminPage.getByText(/^ADMIN$/).first().dispatchEvent('click');
+await adminPage.getByText(/^ALL \(\d+\)$/).first().waitFor({timeout: 15000}).catch(() => {});
+let adminText = await adminPage.locator('body').innerText();
+check('admin panel shows the live tabs', ['ORDERS', 'CHARTS', 'INBOX', 'PROMO', 'TOOLS', 'AFFILIATES', 'ANALYTICS', 'FUNNEL'].every(t => adminText.includes(t)), adminText.slice(0, 300));
+await adminPage.getByPlaceholder('Search orders…').fill(adminOrder); await adminPage.waitForTimeout(1500);
+adminText = await adminPage.locator('body').innerText();
+check('admin orders list includes WooCommerce orders', adminText.includes('admin.qa@example.test') && adminText.includes('Admin QA'), adminOrder);
+await adminPage.locator('select:has(option[value="refunded"])').first().selectOption('done'); await adminPage.waitForTimeout(2000);
+check('admin status change updates WooCommerce', wp('eval', `echo wc_get_order(${adminOrder})->get_status();`) === 'completed');
+await adminPage.getByPlaceholder('e.g. 1Z999AA10123456784').first().fill('1ZADMINQA0001');
+await adminPage.getByPlaceholder('e.g. 1Z999AA10123456784').first().press('Tab'); await adminPage.waitForTimeout(2500);
+check('admin tracking number saved to the order', wp('eval', `echo wc_get_order(${adminOrder})->get_meta('_tbv_tracking_number');`) === '1ZADMINQA0001');
+check('tracking email honestly not sent on staging', /Tracking email not sent: Staging/i.test(await adminPage.locator('body').innerText()));
+await adminPage.screenshot({path: path.join(out, 'flow-desktop-admin-orders.png')});
+await adminPage.getByRole('button', {name: /^affiliates$/i}).first().click(); await adminPage.waitForTimeout(2500);
+check('admin affiliates tab lists REVIEWAFF', (await adminPage.locator('body').innerText()).includes('REVIEWAFF'));
+await adminPage.screenshot({path: path.join(out, 'flow-desktop-admin-affiliates.png')});
+const adminApi = await adminPage.evaluate(async () => {
+  const a = window.TBV_COMMERCE.admin; const h = {'X-WP-Nonce': a.nonce, 'Content-Type': 'application/json'};
+  const j = async (path, opt = {}) => { const r = await fetch(a.endpoint + '/' + path, {credentials: 'same-origin', headers: h, ...opt}); return {status: r.status, body: await r.json().catch(() => null)}; };
+  const code = 'QAPROMO' + Date.now().toString().slice(-6);
+  const created = await j('promos', {method: 'POST', body: JSON.stringify({code, rate: 7})});
+  const listed = await j('promos');
+  const removed = created.body?.id ? await j('promos/' + created.body.id, {method: 'DELETE'}) : {status: 0};
+  const credit = await j('credit?email=' + encodeURIComponent('test.customer3@example.test'));
+  return {code, created: created.status, listed: (listed.body || []).some(p => p.code === code && p.rate === 0.07), removed: removed.status, credit: credit.status === 200 && typeof credit.body?.amount === 'number'};
+});
+check('admin promo codes are WooCommerce coupons', adminApi.created === 200 && adminApi.listed && adminApi.removed === 200, JSON.stringify(adminApi));
+check('admin store credit lookup', adminApi.credit, JSON.stringify(adminApi));
+check('admin panel no JS errors', adminErrors.length === 0, adminErrors.join(' | '));
+await adminCtx.close();
 await browser.close();
 
 const failed = results.filter(r => !r.ok);

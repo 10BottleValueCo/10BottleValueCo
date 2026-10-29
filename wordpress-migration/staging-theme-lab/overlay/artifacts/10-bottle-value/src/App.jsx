@@ -171,8 +171,22 @@ const tbvCommerce = (() => {
   const account = user && c.account && typeof c.account === "object" ? c.account : null;
   const countries = c.countries && typeof c.countries === "object" ? c.countries : {};
   const receivedOrder = user && c.receivedOrder && typeof c.receivedOrder === "object" && Array.isArray(c.receivedOrder.items) ? c.receivedOrder : null;
-  return { ...c, user, account, receivedOrder, countries };
+  const admin = user && c.admin && typeof c.admin.endpoint === "string" && c.admin.endpoint.startsWith(window.location.origin + "/") ? c.admin : null;
+  return { ...c, user, account, receivedOrder, countries, admin };
 })();
+// WooCommerce shop managers get the live admin panel, fed by tbv-storefront-admin.
+const tbvAdmin = tbvCommerce?.admin || null;
+async function tbvAdminApi(path, { method = "GET", body } = {}) {
+  const response = await fetch(`${tbvAdmin.endpoint}/${path}`, {
+    method,
+    credentials: "same-origin",
+    headers: { "X-WP-Nonce": String(tbvAdmin.nonce || ""), ...(body ? { "Content-Type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(data?.message || `Request failed (${response.status})`);
+  return data;
+}
 const tbvCountryName = (name) => String(name || "").replace(/\s*\([^)]*\)\s*$/, "").trim().toLowerCase();
 function tbvWooCountryCode(name) {
   if (!tbvCommerce) return "";
@@ -3888,7 +3902,7 @@ export default function App() {
       window.location.assign(page === "cart" ? `${tbvCommerce.accountUrl}${tbvCommerce.accountUrl.includes("?") ? "&" : "?"}tbv_return=cart` : tbvCommerce.accountUrl);
       return;
     }
-    if (["account", "payment-return", "admin"].includes(nextPage)) {
+    if (["account", "payment-return"].includes(nextPage) || (nextPage === "admin" && !tbvAdmin)) {
       setCartToast("Account and payment are unavailable in this preview");
       return;
     }
@@ -4995,10 +5009,11 @@ export default function App() {
   const ADMIN_EMAILS = ["support@10bottlevalue.co"];
 
   function isAdminUser(user = currentUser) {
+    if (tbvAdmin && (user === currentUser || user === tbvCommerce.user)) return true;
     return ADMIN_EMAILS.includes(normalizeEmail(user?.email));
   }
 
-  const chartsOrderCosts = useAdminOrderCosts(supabase, page === "admin" && adminActiveTab === "charts" && isAdminUser(), currentUser?.id || currentUser?.email);
+  const chartsOrderCosts = useAdminOrderCosts(supabase, !tbvAdmin && page === "admin" && adminActiveTab === "charts" && isAdminUser(), currentUser?.id || currentUser?.email);
 
   function stripQuoteMarker(text) {
     return String(text || "").replace(/^\[QUOTE:([^\]]*)\]/, "").trim();
@@ -5998,6 +6013,19 @@ export default function App() {
     adminCreditAdjustmentBusyRef.current = true;
     setAdminCreditLoading(true);
     setAdminCreditMessage("");
+    if (tbvAdmin) {
+      try {
+        const result = await tbvAdminApi("credit", { method: "POST", body: { email: adminCreditEmail.trim().toLowerCase(), mode, amount: Number(adminCreditAmount), note: adminCreditNote } });
+        setAdminCreditMessage(`✓ ${result.email} — adjustment confirmed; balance after adjustment: $${Number(result.balance).toFixed(2)}`);
+        setAdminCreditLookup(await tbvAdminApi(`credit?email=${encodeURIComponent(result.email)}`));
+      } catch (error) {
+        setAdminCreditMessage(error?.message || "Store credit could not be saved.");
+      } finally {
+        adminCreditAdjustmentBusyRef.current = false;
+        setAdminCreditLoading(false);
+      }
+      return;
+    }
     try {
       const result = await adjustStoreCredit({ supabase, storage: tbvSession,
         email: adminCreditEmail, mode, amount: adminCreditAmount, note: adminCreditNote });
@@ -6024,6 +6052,10 @@ export default function App() {
   async function adminLookupCredit() {
     const email = adminCreditEmail.trim().toLowerCase();
     if (!email) return;
+    if (tbvAdmin) {
+      try { setAdminCreditLookup(await tbvAdminApi(`credit?email=${encodeURIComponent(email)}`)); } catch { setAdminCreditLookup({ email, amount: 0 }); }
+      return;
+    }
     try {
       const { data } = await supabase.from("user_credits").select("amount, updated_at, note").eq("email", email).maybeSingle();
       setAdminCreditLookup(data ? { email, amount: Number(data.amount), updated_at: data.updated_at, note: data.note } : { email, amount: 0 });
@@ -6071,6 +6103,17 @@ export default function App() {
       setIssuePromoMessage("Fill all fields correctly. Rate: 1–100.");
       return;
     }
+    if (tbvAdmin) {
+      try {
+        await tbvAdminApi("user-promos", { method: "POST", body: { email, code, rate: rate > 1 ? rate : rate * 100 } });
+        setIssuePromoMessage(`✓ Promo ${code} (${rate}%) issued to ${email}`);
+        setIssuePromoEmail(""); setIssuePromoCode(""); setIssuePromoRate("");
+      } catch (e) {
+        setIssuePromoMessage(`Error: ${e.message}`);
+      }
+      window.setTimeout(() => setIssuePromoMessage(""), 6000);
+      return;
+    }
     try {
       const rateDecimal = rate > 1 ? rate / 100 : rate;
       const { error } = await supabase.from("user_promos").insert({
@@ -6099,6 +6142,10 @@ export default function App() {
   }
 
   async function loadPublicPromos() {
+    if (tbvAdmin) {
+      try { setPublicPromos(await tbvAdminApi("promos")); } catch (e) { console.error("loadPublicPromos", e); }
+      return;
+    }
     try {
       const { data, error } = await supabase
         .from("user_promos")
@@ -6118,6 +6165,16 @@ export default function App() {
       return;
     }
     const rateDecimal = rate / 100;
+    if (tbvAdmin) {
+      try {
+        await tbvAdminApi("promos", { method: "POST", body: { code, rate } });
+        setPublicPromoMessage(`✓ Промокод ${code} (${rate}%) опубликован`);
+        setPublicPromoCode(""); setPublicPromoRate("");
+        loadPublicPromos();
+      } catch (e) { setPublicPromoMessage(`Error: ${e.message}`); }
+      window.setTimeout(() => setPublicPromoMessage(""), 5000);
+      return;
+    }
     try {
       const { error } = await supabase.from("user_promos").insert({ email: "__PUBLIC__", code, rate: rateDecimal, used: false });
       if (error) { setPublicPromoMessage(`Error: ${error.message}`); }
@@ -6132,13 +6189,27 @@ export default function App() {
 
   async function deletePublicPromo(id, code) {
     if (!window.confirm(`Удалить промокод ${code}?`)) return;
-    await supabase.from("user_promos").delete().eq("id", id);
+    if (tbvAdmin) await tbvAdminApi(`promos/${id}`, { method: "DELETE" });
+    else await supabase.from("user_promos").delete().eq("id", id);
     setPublicPromos(prev => prev.filter(p => p.id !== id));
   }
 
   async function sendTrackingEmail({ email, orderId, trackingNumber, firstName }) {
     const orderKey = String(orderId || "");
     setSendingTrackingEmailOrders((previous) => new Set(previous).add(orderKey));
+    if (tbvAdmin) {
+      try {
+        await tbvAdminApi(`orders/${encodeURIComponent(orderKey)}/tracking-email`, { method: "POST", body: { trackingNumber } });
+        setAdminMessage(`Tracking email sent to ${email}`);
+      } catch (e) {
+        setAdminMessage(`Tracking email not sent: ${e.message}`);
+      } finally {
+        window.clearTimeout(window.__tbvAdminMessageTimeout);
+        window.__tbvAdminMessageTimeout = window.setTimeout(() => setAdminMessage(""), 6000);
+        setSendingTrackingEmailOrders((previous) => { const next = new Set(previous); next.delete(orderKey); return next; });
+      }
+      return;
+    }
     try {
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (sessionError) throw new Error(sessionError.message);
@@ -6487,7 +6558,9 @@ export default function App() {
       // Write admin note directly to metadata — avoids any DB column lookup
       (async () => {
         try {
-          if (!String(orderId).startsWith("TEST-")) {
+          if (tbvAdmin && !String(orderId).startsWith("TEST-")) {
+            await tbvAdminApi(`orders/${encodeURIComponent(orderId)}`, { method: "POST", body: { admin_note: adminNoteValue } });
+          } else if (!String(orderId).startsWith("TEST-")) {
             const { data, error: readErr } = await supabase.from("orders").select("metadata").eq("id", orderId).single();
             if (readErr) throw new Error(readErr.message);
             const base = typeof data?.metadata === "object" && !Array.isArray(data.metadata) ? data.metadata : {};
@@ -6514,6 +6587,11 @@ export default function App() {
     }
     if (!window.confirm(`Delete all ${matches.length} order(s) placed with ${email}? This cannot be undone.`)) return;
     const ids = matches.map((o) => o.id);
+    if (tbvAdmin) {
+      for (const id of ids) await tbvAdminApi(`orders/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
+      await loadOrdersFromSupabase();
+      return;
+    }
     try {
       await supabase.from("orders").delete().in("id", ids);
     } catch (e) {
@@ -6534,6 +6612,16 @@ export default function App() {
   }
 
   async function deleteAdminOrder(orderId) {
+    if (tbvAdmin) {
+      if (!window.confirm("Move this order to the WooCommerce trash?")) return;
+      try {
+        await tbvAdminApi(`orders/${encodeURIComponent(orderId)}`, { method: "DELETE" });
+        saveStoredOrders(getStoredOrders().filter((o) => o.id !== orderId));
+      } catch (e) {
+        setAdminMessage(`Delete failed: ${e.message}`);
+      }
+      return;
+    }
     if (!window.confirm("Delete this order permanently? This cannot be undone.")) return;
     try {
       await supabase.from("orders").delete().eq("id", orderId);
@@ -6569,6 +6657,18 @@ export default function App() {
     window.clearTimeout(window.__tbvAdminMessageTimeout);
     window.__tbvAdminMessageTimeout = window.setTimeout(() => setAdminMessage(""), 2000);
     if (String(orderId).startsWith("TEST-")) return;
+    if (tbvAdmin) {
+      // WooCommerce recalculates the order (fees, shipping and coupons stay).
+      try {
+        const updated = await tbvAdminApi(`orders/${encodeURIComponent(orderId)}/items`, { method: "POST", body: { items: newItems } });
+        saveStoredOrders(getStoredOrders().map((o) => (o.id === orderId ? updated : o)));
+      } catch (err) {
+        setAdminMessage(`Sync failed: ${err?.message || "unknown error"}`);
+        window.clearTimeout(window.__tbvAdminMessageTimeout);
+        window.__tbvAdminMessageTimeout = window.setTimeout(() => setAdminMessage(""), 5000);
+      }
+      return;
+    }
     try {
       const { data, error: readErr } = await supabase.from("orders").select("metadata").eq("id", orderId).single();
       if (readErr) throw new Error(readErr.message);
@@ -6634,6 +6734,16 @@ export default function App() {
   async function persistOrderAdminFieldToSupabase(orderId, payload) {
     // Test orders only exist locally — skip Supabase sync silently
     if (String(orderId).startsWith("TEST-")) return;
+    if (tbvAdmin) {
+      try {
+        await tbvAdminApi(`orders/${encodeURIComponent(orderId)}`, { method: "POST", body: payload });
+      } catch (err) {
+        setAdminMessage(`Sync failed: ${err?.message || "unknown error"}`);
+        window.clearTimeout(window.__tbvAdminMessageTimeout);
+        window.__tbvAdminMessageTimeout = window.setTimeout(() => setAdminMessage(""), 5000);
+      }
+      return;
+    }
     try {
       // Fields stored inside metadata JSONB (no direct columns for them)
       const METADATA_FIELDS = { tracking_number: "trackingNumber", tracking_number_2: "trackingNumber2", order_notes: "orderNotes", tracking_number_sent_at: "trackingNumberSentAt", firstName: "firstName", lastName: "lastName", address: "address", address2: "address2", city: "city", postalCode: "postalCode", state: "state", country: "country", phone: "phone", taxId: "taxId", admin_note: "adminNote", store_credit_used: "storeCreditUsed", subtotal: "subtotal", shipping: "shipping", invoice_id: "invoiceId", shipping_type: "shippingType" };
@@ -7047,6 +7157,17 @@ export default function App() {
 
   async function loadOrdersFromSupabase() {
     setIsLoadingOrders(true);
+    if (tbvAdmin) {
+      try {
+        const orders = await tbvAdminApi("orders");
+        if (Array.isArray(orders)) saveStoredOrders(orders);
+      } catch (e) {
+        setAdminMessage(`Orders could not be loaded: ${e.message}`);
+      } finally {
+        setIsLoadingOrders(false);
+      }
+      return;
+    }
     try {
       // Paginate through all orders (Supabase server caps at 1000 per request)
       const PAGE = 1000;
@@ -8942,7 +9063,9 @@ export default function App() {
     setAffiliateProfileError("");
     try {
       let rows = [];
-      if (tbvCommerce?.account) {
+      if (tbvAdmin) {
+        rows = await tbvAdminApi("affiliates");
+      } else if (tbvCommerce?.account) {
         const response = await fetch(tbvCommerce.account.affiliateEndpoint, {
           credentials: "same-origin",
           headers: { "X-WP-Nonce": String(tbvCommerce.account.restNonce || "") },
@@ -10062,15 +10185,13 @@ export default function App() {
   // Verification opens from the explicit continue button, after method selection.
 
   useEffect(() => {
-    if (!currentUser?.email) return;
-    if (!ADMIN_EMAILS.includes(normalizeEmail(currentUser.email))) return;
+    if (!tbvAdmin && (!currentUser?.email || !ADMIN_EMAILS.includes(normalizeEmail(currentUser.email)))) return;
     const id = window.setInterval(() => { loadOrdersFromSupabase(); }, 30000);
     return () => window.clearInterval(id);
   }, [currentUser?.email]);
 
   useEffect(() => {
-    if (!currentUser?.email) return;
-    if (!ADMIN_EMAILS.includes(normalizeEmail(currentUser.email))) return;
+    if (!tbvAdmin && (!currentUser?.email || !ADMIN_EMAILS.includes(normalizeEmail(currentUser.email)))) return;
     if (page === "admin") {
       loadOrdersFromSupabase();
     }
@@ -10186,6 +10307,9 @@ export default function App() {
     const now = Date.now();
 
     async function fetchAdminPayoutRows() {
+      if (tbvAdmin) {
+        try { return { data: (await tbvAdminApi("payouts")).payouts, error: null }; } catch (error) { return { data: [], error }; }
+      }
       try {
         const { data, error } = await supabase.auth.getSession();
         if (error) return { data: [], error };
@@ -10213,9 +10337,13 @@ export default function App() {
     // Fetch orders directly (service role not available on client, use anon key with admin RLS)
     // If allOrders already has data use it; otherwise fetch from Supabase
     const [affRows, ordersResult, payoutsResult] = await Promise.all([
-      supabase.from("affiliates").select("code,email,active,created_at").order("created_at", { ascending: false }),
+      tbvAdmin
+        ? tbvAdminApi("affiliates").then((data) => ({ data, error: null }), (error) => ({ data: [], error }))
+        : supabase.from("affiliates").select("code,email,active,created_at").order("created_at", { ascending: false }),
       allOrders.length > 0
         ? Promise.resolve({ data: allOrders })
+        : tbvAdmin
+        ? tbvAdminApi("orders").then((data) => ({ data }), () => ({ data: [] }))
         : supabase.from("orders").select("id,status,created_at,metadata,affiliate_code,affiliate_owner_email").order("created_at", { ascending: false }),
       fetchAdminPayoutRows(),
     ]);
@@ -10308,8 +10436,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!currentUser?.email) return;
-    if (!ADMIN_EMAILS.includes(normalizeEmail(currentUser.email))) return;
+    if (!tbvAdmin && (!currentUser?.email || !ADMIN_EMAILS.includes(normalizeEmail(currentUser.email)))) return;
     if (page !== "admin" || adminActiveTab !== "affiliates") return;
     loadAdminAffiliates();
   }, [page, adminActiveTab, currentUser?.email]);
@@ -12226,7 +12353,7 @@ export default function App() {
     setIssueAffBusy(true);
     setIssueAffMessage("");
     try {
-      const result = await issueAffiliateAccess({
+      const result = tbvAdmin ? await tbvAdminApi("affiliates", { method: "POST", body: { email, code } }) : await issueAffiliateAccess({
         client: supabase,
         email,
         code,
@@ -12251,6 +12378,18 @@ export default function App() {
     if (!email) {
       setRevokeAffMessage("Enter an email.");
       window.setTimeout(() => setRevokeAffMessage(""), 4000);
+      return;
+    }
+    if (tbvAdmin) {
+      try {
+        const result = await tbvAdminApi("affiliates/revoke", { method: "POST", body: { email } });
+        setRevokeAffMessage(`✓ Affiliate access revoked for ${email} (code: ${result.code})`);
+        setRevokeAffEmail("");
+        loadAffiliateProfilesFromSupabase();
+      } catch (e) {
+        setRevokeAffMessage(e.message);
+      }
+      window.setTimeout(() => setRevokeAffMessage(""), 7000);
       return;
     }
     try {
@@ -18819,11 +18958,16 @@ export default function App() {
                                             }
                                             setAffPaySaving(p => ({ ...p, [aff.code]: true }));
                                             try {
-                                              const { data, error: sessionError } = await supabase.auth.getSession();
+                                              const { data, error: sessionError } = tbvAdmin ? { data: null, error: null } : await supabase.auth.getSession();
                                               if (sessionError) throw new Error("Could not verify your admin session. Sign in again.");
                                               const accessToken = data?.session?.access_token;
-                                              if (!accessToken) throw new Error("Sign in with the admin account to record payouts.");
-                                              const response = await fetch("/api/affiliate-payouts", {
+                                              if (!tbvAdmin && !accessToken) throw new Error("Sign in with the admin account to record payouts.");
+                                              const response = tbvAdmin ? await fetch(`${tbvAdmin.endpoint}/payouts`, {
+                                                method: "POST",
+                                                credentials: "same-origin",
+                                                headers: { "X-WP-Nonce": String(tbvAdmin.nonce || ""), "Content-Type": "application/json" },
+                                                body: JSON.stringify({ affiliate_code: String(aff.code).trim().toUpperCase(), amount }),
+                                              }) : await fetch("/api/affiliate-payouts", {
                                                 method: "POST",
                                                 headers: {
                                                   Authorization: `Bearer ${accessToken}`,
