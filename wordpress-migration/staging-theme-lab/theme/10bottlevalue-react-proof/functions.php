@@ -456,7 +456,30 @@ function tbv_react_proof_affiliate_code_active($code) {
     if (function_exists('tbv_ac_active_affiliate')) return $code !== '' && (bool)tbv_ac_active_affiliate($code);
     return $code !== '' && in_array($code, array_map('strtoupper', (array)get_option('tbv_affiliate_codes', [])), true);
 }
+// Live accepts any password of at least 6 characters: no strength meter or
+// "very weak" warning (Ilja, 2026-10-29), same minimum on sign-up, change and reset.
+add_action('wp_enqueue_scripts', function () {
+    wp_dequeue_script('wc-password-strength-meter');
+}, 100);
+add_filter('woocommerce_min_password_strength', '__return_zero');
+function tbv_react_proof_password_too_short($password) {
+    return mb_strlen(wp_unslash((string)$password)) < 6;
+}
+add_action('woocommerce_save_account_details_errors', function ($errors) {
+    $password = (string)($_POST['password_1'] ?? '');
+    if ($password !== '' && tbv_react_proof_password_too_short($password)) {
+        $errors->add('tbv_password_short', 'Min. 6 characters.');
+    }
+});
+add_action('validate_password_reset', function ($errors) {
+    if (isset($_POST['password_1']) && tbv_react_proof_password_too_short($_POST['password_1'])) {
+        $errors->add('tbv_password_short', 'Password must be at least 6 characters.');
+    }
+});
 add_filter('woocommerce_process_registration_errors', function ($errors, $username, $password) {
+    if ('no' === get_option('woocommerce_registration_generate_password') && tbv_react_proof_password_too_short($password)) {
+        $errors->add('tbv_password_short', 'Password must be at least 6 characters.');
+    }
     if ('no' === get_option('woocommerce_registration_generate_password') && wp_unslash((string)$password) !== wp_unslash((string)($_POST['password_confirm'] ?? ''))) {
         $errors->add('tbv_password_mismatch', 'Passwords do not match.');
     }

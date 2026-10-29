@@ -186,6 +186,11 @@ async function accountChecksBeforeRestart(offers) {
   check('register_password_mismatch_rejected', !loggedIn(mismatch.dash.text) && /Passwords do not match/.test(mismatch.r.text + mismatch.dash.text), 'mismatch accepted');
   const unknownCode = await register(new Client(), `e2e.badcode.${Date.now()}@example.test`, env.E2E_RUN_PASSWORD, {tbv_registration_code: 'NOSUCHCODE'});
   check('register_unknown_affiliate_code_rejected', !loggedIn(unknownCode.dash.text) && /Invalid affiliate code/.test(unknownCode.r.text + unknownCode.dash.text), 'unknown code accepted');
+  // Live rule: any password of 6+ characters, no strength requirement.
+  const short = await register(new Client(), `e2e.short.${Date.now()}@example.test`, 'abc12');
+  check('register_password_under_6_rejected', !loggedIn(short.dash.text) && /at least 6 characters/.test(short.r.text + short.dash.text), 'short password accepted');
+  const weak = await register(new Client(), `e2e.weak.${Date.now()}@example.test`, 'aaaaaa');
+  check('register_weak_6_char_password_accepted', loggedIn(weak.dash.text), 'weak 6-character password refused');
   const withCode = await register(new Client(), `e2e.affiliate.${Date.now()}@example.test`, env.E2E_RUN_PASSWORD, {tbv_registration_code: 'reviewaff'});
   check('register_with_affiliate_code', loggedIn(withCode.dash.text), 'not logged in');
 
