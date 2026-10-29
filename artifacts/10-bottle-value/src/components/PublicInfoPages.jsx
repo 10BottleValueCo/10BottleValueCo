@@ -401,59 +401,6 @@ export default function PublicInfoPages({
           </div>
         </main>
       )}
-
-      {page === "attestation" && (
-        <main className="mx-auto max-w-5xl px-4 pb-16 pt-4 md:px-10 md:pb-24 md:pt-12">
-          <section className="rounded-[1.8rem] border border-white/20 bg-black/15 px-5 py-10 text-center shadow-[0_18px_55px_rgba(0,0,0,0.12)] md:rounded-[2.5rem] md:px-12 md:py-16">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.34em] text-white/65">
-              Research Use Only
-            </div>
-            <h1 className="mt-4 text-3xl font-semibold uppercase tracking-[0.12em] text-white md:text-5xl">
-              Qualified Purchaser &amp; Researcher Attestation
-            </h1>
-            <p className="mx-auto mt-6 max-w-3xl text-[12px] uppercase leading-7 tracking-[0.14em] text-white/75 md:text-[14px]">
-              These confirmations are mandatory for every purchaser before checkout.
-            </p>
-
-            <div className="mx-auto mt-10 max-w-3xl space-y-4 text-left">
-              <div className="rounded-[1.4rem] border border-white/20 bg-black/20 px-5 py-6 md:px-8">
-                <h2 className="text-[12px] font-bold uppercase tracking-[0.2em] text-white">
-                  Qualified purchaser status
-                </h2>
-                <p className="mt-3 text-[12px] font-semibold uppercase leading-7 tracking-[0.1em] text-white/85 md:text-[14px]">
-                  I confirm that I am a qualified researcher, licensed professional, or authorized representative of a qualified research organization.
-                </p>
-              </div>
-
-              <div className="rounded-[1.4rem] border border-white/20 bg-black/20 px-5 py-6 md:px-8">
-                <h2 className="text-[12px] font-bold uppercase tracking-[0.2em] text-white">
-                  No human or animal use
-                </h2>
-                <p className="mt-3 text-[12px] font-semibold uppercase leading-7 tracking-[0.1em] text-white/85 md:text-[14px]">
-                  I will not use these products on humans or animals. All products are sold strictly for laboratory, analytical, or scientific research purposes only.
-                </p>
-              </div>
-
-              <div className="rounded-[1.4rem] border border-white/20 bg-black/20 px-5 py-6 md:px-8">
-                <h2 className="text-[12px] font-bold uppercase tracking-[0.2em] text-white">
-                  Mandatory checkout acceptance
-                </h2>
-                <p className="mt-3 text-[12px] font-semibold uppercase leading-7 tracking-[0.1em] text-white/85 md:text-[14px]">
-                  Before purchase, every customer must actively accept the qualified-purchaser statement, the no-human-or-animal-use commitment, and the website terms and policies. Acceptance is recorded with the order.
-                </p>
-              </div>
-            </div>
-
-            <a
-              href="/cart"
-              onClick={(event) => handlePublicPageLink(event, "cart")}
-              className="mt-10 inline-flex rounded-full bg-white px-8 py-4 text-[12px] font-bold uppercase tracking-[0.22em] text-black transition hover:bg-white/90"
-            >
-              Proceed to Cart
-            </a>
-          </section>
-        </main>
-      )}
     </>
   );
 }

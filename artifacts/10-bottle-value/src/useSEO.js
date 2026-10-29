@@ -150,11 +150,6 @@ export function useSEO({ page, product }) {
         title: `Contact 10BottleValueCo SIA | ${SITE_NAME}`,
         description: "Contact 10BottleValueCo SIA for order and product support. Business address: Avotu iela 8, Lielvārde, Ogres nov., LV-5071, Latvia.",
       },
-      attestation: {
-        path: "/researcher-attestation",
-        title: `Qualified Purchaser & Researcher Attestation | ${SITE_NAME}`,
-        description: "Mandatory qualified researcher or licensed professional attestation and no-human-or-animal-use commitment required before purchase.",
-      },
       track: {
         path: "/track-order",
         title: `Track Your Order | ${SITE_NAME}`,

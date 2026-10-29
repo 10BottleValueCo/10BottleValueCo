@@ -69,14 +69,14 @@ function fixture() {
     legacyCheckoutHeaders, supabase: { auth: { getSession: async () => ({ data: { session: { access_token: 'synthetic-token', user: { id: 'buyer-fixture', email: 'buyer@example.test' } } } }) } },
     saveAccountCheckoutDetails: async () => false, checkoutBuyerRef: { current: 'buyer-fixture' },
     rememberValidCheckoutDetails: value => calls.push(['setCheckoutForm', value]),
-    currentUser: { id: 'buyer-fixture', email: 'buyer@example.test' }, researchAccepted: true, qualifiedAccepted: true, termsAccepted: true,
+    currentUser: { id: 'buyer-fixture', email: 'buyer@example.test' },
     cart: [{ name: 'BPC-157', dose: '5 mg', quantity: 1, price: 100 }],
     readCheckoutSnapshot: () => ({ ...form }), validateCheckoutForm: () => ({}),
     legacyAttemptsRef: { current: createLegacyAttemptManager({cryptoApi:webcrypto}) }, legacyStartLockRef: { current:false },
     deferredLegacyOrderRef: { current: null }, meritAttemptRef: { current: null },
     meritCreateBusyRef: { current: false }, meritVerificationAbortRef: { current: null }, meritInputsRef: { current: '' },
     meritSelectionRef: { current: { method: 'stripe', step: 'payment' } },
-    checkoutInputRefs: { current: {} }, formSectionRef: { current: null }, termsSectionRef: { current: null },
+    checkoutInputRefs: { current: {} }, formSectionRef: { current: null },
     effectiveShippingType: 'standard', subtotal: 100, shipping: 39.99, automaticDiscount: 0, promoDiscount: 0,
     ownerFreeShippingActive: false, appliedPromo: null, affiliateDiscount: 0, cryptoDiscountAmount: 0, storeCreditApplied: 0, finalTotal: 139.99,
     affiliateTrackingCode: '', affiliateTrackingOwnerEmail: '', affiliateCommission: 0, paymentMethod: 'stripe', checkoutStep: 'payment',
@@ -103,11 +103,9 @@ function fixture() {
 function checkoutEntryFixture(overrides = {}) {
   const result = fixture();
   Object.assign(result.context, {
-    checkoutForm: result.form, checkoutStep: 'details', hasOutOfStockInCart: false, validateCheckoutBeforeAttestation: () => true,
-    researchAccepted: false, qualifiedAccepted: false, termsAccepted: false,
-    setPendingAttestationAction: value => result.calls.push(['attestationAction', value]),
-    setAttestationModalOpen: value => result.calls.push(['attestationOpen', value]),
-    handleCheckout: () => { throw new Error('Checkout must wait for confirmation'); },
+    checkoutForm: result.form, checkoutStep: 'details', hasOutOfStockInCart: false, checkoutMessage: '',
+    handleCheckout: () => result.calls.push(['checkout']),
+    handlePayWithCredits: () => result.calls.push(['credits']),
     ...overrides,
   });
   // Resolve named JSX handlers from the actual App source, while still exercising
@@ -166,15 +164,13 @@ test('Lightning to Card to Lightning keeps the original legacy order and follows
 
 
 
-test('bottom and mobile sticky checkout open confirmations when the closed modal has no terms ref', () => {
+test('bottom and mobile sticky checkout go straight to checkout without purchaser checkboxes', () => {
   assert.equal(proceedButtons.length, 2);
   for (const button of proceedButtons) {
     for (const currentUser of [{ email: 'buyer@example.test' }, null]) {
       const { context, calls } = checkoutEntryFixture({ currentUser });
-      assert.equal(context.termsSectionRef.current, null);
       buttonAttribute(button, 'onClick', context)();
-      assert.deepEqual(calls, [['attestationAction', 'checkout'], ['attestationOpen', true]]);
-      assert.equal(context.deferredLegacyOrderRef.current, null);
+      assert.deepEqual(calls, [['checkout']]);
     }
   }
 });
@@ -185,8 +181,7 @@ test('sticky checkout preserves the full-credit action used by the bottom credit
   for (const button of [creditButton, stickyButton]) {
     const { context, calls } = checkoutEntryFixture({ finalTotal: 0, storeCreditApplied: 139.99 });
     buttonAttribute(button, 'onClick', context)();
-    assert.deepEqual(calls, [['attestationAction', 'credits'], ['attestationOpen', true]]);
-    assert.equal(context.deferredLegacyOrderRef.current, null);
+    assert.deepEqual(calls, [['credits']]);
   }
 });
 
@@ -201,14 +196,7 @@ test('both proceed buttons disable empty or out-of-stock carts', () => {
   }
 });
 
-test('checkout still requires every confirmation and valid details before creating its draft', async () => {
-  for (const key of ['researchAccepted', 'qualifiedAccepted', 'termsAccepted']) {
-    const { context, calls } = fixture();
-    context[key] = false;
-    await handler('handleCheckout', context)();
-    assert.equal(context.deferredLegacyOrderRef.current, null);
-    assert.equal(calls.some(([name]) => name === 'setCheckoutStep'), false);
-  }
+test('checkout still requires valid details before creating its draft', async () => {
   const { context, calls } = fixture();
   context.validateCheckoutForm = () => ({ postalCode: true });
   await handler('handleCheckout', context)();

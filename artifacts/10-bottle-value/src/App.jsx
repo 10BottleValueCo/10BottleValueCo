@@ -110,7 +110,7 @@ const publicPathToPage = {
   about: "about",
   faq: "faq",
   contact: "contact",
-  "researcher-attestation": "attestation",
+  "researcher-attestation": "terms",
   "track-order": "track",
   account: "account",
   cart: "cart",
@@ -133,7 +133,6 @@ const publicPageToPath = {
   about: "/about",
   faq: "/faq",
   contact: "/contact",
-  attestation: "/researcher-attestation",
   track: "/track-order",
   account: "/account",
   cart: "/cart",
@@ -4401,7 +4400,6 @@ export default function App() {
   }, [currentUser?.id]);
   const [isBonusExpanded, setIsBonusExpanded] = useState(false);
   const [shippingHighlight, setShippingHighlight] = useState(false);
-  const [checkboxHighlight, setCheckboxHighlight] = useState(false);
   const shippingSectionRef = useRef(null);
   const formSectionRef = useRef(null);
   const inboxScrollRef = useRef(null);
@@ -4410,41 +4408,7 @@ export default function App() {
   const typingStopTimerRef = useRef(null);
   const userFileInputRef = useRef(null);
   const adminFileInputRef = useRef(null);
-  const termsSectionRef = useRef(null);
-  const attestationResearchRef = useRef(null);
-  const attestationQualifiedRef = useRef(null);
-  const attestationTermsRef = useRef(null);
-  const attestationConfirmRef = useRef(null);
   const stickyClickCountRef = useRef(0);
-  const [researchAccepted, setResearchAccepted] = useState(false);
-  const [qualifiedAccepted, setQualifiedAccepted] = useState(false);
-  const [termsAccepted, setTermsAccepted] = useState(false);
-  const [attestationModalOpen, setAttestationModalOpen] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.location.pathname.replace(/\/+$/, "").toLowerCase() === "/cart/confirmation";
-  });
-  const [pendingAttestationAction, setPendingAttestationAction] = useState("checkout");
-  useEffect(() => {
-    if (page !== "cart") return;
-    const targetPath = attestationModalOpen ? "/cart/confirmation" : "/cart";
-    if (window.location.pathname !== targetPath) {
-      window.history.replaceState({}, "", targetPath);
-    }
-  }, [attestationModalOpen, page]);
-  const syncAttestationConfirmButton = () => {
-    if (!attestationConfirmRef.current) return;
-    const enabled = Boolean(
-      attestationResearchRef.current?.checked &&
-      attestationQualifiedRef.current?.checked &&
-      attestationTermsRef.current?.checked
-    );
-    attestationConfirmRef.current.disabled = false;
-    attestationConfirmRef.current.className = `mt-6 w-full rounded-full px-6 py-4 text-[13px] font-bold uppercase tracking-[0.22em] ${
-      enabled
-        ? "bg-white text-black"
-        : "cursor-not-allowed bg-white/45 text-black/45"
-    }`;
-  };
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [language] = useState("EN");
   const catalogShippingCopy = {
@@ -8361,27 +8325,6 @@ export default function App() {
       DE: "IHRE PERSONENBEZOGENEN DATEN WERDEN VERWENDET, UM IHRE BESTELLUNG ZU BEARBEITEN, IHRE ERFAHRUNG AUF DIESER WEBSITE ZU UNTERSTÜTZEN UND FÜR WEITERE ZWECKE, DIE IN UNSERER",
       ES: "SUS DATOS PERSONALES SE UTILIZARÁN PARA PROCESAR SU PEDIDO, MEJORAR SU EXPERIENCIA EN ESTE SITIO WEB Y PARA OTROS FINES DESCRITOS EN NUESTRA",
     },
-    ageResearchCheckbox: {
-      EN: "I CONFIRM THAT I AM OVER 21 YEARS OLD AND UNDERSTAND THAT ALL PRODUCTS ARE SOLD STRICTLY FOR RESEARCH PURPOSES ONLY AND NOT FOR HUMAN OR ANIMAL USE.",
-      RU: "Я ПОДТВЕРЖДАЮ, ЧТО МНЕ БОЛЬШЕ 21 ГОДА, И ПОНИМАЮ, ЧТО ВСЕ ПРОДУКТЫ ПРОДАЮТСЯ СТРОГО ТОЛЬКО ДЛЯ ИССЛЕДОВАТЕЛЬСКИХ ЦЕЛЕЙ И НЕ ДЛЯ ИСПОЛЬЗОВАНИЯ ЛЮДЬМИ ИЛИ ЖИВОТНЫМИ.",
-      UA: "Я ПІДТВЕРДЖУЮ, ЩО МЕНІ БІЛЬШЕ 21 РОКУ, І РОЗУМІЮ, ЩО ВСІ ПРОДУКТИ ПРОДАЮТЬСЯ СУВОРО ЛИШЕ ДЛЯ ДОСЛІДНИЦЬКИХ ЦІЛЕЙ І НЕ ДЛЯ ВИКОРИСТАННЯ ЛЮДЬМИ АБО ТВАРИНАМИ.",
-      DE: "ICH BESTÄTIGE, DASS ICH ÜBER 21 JAHRE ALT BIN UND VERSTEHE, DASS ALLE PRODUKTE AUSSCHLIESSLICH FÜR FORSCHUNGSZWECKE VERKAUFT WERDEN UND NICHT FÜR DIE ANWENDUNG BEI MENSCHEN ODER TIEREN BESTIMMT SIND.",
-      ES: "CONFIRMO QUE TENGO MÁS DE 21 AÑOS Y ENTIENDO QUE TODOS LOS PRODUCTOS SE VENDEN ESTRICTAMENTE PARA FINES DE INVESTIGACIÓN Y NO PARA USO HUMANO O ANIMAL.",
-    },
-    qualifiedResearchCheckbox: {
-      EN: "I CONFIRM THAT I AM A QUALIFIED RESEARCHER, LICENSED PROFESSIONAL, OR AUTHORIZED REPRESENTATIVE OF A QUALIFIED RESEARCH ORGANIZATION. I WILL NOT USE THESE PRODUCTS ON HUMANS OR ANIMALS.",
-      RU: "Я ПОДТВЕРЖДАЮ, ЧТО Я ЯВЛЯЮСЬ КВАЛИФИЦИРОВАННЫМ ИССЛЕДОВАТЕЛЕМ, ЛИЦЕНЗИРОВАННЫМ СПЕЦИАЛИСТОМ ИЛИ УПОЛНОМОЧЕННЫМ ПРЕДСТАВИТЕЛЕМ КВАЛИФИЦИРОВАННОЙ ИССЛЕДОВАТЕЛЬСКОЙ ОРГАНИЗАЦИИ. Я НЕ БУДУ ИСПОЛЬЗОВАТЬ ЭТИ ПРОДУКТЫ НА ЛЮДЯХ ИЛИ ЖИВОТНЫХ.",
-      UA: "Я ПІДТВЕРДЖУЮ, ЩО Я Є КВАЛІФІКОВАНИМ ДОСЛІДНИКОМ, ЛІЦЕНЗОВАНИМ ФАХІВЦЕМ АБО УПОВНОВАЖЕНИМ ПРЕДСТАВНИКОМ КВАЛІФІКОВАНОЇ ДОСЛІДНИЦЬКОЇ ОРГАНІЗАЦІЇ. Я НЕ БУДУ ВИКОРИСТОВУВАТИ ЦІ ПРОДУКТИ НА ЛЮДЯХ АБО ТВАРИНАХ.",
-      DE: "ICH BESTÄTIGE, DASS ICH EIN QUALIFIZIERTER FORSCHER, EIN LIZENZIERTER FACHMANN ODER EIN BEVOLLMÄCHTIGTER VERTRETER EINER QUALIFIZIERTEN FORSCHUNGSORGANISATION BIN. ICH WERDE DIESE PRODUKTE NICHT AN MENSCHEN ODER TIEREN ANWENDEN.",
-      ES: "CONFIRMO QUE SOY UN INVESTIGADOR CUALIFICADO, UN PROFESIONAL CON LICENCIA O UN REPRESENTANTE AUTORIZADO DE UNA ORGANIZACIÓN DE INVESTIGACIÓN CUALIFICADA. NO UTILIZARÉ ESTOS PRODUCTOS EN SERES HUMANOS NI EN ANIMALES.",
-    },
-    termsCheckboxStart: {
-      EN: "I HAVE READ AND AGREE TO THE WEBSITE",
-      RU: "Я ПОДТВЕРЖДАЮ, ЧТО ПРОЧИТАЛ И СОГЛАСЕН С",
-      UA: "Я ПІДТВЕРДЖУЮ, ЩО ПРОЧИТАВ І ПОГОДЖУЮСЯ З",
-      DE: "ICH HABE GELESEN UND STIMME ZU:",
-      ES: "HE LEÍDO Y ACEPTO LOS",
-    },
   };
 
   const deText = {
@@ -12098,49 +12041,14 @@ export default function App() {
     return errors;
   }
 
-  function validateCheckoutBeforeAttestation() {
-    const syncedForm = readCheckoutSnapshot();
-    setCheckoutForm(syncedForm);
-    setCountrySearch(syncedForm.country || "");
-
-    const errors = validateCheckoutForm(syncedForm);
-    setCheckoutErrors(errors);
-    if (Object.keys(errors).length === 0) {
-      setCheckoutMessage("");
-      return true;
-    }
-
-    setCheckoutMessage(
-      tx(
-        "Please correctly fill in all required fields.",
-        "Заполните все обязательные поля корректно.",
-        "Заповніть усі обовʼязкові поля коректно.",
-        "Bitte füllen Sie alle Pflichtfelder korrekt aus.",
-        "Completa correctamente todos los campos obligatorios."
-      )
-    );
-    const firstErrorField = Object.keys(errors)[0];
-    const fieldRef = checkoutInputRefs.current[firstErrorField];
-    if (fieldRef) {
-      setTimeout(() => {
-        fieldRef.scrollIntoView({ behavior: "smooth", block: "center" });
-        fieldRef.focus();
-      }, 50);
-    } else if (formSectionRef.current) {
-      setTimeout(() => {
-        formSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 50);
-    }
-    return false;
-  }
-
-  function requestCheckoutAttestation() {
+  function proceedToCheckout() {
     if (cart.length === 0 || hasOutOfStockInCart) return;
-    if (currentUser?.email && !validateCheckoutBeforeAttestation()) return;
-    setPendingAttestationAction(
-      finalTotal === 0 && storeCreditApplied > 0 ? "credits" : "checkout"
-    );
-    setAttestationModalOpen(true);
+    if (checkoutMessage) setCheckoutMessage("");
+    if (finalTotal === 0 && storeCreditApplied > 0) {
+      handlePayWithCredits();
+    } else {
+      handleCheckout();
+    }
   }
 
   function rememberValidCheckoutDetails(snapshot) {
@@ -12155,11 +12063,8 @@ export default function App() {
     });
   }
 
-  async function handleCheckout(attestationOverride = null) {
+  async function handleCheckout() {
     if (meritAttemptRef.current?.submitted || meritAttemptRef.current?.createRequested) { showMeritReservedAttempt(); return; }
-    const acceptedResearch = attestationOverride?.researchAccepted ?? researchAccepted;
-    const acceptedQualified = attestationOverride?.qualifiedAccepted ?? qualifiedAccepted;
-    const acceptedTerms = attestationOverride?.termsAccepted ?? termsAccepted;
     if (!currentUser?.email) {
       setPendingCheckoutAfterAuth(true);
       setAuthMode("create");
@@ -12227,42 +12132,6 @@ export default function App() {
       return;
     }
 
-    if (!acceptedResearch || !acceptedQualified || !acceptedTerms) {
-      setCheckoutMessage(
-        !acceptedResearch
-          ? tx(
-              "Please confirm that you are over 21 and understand that all products are for research use only before continuing.",
-              "Перед продолжением подтвердите, что вам больше 21 года и вы понимаете, что все продукты только для исследовательского использования.",
-              "Перед продовженням підтвердіть, що вам більше 21 року і ви розумієте, що всі продукти лише для дослідницького використання.",
-              "Bitte bestätigen Sie vor dem Fortfahren, dass Sie über 21 Jahre alt sind und verstehen, dass alle Produkte nur für Forschungszwecke bestimmt sind.",
-              "Antes de continuar, confirma que tienes más de 21 años y entiendes que todos los productos son solo para uso de investigación."
-            )
-          : !acceptedQualified
-          ? tx(
-              "Please confirm that you are purchasing for laboratory, analytical, or scientific research purposes only and are qualified to handle such materials.",
-              "Подтвердите, что покупаете только для лабораторных, аналитических или научных исследовательских целей и квалифицированы для работы с такими материалами.",
-              "Підтвердіть, що купуєте лише для лабораторних, аналітичних або наукових дослідницьких цілей і кваліфіковані для роботи з такими матеріалами.",
-              "Bitte bestätigen Sie, dass Sie ausschließlich für Labor-, Analyse- oder wissenschaftliche Forschungszwecke kaufen und für den Umgang mit solchen Materialien qualifiziert sind.",
-              "Confirma que compras únicamente para fines de investigación de laboratorio, analíticos o científicos y que estás cualificado para manejar dichos materiales."
-            )
-          : tx(
-              "Please read and agree to the Terms, Privacy, Refund, and Shipping policies before continuing.",
-              "Перед продолжением прочитайте и согласитесь с условиями, политикой конфиденциальности, возврата и доставки.",
-              "Перед продовженням прочитайте та погодьтеся з умовами, політикою конфіденційності, повернення та доставки.",
-              "Bitte lesen und akzeptieren Sie vor dem Fortfahren die Bedingungen, Datenschutz-, Rückerstattungs- und Versandrichtlinien.",
-              "Antes de continuar, lee y acepta los términos, la política de privacidad, reembolso y envío."
-            )
-      );
-      if (termsSectionRef.current) {
-        setTimeout(() => {
-          termsSectionRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-        }, 50);
-      }
-      setCheckboxHighlight(true);
-      setTimeout(() => setCheckboxHighlight(false), 900);
-      return;
-    }
-
     const generatedOrderNumber = generateInvoiceNumber();
     const normalizedEmail = currentUser.email.trim().toLowerCase();
     setOrderNumber(generatedOrderNumber);
@@ -12291,10 +12160,7 @@ export default function App() {
       phone: syncedForm.phone || "",
       taxId: syncedForm.taxId || "",
       purchaserAttestation: {
-        over21AndResearchUseOnly: acceptedResearch,
-        qualifiedResearcherOrLicensedProfessional: acceptedQualified,
-        noHumanOrAnimalUse: acceptedQualified,
-        policiesAccepted: acceptedTerms,
+        policiesAccepted: true,
         acceptedAt: new Date().toISOString(),
       },
       orderNotes: getCheckoutOrderNotes(syncedForm),
@@ -12338,19 +12204,10 @@ export default function App() {
 
   }
 
-  async function handlePayWithCredits(attestationOverride = null) {
+  async function handlePayWithCredits() {
     if (meritAttemptRef.current?.submitted || meritAttemptRef.current?.createRequested) { showMeritReservedAttempt(); return; }
-    const acceptedResearch = attestationOverride?.researchAccepted ?? researchAccepted;
-    const acceptedQualified = attestationOverride?.qualifiedAccepted ?? qualifiedAccepted;
-    const acceptedTerms = attestationOverride?.termsAccepted ?? termsAccepted;
     if (!currentUser?.email) return;
     if (creditCheckoutInFlightRef.current || isCreditCheckoutSubmitting || creditPayAnimating) return;
-    if (!acceptedResearch || !acceptedQualified || !acceptedTerms) {
-      setCheckboxHighlight(true);
-      setTimeout(() => setCheckboxHighlight(false), 900);
-      if (termsSectionRef.current) termsSectionRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-      return;
-    }
     const syncedForm = readCheckoutSnapshot();
     const errors = validateCheckoutForm(syncedForm);
     setCheckoutErrors(errors);
@@ -12422,10 +12279,7 @@ export default function App() {
       storeCreditUsed: Number(storeCreditApplied.toFixed(2)),
       orderNotes: getCheckoutOrderNotes(syncedForm),
       purchaserAttestation: {
-        over21AndResearchUseOnly: Boolean(acceptedResearch),
-        qualifiedResearcherOrLicensedProfessional: Boolean(acceptedQualified),
-        noHumanOrAnimalUse: Boolean(acceptedQualified),
-        policiesAccepted: Boolean(acceptedTerms),
+        policiesAccepted: true,
       },
     };
     const attemptStorageKey = "tbv-store-credit-attempt";
@@ -14218,13 +14072,11 @@ export default function App() {
             <div className="shipping-announcement-viewport w-full overflow-hidden">
               <div className="shipping-announcement-track">
                 <div className="shipping-announcement-group">
-                  <span className="text-[7px] text-white/65">{i18n(legal.ruoStrict)}</span>
                   <span>US WAREHOUSE FREE SHIPPING</span>
                   <span>FREE STANDARD SHIPPING $300+</span>
                   <span>FREE EXPRESS SHIPPING $550+</span>
                 </div>
                 <div className="shipping-announcement-group" aria-hidden="true">
-                  <span className="text-[7px] text-white/65">{i18n(legal.ruoStrict)}</span>
                   <span>US WAREHOUSE FREE SHIPPING</span>
                   <span>FREE STANDARD SHIPPING $300+</span>
                   <span>FREE EXPRESS SHIPPING $550+</span>
@@ -14235,8 +14087,6 @@ export default function App() {
         </div>
         {/* Desktop: static row */}
         <div data-nosnippet className="hidden lg:flex relative z-[100] w-full bg-black px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white items-center justify-center gap-4">
-          <span className="text-center leading-tight">{i18n(legal.ruoStrict)}</span>
-          <span className="text-white/30 font-light shrink-0">|</span>
           <span className="whitespace-nowrap shrink-0">US WAREHOUSE FREE SHIPPING</span>
           <span className="text-white/30 font-light shrink-0">|</span>
           <span className="whitespace-nowrap shrink-0">FREE STANDARD SHIPPING $300+</span>
@@ -14677,46 +14527,8 @@ export default function App() {
                   >
                     {t("contact")}
                   </a>
-                  <span className="text-white/30">•</span>
-                  <a
-                    href="/researcher-attestation"
-                    className="transition hover:text-white hover:underline hover:underline-offset-4"
-                  >
-                    {tx("Researcher Attestation", "Подтверждение исследователя", "Підтвердження дослідника", "Forscherbestätigung", "Declaración del investigador")}
-                  </a>
                 </div>
 
-                <details className="mx-auto mt-3 max-w-3xl rounded-xl border border-white/15 bg-black/20 text-left text-[10px] uppercase leading-5 tracking-[0.1em] text-white md:max-w-[46rem]">
-                  <summary className="cursor-pointer select-none px-4 py-2.5 font-semibold text-white">
-                    {tx("Researcher & purchaser attestation", "Подтверждение исследователя и покупателя", "Підтвердження дослідника та покупця", "Forscher- und Käuferbestätigung", "Declaración del investigador y comprador")}
-                  </summary>
-                  <div className="px-4 pb-4">
-                    <span className="block">
-                      {tx(
-                        "Every purchaser must confirm they are over 21 years old and that all products are sold strictly for research purposes only, not for human or animal use.",
-                        "Каждый покупатель обязан подтвердить, что ему больше 21 года и что все продукты продаются исключительно для исследовательских целей, а не для использования на людях или животных.",
-                        "Кожен покупець зобовʼязаний підтвердити, що йому більше 21 року і що всі продукти продаються виключно для дослідницьких цілей, а не для використання на людях чи тваринах.",
-                        "Jeder Käufer muss bestätigen, über 21 Jahre alt zu sein und dass alle Produkte ausschließlich für Forschungszwecke verkauft werden, nicht für den Gebrauch an Menschen oder Tieren.",
-                        "Todo comprador debe confirmar que tiene más de 21 años y que todos los productos se venden estrictamente para fines de investigación, no para uso en humanos o animales."
-                      )}
-                    </span>
-                    <span className="mt-2 block">
-                      {tx(
-                        "Every purchaser must also confirm they are a qualified researcher, licensed professional, or authorized representative of a qualified research organization, and will not use these products on humans or animals. This attestation is required and logged with every order before checkout.",
-                        "Каждый покупатель также обязан подтвердить, что является квалифицированным исследователем, лицензированным специалистом или уполномоченным представителем исследовательской организации и не будет использовать продукты на людях или животных. Это подтверждение обязательно и фиксируется с каждым заказом перед оформлением.",
-                        "Кожен покупець також зобовʼязаний підтвердити, що є кваліфікованим дослідником, ліцензованим фахівцем або уповноваженим представником дослідницької організації і не використовуватиме продукти на людях чи тваринах. Це підтвердження є обовʼязковим і фіксується з кожним замовленням перед оформленням.",
-                        "Jeder Käufer muss außerdem bestätigen, ein qualifizierter Forscher, lizenzierter Fachmann oder autorisierter Vertreter einer qualifizierten Forschungsorganisation zu sein und die Produkte nicht an Menschen oder Tieren zu verwenden. Diese Bestätigung ist erforderlich und wird bei jeder Bestellung vor dem Checkout protokolliert.",
-                        "Todo comprador también debe confirmar que es un investigador calificado, profesional con licencia o representante autorizado de una organización de investigación calificada, y que no usará estos productos en humanos o animales. Esta declaración es obligatoria y se registra con cada pedido antes de finalizar la compra."
-                      )}
-                    </span>
-                    <a
-                      href="/researcher-attestation"
-                      className="mt-2 inline-block font-semibold text-white underline underline-offset-4"
-                    >
-                      {tx("Read the full researcher attestation", "Полное подтверждение исследователя", "Повне підтвердження дослідника", "Vollständige Forscherbestätigung lesen", "Leer la declaración completa del investigador")}
-                    </a>
-                  </div>
-                </details>
                 </div>
                 <div className="mx-auto max-w-3xl text-center md:mt-4 md:max-w-[52rem] md:grid md:grid-cols-2 md:items-start md:gap-x-5 md:text-left lg:mx-0 lg:mt-0 lg:max-w-none">
                   <div className="md:rounded-xl md:border md:border-white/10 md:bg-black/15 md:px-4 md:py-3">
@@ -15463,7 +15275,7 @@ export default function App() {
               </div>
 
             </div>
-            {!productPrimaryActionVisible && !coaLightbox && !attestationModalOpen && (
+            {!productPrimaryActionVisible && !coaLightbox && (
               <div
                 className="fixed inset-x-0 z-[80] border-t border-white/20 bg-[#4b4b4b]/95 px-4 pt-2 shadow-[0_-12px_35px_rgba(0,0,0,0.3)] backdrop-blur-xl md:hidden"
                 style={{
@@ -22032,7 +21844,7 @@ export default function App() {
                     {finalTotal === 0 && storeCreditApplied > 0 && cart.length > 0 && !hasOutOfStockInCart ? (
                       <button
                         type="button"
-                        onClick={requestCheckoutAttestation}
+                        onClick={proceedToCheckout}
                         className="mt-2 w-full rounded-full px-6 py-3 text-[13px] font-bold uppercase tracking-[0.22em] transition shadow-[0_0_32px_rgba(234,179,8,0.35)] hover:shadow-[0_0_48px_rgba(234,179,8,0.55)]"
                         style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)", color: "#fff" }}
                       >
@@ -22042,7 +21854,7 @@ export default function App() {
                     ) : (
                       <button
                         type="button"
-                        onClick={requestCheckoutAttestation}
+                        onClick={proceedToCheckout}
                         disabled={
                           cart.length === 0 ||
                           hasOutOfStockInCart
@@ -22067,6 +21879,15 @@ export default function App() {
                           : t("proceedCheckout")}
                       </button>
                     )}
+                    <p className="mt-3 text-center text-[10px] uppercase leading-5 tracking-[0.12em] text-white/70">
+                      {tx("By placing an order, you agree to our", "Оформляя заказ, вы соглашаетесь с нашими", "Оформлюючи замовлення, ви погоджуєтеся з нашими", "Mit Ihrer Bestellung stimmen Sie unseren", "Al realizar un pedido, aceptas nuestros")}{" "}
+                      <a href="/terms-and-conditions" className="font-semibold text-white underline underline-offset-4">{i18n(legal.termsAndConditions)}</a>,{" "}
+                      <a href="/privacy-policy" className="font-semibold text-white underline underline-offset-4">{i18n(legal.privacyPolicy)}</a>,{" "}
+                      <a href="/refund-policy" className="font-semibold text-white underline underline-offset-4">{i18n(legal.refundPolicy)}</a>{" "}
+                      {tx("and", "и", "та", "und", "y")}{" "}
+                      <a href="/shipping-policy" className="font-semibold text-white underline underline-offset-4">{i18n(legal.shippingPolicy)}</a>
+                      {tx(".", ".", ".", " zu.", ".")}
+                    </p>
                   </>
                 )}
                 <div
@@ -22765,135 +22586,11 @@ export default function App() {
                   </div>
                   <button
                     type="button"
-                    onClick={requestCheckoutAttestation}
+                    onClick={proceedToCheckout}
                     disabled={cart.length === 0 || hasOutOfStockInCart}
                     className="max-w-[calc(100vw-116px)] shrink-0 whitespace-nowrap rounded-full bg-white px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:bg-white/50 disabled:text-black/50 sm:max-w-none sm:px-5 sm:py-3 sm:text-[13px] sm:tracking-[0.22em]"
                   >
                     {t("proceedCheckout")}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {attestationModalOpen && (
-              <div
-                className="fixed inset-0 z-[10020] flex items-end justify-center bg-black/80 px-4 sm:items-center"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="purchaser-attestation-title"
-                onMouseDown={(event) => {
-                  if (event.target === event.currentTarget) setAttestationModalOpen(false);
-                }}
-              >
-                <div
-                  ref={termsSectionRef}
-                  className="max-h-[92vh] w-full max-w-[58rem] overflow-y-auto rounded-[1.2rem] border border-white/20 bg-[#30343a] p-5 md:rounded-[1.6rem] md:p-8"
-                  style={{
-                    backgroundColor: "#30343a",
-                    width: "min(calc(100vw - 2rem), 58rem)",
-                  }}
-                >
-                  <div className="mb-6 flex items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1">
-                      <h2 id="purchaser-attestation-title" className="text-[15px] font-bold uppercase leading-tight tracking-[0.12em] text-white sm:text-2xl sm:tracking-[0.16em]">
-                        {tx("Purchaser attestation", "Подтверждение покупателя", "Підтвердження покупця", "Käuferbestätigung", "Declaración del comprador")}
-                      </h2>
-                      <p className="mt-1.5 text-[10px] uppercase leading-4 tracking-[0.12em] text-white/75 sm:text-[11px] sm:leading-5 sm:tracking-[0.14em]">
-                        {tx(
-                          "All confirmations are required before checkout.",
-                          "Для перехода к оплате необходимы все подтверждения.",
-                          "Для переходу до оплати потрібні всі підтвердження.",
-                          "Vor dem Checkout sind alle Bestätigungen erforderlich.",
-                          "Todas las confirmaciones son obligatorias antes del pago."
-                        )}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setAttestationModalOpen(false)}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-                      aria-label="Close"
-                    >
-                      <X size={20} strokeWidth={2.5} aria-hidden="true" />
-                    </button>
-                  </div>
-
-                  <div className="space-y-3">
-                    <label
-                      className="flex cursor-pointer items-start gap-4 rounded-[1.35rem] border border-black/25 bg-black/25 px-5 py-5 text-[11px] uppercase leading-[1.75] tracking-[0.12em] text-white"
-                    >
-                      <input
-                        ref={attestationResearchRef}
-                        type="checkbox"
-                        defaultChecked={researchAccepted}
-                        onChange={syncAttestationConfirmButton}
-                        className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-green-500 transition-none"
-                      />
-                      <span className="font-semibold">{i18n(legal.ageResearchCheckbox)}</span>
-                    </label>
-
-                    <label
-                      className="flex cursor-pointer items-start gap-4 rounded-[1.35rem] border border-black/25 bg-black/25 px-5 py-5 text-[11px] uppercase leading-[1.75] tracking-[0.12em] text-white"
-                    >
-                      <input
-                        ref={attestationQualifiedRef}
-                        type="checkbox"
-                        defaultChecked={qualifiedAccepted}
-                        onChange={syncAttestationConfirmButton}
-                        className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-green-500 transition-none"
-                      />
-                      <span className="font-semibold">{i18n(legal.qualifiedResearchCheckbox)}</span>
-                    </label>
-
-                    <label
-                      className="flex cursor-pointer items-start gap-4 rounded-[1.35rem] border border-black/25 bg-black/25 px-5 py-5 text-[11px] uppercase leading-[1.75] tracking-[0.12em] text-white"
-                    >
-                      <input
-                        ref={attestationTermsRef}
-                        type="checkbox"
-                        defaultChecked={termsAccepted}
-                        onChange={syncAttestationConfirmButton}
-                        className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-green-500 transition-none"
-                      />
-                      <span>
-                        {i18n(legal.termsCheckboxStart)}{" "}
-                        <a href="/terms-and-conditions" onClick={(event) => event.stopPropagation()} className="font-semibold text-white underline underline-offset-4">{i18n(legal.termsAndConditions)}</a>,{" "}
-                        <a href="/privacy-policy" onClick={(event) => event.stopPropagation()} className="font-semibold text-white underline underline-offset-4">{i18n(legal.privacyPolicy)}</a>,
-                        <br />
-                        <a href="/refund-policy" onClick={(event) => event.stopPropagation()} className="font-semibold text-white underline underline-offset-4">{i18n(legal.refundPolicy)}</a>,{" "}
-                        <a href="/shipping-policy" onClick={(event) => event.stopPropagation()} className="font-semibold text-white underline underline-offset-4">{i18n(legal.shippingPolicy)}</a>.
-                      </span>
-                    </label>
-                  </div>
-
-                  <button
-                    ref={attestationConfirmRef}
-                    type="button"
-                    onClick={() => {
-                      const attestation = {
-                        researchAccepted: Boolean(attestationResearchRef.current?.checked),
-                        qualifiedAccepted: Boolean(attestationQualifiedRef.current?.checked),
-                        termsAccepted: Boolean(attestationTermsRef.current?.checked),
-                      };
-                      if (!attestation.researchAccepted || !attestation.qualifiedAccepted || !attestation.termsAccepted) return;
-                      setResearchAccepted(attestation.researchAccepted);
-                      setQualifiedAccepted(attestation.qualifiedAccepted);
-                      setTermsAccepted(attestation.termsAccepted);
-                      setAttestationModalOpen(false);
-                      if (checkoutMessage) setCheckoutMessage("");
-                      if (pendingAttestationAction === "credits") {
-                        handlePayWithCredits(attestation);
-                      } else {
-                        handleCheckout(attestation);
-                      }
-                    }}
-                    className={`mt-6 w-full rounded-full px-6 py-4 text-[13px] font-bold uppercase tracking-[0.22em] ${
-                      researchAccepted && qualifiedAccepted && termsAccepted
-                        ? "bg-white text-black"
-                        : "cursor-not-allowed bg-white/45 text-black/45"
-                    }`}
-                  >
-                    {tx("Confirm & proceed to checkout", "Подтвердить и перейти к оплате", "Підтвердити та перейти до оплати", "Bestätigen und zum Checkout", "Confirmar y continuar al pago")}
                   </button>
                 </div>
               </div>

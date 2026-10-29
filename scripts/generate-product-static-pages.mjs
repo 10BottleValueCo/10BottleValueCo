@@ -13,32 +13,12 @@ const [sitemap, rawIndexHtml] = await Promise.all([
   readFile(indexPath, "utf8"),
 ]);
 
-// Static, crawler-visible researcher/purchaser attestation notice.
-// This must be present in the raw HTML (not only inside the client-rendered
-// React app) so that automated compliance scanners that do not execute
-// JavaScript can detect the qualified-researcher / no-human-or-animal-use
-// attestation requirement before purchase. The interactive, mandatory
-// click-to-attest gate (with logging) still runs in the app at checkout;
-// this block documents that same requirement in plain static text.
+// Static, crawler-visible disclosures for scanners that do not run JavaScript.
 const attestationNoticeHtml = `
     <div
       data-attestation-notice="true"
       style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;"
     >
-      <h2>Researcher &amp; Purchaser Attestation — Required Before Checkout</h2>
-      <p>
-        Every purchaser must affirmatively confirm, via a mandatory click-to-attest
-        gate at checkout, that: (1) they are over 21 years old and understand all
-        products are sold strictly for research purposes only, not for human or
-        animal use; (2) they are a qualified researcher, licensed professional, or
-        authorized representative of a qualified research organization, and will
-        not use these products on humans or animals; and (3) they have read and
-        agree to the website Terms and Conditions, Privacy Policy, Refund Policy,
-        and Shipping Policy. This attestation is required before checkout and is
-        logged with every order. See the full
-        <a href="/researcher-attestation">Researcher Attestation</a> page for
-        details.
-      </p>
       <h2>Billing Descriptor Disclosure</h2>
       <p>
         Charges from this website appear on the customer's card or PayPal
