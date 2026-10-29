@@ -13,9 +13,11 @@ The staging storefront shows the live site's own admin panel (ORDERS, CHARTS, IN
 | Public promo codes / one-time account codes | WooCommerce percent coupons (public marker / email restriction + one use) |
 | Store credit lookup and adjust | `tbv-affiliates-credit` (existing accounts only) |
 | Charts, Analytics | computed in the browser from the orders above, as on live |
+| Inbox and the customer's support chat (Contact → New message) | table `wp_tbv_contact_messages` with live's columns. The app's `contact_messages` queries go to `POST /wp-json/tbv-messages/v1/query`: visitors can only send (under their account email when signed in); a customer reads only their own thread and can only mark replies read; shop managers read, reply, edit and delete. Contact sends are limited to 10 per IP per 10 minutes |
 
 Not connected yet:
-- **Inbox:** live `contact_messages`, attachments and typing indicator.
+- **Inbox attachments:** live uploads to signed storage URLs; not on WordPress yet.
+- **Typing indicator:** live uses Supabase Realtime; it is a no-op here.
 - **Funnel:** live `analytics_events`.
 - **Charts per-order cost overrides:** live `order_cost_overrides`.
 - **Tools out-of-stock toggles:** live keeps these in browser storage; on WordPress they should become product stock status.
@@ -27,4 +29,6 @@ Tests (staging, 2026-10-29):
   - logs in as the staging admin and opens the panel (no WordPress toolbar on the storefront);
   - finds a fresh WooCommerce order and changes its status (WooCommerce becomes completed);
   - saves a tracking number, with the "not sent on staging" message;
-  - shows the Affiliates tab, creates/lists/deletes a promo coupon, looks up store credit, with no JS errors.
+  - shows the Affiliates tab, creates/lists/deletes a promo coupon, looks up store credit, with no JS errors;
+  - support chat: a customer writes from Contact, the admin sees it in Inbox and replies, and the customer sees the reply.
+- E2E: guests can send but not read; a customer's message uses the account email; customers read only their own thread and cannot write replies.

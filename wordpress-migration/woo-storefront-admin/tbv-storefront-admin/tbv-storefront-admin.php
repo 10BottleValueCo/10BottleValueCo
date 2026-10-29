@@ -323,3 +323,119 @@ add_action('rest_api_init', function () {
         return is_wp_error($result) ? new WP_Error($result->get_error_code(), $result->get_error_message(), ['status' => 400]) : ['email' => strtolower(trim((string)$data['email'])), 'balance' => $result / 100];
     });
 });
+
+/* ---------- Support inbox (live contact_messages) ---------- */
+
+const TBV_SA_MESSAGES_SCHEMA = '1';
+const TBV_SA_MESSAGE_COLUMNS = ['id', 'name', 'email', 'message', 'admin_reply', 'replied_at', 'user_read_at', 'created_at'];
+
+function tbv_sa_messages_table() { global $wpdb; return $wpdb->prefix . 'tbv_contact_messages'; }
+add_action('plugins_loaded', function () {
+    if (get_option('tbv_sa_messages_schema') === TBV_SA_MESSAGES_SCHEMA) return;
+    global $wpdb;
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+    dbDelta('CREATE TABLE ' . tbv_sa_messages_table() . " (
+  id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  name varchar(200) NOT NULL DEFAULT '',
+  email varchar(254) NOT NULL,
+  message longtext NOT NULL,
+  admin_reply longtext DEFAULT NULL,
+  replied_at datetime DEFAULT NULL,
+  user_read_at datetime DEFAULT NULL,
+  created_at datetime NOT NULL,
+  PRIMARY KEY  (id),
+  KEY email (email(100)),
+  KEY created_at (created_at)
+) ENGINE=InnoDB " . $wpdb->get_charset_collate() . ';');
+    update_option('tbv_sa_messages_schema', TBV_SA_MESSAGES_SCHEMA, false);
+});
+
+function tbv_sa_message_row($row) {
+    foreach (['replied_at', 'user_read_at', 'created_at'] as $key) $row[$key] = $row[$key] ? gmdate('c', strtotime($row[$key] . ' UTC')) : null;
+    $row['id'] = (int)$row['id'];
+    return $row;
+}
+/** Column value from the panel (ISO dates to UTC datetime). */
+function tbv_sa_message_value($column, $value) {
+    if ($value === null) return null;
+    if (in_array($column, ['replied_at', 'user_read_at', 'created_at'], true)) return gmdate('Y-m-d H:i:s', strtotime((string)$value) ?: time());
+    if ($column === 'email') return strtolower(trim(sanitize_email((string)$value)));
+    return in_array($column, ['message', 'admin_reply'], true) ? sanitize_textarea_field(mb_substr((string)$value, 0, 20000)) : sanitize_text_field(mb_substr((string)$value, 0, 200));
+}
+/** SQL WHERE for the panel's filters; false if a filter is not allowed. */
+function tbv_sa_message_where(array $filters) {
+    global $wpdb;
+    $sql = [];
+    foreach ($filters as $f) {
+        [$type, $column] = [$f[0] ?? '', $f[1] ?? ''];
+        if (!in_array($column, TBV_SA_MESSAGE_COLUMNS, true)) return false;
+        if ($type === 'eq') $sql[] = $wpdb->prepare("`{$column}` = %s", (string)$f[2]);
+        elseif ($type === 'in' && is_array($f[2]) && $f[2]) $sql[] = "`{$column}` IN (" . implode(',', array_map(fn($v) => $wpdb->prepare('%s', (string)$v), $f[2])) . ')';
+        elseif ($type === 'is' && ($f[2] ?? null) === null) $sql[] = "`{$column}` IS NULL";
+        elseif ($type === 'not' && ($f[2] ?? '') === 'is' && ($f[3] ?? null) === null) $sql[] = "`{$column}` IS NOT NULL";
+        else return false;
+    }
+    return $sql ? ' WHERE ' . implode(' AND ', $sql) : '';
+}
+
+add_action('rest_api_init', function () {
+    register_rest_route('tbv-messages/v1', '/query', ['methods' => 'POST', 'permission_callback' => '__return_true', 'callback' => function ($request) {
+        global $wpdb;
+        $q = (array)($request->get_json_params() ?: []);
+        $table = tbv_sa_messages_table();
+        $op = $q['op'] ?? 'select';
+        $filters = is_array($q['filters'] ?? null) ? $q['filters'] : [];
+        $user = wp_get_current_user();
+        $admin = tbv_sa_can();
+        $deny = new WP_Error('tbv_sa_messages_forbidden', 'Not allowed.', ['status' => 403]);
+        if (($q['table'] ?? '') !== 'contact_messages') return $deny;
+        if (!$admin) {
+            // Visitors send messages; signed-in customers also read and mark their own thread.
+            if ($op === 'insert') {
+                $email = $user->exists() ? strtolower($user->user_email) : tbv_sa_message_value('email', $q['values']['email'] ?? '');
+                $text = trim((string)($q['values']['message'] ?? ''));
+                if (!is_email($email) || $text === '') return new WP_Error('tbv_sa_message_invalid', 'Enter your email and a message.', ['status' => 400]);
+                $key = 'tbv_msg_' . md5((string)($_SERVER['REMOTE_ADDR'] ?? ''));
+                $sent = (int)get_transient($key);
+                if ($sent >= 10) return new WP_Error('tbv_sa_message_rate', 'Too many messages. Please try again later.', ['status' => 429]);
+                set_transient($key, $sent + 1, 10 * MINUTE_IN_SECONDS);
+                $q['values'] = ['name' => $q['values']['name'] ?? '', 'email' => $email, 'message' => $text];
+            } elseif ($user->exists() && in_array($op, ['select', 'update'], true)) {
+                $filters[] = ['eq', 'email', strtolower($user->user_email)];
+                if ($op === 'update' && array_keys((array)$q['values']) !== ['user_read_at']) return $deny;
+            } else {
+                return $deny;
+            }
+        }
+        $where = tbv_sa_message_where($filters);
+        if ($where === false) return new WP_Error('tbv_sa_messages_filter', 'Unsupported filter.', ['status' => 400]);
+        if ($op === 'select') {
+            [$column, $asc] = is_array($q['order'] ?? null) ? $q['order'] : ['created_at', false];
+            if (!in_array($column, TBV_SA_MESSAGE_COLUMNS, true)) $column = 'created_at';
+            $limit = isset($q['limit']) ? ' LIMIT ' . max(1, min(5000, (int)$q['limit'])) : '';
+            $rows = $wpdb->get_results("SELECT * FROM {$table}{$where} ORDER BY `{$column}` " . ($asc ? 'ASC' : 'DESC') . $limit, ARRAY_A);
+            return ['data' => array_map('tbv_sa_message_row', $rows)];
+        }
+        if ($op === 'insert') {
+            $row = ['created_at' => gmdate('Y-m-d H:i:s')];
+            foreach ((array)$q['values'] as $column => $value) if (in_array($column, TBV_SA_MESSAGE_COLUMNS, true) && $column !== 'id') $row[$column] = tbv_sa_message_value($column, $value);
+            if (empty($row['email']) || !isset($row['message'])) return new WP_Error('tbv_sa_message_invalid', 'Enter your email and a message.', ['status' => 400]);
+            $wpdb->insert($table, $row);
+            return ['data' => [tbv_sa_message_row($wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $wpdb->insert_id), ARRAY_A))]];
+        }
+        if ($where === '') return new WP_Error('tbv_sa_messages_filter', 'A filter is required.', ['status' => 400]);
+        $ids = $wpdb->get_col("SELECT id FROM {$table}{$where}");
+        if ($op === 'update') {
+            $set = [];
+            foreach ((array)$q['values'] as $column => $value) if (in_array($column, TBV_SA_MESSAGE_COLUMNS, true) && !in_array($column, ['id', 'created_at'], true)) $set[$column] = tbv_sa_message_value($column, $value);
+            foreach ($ids as $id) $wpdb->update($table, $set, ['id' => (int)$id]);
+        } elseif ($op === 'delete') {
+            foreach ($ids as $id) $wpdb->delete($table, ['id' => (int)$id]);
+            return ['data' => []];
+        } else {
+            return $deny;
+        }
+        $rows = $ids ? $wpdb->get_results("SELECT * FROM {$table} WHERE id IN (" . implode(',', array_map('intval', $ids)) . ')', ARRAY_A) : [];
+        return ['data' => array_map('tbv_sa_message_row', $rows)];
+    }]);
+});

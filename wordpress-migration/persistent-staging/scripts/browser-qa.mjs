@@ -99,7 +99,7 @@ await page.locator('#reg_password_confirm').pressSequentially(env.E2E_RUN_PASSWO
 check('sign-up card shows no password strength warning', await page.locator('.woocommerce-password-strength, .woocommerce-password-hint').count() === 0 && !/very weak/i.test(await page.locator('body').innerText()));
 await page.waitForTimeout(500);
 await Promise.all([page.waitForNavigation({timeout: 15000}).catch(() => {}), page.locator('button[name="register"]').click()]);
-await page.waitForLoadState('networkidle'); await page.waitForTimeout(2000);
+await page.waitForLoadState('load'); await page.waitForTimeout(2000);
 check('mobile UI registration returns to cart', /\/cart\/?$/.test(new URL(page.url()).pathname), page.url());
 check('cart shows signed-in account email', await page.locator(`input[value="${email}"]`).count() === 1);
 // Shipping details, purchaser attestation, test order.
@@ -122,7 +122,7 @@ check('order-received is the storefront confirmation page', await page.locator('
 check('order-received never claims payment', !/payment received|payment confirmed|total paid/i.test(receivedText));
 await page.screenshot({path: path.join(out, 'flow-mobile-order-received.png'), fullPage: true});
 // Account icon in the React header opens the storefront account dashboard.
-await page.goto(LOCAL + '/', {waitUntil: 'networkidle'});
+await page.goto(LOCAL + '/', {waitUntil: 'load'}); await page.waitForTimeout(1500);
 const acctLinks = await page.evaluate(() => [...document.querySelectorAll('a[href]')].filter(a => /\/account\/?$/.test(new URL(a.href).pathname)).length);
 check('storefront exposes account links', acctLinks > 0, 'none');
 await page.locator('a[href$="/account"]').first().dispatchEvent('click');
@@ -135,17 +135,17 @@ await page.screenshot({path: path.join(out, 'flow-mobile-account-dashboard.png')
 await page.getByRole('button', {name: /^avatars$/i}).first().click();
 await page.locator('.lab-avatar-option').first().click();
 await page.getByText(/avatar saved to your account/i).waitFor({timeout: 8000}).catch(() => {});
-await page.goto(LOCAL + '/my-account/', {waitUntil: 'networkidle'});
+await page.goto(LOCAL + '/my-account/', {waitUntil: 'load'}); await page.waitForTimeout(1500);
 await page.waitForTimeout(1500);
 check('direct load of My Account serves the dashboard', await page.locator('.lab-dashboard .lab-welcome h1').count() === 1);
 check('saved avatar persists across requests', await page.locator('a[href$="/account"] img').count() >= 1);
-await page.goto(LOCAL + '/my-account/orders/', {waitUntil: 'networkidle'});
+await page.goto(LOCAL + '/my-account/orders/', {waitUntil: 'load'}); await page.waitForTimeout(1500);
 check('mobile UI order appears in My Account', await page.locator('.woocommerce-orders-table__row, tr.order').count() >= 1);
 check('native account pages use the dashboard shell', await page.locator('.lab-sidebar .lab-sidenav__item').count() >= 4 && await page.locator('.tbv-native-panel').count() === 1);
-await page.goto(LOCAL + '/my-account/edit-account/', {waitUntil: 'networkidle'});
+await page.goto(LOCAL + '/my-account/edit-account/', {waitUntil: 'load'}); await page.waitForTimeout(1500);
 check('edit-account form keeps WooCommerce fields in the shell', await page.locator('.tbv-native-panel #account_email').count() === 1 && await page.locator('.lab-sidenav__item.is-active', {hasText: /security/i}).count() === 1);
 await page.screenshot({path: path.join(out, 'flow-mobile-orders.png'), fullPage: true});
-await page.goto(LOCAL + '/my-account/', {waitUntil: 'networkidle'});
+await page.goto(LOCAL + '/my-account/', {waitUntil: 'load'}); await page.waitForTimeout(1500);
 // Mobile hides the sidebar Sign out (as on the live dashboard); use its logout link.
 const logoutUrl = await page.evaluate(() => window.TBV_COMMERCE?.account?.logoutUrl || '');
 check('dashboard logout link uses the WooCommerce endpoint', /\/my-account\/customer-logout\/\?_wpnonce=/.test(logoutUrl), logoutUrl);
@@ -172,13 +172,13 @@ await promoCtx.close();
 // Affiliates and store credit (desktop, loopback; synthetic credit via WP-CLI).
 const wp = (...args) => execFileSync('wp', [...args, `--path=${new URL('../wordpress', import.meta.url).pathname}`], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']}).trim();
 async function registerUI(pg, email) {
-  await pg.goto(LOCAL + '/my-account/', {waitUntil: 'networkidle'});
+  await pg.goto(LOCAL + '/my-account/', {waitUntil: 'load'});
   await pg.getByRole('button', {name: /^create account$/i}).click();
   await pg.locator('#reg_email').fill(email);
   await pg.locator('#reg_password').fill(env.E2E_RUN_PASSWORD);
   await pg.locator('#reg_password_confirm').fill(env.E2E_RUN_PASSWORD);
   await Promise.all([pg.waitForNavigation({timeout: 15000}).catch(() => {}), pg.locator('button[name="register"]').click()]);
-  await pg.waitForLoadState('networkidle');
+  await pg.waitForLoadState('load'); await pg.waitForTimeout(1500);
 }
 async function fillShipping(pg) {
   const f = (re) => pg.getByPlaceholder(re).first();
@@ -195,10 +195,10 @@ const affErrors = []; affPage.on('pageerror', e => affErrors.push(String(e)));
 const referred = `ui.referred.${Date.now()}@example.test`;
 await registerUI(affPage, referred);
 wp('tbv-credit', 'adjust', referred, 'add', '1000.00', 'browser QA synthetic credit');
-await affPage.goto(LOCAL + '/?c=reviewaff', {waitUntil: 'networkidle'});
-await affPage.goto(LOCAL + '/retatrutide-5mg', {waitUntil: 'networkidle'});
+await affPage.goto(LOCAL + '/?c=reviewaff', {waitUntil: 'load'});
+await affPage.goto(LOCAL + '/retatrutide-5mg', {waitUntil: 'load'});
 await affPage.getByRole('button', {name: /add to cart/i}).first().click(); await affPage.waitForTimeout(1500);
-await affPage.goto(LOCAL + '/cart', {waitUntil: 'networkidle'}); await affPage.waitForTimeout(2500);
+await affPage.goto(LOCAL + '/cart', {waitUntil: 'load'}); await affPage.waitForTimeout(2500);
 let affText = await affPage.locator('body').innerText();
 check('referral link gives the affiliate discount line in the cart', /Affiliate discount \(REVIEWAFF\)/i.test(affText), affText.slice(0, 200));
 check('cart shows store credit covering the order', /Store credit/i.test(affText) && await affPage.getByRole('button', {name: /pay with credits/i}).count() >= 1);
@@ -212,7 +212,7 @@ check('credit order is paid with store credit', creditOrder !== '' && wp('eval',
 await affPage.screenshot({path: path.join(out, 'flow-desktop-credit-received.png'), fullPage: true});
 // Track Order page finds the signed-in customer's order and its tracking number.
 if (creditOrder) wp('eval', `$o = wc_get_order(${creditOrder}); $o->update_meta_data('_tbv_tracking_number', '1Z999AA10123456784'); $o->save();`);
-await affPage.goto(LOCAL + '/track-order', {waitUntil: 'networkidle'});
+await affPage.goto(LOCAL + '/track-order', {waitUntil: 'load'});
 await affPage.getByPlaceholder(/order/i).first().fill(creditOrder);
 await affPage.getByRole('button', {name: /check/i}).first().click();
 await affPage.getByText('1Z999AA10123456784').first().waitFor({timeout: 10000}).catch(() => {});
@@ -223,21 +223,21 @@ await affPage.screenshot({path: path.join(out, 'flow-desktop-track-order.png'), 
 const typedCtx = await browser.newContext({viewport: {width: 1440, height: 900}});
 const typedPage = await typedCtx.newPage();
 await registerUI(typedPage, `ui.typed.${Date.now()}@example.test`);
-await typedPage.goto(LOCAL + '/retatrutide-5mg', {waitUntil: 'networkidle'});
+await typedPage.goto(LOCAL + '/retatrutide-5mg', {waitUntil: 'load'});
 await typedPage.getByRole('button', {name: /add to cart/i}).first().click(); await typedPage.waitForTimeout(1500);
-await typedPage.goto(LOCAL + '/cart', {waitUntil: 'networkidle'}); await typedPage.waitForTimeout(2000);
+await typedPage.goto(LOCAL + '/cart', {waitUntil: 'load'}); await typedPage.waitForTimeout(2000);
 await typedPage.getByPlaceholder('Enter code').first().fill('reviewaff');
 await typedPage.getByRole('button', {name: /^apply$/i}).first().click(); await typedPage.waitForTimeout(2500);
 check('promo box accepts an affiliate code', /Affiliate discount \(REVIEWAFF\)/i.test(await typedPage.locator('body').innerText()));
 await typedCtx.close();
 // The affiliate's own panel in My Account.
-await affPage.goto(LOCAL + '/my-account/customer-logout/', {waitUntil: 'networkidle'}).catch(() => {});
+await affPage.goto(LOCAL + '/my-account/customer-logout/', {waitUntil: 'load'}).catch(() => {});
 await affCtx.clearCookies();
-await affPage.goto(LOCAL + '/my-account/', {waitUntil: 'networkidle'});
+await affPage.goto(LOCAL + '/my-account/', {waitUntil: 'load'});
 await affPage.locator('#username').fill(env.TEST_CUSTOMER_3_EMAIL);
 await affPage.locator('#password').fill(env.TEST_CUSTOMER_3_PASSWORD);
 await Promise.all([affPage.waitForNavigation({timeout: 15000}).catch(() => {}), affPage.locator('button[name="login"]').click()]);
-await affPage.waitForLoadState('networkidle'); await affPage.waitForTimeout(1500);
+await affPage.waitForLoadState('load'); await affPage.waitForTimeout(1500);
 await affPage.getByRole('button', {name: /^affiliate$/i}).first().click();
 await affPage.getByText(/Commission earned/i).first().waitFor({timeout: 10000}).catch(() => {});
 await affPage.waitForTimeout(1500);
@@ -256,11 +256,11 @@ const adminOrder = wp('eval', `$v = wc_get_products(['limit' => 1, 'type' => 'va
 const adminCtx = await browser.newContext({viewport: {width: 1440, height: 1000}});
 const adminPage = await adminCtx.newPage();
 const adminErrors = []; adminPage.on('pageerror', e => adminErrors.push(String(e))); adminPage.on('dialog', d => d.accept());
-await adminPage.goto(LOCAL + '/my-account/', {waitUntil: 'networkidle'});
+await adminPage.goto(LOCAL + '/my-account/', {waitUntil: 'load'});
 await adminPage.locator('#username').fill(stagingEnv.WP_ADMIN_USER);
 await adminPage.locator('#password').fill(stagingEnv.WP_ADMIN_PASSWORD);
 await Promise.all([adminPage.waitForNavigation({timeout: 15000}).catch(() => {}), adminPage.locator('button[name="login"]').click()]);
-await adminPage.goto(LOCAL + '/shop', {waitUntil: 'networkidle'});
+await adminPage.goto(LOCAL + '/shop', {waitUntil: 'load'});
 check('storefront hides the WordPress toolbar', await adminPage.locator('#wpadminbar').count() === 0);
 await adminPage.getByText(/^ADMIN$/).first().dispatchEvent('click');
 await adminPage.getByText(/^ALL \(\d+\)$/).first().waitFor({timeout: 15000}).catch(() => {});
@@ -291,6 +291,29 @@ const adminApi = await adminPage.evaluate(async () => {
 });
 check('admin promo codes are WooCommerce coupons', adminApi.created === 200 && adminApi.listed && adminApi.removed === 200, JSON.stringify(adminApi));
 check('admin store credit lookup', adminApi.credit, JSON.stringify(adminApi));
+// Support chat: a customer writes from Contact, the admin answers in Inbox.
+const chatCtx = await browser.newContext({viewport: {width: 1440, height: 900}});
+const chatPage = await chatCtx.newPage();
+const chatEmail = `ui.chat.${Date.now()}@example.test`;
+await registerUI(chatPage, chatEmail);
+await chatPage.goto(LOCAL + '/contact', {waitUntil: 'load'}); await chatPage.waitForTimeout(1500);
+await chatPage.getByRole('button', {name: /new message/i}).first().click(); await chatPage.waitForTimeout(1500);
+const chatText = 'Staging QA question ' + Date.now();
+await chatPage.getByPlaceholder('Write a message or paste a photo/video…').fill(chatText);
+await chatPage.getByRole('button', {name: /send/i}).last().click(); await chatPage.waitForTimeout(2500);
+check('customer sends a support message from Contact', (await chatPage.locator('body').innerText()).includes(chatText));
+await adminPage.getByRole('button', {name: /^inbox$/i}).first().click(); await adminPage.waitForTimeout(3000);
+await adminPage.getByText(chatEmail).first().click(); await adminPage.waitForTimeout(1500);
+check('admin inbox shows the customer thread', (await adminPage.locator('body').innerText()).includes(chatText));
+const replyText = 'Staging QA reply ' + Date.now();
+await adminPage.getByPlaceholder('Reply or paste a photo/video… (Enter to send)').fill(replyText);
+await adminPage.getByPlaceholder('Reply or paste a photo/video… (Enter to send)').press('Enter'); await adminPage.waitForTimeout(2500);
+await adminPage.screenshot({path: path.join(out, 'flow-desktop-admin-inbox.png')});
+await chatPage.reload({waitUntil: 'load'}); await chatPage.waitForTimeout(3000);
+await chatPage.getByRole('button', {name: /new message|messages|chat/i}).first().click().catch(() => {}); await chatPage.waitForTimeout(2500);
+check('customer sees the admin reply on Contact', (await chatPage.locator('body').innerText()).includes(replyText));
+await chatPage.screenshot({path: path.join(out, 'flow-desktop-contact-chat.png')});
+await chatCtx.close();
 check('admin panel no JS errors', adminErrors.length === 0, adminErrors.join(' | '));
 await adminCtx.close();
 await browser.close();

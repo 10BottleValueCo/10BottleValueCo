@@ -35,6 +35,8 @@ add_filter('rest_pre_dispatch', function ($result, $server, $request) {
     // and the affiliate panel / public code lookup.
     if (tbv_staging_commerce_test_enabled() && $method === 'POST' && $route === '/wc/store/v1/cart/extensions' && $request->get_param('namespace') === 'tbv-affiliate') $write = true;
     if (tbv_staging_commerce_test_enabled() && $method === 'GET' && $route === '/tbv-affiliates/v1/account') $read = true;
+    // Support inbox: the endpoint itself limits visitors to sending and their own thread.
+    if (tbv_staging_commerce_test_enabled() && $method === 'POST' && $route === '/tbv-messages/v1/query') $write = true;
     // The storefront account dashboard reads the customer's own orders and saves the avatar.
     if (tbv_staging_commerce_test_enabled() && is_user_logged_in()) {
         if ($method === 'GET' && $route === '/tbv-account/v1/orders') $read = true;
@@ -340,6 +342,8 @@ function tbv_react_proof_commerce_config() {
             'affiliateEndpoint' => esc_url_raw(rest_url('tbv-affiliates/v1/account')),
             'restNonce' => wp_create_nonce('wp_rest'),
         ] : null,
+        // Support inbox (live contact_messages): visitors send, shop managers answer.
+        'messages' => function_exists('tbv_sa_messages_table') ? ['endpoint' => esc_url_raw(rest_url('tbv-messages/v1/query')), 'nonce' => wp_create_nonce('wp_rest')] : null,
         // The live admin panel, for shop managers only (tbv-storefront-admin).
         'admin' => $user->exists() && current_user_can('manage_woocommerce') && function_exists('tbv_sa_order') ? ['endpoint' => esc_url_raw(rest_url('tbv-admin/v1')), 'nonce' => wp_create_nonce('wp_rest')] : null,
         'receivedOrder' => ($received = tbv_react_proof_received_order()) ? tbv_react_proof_received_order_data($received) : null,

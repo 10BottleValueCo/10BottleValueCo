@@ -356,6 +356,19 @@ async function affiliateChecks(offers) {
   const custAdmin = await buyer.req('/wp-json/tbv-admin/v1/orders', {headers: {'x-wp-nonce': restNonce(buyerDash.text)}});
   const anonAdmin = await new Client().req('/wp-json/tbv-admin/v1/orders');
   check('admin_api_refuses_customers_and_guests', [401, 403].includes(custAdmin.status) && [401, 403].includes(anonAdmin.status), `${custAdmin.status}/${anonAdmin.status}`);
+  // Support inbox: visitors send; a customer reads only their own thread and
+  // can only mark replies read; everything else is the shop manager's.
+  const msg = (c, body, nonce = '') => c.req('/wp-json/tbv-messages/v1/query', {method: 'POST', headers: {'content-type': 'application/json', ...(nonce ? {'x-wp-nonce': nonce} : {})}, body: JSON.stringify({table: 'contact_messages', ...body})});
+  const guestSend = await msg(new Client(), {op: 'insert', values: {name: 'Guest', email: `e2e.guestmsg.${stamp}@example.test`, message: 'staging e2e guest message'}});
+  const guestRead = await msg(new Client(), {op: 'select', filters: []});
+  check('support_guest_can_send_not_read', guestSend.status === 200 && guestRead.status === 403, `${guestSend.status}/${guestRead.status}`);
+  const buyerNonce = restNonce(buyerDash.text);
+  const spoof = JSON.parse((await msg(buyer, {op: 'insert', values: {name: 'Buyer', email: 'someone.else@example.test', message: 'staging e2e customer message'}}, buyerNonce)).text || '{}');
+  check('support_message_uses_account_email', spoof.data?.[0]?.email === buyerEmail, JSON.stringify(spoof).slice(0, 200));
+  const own = JSON.parse((await msg(buyer, {op: 'select', filters: [], order: ['created_at', true]}, buyerNonce)).text || '{}');
+  check('support_customer_reads_only_own_thread', Array.isArray(own.data) && own.data.length >= 1 && own.data.every(r => r.email === buyerEmail), JSON.stringify(own).slice(0, 200));
+  const forge = await msg(buyer, {op: 'update', values: {admin_reply: 'forged'}, filters: [['eq', 'id', spoof.data?.[0]?.id]]}, buyerNonce);
+  check('support_customer_cannot_write_replies', forge.status === 403, forge.status);
   const anon = await new Client().req('/wp-json/tbv-affiliates/v1/account?orders=1');
   check('affiliate_orders_require_login', anon.status === 401 || anon.status === 403, anon.status);
   const lookup = JSON.parse((await new Client().req('/wp-json/tbv-affiliates/v1/account?code=reviewaff')).text || '{}');

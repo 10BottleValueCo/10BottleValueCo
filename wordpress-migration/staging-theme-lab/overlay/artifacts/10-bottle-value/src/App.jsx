@@ -4911,11 +4911,11 @@ export default function App() {
 
   const unreadPollEmailRef = useRef(null);
   useEffect(() => {
-    unreadPollEmailRef.current = currentUser?.email?.toLowerCase() || null;
+    unreadPollEmailRef.current = cartUser?.email?.toLowerCase() || null;
   });
 
   useEffect(() => {
-    if (!currentUser?.email) { setHasUnreadReply(false); return; }
+    if (!cartUser?.email) { setHasUnreadReply(false); return; }
     let active = true;
     async function poll() {
       const email = unreadPollEmailRef.current;
@@ -4932,14 +4932,14 @@ export default function App() {
     poll();
     const id = window.setInterval(poll, 5000);
     return () => { active = false; window.clearInterval(id); };
-  }, [currentUser?.email]);
+  }, [cartUser?.email]);
 
   useEffect(() => {
-    if (!currentUser?.email || supportConversationOpen) return;
+    if (!cartUser?.email || supportConversationOpen) return;
     loadUserInbox(false);
     const pid = window.setInterval(() => loadUserInbox(true), 10000);
     return () => window.clearInterval(pid);
-  }, [currentUser?.email, supportConversationOpen]);
+  }, [cartUser?.email, supportConversationOpen]);
 
   useEffect(() => {
     if (currentUser?.email && (page === "account" || page === "checkout" || page === "cart")) loadStoreCredit(currentUser.email);
@@ -5475,12 +5475,12 @@ export default function App() {
   }
 
   async function sendAttachmentAsUserMessage(url, fileName, isFile, isVideo) {
-    if (!currentUser?.email) {
+    if (!cartUser?.email) {
       setUserInboxError("Sign in to send support messages.");
       return;
     }
-    const name = contactForm.name.trim() || (currentUser?.email || "Anonymous");
-    const email = (currentUser?.email || contactForm.email.trim() || "").toLowerCase();
+    const name = contactForm.name.trim() || (cartUser?.email || "Anonymous");
+    const email = (cartUser?.email || contactForm.email.trim() || "").toLowerCase();
     const tag = isVideo ? `[VIDEO:${url}]` : isFile ? `[FILE:${url}:${encodeURIComponent(fileName || 'attachment')}]` : `[IMAGE:${url}]`;
     const quotePrefix = replyPreview ? `[QUOTE:${encodeURIComponent(JSON.stringify(replyPreview))}]` : "";
     const message = quotePrefix + tag;
@@ -5549,17 +5549,17 @@ export default function App() {
   }
 
   async function sendContactMessage(messageDraft = contactForm.message) {
-    if (!currentUser?.email) {
+    if (!cartUser?.email) {
       setUserInboxError("Sign in to send support messages.");
       return false;
     }
     const messageText = String(messageDraft ?? "").slice(0, 1000);
     if (!messageText.trim()) return false;
     setContactSending(true);
-    const name = contactForm.name.trim() || (currentUser?.email || "Anonymous");
+    const name = contactForm.name.trim() || (cartUser?.email || "Anonymous");
     // Logged-in account email always wins — a stale/typed value in contactForm.email
     // (e.g. left over from a guest session) must never override the real account.
-    const email = (currentUser?.email || contactForm.email.trim() || "").toLowerCase();
+    const email = (cartUser?.email || contactForm.email.trim() || "").toLowerCase();
     const quotePrefix = replyPreview ? `[QUOTE:${encodeURIComponent(JSON.stringify(replyPreview))}]` : "";
     const message = quotePrefix + messageText.trim();
     const { error } = await supabase.from("contact_messages").insert({ name, email, message });
@@ -5659,6 +5659,8 @@ export default function App() {
   }
 
   async function loadReactions() {
+    // No reactions endpoint exists on live either; WordPress skips the 404 calls.
+    if (tbvCommerce) return;
     try {
       const resp = await fetch("/api/reactions");
       if (!resp.ok) return;
@@ -5830,11 +5832,11 @@ export default function App() {
   }
 
   async function checkUnreadReply() {
-    if (!currentUser?.email) return;
+    if (!cartUser?.email) return;
     const { data } = await supabase
       .from("contact_messages")
       .select("id")
-      .eq("email", currentUser.email.toLowerCase())
+      .eq("email", cartUser.email.toLowerCase())
       .not("admin_reply", "is", null)
       .is("user_read_at", null)
       .limit(1);
@@ -5898,7 +5900,7 @@ export default function App() {
   }
 
   async function loadUserInbox(silent = false, markVisibleRead = false) {
-    const email = currentUser?.email?.trim().toLowerCase() || "";
+    const email = cartUser?.email?.trim().toLowerCase() || "";
     if (!email) {
       userInboxRequestIdRef.current += 1;
       userInboxEmailRef.current = "";
@@ -14405,8 +14407,8 @@ export default function App() {
     if (section === "messages") {
       setContactModalOpen(false);
       setReplyPreview(null);
-      if (currentUser?.email) {
-        setContactForm((form) => ({ ...form, email: form.email || currentUser.email }));
+      if (cartUser?.email) {
+        setContactForm((form) => ({ ...form, email: form.email || cartUser.email }));
       }
       return;
     }
@@ -14482,7 +14484,7 @@ export default function App() {
 
             {/* Chat messages area */}
             <div ref={inboxScrollRef} className="mx-4 mb-2 flex min-h-[120px] flex-1 flex-col gap-3.5 overflow-y-auto overscroll-contain rounded-2xl bg-[#020304] px-3 pt-3 pb-3 [&::-webkit-scrollbar]:w-[6px] [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25 [&::-webkit-scrollbar-thumb]:hover:bg-emerald-300/50" style={{ backgroundColor: "#020304", backgroundImage: "none", opacity: 1, backdropFilter: "none", WebkitBackdropFilter: "none" }}>
-              {!currentUser?.email ? (
+              {!cartUser?.email ? (
                 <div className="m-auto max-w-sm px-4 py-8 text-center text-sm leading-6 text-white/65">
                   Sign in or create an account to view your support messages.
                 </div>
@@ -14627,7 +14629,7 @@ export default function App() {
 
             {/* Input area */}
             <div className="px-4 pb-5 flex flex-col gap-2 shrink-0">
-              {!currentUser?.email ? (
+              {!cartUser?.email ? (
                   <div className="flex flex-col items-center gap-3 rounded-2xl border border-white/10 bg-[#0b0e0f] px-4 py-4 text-center">
                   <p className="text-xs leading-5 text-white/55">Support chat is available to signed-in customers.</p>
                   <div className="flex flex-wrap justify-center gap-2">
