@@ -74,16 +74,32 @@ add_action('plugins_loaded', function () {
         }
     }
 }, 11);
+// Only the test gateway, plus store credit: on staging every balance is
+// synthetic (admin-issued test credit), so no money moves either way.
 add_filter('woocommerce_payment_gateways', function ($gateways) {
-    return class_exists('TBV_Staging_Test_Gateway') ? ['TBV_Staging_Test_Gateway'] : [];
+    $allowed = class_exists('TBV_Staging_Test_Gateway') ? ['TBV_Staging_Test_Gateway'] : [];
+    if (class_exists('TBV_Store_Credit_Gateway')) $allowed[] = 'TBV_Store_Credit_Gateway';
+    return $allowed;
 }, PHP_INT_MAX - 1);
-// Belt and braces: no automatic transition can mark a staging order paid.
+// Belt and braces: no automatic transition can mark a staging order paid,
+// except an order paid in full with synthetic store credit (which is what
+// earns a test affiliate commission). Stock and email stay blocked.
 // Orders must still "need payment" so checkout routes them through the test
 // gateway above; order-pay links are blocked at init and hidden in My Account.
-add_filter('woocommerce_valid_order_statuses_for_payment_complete', '__return_empty_array', PHP_INT_MAX);
+add_filter('woocommerce_valid_order_statuses_for_payment_complete', function ($statuses, $order = null) {
+    return $order instanceof WC_Order && $order->get_payment_method() === 'tbv_store_credit' ? $statuses : [];
+}, PHP_INT_MAX, 2);
 add_filter('woocommerce_can_reduce_order_stock', '__return_false', PHP_INT_MAX);
+add_filter('woocommerce_payment_complete_reduce_order_stock', '__return_false', PHP_INT_MAX);
+// Every order placed on staging is a test order, whichever gateway saved it.
+add_action('woocommerce_checkout_create_order', function ($order) { $order->update_meta_data('_tbv_staging_test_order', '1'); });
 add_filter('woocommerce_my_account_my_orders_actions', function ($actions) { unset($actions['pay']); return $actions; }, PHP_INT_MAX);
 add_action('woocommerce_pre_payment_complete', function ($order_id) {
+    $order = wc_get_order($order_id);
+    if ($order && $order->get_payment_method() === 'tbv_store_credit') {
+        $order->add_order_note('Staging: paid with synthetic store credit. Not for fulfillment.');
+        return;
+    }
     error_log('[tbv-staging] UNEXPECTED payment_complete call on order ' . (int)$order_id);
 });
 add_action('woocommerce_before_checkout_form', function () {

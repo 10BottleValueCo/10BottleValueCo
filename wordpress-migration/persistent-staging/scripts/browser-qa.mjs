@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {createRequire} from 'node:module';
+import {execFileSync} from 'node:child_process';
 const require = createRequire(import.meta.url);
 const {chromium, devices} = require(process.env.TBV_PLAYWRIGHT || 'playwright');
 
@@ -166,6 +167,78 @@ check('cart promo box applies REVIEW10 as a WooCommerce coupon', /PROMO CODE\s*R
 await promoPage.getByRole('button', {name: /remove code/i}).first().click(); await promoPage.waitForTimeout(1500);
 check('cart promo code can be removed', await promoPage.getByRole('button', {name: /remove code/i}).count() === 0);
 await promoCtx.close();
+
+// Affiliates and store credit (desktop, loopback; synthetic credit via WP-CLI).
+const wp = (...args) => execFileSync('wp', [...args, `--path=${new URL('../wordpress', import.meta.url).pathname}`], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']}).trim();
+async function registerUI(pg, email) {
+  await pg.goto(LOCAL + '/my-account/', {waitUntil: 'networkidle'});
+  await pg.getByRole('button', {name: /^create account$/i}).click();
+  await pg.locator('#reg_email').fill(email);
+  await pg.locator('#reg_password').fill(env.E2E_RUN_PASSWORD);
+  await pg.locator('#reg_password_confirm').fill(env.E2E_RUN_PASSWORD);
+  await Promise.all([pg.waitForNavigation({timeout: 15000}).catch(() => {}), pg.locator('button[name="register"]').click()]);
+  await pg.waitForLoadState('networkidle');
+}
+async function fillShipping(pg) {
+  const f = (re) => pg.getByPlaceholder(re).first();
+  await f(/First name/).fill('Test'); await f(/Last name/).fill('Researcher');
+  await f(/Country/).click(); await f(/Country/).fill('United States'); await pg.waitForTimeout(300);
+  await pg.getByRole('button', {name: /^United States$/}).first().click();
+  await f(/Street address/).fill('123 Example Lane'); await f(/City/).fill('Springfield'); await f(/Postal code/).fill('62701');
+  await f(/State/).fill('Illinois'); await f(/Phone/i).fill('5550100');
+  await pg.waitForTimeout(1500);
+}
+const affCtx = await browser.newContext({viewport: {width: 1440, height: 900}});
+const affPage = await affCtx.newPage();
+const affErrors = []; affPage.on('pageerror', e => affErrors.push(String(e)));
+const referred = `ui.referred.${Date.now()}@example.test`;
+await registerUI(affPage, referred);
+wp('tbv-credit', 'adjust', referred, 'add', '1000.00', 'browser QA synthetic credit');
+await affPage.goto(LOCAL + '/?c=reviewaff', {waitUntil: 'networkidle'});
+await affPage.goto(LOCAL + '/retatrutide-5mg', {waitUntil: 'networkidle'});
+await affPage.getByRole('button', {name: /add to cart/i}).first().click(); await affPage.waitForTimeout(1500);
+await affPage.goto(LOCAL + '/cart', {waitUntil: 'networkidle'}); await affPage.waitForTimeout(2500);
+let affText = await affPage.locator('body').innerText();
+check('referral link gives the affiliate discount line in the cart', /Affiliate discount \(REVIEWAFF\)/i.test(affText), affText.slice(0, 200));
+check('cart shows store credit covering the order', /Store credit/i.test(affText) && await affPage.getByRole('button', {name: /pay with credits/i}).count() >= 1);
+await fillShipping(affPage);
+await affPage.screenshot({path: path.join(out, 'flow-desktop-credit-cart.png'), fullPage: true});
+await affPage.getByRole('button', {name: /pay with credits/i}).first().click();
+await affPage.waitForURL(/order-received/, {timeout: 20000}).catch(() => {});
+check('pay with credits reaches order-received', /order-received/.test(affPage.url()), affPage.url());
+const creditOrder = (affPage.url().match(/order-received\/(\d+)/) || [])[1] || '';
+check('credit order is paid with store credit', creditOrder !== '' && wp('eval', `$o = wc_get_order(${creditOrder}); echo $o->get_status() . '|' . $o->get_payment_method();`) === 'processing|tbv_store_credit');
+await affPage.screenshot({path: path.join(out, 'flow-desktop-credit-received.png'), fullPage: true});
+// Typed affiliate code in the promo box (fresh customer, no referral link).
+const typedCtx = await browser.newContext({viewport: {width: 1440, height: 900}});
+const typedPage = await typedCtx.newPage();
+await registerUI(typedPage, `ui.typed.${Date.now()}@example.test`);
+await typedPage.goto(LOCAL + '/retatrutide-5mg', {waitUntil: 'networkidle'});
+await typedPage.getByRole('button', {name: /add to cart/i}).first().click(); await typedPage.waitForTimeout(1500);
+await typedPage.goto(LOCAL + '/cart', {waitUntil: 'networkidle'}); await typedPage.waitForTimeout(2000);
+await typedPage.getByPlaceholder('Enter code').first().fill('reviewaff');
+await typedPage.getByRole('button', {name: /^apply$/i}).first().click(); await typedPage.waitForTimeout(2500);
+check('promo box accepts an affiliate code', /Affiliate discount \(REVIEWAFF\)/i.test(await typedPage.locator('body').innerText()));
+await typedCtx.close();
+// The affiliate's own panel in My Account.
+await affPage.goto(LOCAL + '/my-account/customer-logout/', {waitUntil: 'networkidle'}).catch(() => {});
+await affCtx.clearCookies();
+await affPage.goto(LOCAL + '/my-account/', {waitUntil: 'networkidle'});
+await affPage.locator('#username').fill(env.TEST_CUSTOMER_3_EMAIL);
+await affPage.locator('#password').fill(env.TEST_CUSTOMER_3_PASSWORD);
+await Promise.all([affPage.waitForNavigation({timeout: 15000}).catch(() => {}), affPage.locator('button[name="login"]').click()]);
+await affPage.waitForLoadState('networkidle'); await affPage.waitForTimeout(1500);
+await affPage.getByRole('button', {name: /^affiliate$/i}).first().click();
+await affPage.getByText(/Commission earned/i).first().waitFor({timeout: 10000}).catch(() => {});
+await affPage.waitForTimeout(1500);
+affText = await affPage.locator('body').innerText();
+check('affiliate panel shows code and earnings', /REVIEWAFF/.test(affText) && /Commission earned/i.test(affText) && /Available balance/i.test(affText) && /Paid out/i.test(affText), affText.slice(0, 300));
+const affLinks = await affPage.evaluate(() => [...document.querySelectorAll('input')].map(i => i.value).filter(v => v.includes('?c=')));
+check('affiliate link points at this site', affLinks.includes(LOCAL + '/?c=reviewaff'), affLinks.join(' '));
+check('affiliate panel lists the credit order', creditOrder !== '' && affText.includes(creditOrder), creditOrder);
+await affPage.screenshot({path: path.join(out, 'flow-desktop-affiliate-panel.png'), fullPage: true});
+check('affiliate/credit flow no JS errors', affErrors.length === 0, affErrors.join(' | '));
+await affCtx.close();
 await browser.close();
 
 const failed = results.filter(r => !r.ok);

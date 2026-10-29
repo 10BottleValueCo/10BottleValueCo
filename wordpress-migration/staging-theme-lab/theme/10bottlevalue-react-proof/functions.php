@@ -31,6 +31,10 @@ add_filter('rest_pre_dispatch', function ($result, $server, $request) {
     // The storefront cart page picks the shipping service and destination country
     // and applies WooCommerce coupons from its promo box.
     if (tbv_staging_commerce_test_enabled() && $method === 'POST' && in_array($route, ['/wc/store/v1/cart/select-shipping-rate', '/wc/store/v1/cart/update-customer', '/wc/store/v1/cart/apply-coupon', '/wc/store/v1/cart/remove-coupon'], true)) $write = true;
+    // Affiliate codes typed in the promo box (tbv-affiliates-credit's cart extension only)
+    // and the affiliate panel / public code lookup.
+    if (tbv_staging_commerce_test_enabled() && $method === 'POST' && $route === '/wc/store/v1/cart/extensions' && $request->get_param('namespace') === 'tbv-affiliate') $write = true;
+    if (tbv_staging_commerce_test_enabled() && $method === 'GET' && $route === '/tbv-affiliates/v1/account') $read = true;
     // The storefront account dashboard reads the customer's own orders and saves the avatar.
     if (tbv_staging_commerce_test_enabled() && is_user_logged_in()) {
         if ($method === 'GET' && $route === '/tbv-account/v1/orders') $read = true;
@@ -47,10 +51,11 @@ add_filter('pre_wp_mail', '__return_false', PHP_INT_MAX);
 // Only the staging offline test gateway may ever be offered; never a real processor.
 add_filter('woocommerce_payment_gateways', function ($gateways) {
     if (!tbv_staging_commerce_test_enabled()) return [];
-    return array_values(array_filter((array)$gateways, function ($g) { return $g === 'TBV_Staging_Test_Gateway' || (is_object($g) && get_class($g) === 'TBV_Staging_Test_Gateway'); }));
+    $allowed = ['TBV_Staging_Test_Gateway', 'TBV_Store_Credit_Gateway'];
+    return array_values(array_filter((array)$gateways, function ($g) use ($allowed) { return in_array(is_object($g) ? get_class($g) : $g, $allowed, true); }));
 }, PHP_INT_MAX);
 add_filter('woocommerce_available_payment_gateways', function ($gateways) {
-    return tbv_staging_commerce_test_enabled() ? array_intersect_key((array)$gateways, [TBV_STAGING_TEST_GATEWAY_ID => true]) : [];
+    return tbv_staging_commerce_test_enabled() ? array_intersect_key((array)$gateways, [TBV_STAGING_TEST_GATEWAY_ID => true, 'tbv_store_credit' => true]) : [];
 }, PHP_INT_MAX);
 // Review package: nothing is payable. Commerce test mode keeps Woo's statuses so
 // checkout routes through the offline test gateway; order-pay stays route-blocked.
@@ -321,6 +326,8 @@ function tbv_react_proof_commerce_config() {
         'checkoutEndpoint' => add_query_arg('wc-ajax', 'checkout', home_url('/')),
         'checkoutNonce' => wp_create_nonce('woocommerce-process_checkout'),
         'gatewayId' => TBV_STAGING_TEST_GATEWAY_ID,
+        'creditGatewayId' => function_exists('tbv_ac_credit_balance') ? 'tbv_store_credit' : '',
+        'affiliateLookupEndpoint' => esc_url_raw(rest_url('tbv-affiliates/v1/account')),
         'accountUrl' => wc_get_page_permalink('myaccount'),
         'user' => $user->exists() ? tbv_react_proof_account_user($user) : null,
         'account' => $user->exists() ? [
@@ -330,6 +337,7 @@ function tbv_react_proof_commerce_config() {
             'editAccountUrl' => wc_get_endpoint_url('edit-account', '', wc_get_page_permalink('myaccount')),
             'ordersEndpoint' => esc_url_raw(rest_url('tbv-account/v1/orders')),
             'avatarEndpoint' => esc_url_raw(rest_url('tbv-account/v1/avatar')),
+            'affiliateEndpoint' => esc_url_raw(rest_url('tbv-affiliates/v1/account')),
             'restNonce' => wp_create_nonce('wp_rest'),
         ] : null,
         'receivedOrder' => ($received = tbv_react_proof_received_order()) ? tbv_react_proof_received_order_data($received) : null,
@@ -352,6 +360,7 @@ function tbv_react_proof_account_user($user) {
         'city' => $c->get_billing_city(), 'state' => $c->get_billing_state(), 'postalCode' => $c->get_billing_postcode(),
         'country' => $country ? tbv_react_proof_country_name($countries[$country] ?? $country) : '',
         'avatarId' => (string)get_user_meta($user->ID, 'tbv_avatar_id', true),
+        'storeCredit' => function_exists('tbv_ac_credit_balance') ? tbv_ac_credit_balance($user->user_email) / 100 : 0,
     ];
 }
 /** One order in the storefront dashboard's shape (customer's own orders only). */
@@ -428,6 +437,7 @@ function tbv_react_proof_registration_code() {
     return strtoupper(trim(sanitize_text_field(wp_unslash($_POST['tbv_registration_code'] ?? ''))));
 }
 function tbv_react_proof_affiliate_code_active($code) {
+    if (function_exists('tbv_ac_active_affiliate')) return $code !== '' && (bool)tbv_ac_active_affiliate($code);
     return $code !== '' && in_array($code, array_map('strtoupper', (array)get_option('tbv_affiliate_codes', [])), true);
 }
 add_filter('woocommerce_process_registration_errors', function ($errors, $username, $password) {

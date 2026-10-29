@@ -165,6 +165,7 @@ const tbvCommerce = (() => {
         id: `wp-${Number(c.user.id) || 0}`,
         email: c.user.email,
         ...Object.fromEntries(["firstName", "lastName", "phone", "address", "address2", "city", "state", "postalCode", "country", "avatarId"].map((key) => [key, text(c.user[key])])),
+        storeCredit: Number.isFinite(Number(c.user.storeCredit)) ? Math.max(0, Number(c.user.storeCredit)) : 0,
       }
     : null;
   const account = user && c.account && typeof c.account === "object" ? c.account : null;
@@ -4158,7 +4159,7 @@ export default function App() {
   const [affiliateProfileError, setAffiliateProfileError] = useState("");
   const affiliateProfileRequestRef = useRef(0);
   const affiliateProfileIdentityRef = useRef("");
-  affiliateProfileIdentityRef.current = normalizeEmail(currentUser?.email);
+  affiliateProfileIdentityRef.current = normalizeEmail(tbvCommerce ? tbvCommerce.user?.email : currentUser?.email);
   const [affiliateCommissionOrders, setAffiliateCommissionOrders] = useState([]);
   const [affiliateCommissionLoading, setAffiliateCommissionLoading] = useState(false);
   const [affiliateOrdersError, setAffiliateOrdersError] = useState(false);
@@ -8909,7 +8910,7 @@ export default function App() {
 
   async function loadAffiliateProfilesFromSupabase({ silent = false } = {}) {
     const requestId = ++affiliateProfileRequestRef.current;
-    const userEmail = normalizeEmail(currentUser?.email);
+    const userEmail = normalizeEmail(cartUser?.email);
     const isCurrent = () => requestId === affiliateProfileRequestRef.current
       && userEmail === affiliateProfileIdentityRef.current;
     if (!silent) {
@@ -8919,7 +8920,16 @@ export default function App() {
     setAffiliateProfileError("");
     try {
       let rows = [];
-      if (isAdminUser()) {
+      if (tbvCommerce?.account) {
+        const response = await fetch(tbvCommerce.account.affiliateEndpoint, {
+          credentials: "same-origin",
+          headers: { "X-WP-Nonce": String(tbvCommerce.account.restNonce || "") },
+          signal: AbortSignal.timeout(15000),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || result?.ok !== true) throw new Error(result?.error || "Affiliate profile could not be loaded.");
+        rows = result.affiliate ? [result.affiliate] : [];
+      } else if (isAdminUser()) {
         const { data, error } = await supabase
           .from("affiliates")
           .select("email,code,active,created_at")
@@ -8984,7 +8994,7 @@ export default function App() {
     if (!normalizedCode) return null;
 
     const response = await fetch(
-      `/api/affiliate-account?code=${encodeURIComponent(normalizedCode)}`
+      `${tbvCommerce?.affiliateLookupEndpoint || "/api/affiliate-account"}?code=${encodeURIComponent(normalizedCode)}`
     );
     const result = await response.json().catch(() => ({}));
     if (!response.ok || result?.ok !== true) {
@@ -9032,12 +9042,18 @@ export default function App() {
 
     let affiliateDataLoaded = false;
     try {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) throw sessionError;
-      if (!session?.access_token) throw new Error("Sign in to load affiliate orders.");
+      let session = null;
+      if (!tbvCommerce?.account) {
+        const { data, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+        session = data.session;
+        if (!session?.access_token) throw new Error("Sign in to load affiliate orders.");
+      }
 
       const readPage = async (offset) => {
-        const response = await fetch(
+        const response = tbvCommerce?.account
+          ? await fetch(`${tbvCommerce.account.affiliateEndpoint}?orders=1&offset=${offset}`, { credentials: "same-origin", headers: { "X-WP-Nonce": String(tbvCommerce.account.restNonce || "") } })
+          : await fetch(
           `/api/affiliate-account?orders=1&offset=${offset}`,
           { headers: { Authorization: `Bearer ${session.access_token}` } }
         );
@@ -9869,10 +9885,10 @@ export default function App() {
   useEffect(() => {
     loadAffiliateProfilesFromSupabase();
     return () => { affiliateProfileRequestRef.current += 1; };
-  }, [currentUser?.id, currentUser?.email]);
+  }, [cartUser?.id, cartUser?.email]);
 
   useEffect(() => {
-    if (page !== "account" || !currentUser?.email) return undefined;
+    if (page !== "account" || !cartUser?.email) return undefined;
 
     const refreshProfiles = () => {
       if (document.visibilityState === "visible") {
@@ -10544,13 +10560,34 @@ export default function App() {
     affiliateProfiles.find(
       (profile) => profile.code === resolvedAffiliateCode && profile.active !== false
     ) || null;
-  const currentAffiliateProfile = currentUser?.email
+  const currentAffiliateProfile = cartUser?.email
     ? affiliateProfiles.find(
         (profile) =>
-          normalizeEmail(profile.ownerEmail) === normalizeEmail(currentUser.email) &&
+          normalizeEmail(profile.ownerEmail) === normalizeEmail(cartUser.email) &&
           profile.active !== false
       ) || null
     : null;
+
+  // The account dashboard's affiliate section, shared by the live and WooCommerce accounts.
+  const affiliateDataIsCurrent = affiliateDataCode === String(currentAffiliateProfile?.code || "").trim().toUpperCase();
+  const affiliateDashboardProps = {
+    affiliateProfile: currentAffiliateProfile,
+    affiliateProfileLoading: !affiliateProfilesLoaded,
+    affiliateProfileError,
+    onRetryAffiliateProfile: loadAffiliateProfilesFromSupabase,
+    affiliateOrders: affiliateDataIsCurrent ? affiliateCommissionOrders : [],
+    affiliatePaidOut: affiliateDataIsCurrent ? affiliatePaidOut : 0,
+    affiliateLoading: !affiliateDataIsCurrent,
+    affiliateRefreshing: affiliateCommissionLoading,
+    affiliateRefreshError,
+    affiliateOrdersError: affiliateDataIsCurrent && affiliateOrdersError,
+    affiliatePayoutError: affiliateDataIsCurrent && affiliatePayoutError,
+    affiliateLink: currentAffiliateProfile?.code ? buildAffiliateLink(currentAffiliateProfile.code) : "",
+    onRefreshAffiliate: () => {
+      if (currentAffiliateProfile?.code) loadAffiliateCommissionOrders(currentAffiliateProfile.code, { force: true });
+    },
+    onCopyAffiliateLink: () => (currentAffiliateProfile?.code ? copyAffiliateLink(currentAffiliateProfile.code) : false),
+  };
 
   useEffect(() => {
     if (currentAffiliateProfile?.code && (isAffiliatePanelOpen || page === "account")) {
@@ -10644,14 +10681,17 @@ export default function App() {
   const paypalSnapshotRef = useRef(null);
   // Preview credit is informational. The authenticated Merit response replaces
   // every amount before its card form mounts; full-credit uses its existing RPC.
-  const storeCreditApplied = meritSelected ? meritCreditSplit.storeCreditUsedCents / 100
+  const wooCreditTotal = tbvCommerce && wooCartMeta && wooCartMeta.itemCount === cartCount && wooCartMeta.storeCreditCovers ? wooCartMeta.total : 0;
+  const storeCreditApplied = tbvCommerce ? wooCreditTotal : meritSelected ? meritCreditSplit.storeCreditUsedCents / 100
     : currentUser && storeCredit > 0 && totalWithFee > 0 && Math.round(storeCredit * 100) >= Math.round(totalWithFee * 100) ? totalWithFee : 0;
   const finalTotal = meritSelected ? meritCreditSplit.amountCents / 100 : Math.max(0, totalWithFee - storeCreditApplied);
   // Staging shows WooCommerce's authoritative totals once they match the cart.
   const wooView = tbvCommerce && wooCartMeta && wooCartMeta.itemCount === cartCount ? wooCartMeta : null;
   const cartShipping = wooView ? wooView.shipping : shipping;
   const cartAutoDiscount = wooView ? wooView.discount : automaticDiscount;
-  const cartTotal = wooView ? wooView.total : finalTotal;
+  const cartTotal = wooView ? Math.max(0, wooView.total - storeCreditApplied) : finalTotal;
+  const cartAffiliateDiscount = wooView ? wooView.affiliateDiscount : affiliateDiscount;
+  const cartAffiliateCode = wooView ? wooView.affiliateCode : resolvedAffiliateCode;
   const stripeTemporarilyDisabled = meritConfig?.enabled !== true;
   const meritUnavailableMessage = meritConfig?.temporarilyClosed || meritConfig?.reopensAt
     ? tx("Opens October 26–28", "Откроется 26–28 октября", "Відкриється 26–28 жовтня", "Öffnet 26.–28. Oktober", "Disponible del 26 al 28 de octubre")
@@ -10880,7 +10920,9 @@ export default function App() {
       return { id: String(rate.rate_id || ""), service, price: money(rate.price), selected: rate.selected === true };
     });
     const fees = Array.isArray(response?.fees) ? response.fees : [];
-    const discount = fees.reduce((sum, fee) => { const amount = money(fee?.totals?.total); return amount < 0 ? sum - amount : sum; }, 0);
+    const affiliateFee = fees.find((fee) => /^Affiliate discount \(/.test(String(fee?.name || "")));
+    const discount = fees.reduce((sum, fee) => { const amount = money(fee?.totals?.total); return amount < 0 && fee !== affiliateFee ? sum - amount : sum; }, 0);
+    const extension = response?.extensions?.["tbv-affiliate"] || {};
     const coupons = (Array.isArray(response?.coupons) ? response.coupons : []).map((coupon) => ({
       code: String(coupon?.code || "").toUpperCase(),
       percent: coupon?.discount_type === "percent",
@@ -10893,6 +10935,10 @@ export default function App() {
       subtotal: money(totals.total_items),
       shipping: money(totals.total_shipping),
       discount: Math.round(discount * 100) / 100,
+      affiliateDiscount: affiliateFee ? Math.abs(money(affiliateFee?.totals?.total)) : 0,
+      affiliateCode: String(affiliateFee?.name || "").replace(/^Affiliate discount \((.*)\)$/, "$1"),
+      storeCredit: Number(extension.storeCredit) > 0 ? Number(extension.storeCredit) / 100 : 0,
+      storeCreditCovers: extension.storeCreditCovers === true,
       total: money(totals.total_price),
       packageId: pack ? pack.package_id : null,
       rates,
@@ -11028,7 +11074,7 @@ export default function App() {
       billing_phone: form.phone.trim(),
       billing_email: cartUser.email,
       order_comments: getCheckoutOrderNotes(form),
-      payment_method: String(tbvCommerce.gatewayId || ""),
+      payment_method: String((storeCreditApplied > 0 && tbvCommerce.creditGatewayId) || tbvCommerce.gatewayId || ""),
       "shipping_method[0]": rate?.id || "",
       tbv_carrier_preference: form.carrierPreference || "",
       tbv_tax_id: form.taxId || "",
@@ -11042,7 +11088,7 @@ export default function App() {
       if (data?.result === "success" && typeof data.redirect === "string") {
         const target = new URL(data.redirect, window.location.href);
         if (target.origin === window.location.origin) {
-          track("order_placed", { page: "cart", payment_method: "staging_test", total: cartTotal, items_count: cart.length });
+          track("order_placed", { page: "cart", payment_method: storeCreditApplied > 0 ? "store_credit" : "staging_test", total: cartTotal, items_count: cart.length });
           window.location.assign(target.href);
           return;
         }
@@ -11717,11 +11763,14 @@ export default function App() {
 
   // Staging commerce test: promo codes are WooCommerce coupons, validated and
   // priced by WooCommerce. Affiliate codes and store credit are not connected.
-  async function wooCouponPost(endpoint, code) {
+  function wooCouponPost(endpoint, code) {
+    return wooCartPost(endpoint, { code });
+  }
+  async function wooCartPost(endpoint, payload) {
     const action = async () => {
       try {
         const nonce = await initWooCart();
-        const response = await fetch(`${tbvCartApi}/${endpoint}`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "Nonce": nonce }, body: JSON.stringify({ code }) });
+        const response = await fetch(`${tbvCartApi}/${endpoint}`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "Nonce": nonce }, body: JSON.stringify(payload) });
         if (response.status === 401 || response.status === 403) wooCartNonceRef.current = null;
         else wooCartNonceRef.current = response.headers.get("Nonce") || nonce;
         const data = await response.json().catch(() => null);
@@ -11748,7 +11797,12 @@ export default function App() {
         setPromoMessage(tx("Remove the current promo code before applying another one.", "Удалите текущий промокод перед применением другого.", "Видаліть поточний промокод перед застосуванням іншого.", "Entfernen Sie den aktuellen Promocode, bevor Sie einen anderen anwenden.", "Elimina el código promocional actual antes de aplicar otro."));
         return;
       }
-      const result = await wooCouponPost("apply-coupon", code);
+      let result = await wooCouponPost("apply-coupon", code);
+      if (!result.ok) {
+        const affiliate = await wooCartPost("extensions", { namespace: "tbv-affiliate", data: { action: "apply", code } });
+        if (affiliate.ok) result = affiliate;
+        else if (affiliate.message && affiliate.message !== "Invalid promo code.") result = affiliate;
+      }
       if (!result.ok) {
         setPromoMessage(result.message || tx("Invalid promo code.", "Неверный промокод.", "Недійсний промокод.", "Ungültiger Promocode.", "Código promocional no válido."));
         return;
@@ -12217,7 +12271,8 @@ export default function App() {
       .toUpperCase();
     if (!normalizedCode) return "";
 
-    const baseUrl = SITE_URL.replace(/\/$/, "");
+    // WordPress shares links to the site it is serving (staging until cutover).
+    const baseUrl = tbvCommerce ? `${window.location.origin}${tbvSiteBase}` : SITE_URL.replace(/\/$/, "");
     return `${baseUrl}/?c=${normalizedCode.toLowerCase()}`;
   }
 
@@ -14171,7 +14226,7 @@ export default function App() {
     if (section === "shipping") window.location.assign(tbvCommerce.account.editAddressUrl);
     else if (section === "security") window.location.assign(tbvCommerce.account.editAccountUrl);
     else if (section === "messages") setPage("contact");
-    else setActiveAccountSection(section === "avatars" ? "avatars" : "overview");
+    else setActiveAccountSection(["avatars", "affiliate"].includes(section) ? section : "overview");
   };
   useEffect(() => {
     if (page === "account" && tbvCommerce?.account) loadWooAccountOrders();
@@ -19011,7 +19066,8 @@ export default function App() {
                 <AccountDashboard
                   user={{ ...tbvCommerce.user, avatarId: wooAvatarId }}
                   orders={wooAccountOrders}
-                  activeSection={activeAccountSection === "avatars" ? "avatars" : "overview"}
+                  storeCredit={tbvCommerce.user.storeCredit}
+                  activeSection={["avatars", "affiliate"].includes(activeAccountSection) ? activeAccountSection : "overview"}
                   tx={tx}
                   formatPrice={formatPricePrecise}
                   onNavigate={navigateWooAccountSection}
@@ -19027,6 +19083,7 @@ export default function App() {
                   avatarSaveStatus={wooAvatarSave.status}
                   onChooseAvatar={saveWooAvatar}
                   onSignOut={() => window.location.assign(tbvCommerce.account.logoutUrl)}
+                  {...affiliateDashboardProps}
                 />
               </Suspense>
             </div>
@@ -19103,53 +19160,7 @@ export default function App() {
                   avatarSaveStatus={avatarSaveStatus}
                   onChooseAvatar={handleAvatarSelection}
                   onSignOut={handleSignOut}
-                  affiliateProfile={currentAffiliateProfile}
-                  affiliateProfileLoading={!affiliateProfilesLoaded}
-                  affiliateProfileError={affiliateProfileError}
-                  onRetryAffiliateProfile={loadAffiliateProfilesFromSupabase}
-                  affiliateOrders={
-                    affiliateDataCode ===
-                    String(currentAffiliateProfile?.code || "").trim().toUpperCase()
-                      ? affiliateCommissionOrders
-                      : []
-                  }
-                  affiliatePaidOut={
-                    affiliateDataCode ===
-                    String(currentAffiliateProfile?.code || "").trim().toUpperCase()
-                      ? affiliatePaidOut
-                      : 0
-                  }
-                  affiliateLoading={
-                    affiliateDataCode !==
-                      String(currentAffiliateProfile?.code || "").trim().toUpperCase()
-                  }
-                  affiliateRefreshing={affiliateCommissionLoading}
-                  affiliateRefreshError={affiliateRefreshError}
-                  affiliateOrdersError={
-                    affiliateDataCode ===
-                    String(currentAffiliateProfile?.code || "").trim().toUpperCase() &&
-                    affiliateOrdersError
-                  }
-                  affiliatePayoutError={
-                    affiliateDataCode ===
-                    String(currentAffiliateProfile?.code || "").trim().toUpperCase() &&
-                    affiliatePayoutError
-                  }
-                  affiliateLink={
-                    currentAffiliateProfile?.code
-                      ? buildAffiliateLink(currentAffiliateProfile.code)
-                      : ""
-                  }
-                  onRefreshAffiliate={() => {
-                    if (currentAffiliateProfile?.code) {
-                      loadAffiliateCommissionOrders(currentAffiliateProfile.code, { force: true });
-                    }
-                  }}
-                  onCopyAffiliateLink={() =>
-                    currentAffiliateProfile?.code
-                      ? copyAffiliateLink(currentAffiliateProfile.code)
-                      : false
-                  }
+                  {...affiliateDashboardProps}
                 >
                   {activeAccountSection === "messages" ? (
                     <Suspense fallback={<div className="min-h-[190px]" aria-busy="true" />}>
@@ -21650,10 +21661,10 @@ export default function App() {
                   )}
 
                   {/* Affiliate discount */}
-                  {affiliateDiscount > 0 && (
+                  {cartAffiliateDiscount > 0 && (
                     <div className="flex items-center justify-between text-[13px] text-white">
-                      <span className="uppercase tracking-[0.1em]">Affiliate discount ({resolvedAffiliateCode})</span>
-                      <span className="tabular-nums font-semibold text-emerald-300">−${Number(affiliateDiscount).toFixed(2)}</span>
+                      <span className="uppercase tracking-[0.1em]">Affiliate discount ({cartAffiliateCode})</span>
+                      <span className="tabular-nums font-semibold text-emerald-300">−${Number(cartAffiliateDiscount).toFixed(2)}</span>
                     </div>
                   )}
 

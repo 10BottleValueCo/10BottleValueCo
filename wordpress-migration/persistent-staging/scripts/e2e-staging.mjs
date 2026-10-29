@@ -4,6 +4,7 @@
 // State shared between restart phases is kept in the private directory.
 import fs from 'node:fs';
 import path from 'node:path';
+import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -234,9 +235,122 @@ async function accountChecksAfterRestart() {
   }
 }
 
+// Synthetic store credit and order-status changes are admin actions; the
+// loopback-only account run makes them through WP-CLI on this staging install.
+const wp = (...args) => execFileSync('wp', [...args, `--path=${path.join(here, '..', 'wordpress')}`], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']}).trim();
+const feeCents = (cart, prefix) => (cart.json.fees || []).filter(f => String(f.name).startsWith(prefix)).reduce((sum, f) => sum - Number(f.totals?.total || 0), 0);
+const subtotalCents = cart => Number(cart.json.totals?.total_items || 0);
+const affiliateExt = cart => cart.json.extensions?.['tbv-affiliate'] || {};
+const restNonce = html => JSON.parse((html.match(/window\.TBV_COMMERCE = (\{.*?\});<\/script>/) || [])[1] || '{}').account?.restNonce || '';
+
+async function affiliateChecks(offers) {
+  const offer = offers.find(o => o.warehouse === 'worldwide' && Number(o.price) >= 100 && Number(o.price) < 300) || offers[0];
+  const stamp = Date.now();
+  // Referral link, then first order: 5% of the item subtotal.
+  const buyer = new Client(); const buyerEmail = `e2e.referred.${stamp}@example.test`;
+  await register(buyer, buyerEmail, env.E2E_RUN_PASSWORD);
+  await buyer.follow('/?c=reviewaff');
+  check('referral_link_sets_cookie', buyer.jar.tbv_affiliate === 'REVIEWAFF', JSON.stringify(Object.keys(buyer.jar)));
+  await cartApi(buyer, 'add-item', {id: offer.variation_id, quantity: 1});
+  let cart = await cartApi(buyer);
+  check('referral_first_order_discount_5pct', feeCents(cart, 'Affiliate discount (REVIEWAFF)') === Math.round(subtotalCents(cart) * 0.05) && feeCents(cart, 'Automatic discount') === 0, JSON.stringify(cart.json.fees));
+  check('cart_reports_affiliate', affiliateExt(cart).affiliateCode === 'REVIEWAFF', JSON.stringify(affiliateExt(cart)));
+  // Any promo code replaces the affiliate discount (attribution stays).
+  await cartApi(buyer, 'apply-coupon', {code: 'review10'});
+  cart = await cartApi(buyer);
+  check('promo_code_replaces_affiliate_discount', feeCents(cart, 'Affiliate discount') === 0 && (cart.json.coupons || []).length === 1 && affiliateExt(cart).affiliateCode === 'REVIEWAFF', JSON.stringify(cart.json.fees));
+  await cartApi(buyer, 'remove-coupon', {code: 'review10'});
+  // Self-referral never discounts.
+  const owner = new Client();
+  await login(owner, env.TEST_CUSTOMER_3_EMAIL, env.TEST_CUSTOMER_3_PASSWORD);
+  await owner.follow('/?c=reviewaff');
+  await cartApi(owner, 'add-item', {id: offer.variation_id, quantity: 1});
+  cart = await cartApi(owner);
+  check('self_referral_no_discount', feeCents(cart, 'Affiliate discount') === 0 && !affiliateExt(cart).affiliateCode, JSON.stringify(cart.json.fees));
+  for (const item of cart.json.items || []) await cartApi(owner, 'remove-item', {key: item.key});
+  // Typed in the cart's code box; unknown codes are refused.
+  const typed = new Client();
+  await register(typed, `e2e.typed.${stamp}@example.test`, env.E2E_RUN_PASSWORD);
+  await cartApi(typed, 'add-item', {id: offer.variation_id, quantity: 1});
+  const unknown = await cartApi(typed, 'extensions', {namespace: 'tbv-affiliate', data: {action: 'apply', code: 'NOSUCHCODE'}});
+  check('typed_unknown_code_rejected', unknown.status === 400, unknown.status);
+  const applied = await cartApi(typed, 'extensions', {namespace: 'tbv-affiliate', data: {action: 'apply', code: 'reviewaff'}});
+  check('typed_affiliate_code_applies', applied.status === 200 && feeCents({json: applied.json}, 'Affiliate discount (REVIEWAFF)') > 0, applied.status);
+  const removed = await cartApi(typed, 'extensions', {namespace: 'tbv-affiliate', data: {action: 'remove'}});
+  check('declining_discount_keeps_attribution', feeCents({json: removed.json}, 'Affiliate discount') === 0 && removed.json.extensions?.['tbv-affiliate']?.affiliateCode === 'REVIEWAFF', JSON.stringify(removed.json.fees));
+  // At $1,000+ the 10% automatic discount is larger and wins.
+  const big = new Client();
+  await register(big, `e2e.bigorder.${stamp}@example.test`, env.E2E_RUN_PASSWORD);
+  await big.follow('/?c=reviewaff');
+  await cartApi(big, 'add-item', {id: offer.variation_id, quantity: Math.ceil(1000 / Number(offer.price))});
+  cart = await cartApi(big);
+  check('volume_discount_wins_over_affiliate', feeCents(cart, 'Automatic discount') === Math.round(subtotalCents(cart) * 0.10) && feeCents(cart, 'Affiliate discount') === 0, JSON.stringify(cart.json.fees));
+
+  // Store credit pays only when it covers the whole order.
+  const short = new Client(); const shortEmail = `e2e.shortcredit.${stamp}@example.test`;
+  await register(short, shortEmail, env.E2E_RUN_PASSWORD);
+  wp('tbv-credit', 'adjust', shortEmail, 'add', '1.00', 'e2e partial');
+  await cartApi(short, 'add-item', {id: offer.variation_id, quantity: 1});
+  cart = await cartApi(short);
+  check('partial_credit_not_offered', affiliateExt(cart).storeCredit === 100 && affiliateExt(cart).storeCreditCovers === false, JSON.stringify(affiliateExt(cart)));
+  const shortTry = await checkout(short, null, shortEmail, {payment_method: 'tbv_store_credit'});
+  check('partial_credit_checkout_rejected', shortTry.json.result !== 'success' && wp('tbv-credit', 'balance', shortEmail) === '1.00', JSON.stringify(shortTry.json).slice(0, 200));
+
+  wp('tbv-credit', 'adjust', buyerEmail, 'add', '1000.00', 'e2e synthetic credit');
+  cart = await cartApi(buyer);
+  const totalCents = Number(cart.json.totals?.total_price || 0);
+  const itemsCents = subtotalCents(cart);
+  check('full_credit_offered', affiliateExt(cart).storeCreditCovers === true, JSON.stringify(affiliateExt(cart)));
+  const page = await buyer.follow('/cart/');
+  const config = JSON.parse((page.text.match(/window\.TBV_COMMERCE = (\{.*?\});<\/script>/) || [])[1] || '{}');
+  check('storefront_config_has_credit', config.creditGatewayId === 'tbv_store_credit' && config.user?.storeCredit === 1000, JSON.stringify({g: config.creditGatewayId, c: config.user?.storeCredit}));
+  const paid = await checkout(buyer, null, buyerEmail, {payment_method: 'tbv_store_credit'});
+  const paidId = Number((paid.json.redirect || '').match(/order-received\/(\d+)/)?.[1]);
+  check('pay_with_credit_success', paid.json.result === 'success' && paidId > 0, JSON.stringify(paid.json).slice(0, 300));
+  const status = paidId ? wp('eval', `echo wc_get_order(${paidId})->get_status();`) : '';
+  check('credit_order_is_paid', status === 'processing', status);
+  check('credit_debited_exactly', wp('tbv-credit', 'balance', buyerEmail) === ((100000 - totalCents) / 100).toFixed(2), wp('tbv-credit', 'balance', buyerEmail));
+  const row = paidId ? JSON.parse(wp('eval', `global $wpdb; echo wp_json_encode($wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tbv_ac_commissions WHERE order_id = %d", ${paidId}), ARRAY_A));`) || 'null') : null;
+  check('commission_10pct_of_items', row && row.affiliate_code === 'REVIEWAFF' && Number(row.commission_cents) === Math.round(itemsCents * 0.10) && row.status === 'active', JSON.stringify(row));
+
+  // Second order: no discount, but the customer stays with the affiliate.
+  await cartApi(buyer, 'add-item', {id: offer.variation_id, quantity: 1});
+  cart = await cartApi(buyer);
+  check('repeat_order_no_discount', feeCents(cart, 'Affiliate discount') === 0 && affiliateExt(cart).affiliateCode === 'REVIEWAFF' && affiliateExt(cart).affiliateLocked === true, JSON.stringify(affiliateExt(cart)));
+  const second = await checkout(buyer, null, buyerEmail);
+  const secondId = Number((second.json.redirect || '').match(/order-received\/(\d+)/)?.[1]);
+  check('repeat_order_attributed', secondId > 0 && wp('eval', `echo wc_get_order(${secondId})->get_meta('_tbv_affiliate_code');`) === 'REVIEWAFF', secondId);
+  const commissionStatus = id => wp('eval', `global $wpdb; echo (string)$wpdb->get_var($wpdb->prepare("SELECT status FROM {$wpdb->prefix}tbv_ac_commissions WHERE order_id = %d", ${id}));`);
+  check('unpaid_order_earns_nothing', secondId > 0 && commissionStatus(secondId) === '', commissionStatus(secondId));
+  if (secondId) wp('eval', `$o = wc_get_order(${secondId}); $o->update_meta_data('_tbv_staging_admin_marked_paid', '1'); $o->save(); $o->update_status('processing', 'e2e: marked paid by admin');`);
+  check('commission_when_marked_paid', secondId > 0 && commissionStatus(secondId) === 'active', commissionStatus(secondId));
+  if (secondId) wp('eval', `wc_get_order(${secondId})->update_status('cancelled', 'e2e: cancelled');`);
+  check('commission_reversed_on_cancel', secondId > 0 && commissionStatus(secondId) === 'reversed', commissionStatus(secondId));
+
+  // Account panel data (same shape as live /api/affiliate-account).
+  const ownerDash = await owner.follow('/my-account/');
+  const nonce = restNonce(ownerDash.text);
+  const acct = await owner.req('/wp-json/tbv-affiliates/v1/account?orders=1', {headers: {'x-wp-nonce': nonce}});
+  let data = {}; try { data = JSON.parse(acct.text); } catch {}
+  const ledger = (data.ledgerRows || []).find(r => r.order_id === String(paidId));
+  check('affiliate_account_endpoint', data.ok && data.affiliate?.code === 'REVIEWAFF' && ledger && Math.round(Number(ledger.commission_amount) * 100) === Math.round(itemsCents * 0.10), acct.text.slice(0, 300));
+  const buyerDash = await buyer.follow('/my-account/');
+  const notAffiliate = JSON.parse((await buyer.req('/wp-json/tbv-affiliates/v1/account?orders=1', {headers: {'x-wp-nonce': restNonce(buyerDash.text)}})).text || '{}');
+  check('non_affiliate_gets_no_panel', notAffiliate.ok && notAffiliate.affiliate === null, JSON.stringify(notAffiliate).slice(0, 200));
+  const anon = await new Client().req('/wp-json/tbv-affiliates/v1/account?orders=1');
+  check('affiliate_orders_require_login', anon.status === 401 || anon.status === 403, anon.status);
+  const lookup = JSON.parse((await new Client().req('/wp-json/tbv-affiliates/v1/account?code=reviewaff')).text || '{}');
+  check('public_code_lookup', lookup.ok && lookup.affiliate?.code === 'REVIEWAFF' && lookup.affiliate.active === true, JSON.stringify(lookup));
+  const before = JSON.parse(wp('tbv-affiliates', 'totals', 'REVIEWAFF'));
+  wp('tbv-affiliates', 'payout', 'REVIEWAFF', '0.01', 'e2e payout');
+  const after = JSON.parse(wp('tbv-affiliates', 'totals', 'REVIEWAFF'));
+  check('payout_recorded', after.paid === before.paid + 1 && after.pending === before.pending, JSON.stringify({before, after}));
+}
+
 const offers = phase === 'after-restart' ? [] : await guestChecks();
 if (phase !== 'after-restart') await guardChecks();
 if (withAccounts && phase !== 'after-restart') await accountChecksBeforeRestart(offers);
+if (withAccounts && phase !== 'after-restart') await affiliateChecks(offers);
 if (withAccounts && phase !== 'before-restart') await accountChecksAfterRestart();
 const failed = results.filter(r => !r.ok);
 console.log(JSON.stringify({base, phase, accounts: withAccounts, passed: results.length - failed.length, total: results.length, failed}, null, 1));

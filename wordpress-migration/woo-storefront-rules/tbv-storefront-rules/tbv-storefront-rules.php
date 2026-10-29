@@ -2,7 +2,7 @@
 /**
  * Plugin Name: 10BottleValue storefront checkout rules
  * Description: Checkout rules carried over from the live storefront: automatic order discounts, carrier preference and the order bonus, plus an optional purchaser attestation (off by default). Rule values are an editable option, not code constants.
- * Version: 0.1.0
+ * Version: 0.2.0
  * Requires Plugins: woocommerce
  * Requires PHP: 8.1
  */
@@ -64,14 +64,20 @@ function tbv_storefront_warehouse($product) {
 }
 
 /* Automatic discount as a negative fee. Like the live checkout, it does not
- * stack with a coupon (promo code). */
+ * stack with a coupon (promo code), and a referred customer's first-order
+ * affiliate discount replaces it when larger (tbv-affiliates-credit). */
 add_action('woocommerce_cart_calculate_fees', function ($cart) {
     if (!is_a($cart, 'WC_Cart') || $cart->is_empty() || $cart->get_applied_coupons()) return;
     $subtotal = 0;
     foreach ($cart->get_cart() as $line) $subtotal += tbv_storefront_cents($line['line_subtotal'] ?? 0);
     $bps = tbv_storefront_discount_bps($subtotal);
-    if (!$bps) return;
     $discount = (int)round($subtotal * $bps / 10000);
+    $affiliate = apply_filters('tbv_storefront_affiliate_discount', null, $subtotal, $cart);
+    if (is_array($affiliate) && (int)($affiliate['cents'] ?? 0) > $discount) {
+        $cart->add_fee(sprintf('Affiliate discount (%s)', $affiliate['code']), -((int)$affiliate['cents']) / 100, false);
+        return;
+    }
+    if (!$bps) return;
     $cart->add_fee(sprintf('Automatic discount (%s%%)', rtrim(rtrim(number_format($bps / 100, 2, '.', ''), '0'), '.')), -$discount / 100, false);
 });
 

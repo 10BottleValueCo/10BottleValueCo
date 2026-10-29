@@ -3,7 +3,7 @@
 The staging site deliberately has **no** payment processor. These are the seams where an approved processor plugs in. Nothing here activates a live processor; that requires the merchant's account setup and the owner's authorization.
 
 ## 1. Gateway slot
-- Staging registers exactly one WooCommerce gateway, `tbv_staging_test` (`TBV_Staging_Test_Gateway` in `mu-plugins/tbv-persistent-staging.php`). Its `process_payment()` saves the order as `pending` and returns the order-received URL.
+- Staging registers the test gateway `tbv_staging_test` (plus `tbv_store_credit` for synthetic store credit) (`TBV_Staging_Test_Gateway` in `mu-plugins/tbv-persistent-staging.php`). Its `process_payment()` saves the order as `pending` and returns the order-received URL.
 - The theme hard-allowlists gateways (`woocommerce_payment_gateways` and `woocommerce_available_payment_gateways` filters at `PHP_INT_MAX` in `functions.php`). An approved gateway ID must be added to that allowlist; any other gateway stays hidden. For production, replace the hardcoded staging ID with a configured allowlist.
 - Use a standard `WC_Payment_Gateway` (official processor plugin or a custom gateway). The storefront cart page (`/cart`) collects shipping details, then posts to the **classic** checkout (`?wc-ajax=checkout`) with `payment_method` set to the gateway ID from `window.TBV_COMMERCE.gatewayId`; the Store API checkout route is blocked by the theme. A processor that needs on-page fields or a hosted redirect plugs in at that step (today the live site shows its payment step after shipping details). If a processor requires block checkout, that block must be lifted deliberately.
 
@@ -22,7 +22,10 @@ The staging site deliberately has **no** payment processor. These are the seams 
 - Shipping rates carry `tbv_rule_version` meta from the warehouse shipping plugin, so later rate edits do not rewrite historical orders.
 
 ## 5. Store credit and affiliates
-- Store-credit and affiliate history is being migrated into separate ledger records (see `../woo-legacy-migration/`), with balances reported but spending **not** activated. Applying credit to a payment (partial payment, fee line or coupon) needs an explicit design with the payment team; show credit guidance only when the customer has relevant available credit.
+- `../woo-affiliates-credit/` (plugin `tbv-affiliates-credit`) implements the live rules: 5% first-order referral discount, 10% commission on paid orders, holds, admin payouts, and store credit that pays only when it covers the whole order (gateway `tbv_store_credit`, no processor involved).
+- Commissions are recorded when an order reaches `processing`/`completed` and withdrawn on `cancelled`/`refunded`/`failed`. The approved processor only has to complete payment normally (`payment_complete()`); no extra call is needed.
+- Credit cannot be combined with a processor payment (same as live). If the business later wants partial credit, that is a new rule to design with the payment team.
+- Historical balances and affiliate history are migrated separately (`../woo-legacy-migration/`); seeding the live tables from those records is still to be written.
 
 ## 6. Email
 - Staging suppresses all mail. Production needs a transactional mail provider and order/customer email templates reviewed before launch.
