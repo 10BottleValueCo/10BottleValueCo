@@ -102,6 +102,10 @@ add_action('woocommerce_pre_payment_complete', function ($order_id) {
     }
     error_log('[tbv-staging] UNEXPECTED payment_complete call on order ' . (int)$order_id);
 });
+// Mail is suppressed on staging, so a reset link would never arrive.
+add_action('woocommerce_before_lost_password_form', function () {
+    wc_print_notice('Staging: password reset emails are not sent. If you forget a test password, register again with another made-up email.', 'notice');
+});
 add_action('woocommerce_before_checkout_form', function () {
     wc_print_notice('Staging test checkout: orders are saved unpaid for testing. No card is charged, nothing ships and no email is sent.', 'notice');
 });
