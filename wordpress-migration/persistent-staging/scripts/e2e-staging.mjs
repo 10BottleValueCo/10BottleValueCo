@@ -303,6 +303,8 @@ async function affiliateChecks(offers) {
   const short = new Client(); const shortEmail = `e2e.shortcredit.${stamp}@example.test`;
   await register(short, shortEmail, env.E2E_RUN_PASSWORD);
   wp('tbv-credit', 'adjust', shortEmail, 'add', '1.00', 'e2e partial');
+  let noAccount = ''; try { wp('tbv-credit', 'adjust', `e2e.noaccount.${stamp}@example.test`, 'add', '5.00'); } catch (e) { noAccount = 'refused'; }
+  check('credit_requires_existing_account', noAccount === 'refused' && wp('tbv-credit', 'balance', `e2e.noaccount.${stamp}@example.test`) === '0.00', noAccount);
   await cartApi(short, 'add-item', {id: offer.variation_id, quantity: 1});
   cart = await cartApi(short);
   check('partial_credit_not_offered', affiliateExt(cart).storeCredit === 100 && affiliateExt(cart).storeCreditCovers === false, JSON.stringify(affiliateExt(cart)));

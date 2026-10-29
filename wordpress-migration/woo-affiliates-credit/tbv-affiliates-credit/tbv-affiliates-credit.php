@@ -390,6 +390,16 @@ function tbv_ac_credit_change($email, $kind, $cents, $note = '', $order_id = nul
     return $after;
 }
 
+/**
+ * Admin balance change. WooCommerce sign-up does not prove email ownership, so
+ * credit only goes to an existing account; otherwise whoever registered the
+ * email first would receive it.
+ */
+function tbv_ac_admin_credit_change($email, $kind, $cents, $note) {
+    if (!get_user_by('email', tbv_ac_email($email))) return new WP_Error('tbv_ac_no_account', 'No customer account uses this email yet.');
+    return tbv_ac_credit_change($email, $kind, $cents, $note);
+}
+
 /** Live applies credit only when it covers the whole total. */
 function tbv_ac_credit_covers_cart() {
     $user = wp_get_current_user();
@@ -583,7 +593,7 @@ add_action('admin_post_tbv_ac_credit', function () {
     $kind = sanitize_key($_POST['kind'] ?? '');
     $result = $cents === null || !in_array($kind, ['add', 'subtract', 'set'], true)
         ? new WP_Error('tbv_ac_amount', 'Enter an amount with up to two decimals.')
-        : tbv_ac_credit_change($email, $kind, $cents, wp_unslash($_POST['note'] ?? ''));
+        : tbv_ac_admin_credit_change($email, $kind, $cents, wp_unslash($_POST['note'] ?? ''));
     tbv_ac_admin_redirect('tbv-store-credit', ['email' => rawurlencode($email)] + (is_wp_error($result) ? ['tbv_error' => $result->get_error_message()] : ['tbv_ok' => 'Balance is now $' . tbv_ac_money($result) . '.']));
 });
 function tbv_ac_credit_page() {
@@ -761,7 +771,7 @@ if (defined('WP_CLI') && WP_CLI) {
         /** ## OPTIONS <email> <add|subtract|set> <amount> [<note>] */
         public function adjust($args) {
             $cents = tbv_ac_parse_money($args[2]);
-            $r = $cents === null ? new WP_Error('amount', 'Invalid amount.') : tbv_ac_credit_change($args[0], $args[1], $cents, $args[3] ?? 'WP-CLI');
+            $r = $cents === null ? new WP_Error('amount', 'Invalid amount.') : tbv_ac_admin_credit_change($args[0], $args[1], $cents, $args[3] ?? 'WP-CLI');
             is_wp_error($r) ? WP_CLI::error($r->get_error_message()) : WP_CLI::success('Balance $' . tbv_ac_money($r));
         }
         /** ## OPTIONS <email> */

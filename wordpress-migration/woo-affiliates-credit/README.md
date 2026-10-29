@@ -45,7 +45,7 @@ Tables (prefix `wp_tbv_ac_`): `affiliates`, `customers` (locks), `commissions` (
 
 It is idempotent. Source keys link every row, and a rerun creates nothing. A live value that differs from the source is reported as a conflict and left alone.
 
-**WooCommerce sign-up does not verify email ownership.** A migrated balance is therefore applied only to the account the migration itself created for that customer. Balances for emails with no account, or whose account the migration did not create, are reported and not applied. The same caveat applies to affiliate panels and to admin-issued credit for new emails. Production should require email verification for new sign-ups before email-keyed credit or affiliate access applies.
+**WooCommerce sign-up does not verify email ownership.** A migrated balance is therefore applied only to the account the migration itself created for that customer. Balances for emails with no account, or whose account the migration did not create, are reported and not applied. Admin credit changes (page and `wp tbv-credit adjust`) therefore require an existing account with that email. The same caveat applies to affiliate panels for emails with no account. Production should require email verification for new sign-ups before email-keyed credit or affiliate access applies.
 
 `tests/legacy-bridge-test.php` runs it on the disposable `tbv_migration_test` copy with the synthetic fixture, 14/14:
 - the dry run writes nothing (table checksums);
