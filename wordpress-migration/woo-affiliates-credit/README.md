@@ -2,7 +2,7 @@
 
 A WordPress plugin that carries the live storefront's affiliate (referral) program and store credit over to WooCommerce, rule for rule. The staging storefront's account dashboard and cart (the React overlay in `../staging-theme-lab`) show it with the same screens as the live site.
 
-**Status: running on the persistent staging site with synthetic data only.** No real affiliates, customers, balances or payouts have been imported. Historical records come from `../woo-legacy-migration` once a real export is authorized; seeding the live tables from those records is a separate, not yet written step.
+**Status: running on the persistent staging site with synthetic data only.** No real affiliates, customers, balances or payouts have been imported. Historical records come from `../woo-legacy-migration` once a real export is authorized, then `wp tbv-affiliates import-legacy` seeds the live tables from them (tested on the synthetic fixture only).
 
 ## Rules (from the live source)
 
@@ -21,7 +21,7 @@ A WordPress plugin that carries the live storefront's affiliate (referral) progr
 | Payouts: recorded by an admin; available = released commission − payouts | `api/affiliate-payouts.js` | WooCommerce → Affiliates → Record payout |
 | Store credit: admin add/subtract/set with a log; pays only when it covers the whole order (no partial use) | `adjust_store_credit`, `checkout_store_credit` RPCs | WooCommerce → Store credit; gateway `tbv_store_credit` (row-locked debit, idempotent per order) |
 
-Not carried over: the 2.5% crypto discount (no crypto payment method on WordPress yet) and the per-order commission adjustment field.
+Not carried over: the 2.5% crypto discount (no crypto payment method on WordPress yet) and the per-order commission adjustment field (migrated orders that have one are reported for review).
 
 ## Data
 
@@ -32,7 +32,28 @@ Tables (prefix `wp_tbv_ac_`): `affiliates`, `customers` (locks), `commissions` (
 - Store API cart response: `extensions["tbv-affiliate"]` = `affiliateCode`, `affiliateLocked`, `storeCredit` (cents), `storeCreditCovers`, `creditGatewayId`.
 - Store API update: `POST /wc/store/v1/cart/extensions` with `{"namespace":"tbv-affiliate","data":{"action":"apply","code":"X"}}` or `{"action":"remove"}`.
 - REST `GET /wp-json/tbv-affiliates/v1/account?orders=1&offset=N` (signed in) and `?code=X` (public lookup), same JSON shape as live `/api/affiliate-account`.
-- WP-CLI: `wp tbv-affiliates issue|revoke|payout|totals`, `wp tbv-credit adjust|balance`.
+- WP-CLI: `wp tbv-affiliates issue|revoke|payout|totals|import-legacy`, `wp tbv-credit adjust|balance`.
+
+## Seeding from migrated history
+
+`wp tbv-affiliates import-legacy [--dry-run] [--report=<file>]` reads the rows `tbv-legacy-migration` preserved (`wp_tbv_legacy_records`; that importer writes orders without status hooks, so no commission was recorded for them). It creates:
+- affiliates, with code, owner and active state;
+- customer locks;
+- commissions, one per imported order. These come from the `affiliate_orders` ledger first, then from order metadata (live's own fallback), with historical cents kept and refunded or cancelled orders marked reversed;
+- payouts, including those for codes missing from the affiliates table (reported);
+- opening store-credit balances.
+
+It is idempotent. Source keys link every row, and a rerun creates nothing. A live value that differs from the source is reported as a conflict and left alone.
+
+**WooCommerce sign-up does not verify email ownership.** A migrated balance is therefore applied only to the account the migration itself created for that customer. Balances for emails with no account, or whose account the migration did not create, are reported and not applied. The same caveat applies to affiliate panels and to admin-issued credit for new emails. Production should require email verification for new sign-ups before email-keyed credit or affiliate access applies.
+
+`tests/legacy-bridge-test.php` runs it on the disposable `tbv_migration_test` copy with the synthetic fixture, 14/14:
+- the dry run writes nothing (table checksums);
+- the rows are exact, the CORA10 totals are released $14.90 minus $12.50 paid, and the issue list is exact;
+- a rerun is a no-op;
+- a changed payout is reported and left as found.
+
+The existing `tbv-legacy-migration` suite still passes 197/197 with this plugin present.
 
 ## Tests (staging, 2026-10-29)
 

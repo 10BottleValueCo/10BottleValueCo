@@ -609,6 +609,130 @@ function tbv_ac_credit_page() {
     echo '</div>';
 }
 
+/* ---------- Legacy bridge: migrated history into the live tables ---------- */
+
+/**
+ * Seed affiliates, customer locks, commissions, payouts and store credit
+ * balances from rows the tbv-legacy-migration importer preserved (that
+ * importer writes orders without status hooks, so nothing here ran for them).
+ * Idempotent: each source row is linked by its source key and is never
+ * applied twice; anything that would overwrite a different live value is
+ * reported as a conflict and left alone. $dry_run writes nothing.
+ */
+function tbv_ac_import_legacy($dry_run = false) {
+    global $wpdb;
+    $records = $wpdb->prefix . 'tbv_legacy_records';
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $records)) !== $records) return new WP_Error('tbv_ac_no_legacy', 'No migrated records (run wp tbv-migrate import first).');
+    $report = ['dry_run' => (bool)$dry_run, 'counts' => [], 'issues' => []];
+    $count = function ($entity, $outcome) use (&$report) { $report['counts'][$entity][$outcome] = ($report['counts'][$entity][$outcome] ?? 0) + 1; };
+    $issue = function ($entity, $key, $code) use (&$report, $count) { $count($entity, 'skipped'); $report['issues'][] = "{$entity}|{$key}|{$code}"; };
+    $rows = fn($entity) => $wpdb->get_results($wpdb->prepare("SELECT * FROM {$records} WHERE entity = %s ORDER BY source_key", $entity), ARRAY_A);
+    $when = fn($row) => $row['occurred_at'] ?: tbv_ac_now();
+    $write = fn($table, $data) => $dry_run || $wpdb->insert(tbv_ac_table($table), $data);
+
+    foreach ($rows('affiliates') as $row) {
+        $code = tbv_ac_code($row['affiliate_code']);
+        $email = tbv_ac_email($row['email']);
+        if ($code === '' || !is_email($email)) { $issue('affiliates', $row['source_key'], 'invalid_code_or_email'); continue; }
+        $existing = tbv_ac_affiliate($code);
+        if ($existing && $existing['source_key'] === $row['source_key']) { $count('affiliates', 'unchanged'); continue; }
+        if ($existing || tbv_ac_affiliate_for_email($email)) { $issue('affiliates', $row['source_key'], 'conflict_existing_affiliate'); continue; }
+        $write('affiliates', ['code' => $code, 'email' => $email, 'active' => $row['state'] === 'active' ? 1 : 0, 'source_key' => $row['source_key'], 'created_at' => $when($row), 'updated_at' => tbv_ac_now()]);
+        $count('affiliates', 'created');
+        // Commissions accrue by code; the account panel needs a login with this email.
+        if (!get_user_by('email', $email)) $report['issues'][] = "affiliates|{$row['source_key']}|affiliate_email_has_no_account";
+    }
+
+    foreach ($rows('affiliate_customers') as $row) {
+        $code = tbv_ac_code($row['affiliate_code']);
+        $email = tbv_ac_email($row['email']);
+        if ($code === '' || $email === '') { $issue('affiliate_customers', $row['source_key'], 'invalid_code_or_email'); continue; }
+        $locked = tbv_ac_locked_code($email);
+        if ($locked === $code) { $count('affiliate_customers', 'unchanged'); continue; }
+        if ($locked !== '') { $issue('affiliate_customers', $row['source_key'], 'conflict_locked_to_other_affiliate'); continue; }
+        $write('customers', ['email' => $email, 'affiliate_code' => $code, 'order_id' => null, 'locked_at' => $when($row)]);
+        $count('affiliate_customers', 'created');
+    }
+
+    // Commissions: the affiliate_orders ledger first, then imported orders whose
+    // metadata names an affiliate (live's own fallback), never both for one order.
+    $commission = function ($entity, $key, $order, $code, $cents, $shipping, $paid_at) use ($wpdb, $dry_run, $count, $issue) {
+        $status = $order->get_status();
+        if (!in_array($status, array_merge(TBV_AC_PAID_STATUSES, TBV_AC_REVERSED_STATUSES), true)) { $issue($entity, $key, 'order_not_paid'); return; }
+        $existing = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . tbv_ac_table('commissions') . ' WHERE order_id = %d', $order->get_id()), ARRAY_A);
+        if ($existing) {
+            $same = $existing['affiliate_code'] === $code && (int)$existing['commission_cents'] === $cents;
+            $same ? $count($entity, 'unchanged') : $issue($entity, $key, 'conflict_commission_differs');
+            return;
+        }
+        $shipping = strtolower((string)$shipping);
+        if (!$dry_run) $wpdb->insert(tbv_ac_table('commissions'), [
+            'order_id' => $order->get_id(), 'order_number' => (string)($order->get_meta('_tbv_source_order_id') ?: $order->get_order_number()), 'affiliate_code' => $code,
+            'customer_email' => tbv_ac_email($order->get_billing_email() ?: $order->get_meta('_tbv_source_email')), 'subtotal_cents' => tbv_ac_items_subtotal_cents($order), 'commission_cents' => $cents,
+            'shipping_type' => str_contains($shipping, 'us') ? 'us-warehouse' : (str_contains($shipping, 'express') ? 'express' : 'standard'),
+            'status' => in_array($status, TBV_AC_PAID_STATUSES, true) ? 'active' : 'reversed', 'paid_at' => $paid_at, 'updated_at' => tbv_ac_now(),
+        ]);
+        $count($entity, 'created');
+    };
+    $ledger_orders = [];
+    foreach ($rows('affiliate_orders') as $row) {
+        $order = $row['wc_order_id'] ? wc_get_order((int)$row['wc_order_id']) : null;
+        $code = tbv_ac_code($row['affiliate_code']);
+        if (!$order) { $issue('affiliate_orders', $row['source_key'], 'order_not_imported'); continue; }
+        if ($code === '' || $row['amount_cents'] === null) { $issue('affiliate_orders', $row['source_key'], 'invalid_row'); continue; }
+        $ledger_orders[$order->get_id()] = true;
+        $commission('affiliate_orders', $row['source_key'], $order, $code, (int)$row['amount_cents'], $row['kind'], $when($row));
+    }
+    foreach (wc_get_orders(['limit' => -1, 'meta_key' => '_tbv_legacy_import', 'meta_value' => 'yes']) as $order) {
+        $code = tbv_ac_code($order->get_meta('_tbv_affiliate_code'));
+        if ($code === '' || isset($ledger_orders[$order->get_id()])) continue;
+        $key = (string)$order->get_meta('_tbv_source_order_id');
+        $meta = $order->get_meta('_tbv_affiliate_commission');
+        $cents = $meta !== '' ? tbv_ac_parse_money($meta) : (int)round(tbv_ac_items_subtotal_cents($order) * TBV_AC_COMMISSION_BPS / 10000);
+        if ($cents === null) { $issue('order_metadata', $key, 'invalid_commission'); continue; }
+        $source = json_decode((string)$order->get_meta('_tbv_source_row'), true);
+        $paid = $order->get_meta('_tbv_source_paid_at') ?: ($order->get_date_paid() ? $order->get_date_paid()->date('c') : $order->get_date_created()->date('c'));
+        $commission('order_metadata', $key, $order, $code, $cents, $source['metadata']['shippingType'] ?? 'standard', gmdate('Y-m-d H:i:s', strtotime($paid)));
+        if ($order->get_meta('_tbv_affiliate_commission_adjustment') !== '') $report['issues'][] = "order_metadata|{$key}|commission_adjustment_needs_review";
+    }
+
+    foreach ($rows('affiliate_payouts') as $row) {
+        $code = tbv_ac_code($row['affiliate_code']);
+        if ($code === '' || (int)$row['amount_cents'] <= 0) { $issue('affiliate_payouts', $row['source_key'], 'invalid_row'); continue; }
+        $existing = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . tbv_ac_table('payouts') . ' WHERE source_key = %s', $row['source_key']), ARRAY_A);
+        if ($existing) { (int)$existing['amount_cents'] === (int)$row['amount_cents'] ? $count('affiliate_payouts', 'unchanged') : $issue('affiliate_payouts', $row['source_key'], 'conflict_amount_differs'); continue; }
+        $payload = json_decode($row['payload'], true) ?: [];
+        $write('payouts', ['affiliate_code' => $code, 'amount_cents' => (int)$row['amount_cents'], 'note' => sanitize_text_field((string)($payload['note'] ?? 'Migrated payout')), 'source_key' => $row['source_key'], 'created_by' => 0, 'created_at' => $when($row)]);
+        $count('affiliate_payouts', 'created');
+        // History is kept even when the code is missing from the affiliates table.
+        if (!tbv_ac_affiliate($code)) $report['issues'][] = "affiliate_payouts|{$row['source_key']}|unknown_affiliate_code_imported";
+    }
+
+    // Balances: the migrated amount becomes the opening balance, once per source row.
+    foreach ($rows('credit_balances') as $row) {
+        $email = tbv_ac_email($row['email']);
+        $cents = (int)$row['amount_cents'];
+        $key = 'legacy-balance:' . $row['source_key'];
+        if (!is_email($email)) { $issue('credit_balances', $row['source_key'], 'invalid_email'); continue; }
+        // WooCommerce sign-up does not prove email ownership, so a balance only lands
+        // on the account the migration itself created for that customer.
+        $owner = get_user_by('email', $email);
+        if ($cents > 0 && !$owner) { $issue('credit_balances', $row['source_key'], 'no_account_for_email'); continue; }
+        if ($cents > 0 && (int)$row['wp_user_id'] !== $owner->ID) { $issue('credit_balances', $row['source_key'], 'email_owner_unverified'); continue; }
+        $applied = $wpdb->get_row($wpdb->prepare('SELECT note FROM ' . tbv_ac_table('credit_ledger') . ' WHERE idempotency_key = %s', $key), ARRAY_A);
+        if ($applied) { str_contains($applied['note'], $row['payload_hash']) ? $count('credit_balances', 'unchanged') : $issue('credit_balances', $row['source_key'], 'conflict_source_changed_after_import'); continue; }
+        if ($cents === 0) { $count('credit_balances', 'zero'); continue; }
+        if ($wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM ' . tbv_ac_table('credit_ledger') . ' WHERE email = %s', $email))) { $issue('credit_balances', $row['source_key'], 'conflict_live_balance_exists'); continue; }
+        if (!$dry_run) {
+            $result = tbv_ac_credit_change($email, 'set', $cents, 'Migrated balance ' . $row['payload_hash'], null, $key);
+            if (is_wp_error($result)) { $issue('credit_balances', $row['source_key'], 'write_failed'); continue; }
+        }
+        $count('credit_balances', 'created');
+    }
+    sort($report['issues']);
+    return $report;
+}
+
 /* ---------- WP-CLI ---------- */
 
 if (defined('WP_CLI') && WP_CLI) {
@@ -621,6 +745,17 @@ if (defined('WP_CLI') && WP_CLI) {
         public function payout($args) { $r = tbv_ac_record_payout($args[0], $args[1], $args[2] ?? ''); is_wp_error($r) ? WP_CLI::error($r->get_error_message()) : WP_CLI::success('Recorded $' . tbv_ac_money($r) . '.'); }
         /** ## OPTIONS <code> */
         public function totals($args) { WP_CLI::line(wp_json_encode(tbv_ac_affiliate_totals(tbv_ac_code($args[0])))); }
+        /**
+         * Seed the live tables from tbv-legacy-migration records.
+         * ## OPTIONS [--dry-run] [--report=<path>]
+         * @subcommand import-legacy
+         */
+        public function import_legacy($args, $assoc) {
+            $r = tbv_ac_import_legacy(!empty($assoc['dry-run']));
+            if (is_wp_error($r)) WP_CLI::error($r->get_error_message());
+            if (!empty($assoc['report'])) file_put_contents($assoc['report'], wp_json_encode($r, JSON_PRETTY_PRINT));
+            WP_CLI::line(wp_json_encode($r));
+        }
     });
     WP_CLI::add_command('tbv-credit', new class {
         /** ## OPTIONS <email> <add|subtract|set> <amount> [<note>] */
