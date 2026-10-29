@@ -15,11 +15,11 @@ The staging storefront shows the live site's own admin panel (ORDERS, CHARTS, IN
 | Tools out-of-stock switches | WooCommerce stock status of that variation, shared by everyone (live keeps these in one browser) |
 | Charts, Analytics | computed in the browser from the orders above, as on live |
 | Charts per-order supplier costs | order meta `_tbv_line_cost_overrides` / `_tbv_supplier_shipping_override` through `tbv-admin/v1/order-costs`, with live's validation (0–1,000,000, two decimals). The live hook is reused (`use-admin-order-costs.js` overlay) |
-| Funnel | live's anonymous storefront events (random browser session id; no IP, account or email stored) posted to `POST /wp-json/tbv-analytics/v1/events`: live's nine event types only, 300 per session and 1,200 per visitor address per 10 minutes, admins not counted, kept 90 days. The tab reads `GET tbv-admin/v1/analytics?days=1|7|30|90` |
+| Chat attachments | live's flow (upload URL → PUT → access URLs): files stored outside the web root (`../support-attachments/`), short-lived HMAC-signed upload and download links, shown only to a shop manager or to the customer whose message contains the file (live's rule). Live's types without SVG; 25 MB limit here (live 100 MB) |
+| Funnel | live's anonymous storefront events (random browser session id; no IP, account or email stored) posted to `POST /wp-json/tbv-analytics/v1/events`: live's nine event types only, 300 per session and 6,000 per visitor address per 10 minutes, admins not counted, kept 90 days. The tab reads `GET tbv-admin/v1/analytics?days=1|7|30|90` |
 | Inbox and the customer's support chat (Contact → New message) | table `wp_tbv_contact_messages` with live's columns. The app's `contact_messages` queries go to `POST /wp-json/tbv-messages/v1/query`: visitors can only send (under their account email when signed in); a customer reads only their own thread and can only mark replies read; shop managers read, reply, edit and delete. Contact sends are limited per 10 minutes to 10 per visitor address (the tunnel's last X-Forwarded-For entry) or 30 per signed-in account |
 
 Not connected yet:
-- **Inbox attachments:** live uploads to signed storage URLs; not on WordPress yet.
 - **Typing indicator:** live uses Supabase Realtime; it is a no-op here.
 - **"+ Test order":** stays browser-local, as on live.
 
@@ -32,5 +32,5 @@ Tests (staging, 2026-10-29):
   - shows the Affiliates tab, creates/lists/deletes a promo coupon, looks up store credit, with no JS errors;
   - support chat: a customer writes from Contact, the admin sees it in Inbox and replies, and the customer sees the reply.
 - E2E: funnel events are validated, and reading them is admin-only.
-- Browser QA: storefront page views and add-to-cart reach the Funnel tab; the stock switch sets and clears WooCommerce stock status; a chart line cost saves and reloads.
+- Browser QA: storefront page views and add-to-cart reach the Funnel tab; the stock switch sets and clears WooCommerce stock status; a chart line cost saves and reloads; a chat photo reaches the admin through a signed link and a tampered link is refused.
 - E2E: guests can send but not read; a customer's message uses the account email; customers read only their own thread and cannot write replies.

@@ -302,7 +302,7 @@ const chatText = 'Staging QA question ' + Date.now();
 await chatPage.getByPlaceholder('Write a message or paste a photo/video…').fill(chatText);
 await chatPage.getByRole('button', {name: /send/i}).last().click(); await chatPage.waitForTimeout(2500);
 check('customer sends a support message from Contact', (await chatPage.locator('body').innerText()).includes(chatText));
-await adminPage.getByRole('button', {name: /^inbox$/i}).first().click(); await adminPage.waitForTimeout(3000);
+await adminPage.getByRole('button', {name: /^inbox/i}).first().click(); await adminPage.waitForTimeout(3000);
 await adminPage.getByText(chatEmail).first().click(); await adminPage.waitForTimeout(1500);
 check('admin inbox shows the customer thread', (await adminPage.locator('body').innerText()).includes(chatText));
 const replyText = 'Staging QA reply ' + Date.now();
@@ -313,6 +313,19 @@ await chatPage.reload({waitUntil: 'load'}); await chatPage.waitForTimeout(3000);
 await chatPage.getByRole('button', {name: /new message|messages|chat/i}).first().click().catch(() => {}); await chatPage.waitForTimeout(2500);
 check('customer sees the admin reply on Contact', (await chatPage.locator('body').innerText()).includes(replyText));
 await chatPage.screenshot({path: path.join(out, 'flow-desktop-contact-chat.png')});
+// A photo in the chat: private storage, signed links, visible to the admin.
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+await chatPage.locator('input[type=file]').first().setInputFiles({name: 'qa-photo.png', mimeType: 'image/png', buffer: png}); await chatPage.waitForTimeout(3500);
+await adminPage.getByRole('button', {name: /^orders$/i}).first().click(); await adminPage.waitForTimeout(800);
+await adminPage.getByRole('button', {name: /^inbox/i}).first().click(); await adminPage.waitForTimeout(3000);
+// The thread is still open from the reply above; the inbox refreshes every 30 s, as on live.
+if (!(await adminPage.getByPlaceholder('Reply or paste a photo/video… (Enter to send)').count())) await adminPage.getByText(chatEmail).first().click();
+await adminPage.locator('img[src*="attachments/object"]').first().waitFor({timeout: 45000}).catch(() => {});
+await adminPage.screenshot({path: path.join(out, 'flow-desktop-admin-inbox-photo.png')});
+const photoSrc = await adminPage.evaluate(() => [...document.querySelectorAll('img, video, a')].map(e => e.getAttribute('src') || e.getAttribute('href') || '').find(u => u.includes('attachments/object')) || '');
+const photo = photoSrc ? await adminPage.request.get(new URL(photoSrc, LOCAL).href) : null;
+const tampered = photoSrc ? await adminPage.request.get(new URL(photoSrc.replace(/sig=[0-9a-f]{4}/, 'sig=0000'), LOCAL).href) : null;
+check('chat photo reaches the admin through a signed link', photo?.status() === 200 && /image\/png/.test(photo.headers()['content-type'] || '') && tampered?.status() === 403, `${photo?.status()}/${tampered?.status()}`);
 await chatCtx.close();
 const funnelCount = await adminPage.evaluate(async () => { const a = window.TBV_COMMERCE.admin; const r = await fetch(a.endpoint + '/analytics?days=1', {credentials: 'same-origin', headers: {'X-WP-Nonce': a.nonce}}); const j = await r.json(); const types = (j.events || []).map(e => e.event_type); return {views: types.filter(t => t === 'page_view').length, carts: types.filter(t => t === 'add_to_cart').length}; });
 check('storefront visits and add-to-cart reach the funnel', funnelCount.views > 0 && funnelCount.carts > 0, JSON.stringify(funnelCount));

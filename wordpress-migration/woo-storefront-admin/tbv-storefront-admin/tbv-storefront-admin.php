@@ -490,7 +490,7 @@ add_action('rest_api_init', function () {
         $type = is_array($e) ? (string)($e['event_type'] ?? '') : '';
         if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $session) || !in_array($type, TBV_SA_EVENT_TYPES, true)) return new WP_REST_Response(['ok' => false], 400);
         if (tbv_sa_can()) return new WP_REST_Response(['ok' => true, 'skipped' => 'admin'], 202);
-        foreach (['tbv_ev_s_' . md5($session) => 300, 'tbv_ev_i_' . md5(tbv_sa_client_ip()) => 1200] as $key => $max) {
+        foreach (['tbv_ev_s_' . md5($session) => 300, 'tbv_ev_i_' . md5(tbv_sa_client_ip()) => 6000] as $key => $max) {
             $count = (int)get_transient($key);
             if ($count >= $max) return new WP_REST_Response(['ok' => false], 429);
             set_transient($key, $count + 1, 10 * MINUTE_IN_SECONDS);
@@ -559,5 +559,85 @@ add_action('rest_api_init', function () {
         }
         $order->save();
         return ['ok' => true, 'order' => ['id' => tbv_sa_order($order)['id'], 'metadata' => tbv_sa_cost_metadata($order)]];
+    }]);
+});
+
+/* ---------- Support chat attachments (live support-attachments API) ---------- */
+
+const TBV_SA_ATTACHMENT_MAX = 25 * 1024 * 1024; // live allows 100 MB; PHP holds uploads in memory here
+// Live's media and document types, without SVG (scriptable when opened directly).
+const TBV_SA_ATTACHMENT_TYPES = [
+    'image/avif' => 'avif', 'image/bmp' => 'bmp', 'image/gif' => 'gif', 'image/heic' => 'heic', 'image/heif' => 'heif', 'image/jpeg' => 'jpg',
+    'image/png' => 'png', 'image/tiff' => 'tif', 'image/webp' => 'webp', 'video/3gpp' => '3gp', 'video/mp4' => 'mp4', 'video/mpeg' => 'mpeg',
+    'video/ogg' => 'ogv', 'video/quicktime' => 'mov', 'video/webm' => 'webm', 'video/x-m4v' => 'm4v', 'video/x-matroska' => 'mkv', 'video/x-msvideo' => 'avi',
+    'application/pdf' => 'pdf', 'text/plain' => 'txt', 'text/csv' => 'csv', 'application/msword' => 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx', 'application/vnd.ms-excel' => 'xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx', 'application/vnd.ms-powerpoint' => 'ppt',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation' => 'pptx', 'application/rtf' => 'rtf',
+    'application/vnd.oasis.opendocument.text' => 'odt', 'application/vnd.oasis.opendocument.spreadsheet' => 'ods',
+];
+
+/** Outside the web root, so files are only reachable through signed links. */
+function tbv_sa_attachment_dir() { return dirname(untrailingslashit(ABSPATH)) . '/support-attachments'; }
+function tbv_sa_attachment_sig($op, $path, $exp, $type) { return hash_hmac('sha256', "{$op}|{$path}|{$exp}|{$type}", wp_salt('auth')); }
+function tbv_sa_attachment_url($op, $path, $type, $ttl) {
+    $exp = time() + $ttl;
+    return add_query_arg(['op' => $op, 'path' => rawurlencode($path), 'exp' => $exp, 'type' => rawurlencode($type), 'sig' => tbv_sa_attachment_sig($op, $path, $exp, $type)], rest_url('tbv-messages/v1/attachments/object'));
+}
+function tbv_sa_attachment_path_ok($path) { return is_string($path) && preg_match('#^support/\d+/[A-Za-z0-9]{24}\.[a-z0-9]{2,5}$#', $path); }
+
+add_action('rest_api_init', function () {
+    register_rest_route('tbv-messages/v1', '/attachments/upload-url', ['methods' => 'POST', 'permission_callback' => 'is_user_logged_in', 'callback' => function ($request) {
+        $data = (array)($request->get_json_params() ?: []);
+        $type = strtolower(trim(explode(';', (string)($data['contentType'] ?? ''))[0]));
+        $size = (int)($data['size'] ?? 0);
+        if (!isset(TBV_SA_ATTACHMENT_TYPES[$type])) return new WP_REST_Response(['ok' => false, 'error' => 'This file type is not supported.'], 400);
+        if ($size <= 0 || $size > TBV_SA_ATTACHMENT_MAX) return new WP_REST_Response(['ok' => false, 'error' => 'Attachment must be under 25 MB on this site.'], 400);
+        $path = 'support/' . get_current_user_id() . '/' . wp_generate_password(24, false, false) . '.' . TBV_SA_ATTACHMENT_TYPES[$type];
+        return ['ok' => true, 'path' => $path, 'uploadUrl' => tbv_sa_attachment_url('put', $path, $type, 15 * MINUTE_IN_SECONDS), 'contentType' => $type];
+    }]);
+    register_rest_route('tbv-messages/v1', '/attachments/object', ['methods' => ['PUT', 'GET'], 'permission_callback' => '__return_true', 'callback' => function ($request) {
+        $op = (string)$request->get_param('op');
+        $path = rawurldecode((string)$request->get_param('path'));
+        $type = rawurldecode((string)$request->get_param('type'));
+        $exp = (int)$request->get_param('exp');
+        $valid = in_array($op, ['put', 'get'], true) && tbv_sa_attachment_path_ok($path) && isset(TBV_SA_ATTACHMENT_TYPES[$type]) && $exp >= time()
+            && hash_equals(tbv_sa_attachment_sig($op, $path, $exp, $type), (string)$request->get_param('sig')) && ($op === 'put') === ($request->get_method() === 'PUT');
+        if (!$valid) return new WP_REST_Response(['ok' => false, 'error' => 'This link is invalid or expired.'], 403);
+        $file = tbv_sa_attachment_dir() . '/' . $path;
+        if ($op === 'put') {
+            $body = $request->get_body();
+            if ($body === '' || strlen($body) > TBV_SA_ATTACHMENT_MAX) return new WP_REST_Response(['ok' => false, 'error' => 'Attachment must be under 25 MB on this site.'], 413);
+            if (file_exists($file)) return new WP_REST_Response(['ok' => false, 'error' => 'Already uploaded.'], 409);
+            wp_mkdir_p(dirname($file));
+            file_put_contents($file, $body);
+            return ['ok' => true];
+        }
+        if (!is_file($file)) return new WP_REST_Response(['ok' => false, 'error' => 'Not found.'], 404);
+        $inline = str_starts_with($type, 'image/') || str_starts_with($type, 'video/') || $type === 'application/pdf';
+        header('Content-Type: ' . $type);
+        header('Content-Length: ' . filesize($file));
+        header('X-Content-Type-Options: nosniff');
+        header('Cache-Control: private, max-age=3600');
+        header('Content-Disposition: ' . ($inline ? 'inline' : 'attachment') . '; filename="' . basename($file) . '"');
+        readfile($file);
+        exit;
+    }]);
+    register_rest_route('tbv-messages/v1', '/attachments/access', ['methods' => 'POST', 'permission_callback' => 'is_user_logged_in', 'callback' => function ($request) {
+        global $wpdb;
+        $items = (array)(($request->get_json_params() ?: [])['attachments'] ?? []);
+        $user = wp_get_current_user();
+        $out = [];
+        foreach (array_slice($items, 0, 100) as $item) {
+            $path = (string)($item['path'] ?? '');
+            $field = (string)($item['field'] ?? '');
+            if (!tbv_sa_attachment_path_ok($path) || !in_array($field, ['message', 'admin_reply'], true)) continue;
+            // Same rule as live: the message must be the visitor's (or any, for a shop manager) and must contain the file.
+            $row = $wpdb->get_row($wpdb->prepare('SELECT email, ' . $field . ' AS body FROM ' . tbv_sa_messages_table() . ' WHERE id = %d', (int)($item['messageId'] ?? 0)), ARRAY_A);
+            if (!$row || (!tbv_sa_can() && strtolower($row['email']) !== strtolower($user->user_email)) || !str_contains((string)$row['body'], $path)) continue;
+            $type = array_search(pathinfo($path, PATHINFO_EXTENSION), TBV_SA_ATTACHMENT_TYPES, true);
+            if ($type) $out[] = ['reference' => $path, 'url' => tbv_sa_attachment_url('get', $path, $type, HOUR_IN_SECONDS)];
+        }
+        return ['ok' => true, 'attachments' => $out];
     }]);
 });

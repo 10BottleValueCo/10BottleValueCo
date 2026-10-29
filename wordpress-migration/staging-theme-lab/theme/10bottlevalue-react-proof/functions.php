@@ -39,6 +39,8 @@ add_filter('rest_pre_dispatch', function ($result, $server, $request) {
     if ($method === 'POST' && $route === '/tbv-analytics/v1/events') $write = true;
     // Support inbox: the endpoint itself limits visitors to sending and their own thread.
     if (tbv_staging_commerce_test_enabled() && $method === 'POST' && $route === '/tbv-messages/v1/query') $write = true;
+    // Chat attachments: signed upload/download links and access checks in tbv-storefront-admin.
+    if (tbv_staging_commerce_test_enabled() && preg_match('#^/tbv-messages/v1/attachments/(upload-url|access|object)$#', $route) && in_array($method, ['GET', 'POST', 'PUT'], true)) $write = true;
     // The storefront account dashboard reads the customer's own orders and saves the avatar.
     if (tbv_staging_commerce_test_enabled() && is_user_logged_in()) {
         if ($method === 'GET' && $route === '/tbv-account/v1/orders') $read = true;

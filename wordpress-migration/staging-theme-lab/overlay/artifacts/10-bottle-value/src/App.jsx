@@ -174,6 +174,16 @@ const tbvCommerce = (() => {
   const admin = user && c.admin && typeof c.admin.endpoint === "string" && c.admin.endpoint.startsWith(window.location.origin + "/") ? c.admin : null;
   return { ...c, user, account, receivedOrder, countries, admin };
 })();
+// Support chat attachments: WordPress signed links (tbv-storefront-admin) instead
+// of the live storage API; the nonce rides in the query for cookie sessions.
+const tbvMessagesBase = tbvCommerce?.messages?.endpoint ? tbvCommerce.messages.endpoint.replace(/\/query$/, "") : "";
+function supportAttachmentUrl(kind) {
+  if (!tbvMessagesBase) return `/api/support-attachments/${kind === "access" ? "access-urls" : "upload-url"}`;
+  return `${tbvMessagesBase}/attachments/${kind === "access" ? "access" : "upload-url"}?_wpnonce=${encodeURIComponent(tbvCommerce.messages.nonce || "")}`;
+}
+function supportAttachmentSession(client) {
+  return tbvMessagesBase ? Promise.resolve({ data: { session: { access_token: "wordpress-cookie-session" } }, error: null }) : client.auth.getSession();
+}
 // WooCommerce shop managers get the live admin panel, fed by tbv-storefront-admin.
 const tbvAdmin = tbvCommerce?.admin || null;
 async function tbvAdminApi(path, { method = "GET", body } = {}) {
@@ -5135,7 +5145,7 @@ export default function App() {
       const {
         data: { session },
         error: sessionError,
-      } = await supabase.auth.getSession();
+      } = await supportAttachmentSession(supabase);
       if (!active) return;
       if (sessionError || !session?.access_token) {
         setAttachmentErrors(requestItems, "Sign in again to load this photo.");
@@ -5144,7 +5154,7 @@ export default function App() {
 
       for (let offset = 0; offset < requestItems.length; offset += 100) {
         const batch = requestItems.slice(offset, offset + 100);
-        const response = await fetch("/api/support-attachments/access-urls", {
+        const response = await fetch(supportAttachmentUrl("access"), {
           method: "POST",
           credentials: "same-origin",
           headers: {
@@ -5408,7 +5418,7 @@ export default function App() {
   }
 
   async function uploadAndSendAttachment(file, sendFn) {
-    if (!currentUser?.email) {
+    if (!cartUser?.email) {
       setUserInboxError("Sign in to send support messages.");
       return;
     }
@@ -5417,7 +5427,7 @@ export default function App() {
       if (file) alert('Choose an image, video, or supported document file.');
       return;
     }
-    if (file.size > 100 * 1024 * 1024) { alert('Attachment must be under 100 MB'); return; }
+    if (file.size > (tbvMessagesBase ? 25 : 100) * 1024 * 1024) { alert(`Attachment must be under ${tbvMessagesBase ? 25 : 100} MB`); return; }
     const fileName = getSupportAttachmentFileName(file, attachmentDetails);
     if (chatAttachmentUploadingRef.current) return;
     chatAttachmentUploadingRef.current = true;
@@ -5426,14 +5436,14 @@ export default function App() {
       const {
         data: { session },
         error: sessionError,
-      } = await supabase.auth.getSession();
+      } = await supportAttachmentSession(supabase);
       if (sessionError) throw new Error("Could not verify your support session.");
       const uploadHeaders = { "Content-Type": "application/json" };
       if (session?.access_token) {
         uploadHeaders.Authorization = `Bearer ${session.access_token}`;
       }
       const uploadUrlResponse = await fetch(
-        "/api/support-attachments/upload-url",
+        supportAttachmentUrl("upload-url"),
         {
           method: "POST",
           credentials: "same-origin",
@@ -17658,12 +17668,12 @@ export default function App() {
                                               const {
                                                 data: { session },
                                                 error: sessionError,
-                                              } = await supabase.auth.getSession();
+                                              } = await supportAttachmentSession(supabase);
                                               if (sessionError || !session?.access_token) {
                                                 throw new Error("Sign in again to export chat photos.");
                                               }
                                               for (let offset = 0; offset < attachmentRequests.length; offset += 100) {
-                                                const response = await fetch("/api/support-attachments/access-urls", {
+                                                const response = await fetch(supportAttachmentUrl("access"), {
                                                   method: "POST",
                                                   credentials: "same-origin",
                                                   headers: {
