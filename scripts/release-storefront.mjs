@@ -49,7 +49,9 @@ function check(host, expectedConfig) {
     const item = { host, route, status };
     if (route === "/api/merit-checkout") {
       const config = JSON.parse(result.body);
-      if (!config.ok || !config.enabled || config.currency !== "usd" || !Number.isSafeInteger(config.surchargeBps)) throw new Error("Public card configuration failed verification.");
+      // Merit card checkout is retired (owner, 2026-10-29); otherwise it must be fully configured.
+      const retired = config.ok === true && config.retired === true && config.enabled === false;
+      if (!retired && (!config.ok || !config.enabled || config.currency !== "usd" || !Number.isSafeInteger(config.surchargeBps))) throw new Error("Public card configuration failed verification.");
       if (expectedConfig && JSON.stringify(config) !== JSON.stringify(expectedConfig)) throw new Error("Live payment configuration differs from the candidate.");
       receipt.configuration = config;
       item.configuration = config;
