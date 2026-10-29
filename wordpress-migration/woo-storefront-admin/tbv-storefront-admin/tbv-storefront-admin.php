@@ -15,6 +15,20 @@ const TBV_SA_TO_WOO = ['pending' => 'pending', 'checkout' => 'pending', 'paid' =
 
 function tbv_sa_can() { return current_user_can('manage_woocommerce'); }
 
+/**
+ * Visitor address for rate limits. Behind the local tunnel/proxy, the address the
+ * tunnel appended last; earlier X-Forwarded-For entries come from the client.
+ */
+function tbv_sa_client_ip() {
+    $remote = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+    if (in_array($remote, ['127.0.0.1', '::1'], true) && !empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+        $parts = array_map('trim', explode(',', (string)$_SERVER['HTTP_X_FORWARDED_FOR']));
+        $last = end($parts);
+        if (filter_var($last, FILTER_VALIDATE_IP)) return $last;
+    }
+    return $remote;
+}
+
 function tbv_sa_live_status($order) {
     return match ($order->get_status()) {
         'processing' => 'paid',
@@ -395,9 +409,10 @@ add_action('rest_api_init', function () {
                 $email = $user->exists() ? strtolower($user->user_email) : tbv_sa_message_value('email', $q['values']['email'] ?? '');
                 $text = trim((string)($q['values']['message'] ?? ''));
                 if (!is_email($email) || $text === '') return new WP_Error('tbv_sa_message_invalid', 'Enter your email and a message.', ['status' => 400]);
-                $key = 'tbv_msg_' . md5((string)($_SERVER['REMOTE_ADDR'] ?? ''));
+                // Guests: 10 per address; signed-in customers: 30 per account (per 10 minutes).
+                $key = $user->exists() ? 'tbv_msg_u' . $user->ID : 'tbv_msg_' . md5(tbv_sa_client_ip());
                 $sent = (int)get_transient($key);
-                if ($sent >= 10) return new WP_Error('tbv_sa_message_rate', 'Too many messages. Please try again later.', ['status' => 429]);
+                if ($sent >= ($user->exists() ? 30 : 10)) return new WP_Error('tbv_sa_message_rate', 'Too many messages. Please try again later.', ['status' => 429]);
                 set_transient($key, $sent + 1, 10 * MINUTE_IN_SECONDS);
                 $q['values'] = ['name' => $q['values']['name'] ?? '', 'email' => $email, 'message' => $text];
             } elseif ($user->exists() && in_array($op, ['select', 'update'], true)) {
@@ -475,7 +490,7 @@ add_action('rest_api_init', function () {
         $type = is_array($e) ? (string)($e['event_type'] ?? '') : '';
         if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $session) || !in_array($type, TBV_SA_EVENT_TYPES, true)) return new WP_REST_Response(['ok' => false], 400);
         if (tbv_sa_can()) return new WP_REST_Response(['ok' => true, 'skipped' => 'admin'], 202);
-        foreach (['tbv_ev_s_' . md5($session) => 300, 'tbv_ev_i_' . md5((string)($_SERVER['REMOTE_ADDR'] ?? '')) => 1200] as $key => $max) {
+        foreach (['tbv_ev_s_' . md5($session) => 300, 'tbv_ev_i_' . md5(tbv_sa_client_ip()) => 1200] as $key => $max) {
             $count = (int)get_transient($key);
             if ($count >= $max) return new WP_REST_Response(['ok' => false], 429);
             set_transient($key, $count + 1, 10 * MINUTE_IN_SECONDS);
@@ -496,5 +511,19 @@ add_action('rest_api_init', function () {
         $days = in_array((int)$request->get_param('days'), [1, 7, 30, 90], true) ? (int)$request->get_param('days') : 7;
         $rows = $wpdb->get_results($wpdb->prepare('SELECT id, session_id, event_type, page, properties, created_at FROM ' . tbv_sa_events_table() . ' WHERE created_at >= %s ORDER BY created_at DESC LIMIT 20000', gmdate('Y-m-d H:i:s', time() - $days * DAY_IN_SECONDS)), ARRAY_A);
         return ['events' => array_map(fn($r) => ['id' => (int)$r['id'], 'session_id' => $r['session_id'], 'event_type' => $r['event_type'], 'page' => $r['page'], 'properties' => $r['properties'] ? json_decode($r['properties'], true) : null, 'created_at' => gmdate('c', strtotime($r['created_at'] . ' UTC'))], $rows)];
+    }]);
+});
+
+/* ---------- Tools: out-of-stock switches ---------- */
+
+add_action('rest_api_init', function () {
+    // Live keeps these switches in one browser; WooCommerce stock status is shared.
+    register_rest_route(TBV_SA_NAMESPACE, '/stock', ['methods' => 'POST', 'permission_callback' => 'tbv_sa_can', 'callback' => function ($request) {
+        $data = (array)($request->get_json_params() ?: []);
+        $variation = wc_get_product((int)($data['variationId'] ?? 0));
+        if (!$variation || !$variation->is_type('variation')) return new WP_Error('tbv_sa_stock_missing', 'Unknown product.', ['status' => 404]);
+        $variation->set_stock_status(!empty($data['outOfStock']) ? 'outofstock' : 'instock');
+        $variation->save();
+        return ['variationId' => $variation->get_id(), 'stockStatus' => $variation->get_stock_status()];
     }]);
 });

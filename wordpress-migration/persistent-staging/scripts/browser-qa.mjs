@@ -319,6 +319,12 @@ check('storefront visits and add-to-cart reach the funnel', funnelCount.views > 
 await adminPage.getByRole('button', {name: /^funnel$/i}).first().click(); await adminPage.waitForTimeout(3000);
 check('admin funnel tab loads events', !/could not be loaded|Sign in to the admin/i.test(await adminPage.locator('body').innerText()));
 await adminPage.screenshot({path: path.join(out, 'flow-desktop-admin-funnel.png')});
+const stockVariation = wp('eval', `echo wc_get_products(['limit' => 1, 'type' => 'variation', 'stock_status' => 'instock'])[0]->get_id();`);
+await adminPage.getByRole('button', {name: /^tools$/i}).first().click(); await adminPage.waitForTimeout(1500);
+const stockSet = await adminPage.evaluate(async (id) => { const a = window.TBV_COMMERCE.admin; const r = await fetch(a.endpoint + '/stock', {method: 'POST', credentials: 'same-origin', headers: {'X-WP-Nonce': a.nonce, 'Content-Type': 'application/json'}, body: JSON.stringify({variationId: Number(id), outOfStock: true})}); return r.status; }, stockVariation);
+const stockNow = wp('eval', `echo wc_get_product(${stockVariation})->get_stock_status();`);
+await adminPage.evaluate(async (id) => { const a = window.TBV_COMMERCE.admin; await fetch(a.endpoint + '/stock', {method: 'POST', credentials: 'same-origin', headers: {'X-WP-Nonce': a.nonce, 'Content-Type': 'application/json'}, body: JSON.stringify({variationId: Number(id), outOfStock: false})}); }, stockVariation);
+check('admin stock switch sets WooCommerce stock status', stockSet === 200 && stockNow === 'outofstock' && wp('eval', `echo wc_get_product(${stockVariation})->get_stock_status();`) === 'instock', `${stockSet}/${stockNow}`);
 check('admin panel no JS errors', adminErrors.length === 0, adminErrors.join(' | '));
 await adminCtx.close();
 await browser.close();

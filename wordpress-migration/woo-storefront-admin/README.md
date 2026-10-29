@@ -12,15 +12,15 @@ The staging storefront shows the live site's own admin panel (ORDERS, CHARTS, IN
 | Affiliates, payouts, issue/revoke | `tbv-affiliates-credit` |
 | Public promo codes / one-time account codes | WooCommerce percent coupons (public marker / email restriction + one use) |
 | Store credit lookup and adjust | `tbv-affiliates-credit` (existing accounts only) |
+| Tools out-of-stock switches | WooCommerce stock status of that variation, shared by everyone (live keeps these in one browser) |
 | Charts, Analytics | computed in the browser from the orders above, as on live |
-| Funnel | live's anonymous storefront events (random browser session id; no IP, account or email stored) posted to `POST /wp-json/tbv-analytics/v1/events`: live's nine event types only, 300 per session and 1,200 per IP per 10 minutes, admins not counted, kept 90 days. The tab reads `GET tbv-admin/v1/analytics?days=1|7|30|90` |
-| Inbox and the customer's support chat (Contact → New message) | table `wp_tbv_contact_messages` with live's columns. The app's `contact_messages` queries go to `POST /wp-json/tbv-messages/v1/query`: visitors can only send (under their account email when signed in); a customer reads only their own thread and can only mark replies read; shop managers read, reply, edit and delete. Contact sends are limited to 10 per IP per 10 minutes |
+| Funnel | live's anonymous storefront events (random browser session id; no IP, account or email stored) posted to `POST /wp-json/tbv-analytics/v1/events`: live's nine event types only, 300 per session and 1,200 per visitor address per 10 minutes, admins not counted, kept 90 days. The tab reads `GET tbv-admin/v1/analytics?days=1|7|30|90` |
+| Inbox and the customer's support chat (Contact → New message) | table `wp_tbv_contact_messages` with live's columns. The app's `contact_messages` queries go to `POST /wp-json/tbv-messages/v1/query`: visitors can only send (under their account email when signed in); a customer reads only their own thread and can only mark replies read; shop managers read, reply, edit and delete. Contact sends are limited per 10 minutes to 10 per visitor address (the tunnel's last X-Forwarded-For entry) or 30 per signed-in account |
 
 Not connected yet:
 - **Inbox attachments:** live uploads to signed storage URLs; not on WordPress yet.
 - **Typing indicator:** live uses Supabase Realtime; it is a no-op here.
 - **Charts per-order cost overrides:** live `order_cost_overrides`.
-- **Tools out-of-stock toggles:** live keeps these in browser storage; on WordPress they should become product stock status.
 - **"+ Test order":** stays browser-local, as on live.
 
 Tests (staging, 2026-10-29):
@@ -32,5 +32,5 @@ Tests (staging, 2026-10-29):
   - shows the Affiliates tab, creates/lists/deletes a promo coupon, looks up store credit, with no JS errors;
   - support chat: a customer writes from Contact, the admin sees it in Inbox and replies, and the customer sees the reply.
 - E2E: funnel events are validated, and reading them is admin-only.
-- Browser QA: storefront page views and add-to-cart reach the Funnel tab.
+- Browser QA: storefront page views and add-to-cart reach the Funnel tab; the stock switch sets and clears WooCommerce stock status.
 - E2E: guests can send but not read; a customer's message uses the account email; customers read only their own thread and cannot write replies.

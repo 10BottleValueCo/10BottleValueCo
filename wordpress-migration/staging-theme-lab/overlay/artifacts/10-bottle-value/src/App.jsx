@@ -9491,7 +9491,18 @@ export default function App() {
 
 
 
-  function toggleOOS(key, value) {
+  async function toggleOOS(key, value, product = null) {
+    if (tbvAdmin && product?.wooVariationId) {
+      // WordPress: real WooCommerce stock status for this variation.
+      try {
+        await tbvAdminApi("stock", { method: "POST", body: { variationId: product.wooVariationId, outOfStock: value } });
+        product.outOfStock = value;
+        setOosOverrides((current) => ({ ...current }));
+      } catch (e) {
+        setAdminMessage(`Stock update failed: ${e.message}`);
+      }
+      return;
+    }
     const next = { ...oosOverrides, [key]: value };
     setOosOverrides(next);
     tbvLocal.setItem("tbv-oos", JSON.stringify(next));
@@ -18102,7 +18113,7 @@ export default function App() {
                                     <button
                                       key={key}
                                       type="button"
-                                      onClick={() => toggleOOS(key, !oos)}
+                                      onClick={() => toggleOOS(key, !oos, p)}
                                       className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.14em] transition-all ${
                                         oos
                                           ? "border-red-500/50 bg-red-500/15 text-red-300 hover:bg-red-500/25"
