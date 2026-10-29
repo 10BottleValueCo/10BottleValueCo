@@ -35,6 +35,8 @@ add_filter('rest_pre_dispatch', function ($result, $server, $request) {
     // and the affiliate panel / public code lookup.
     if (tbv_staging_commerce_test_enabled() && $method === 'POST' && $route === '/wc/store/v1/cart/extensions' && $request->get_param('namespace') === 'tbv-affiliate') $write = true;
     if (tbv_staging_commerce_test_enabled() && $method === 'GET' && $route === '/tbv-affiliates/v1/account') $read = true;
+    // Anonymous visitor funnel events (tbv-storefront-admin validates and rate-limits).
+    if ($method === 'POST' && $route === '/tbv-analytics/v1/events') $write = true;
     // Support inbox: the endpoint itself limits visitors to sending and their own thread.
     if (tbv_staging_commerce_test_enabled() && $method === 'POST' && $route === '/tbv-messages/v1/query') $write = true;
     // The storefront account dashboard reads the customer's own orders and saves the avatar.

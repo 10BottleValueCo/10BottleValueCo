@@ -439,3 +439,62 @@ add_action('rest_api_init', function () {
         return ['data' => array_map('tbv_sa_message_row', $rows)];
     }]);
 });
+
+/* ---------- Visitor funnel (live analytics_events) ---------- */
+
+const TBV_SA_EVENTS_SCHEMA = '1';
+// Live api/analytics.js allows exactly these event types.
+const TBV_SA_EVENT_TYPES = ['page_view', 'page_exit', 'product_view', 'add_to_cart', 'checkout_started', 'checkout_step', 'order_placed', 'ui_click', 'form_submit'];
+
+function tbv_sa_events_table() { global $wpdb; return $wpdb->prefix . 'tbv_analytics_events'; }
+add_action('plugins_loaded', function () {
+    if (get_option('tbv_sa_events_schema') === TBV_SA_EVENTS_SCHEMA) return;
+    global $wpdb;
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+    dbDelta('CREATE TABLE ' . tbv_sa_events_table() . " (
+  id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  session_id char(36) NOT NULL,
+  event_type varchar(32) NOT NULL,
+  page varchar(100) DEFAULT NULL,
+  referrer varchar(500) DEFAULT NULL,
+  properties text DEFAULT NULL,
+  created_at datetime NOT NULL,
+  PRIMARY KEY  (id),
+  KEY created_at (created_at),
+  KEY session_id (session_id)
+) ENGINE=InnoDB " . $wpdb->get_charset_collate() . ';');
+    update_option('tbv_sa_events_schema', TBV_SA_EVENTS_SCHEMA, false);
+});
+
+add_action('rest_api_init', function () {
+    // Anonymous: a random browser session id, no IP, account or email is stored.
+    register_rest_route('tbv-analytics/v1', '/events', ['methods' => 'POST', 'permission_callback' => '__return_true', 'callback' => function ($request) {
+        global $wpdb;
+        $e = json_decode($request->get_body(), true);
+        $session = is_array($e) ? (string)($e['session_id'] ?? '') : '';
+        $type = is_array($e) ? (string)($e['event_type'] ?? '') : '';
+        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $session) || !in_array($type, TBV_SA_EVENT_TYPES, true)) return new WP_REST_Response(['ok' => false], 400);
+        if (tbv_sa_can()) return new WP_REST_Response(['ok' => true, 'skipped' => 'admin'], 202);
+        foreach (['tbv_ev_s_' . md5($session) => 300, 'tbv_ev_i_' . md5((string)($_SERVER['REMOTE_ADDR'] ?? '')) => 1200] as $key => $max) {
+            $count = (int)get_transient($key);
+            if ($count >= $max) return new WP_REST_Response(['ok' => false], 429);
+            set_transient($key, $count + 1, 10 * MINUTE_IN_SECONDS);
+        }
+        $properties = is_array($e['properties'] ?? null) ? wp_json_encode($e['properties']) : null;
+        if ($properties !== null && strlen($properties) > 4000) $properties = null;
+        $wpdb->insert(tbv_sa_events_table(), [
+            'session_id' => strtolower($session), 'event_type' => $type,
+            'page' => is_string($e['page'] ?? null) ? substr(sanitize_text_field($e['page']), 0, 100) : null,
+            'referrer' => is_string($e['referrer'] ?? null) ? substr(esc_url_raw($e['referrer']), 0, 500) : null,
+            'properties' => $properties, 'created_at' => gmdate('Y-m-d H:i:s'),
+        ]);
+        if (wp_rand(1, 200) === 1) $wpdb->query($wpdb->prepare('DELETE FROM ' . tbv_sa_events_table() . ' WHERE created_at < %s', gmdate('Y-m-d H:i:s', time() - 90 * DAY_IN_SECONDS)));
+        return new WP_REST_Response(['ok' => true], 202);
+    }]);
+    register_rest_route(TBV_SA_NAMESPACE, '/analytics', ['methods' => 'GET', 'permission_callback' => 'tbv_sa_can', 'callback' => function ($request) {
+        global $wpdb;
+        $days = in_array((int)$request->get_param('days'), [1, 7, 30, 90], true) ? (int)$request->get_param('days') : 7;
+        $rows = $wpdb->get_results($wpdb->prepare('SELECT id, session_id, event_type, page, properties, created_at FROM ' . tbv_sa_events_table() . ' WHERE created_at >= %s ORDER BY created_at DESC LIMIT 20000', gmdate('Y-m-d H:i:s', time() - $days * DAY_IN_SECONDS)), ARRAY_A);
+        return ['events' => array_map(fn($r) => ['id' => (int)$r['id'], 'session_id' => $r['session_id'], 'event_type' => $r['event_type'], 'page' => $r['page'], 'properties' => $r['properties'] ? json_decode($r['properties'], true) : null, 'created_at' => gmdate('c', strtotime($r['created_at'] . ' UTC'))], $rows)];
+    }]);
+});

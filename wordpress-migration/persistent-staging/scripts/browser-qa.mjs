@@ -314,6 +314,11 @@ await chatPage.getByRole('button', {name: /new message|messages|chat/i}).first()
 check('customer sees the admin reply on Contact', (await chatPage.locator('body').innerText()).includes(replyText));
 await chatPage.screenshot({path: path.join(out, 'flow-desktop-contact-chat.png')});
 await chatCtx.close();
+const funnelCount = await adminPage.evaluate(async () => { const a = window.TBV_COMMERCE.admin; const r = await fetch(a.endpoint + '/analytics?days=1', {credentials: 'same-origin', headers: {'X-WP-Nonce': a.nonce}}); const j = await r.json(); const types = (j.events || []).map(e => e.event_type); return {views: types.filter(t => t === 'page_view').length, carts: types.filter(t => t === 'add_to_cart').length}; });
+check('storefront visits and add-to-cart reach the funnel', funnelCount.views > 0 && funnelCount.carts > 0, JSON.stringify(funnelCount));
+await adminPage.getByRole('button', {name: /^funnel$/i}).first().click(); await adminPage.waitForTimeout(3000);
+check('admin funnel tab loads events', !/could not be loaded|Sign in to the admin/i.test(await adminPage.locator('body').innerText()));
+await adminPage.screenshot({path: path.join(out, 'flow-desktop-admin-funnel.png')});
 check('admin panel no JS errors', adminErrors.length === 0, adminErrors.join(' | '));
 await adminCtx.close();
 await browser.close();

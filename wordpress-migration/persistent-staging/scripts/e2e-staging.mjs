@@ -369,6 +369,13 @@ async function affiliateChecks(offers) {
   check('support_customer_reads_only_own_thread', Array.isArray(own.data) && own.data.length >= 1 && own.data.every(r => r.email === buyerEmail), JSON.stringify(own).slice(0, 200));
   const forge = await msg(buyer, {op: 'update', values: {admin_reply: 'forged'}, filters: [['eq', 'id', spoof.data?.[0]?.id]]}, buyerNonce);
   check('support_customer_cannot_write_replies', forge.status === 403, forge.status);
+  // Funnel: anonymous events in, admin-only read.
+  const sid = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+  const ev = (body) => new Client().req('/wp-json/tbv-analytics/v1/events', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body)});
+  const goodEvent = await ev({session_id: sid, event_type: 'page_view', page: 'shop', properties: {page: 'shop', device_type: 'desktop'}});
+  const badEvent = await ev({session_id: sid, event_type: 'drop_table', page: 'shop'});
+  const funnelRead = await buyer.req('/wp-json/tbv-admin/v1/analytics?days=1', {headers: {'x-wp-nonce': restNonce(buyerDash.text)}});
+  check('funnel_events_validated_and_admin_only', goodEvent.status === 202 && badEvent.status === 400 && [401, 403].includes(funnelRead.status), `${goodEvent.status}/${badEvent.status}/${funnelRead.status}`);
   const anon = await new Client().req('/wp-json/tbv-affiliates/v1/account?orders=1');
   check('affiliate_orders_require_login', anon.status === 401 || anon.status === 403, anon.status);
   const lookup = JSON.parse((await new Client().req('/wp-json/tbv-affiliates/v1/account?code=reviewaff')).text || '{}');

@@ -3037,11 +3037,15 @@ function FunnelTab({ supabase }) {
     setLoadError("");
     const days = range === "1d" ? 1 : range === "7d" ? 7 : range === "30d" ? 30 : 90;
     try {
-      const { data } = await supabase.auth.getSession();
+      const admin = window.TBV_COMMERCE?.admin;
+      const { data } = admin ? { data: null } : await supabase.auth.getSession();
       const accessToken = data?.session?.access_token;
-      if (!accessToken) throw new Error("Sign in to the admin account to view visitor activity.");
+      if (!admin && !accessToken) throw new Error("Sign in to the admin account to view visitor activity.");
 
-      const response = await fetch(`/api/analytics?days=${days}`, {
+      // WordPress: the same events from tbv-storefront-admin.
+      const response = admin
+        ? await fetch(`${admin.endpoint}/analytics?days=${days}`, { credentials: "same-origin", headers: { "X-WP-Nonce": String(admin.nonce || "") } })
+        : await fetch(`/api/analytics?days=${days}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const result = await response.json().catch(() => ({}));
@@ -11139,6 +11143,8 @@ export default function App() {
         setCartHighlight(true);
         window.clearTimeout(window.__tbvCartHighlightTimeout);
         window.__tbvCartHighlightTimeout = window.setTimeout(() => setCartHighlight(false), 600);
+        // Analytics (as live)
+        track("add_to_cart", { page, source, product_name: selected.name, product_dose: selected.dose, product_price: selected.price });
         return true;
       } catch (error) {
         setCartToast(`Preview cart: ${error.message}`);
