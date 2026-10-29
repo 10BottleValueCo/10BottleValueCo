@@ -319,6 +319,14 @@ check('storefront visits and add-to-cart reach the funnel', funnelCount.views > 
 await adminPage.getByRole('button', {name: /^funnel$/i}).first().click(); await adminPage.waitForTimeout(3000);
 check('admin funnel tab loads events', !/could not be loaded|Sign in to the admin/i.test(await adminPage.locator('body').innerText()));
 await adminPage.screenshot({path: path.join(out, 'flow-desktop-admin-funnel.png')});
+await adminPage.getByRole('button', {name: /^charts$/i}).first().click(); await adminPage.waitForTimeout(2500);
+const costs = await adminPage.evaluate(async (id) => {
+  const a = window.TBV_COMMERCE.admin; const h = {'X-WP-Nonce': a.nonce, 'Content-Type': 'application/json'};
+  const saved = await fetch(a.endpoint + '/order-costs', {method: 'POST', credentials: 'same-origin', headers: h, body: JSON.stringify({orderId: String(id), kind: 'line', index: 0, amount: 12.34})}).then(r => r.json());
+  const listed = await fetch(a.endpoint + '/order-costs', {credentials: 'same-origin', headers: h}).then(r => r.json());
+  return {saved: saved.order?.metadata?.lineCostOverrides?.[0], listed: (listed.orders || []).find(o => o.id === String(id))?.metadata?.lineCostOverrides?.[0]};
+}, adminOrder);
+check('admin chart cost overrides saved on the order', costs.saved === 12.34 && costs.listed === 12.34 && !/could not save or load costs|Sign in as an administrator/i.test(await adminPage.locator('body').innerText()), JSON.stringify(costs));
 const stockVariation = wp('eval', `echo wc_get_products(['limit' => 1, 'type' => 'variation', 'stock_status' => 'instock'])[0]->get_id();`);
 await adminPage.getByRole('button', {name: /^tools$/i}).first().click(); await adminPage.waitForTimeout(1500);
 const stockSet = await adminPage.evaluate(async (id) => { const a = window.TBV_COMMERCE.admin; const r = await fetch(a.endpoint + '/stock', {method: 'POST', credentials: 'same-origin', headers: {'X-WP-Nonce': a.nonce, 'Content-Type': 'application/json'}, body: JSON.stringify({variationId: Number(id), outOfStock: true})}); return r.status; }, stockVariation);

@@ -5017,7 +5017,7 @@ export default function App() {
     return ADMIN_EMAILS.includes(normalizeEmail(user?.email));
   }
 
-  const chartsOrderCosts = useAdminOrderCosts(supabase, !tbvAdmin && page === "admin" && adminActiveTab === "charts" && isAdminUser(), currentUser?.id || currentUser?.email);
+  const chartsOrderCosts = useAdminOrderCosts(supabase, page === "admin" && adminActiveTab === "charts" && isAdminUser(), cartUser?.id || cartUser?.email);
 
   function stripQuoteMarker(text) {
     return String(text || "").replace(/^\[QUOTE:([^\]]*)\]/, "").trim();

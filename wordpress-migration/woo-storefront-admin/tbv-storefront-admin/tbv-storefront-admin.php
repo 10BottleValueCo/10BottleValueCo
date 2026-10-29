@@ -527,3 +527,37 @@ add_action('rest_api_init', function () {
         return ['variationId' => $variation->get_id(), 'stockStatus' => $variation->get_stock_status()];
     }]);
 });
+
+/* ---------- Charts: per-order supplier cost overrides ---------- */
+
+function tbv_sa_cost_metadata($order) {
+    $lines = json_decode((string)$order->get_meta('_tbv_line_cost_overrides'), true);
+    $metadata = ['lineCostOverrides' => is_array($lines) ? (object)$lines : new stdClass()];
+    if ($order->get_meta('_tbv_supplier_shipping_override') !== '') $metadata['supplierShippingOverride'] = round((float)$order->get_meta('_tbv_supplier_shipping_override'), 2);
+    return $metadata;
+}
+add_action('rest_api_init', function () {
+    register_rest_route(TBV_SA_NAMESPACE, '/order-costs', ['methods' => 'GET', 'permission_callback' => 'tbv_sa_can', 'callback' => function () {
+        $orders = wc_get_orders(['limit' => 2000, 'type' => 'shop_order', 'meta_query' => ['relation' => 'OR', ['key' => '_tbv_line_cost_overrides', 'compare' => 'EXISTS'], ['key' => '_tbv_supplier_shipping_override', 'compare' => 'EXISTS']]]);
+        return ['ok' => true, 'orders' => array_map(fn($o) => ['id' => tbv_sa_order($o)['id'], 'metadata' => tbv_sa_cost_metadata($o)], $orders), 'nextCursor' => null];
+    }]);
+    register_rest_route(TBV_SA_NAMESPACE, '/order-costs', ['methods' => 'POST', 'permission_callback' => 'tbv_sa_can', 'callback' => function ($request) {
+        $data = (array)($request->get_json_params() ?: []);
+        $order = tbv_sa_find((string)($data['orderId'] ?? ''));
+        $amount = $data['amount'] ?? null;
+        $kind = $data['kind'] ?? '';
+        // Same rules as live api/_order-costs-core.js.
+        if (!$order || !in_array($kind, ['line', 'shipping'], true) || !is_numeric($amount) || $amount < 0 || $amount > 1000000 || round((float)$amount, 2) != (float)$amount) return new WP_REST_Response(['ok' => false, 'error' => 'Invalid cost change.'], 400);
+        if ($kind === 'line') {
+            $index = $data['index'] ?? null;
+            if (!is_int($index) || $index < 0 || $index > 9999) return new WP_REST_Response(['ok' => false, 'error' => 'Invalid order line.'], 400);
+            $lines = json_decode((string)$order->get_meta('_tbv_line_cost_overrides'), true) ?: [];
+            $lines[(string)$index] = round((float)$amount, 2);
+            $order->update_meta_data('_tbv_line_cost_overrides', wp_json_encode($lines));
+        } else {
+            $order->update_meta_data('_tbv_supplier_shipping_override', (string)round((float)$amount, 2));
+        }
+        $order->save();
+        return ['ok' => true, 'order' => ['id' => tbv_sa_order($order)['id'], 'metadata' => tbv_sa_cost_metadata($order)]];
+    }]);
+});
