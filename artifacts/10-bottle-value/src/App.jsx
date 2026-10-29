@@ -8311,13 +8311,6 @@ export default function App() {
       DE: "UND",
       ES: "Y",
     },
-    ruoStrict: {
-      EN: "FOR LABORATORY RESEARCH USE ONLY. NOT FOR HUMAN OR ANIMAL USE.",
-      RU: "ТОЛЬКО ДЛЯ ЛАБОРАТОРНЫХ ИССЛЕДОВАНИЙ. НЕ ДЛЯ ИСПОЛЬЗОВАНИЯ ЛЮДЬМИ ИЛИ ЖИВОТНЫМИ.",
-      UA: "ЛИШЕ ДЛЯ ЛАБОРАТОРНИХ ДОСЛІДЖЕНЬ. НЕ ДЛЯ ВИКОРИСТАННЯ ЛЮДЬМИ АБО ТВАРИНАМИ.",
-      DE: "NUR FÜR LABORFORSCHUNGSZWECKE. NICHT FÜR DIE ANWENDUNG BEI MENSCHEN ODER TIEREN BESTIMMT.",
-      ES: "SOLO PARA USO EN INVESTIGACIÓN DE LABORATORIO. NO PARA USO HUMANO O ANIMAL.",
-    },
     checkoutDataNotice: {
       EN: "YOUR PERSONAL DATA WILL BE USED TO PROCESS YOUR ORDER, SUPPORT YOUR EXPERIENCE THROUGHOUT THIS WEBSITE, AND FOR OTHER PURPOSES DESCRIBED IN OUR",
       RU: "ВАШИ ПЕРСОНАЛЬНЫЕ ДАННЫЕ БУДУТ ИСПОЛЬЗОВАНЫ ДЛЯ ОБРАБОТКИ ЗАКАЗА, ПОДДЕРЖКИ ВАШЕГО ОПЫТА НА САЙТЕ И ДРУГИХ ЦЕЛЕЙ, ОПИСАННЫХ В НАШЕЙ",
@@ -14442,25 +14435,7 @@ export default function App() {
             <section className="tbv-home__legal w-full px-6 py-8 md:px-10 md:py-10">
               <div className="mx-auto max-w-4xl text-center lg:grid lg:max-w-6xl lg:grid-cols-[0.95fr_1.05fr] lg:items-start lg:gap-x-8">
                 <div className="min-w-0 text-center">
-                <div className="text-[10px] uppercase tracking-[0.28em] text-white">
-                  {language === "RU"
-                    ? "Только для исследований"
-                    : language === "UA"
-                    ? "Лише для досліджень"
-                    : language === "DE"
-                    ? "Nur für Forschungszwecke. Nicht für den menschlichen oder tierischen Gebrauch."
-                    : language === "ES"
-                    ? "Solo para uso en investigacion"
-                    : "Research Use Only"}
-                </div>
-
-                <div className="mx-auto mt-2 max-w-3xl text-[12px] font-semibold uppercase leading-5 tracking-[0.06em] text-white md:max-w-3xl md:text-[13px]">
-                  {i18n(legal.ruoStrict)}
-                </div>
-
-                <div className="mx-auto mt-4 h-px w-16 bg-white/30" />
-
-                <div className="mx-auto mt-4 flex max-w-3xl flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-white md:max-w-[46rem] md:gap-x-6">
+                <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-white md:max-w-[46rem] md:gap-x-6">
                   <a
                     href="/terms-and-conditions"
                     className="transition hover:text-white hover:underline hover:underline-offset-4"
