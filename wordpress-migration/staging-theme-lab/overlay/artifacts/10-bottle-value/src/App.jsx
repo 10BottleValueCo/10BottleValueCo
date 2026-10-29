@@ -1082,7 +1082,7 @@ function UPSTrackBlock() {
   );
 }
 
-function TrackOrderPage({ t, supabase, currentUser }) {
+function TrackOrderPage({ t, supabase, currentUser, wooAccount = null }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -1113,6 +1113,28 @@ function TrackOrderPage({ t, supabase, currentUser }) {
     setResult(null);
     setNotFound(false);
     setAccessMessage("");
+    if (wooAccount) {
+      // WordPress: the signed-in customer's own WooCommerce order.
+      try {
+        const response = await fetch(`${wooAccount.ordersEndpoint}?number=${encodeURIComponent(query)}`, { credentials: "same-origin", headers: { "X-WP-Nonce": String(wooAccount.restNonce || "") } });
+        const rows = response.ok ? await response.json().catch(() => []) : [];
+        const order = Array.isArray(rows) ? rows[0] : null;
+        if (!order) setNotFound(true);
+        else setResult({
+          id: order.sourceId || order.id,
+          status: ["processing", "completed"].includes(order.statusKey) ? "paid" : order.statusKey || "pending",
+          createdAt: order.createdAt || "", total: order.total ?? 0, subtotal: order.subtotal ?? 0, shipping: order.shipping ?? 0,
+          shippingType: order.shippingType || "", automaticDiscount: 0, promoDiscount: 0, affiliateDiscount: 0, affiliateCode: "", paypalFee: 0,
+          items: order.items || [], paymentProvider: order.paymentMethod || "",
+          trackingNumber: order.trackingNumber || "", trackingNumber2: order.trackingNumber2 || "",
+        });
+      } catch {
+        setNotFound(true);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
     try {
       const { data, error } = await supabase
         .from("orders")
@@ -15900,7 +15922,7 @@ export default function App() {
         ) : null}
 
         {page === "track" && (
-          <TrackOrderPage t={t} supabase={supabase} currentUser={currentUser} />
+          <TrackOrderPage t={t} supabase={supabase} currentUser={tbvCommerce ? tbvCommerce.user : currentUser} wooAccount={tbvCommerce?.account || null} />
         )}
 
         {page === "shipping" && (

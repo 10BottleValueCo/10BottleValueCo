@@ -209,6 +209,15 @@ check('pay with credits reaches order-received', /order-received/.test(affPage.u
 const creditOrder = (affPage.url().match(/order-received\/(\d+)/) || [])[1] || '';
 check('credit order is paid with store credit', creditOrder !== '' && wp('eval', `$o = wc_get_order(${creditOrder}); echo $o->get_status() . '|' . $o->get_payment_method();`) === 'processing|tbv_store_credit');
 await affPage.screenshot({path: path.join(out, 'flow-desktop-credit-received.png'), fullPage: true});
+// Track Order page finds the signed-in customer's order and its tracking number.
+if (creditOrder) wp('eval', `$o = wc_get_order(${creditOrder}); $o->update_meta_data('_tbv_tracking_number', '1Z999AA10123456784'); $o->save();`);
+await affPage.goto(LOCAL + '/track-order', {waitUntil: 'networkidle'});
+await affPage.getByPlaceholder(/order/i).first().fill(creditOrder);
+await affPage.getByRole('button', {name: /check/i}).first().click();
+await affPage.getByText('1Z999AA10123456784').first().waitFor({timeout: 10000}).catch(() => {});
+const trackText = await affPage.locator('body').innerText();
+check('track order page shows the order and tracking number', creditOrder !== '' && trackText.includes('1Z999AA10123456784') && trackText.includes(creditOrder), trackText.slice(0, 300));
+await affPage.screenshot({path: path.join(out, 'flow-desktop-track-order.png'), fullPage: true});
 // Typed affiliate code in the promo box (fresh customer, no referral link).
 const typedCtx = await browser.newContext({viewport: {width: 1440, height: 900}});
 const typedPage = await typedCtx.newPage();

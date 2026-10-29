@@ -384,7 +384,14 @@ function tbv_react_proof_account_order($order) {
         'createdAt' => $order->get_date_created() ? $order->get_date_created()->format(DATE_ATOM) : null,
         'paidAt' => $order->get_date_paid() ? $order->get_date_paid()->format(DATE_ATOM) : null,
         'status' => wc_get_order_status_name($order->get_status()),
+        'statusKey' => $order->get_status(),
+        'sourceId' => (string)$order->get_meta('_tbv_source_order_id'),
         'total' => (float)$order->get_total(),
+        'subtotal' => (float)$order->get_subtotal(),
+        'shipping' => (float)$order->get_shipping_total(),
+        'paymentMethod' => $order->get_payment_method_title(),
+        'trackingNumber' => (string)$order->get_meta('_tbv_tracking_number'),
+        'trackingNumber2' => (string)$order->get_meta('_tbv_tracking_number_2'),
         'items' => $items,
         'shippingType' => $warehouses && !array_diff($warehouses, ['us']) ? 'us-warehouse' : ($service ?: 'standard'),
         'email' => $order->get_billing_email(), 'firstName' => $order->get_billing_first_name(), 'lastName' => $order->get_billing_last_name(),
@@ -418,7 +425,16 @@ function tbv_react_proof_received_order_data($order) {
 add_action('rest_api_init', function () {
     if (!function_exists('tbv_staging_commerce_test_enabled') || !tbv_staging_commerce_test_enabled()) return;
     $signed_in = fn() => is_user_logged_in();
-    register_rest_route('tbv-account/v1', '/orders', ['methods' => 'GET', 'permission_callback' => $signed_in, 'callback' => function () {
+    register_rest_route('tbv-account/v1', '/orders', ['methods' => 'GET', 'permission_callback' => $signed_in, 'callback' => function ($request) {
+        // ?number= looks up one of the customer's own orders (Track Order page): the
+        // WooCommerce number, or a migrated order's original INV- number.
+        $number = strtoupper(trim((string)$request->get_param('number')));
+        if ($number !== '') {
+            $plain = ltrim($number, '#');
+            $found = ctype_digit($plain) ? wc_get_order((int)$plain) : null;
+            if (!$found && preg_match('/^INV-[A-Z0-9]{1,40}$/', $plain)) $found = wc_get_orders(['customer_id' => get_current_user_id(), 'limit' => 1, 'type' => 'shop_order', 'meta_key' => '_tbv_source_order_id', 'meta_value' => $plain])[0] ?? null;
+            return $found && $found->get_type() === 'shop_order' && $found->get_customer_id() === get_current_user_id() ? [tbv_react_proof_account_order($found)] : [];
+        }
         $orders = wc_get_orders(['customer_id' => get_current_user_id(), 'limit' => 50, 'orderby' => 'date', 'order' => 'DESC', 'type' => 'shop_order']);
         return array_map('tbv_react_proof_account_order', $orders);
     }]);

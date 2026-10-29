@@ -211,6 +211,14 @@ async function accountChecksBeforeRestart(offers) {
   const stranger = new Client(); await register(stranger, `e2e.other.${Date.now()}@example.test`, env.E2E_RUN_PASSWORD);
   const peek = await stranger.follow(`/my-account/view-order/${orderId}/`);
   check('other_customer_cannot_view_order', !peek.text.includes(offer.product) || /Invalid order/i.test(peek.text), 'order visible to other customer');
+  // Track Order: the customer's own order by number, with admin-entered tracking.
+  wp('eval', `$o = wc_get_order(${orderId}); $o->update_meta_data('_tbv_tracking_number', '9400100000000000000001'); $o->save();`);
+  const ownNonce = restNonce((await c2.follow('/my-account/')).text);
+  const own = JSON.parse((await c2.req(`/wp-json/tbv-account/v1/orders?number=${orderId}`, {headers: {'x-wp-nonce': ownNonce}})).text || '[]');
+  check('track_order_finds_own_order_with_tracking', own.length === 1 && own[0].id === String(orderId) && own[0].trackingNumber === '9400100000000000000001', JSON.stringify(own).slice(0, 200));
+  const strangerNonce = restNonce((await stranger.follow('/my-account/')).text);
+  const foreign = JSON.parse((await stranger.req(`/wp-json/tbv-account/v1/orders?number=${orderId}`, {headers: {'x-wp-nonce': strangerNonce}})).text || 'null');
+  check('track_order_hides_other_customers_orders', Array.isArray(foreign) && foreign.length === 0, JSON.stringify(foreign).slice(0, 200));
 
   // Leave a cart item and a logged-in session to verify after a service restart.
   const keep = offers.find(o => o.warehouse === 'us') || offers[1];

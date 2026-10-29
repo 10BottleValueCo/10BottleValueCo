@@ -126,3 +126,28 @@ add_action('woocommerce_checkout_order_created', function ($order) {
     if ($order->get_meta('_tbv_purchaser_attestation')) $notes[] = 'Purchaser attestation recorded.';
     if ($notes) $order->add_order_note(implode("\n", $notes));
 });
+
+/* Tracking numbers on the order screen (live orders carry tracking_number and
+ * tracking_number_2); the storefront Track Order page and account show them. */
+add_action('add_meta_boxes', function () {
+    foreach (['woocommerce_page_wc-orders', 'shop_order'] as $screen) {
+        add_meta_box('tbv-tracking', 'Tracking numbers', function ($post_or_order) {
+            $order = $post_or_order instanceof WC_Order ? $post_or_order : wc_get_order($post_or_order->ID);
+            if (!$order) return;
+            wp_nonce_field('tbv_tracking', 'tbv_tracking_nonce');
+            foreach (['_tbv_tracking_number' => 'Tracking number', '_tbv_tracking_number_2' => 'Second tracking number'] as $key => $label) {
+                printf('<p><label for="%1$s">%2$s</label><br><input type="text" id="%1$s" name="%1$s" value="%3$s" style="width:100%%" maxlength="64"></p>', esc_attr($key), esc_html($label), esc_attr($order->get_meta($key)));
+            }
+        }, $screen, 'side');
+    }
+});
+add_action('woocommerce_process_shop_order_meta', function ($order_id) {
+    if (!isset($_POST['tbv_tracking_nonce']) || !wp_verify_nonce(sanitize_key($_POST['tbv_tracking_nonce']), 'tbv_tracking') || !current_user_can('edit_shop_orders')) return;
+    $order = wc_get_order($order_id);
+    if (!$order) return;
+    foreach (['_tbv_tracking_number', '_tbv_tracking_number_2'] as $key) {
+        $value = preg_replace('/[^A-Za-z0-9 -]/', '', sanitize_text_field(wp_unslash($_POST[$key] ?? '')));
+        $order->update_meta_data($key, substr(trim($value), 0, 64));
+    }
+    $order->save();
+});
