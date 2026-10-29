@@ -2,15 +2,6 @@ import { expect, test } from "@playwright/test";
 
 const MOBILE_VIEWPORT_INPUT_DELAY_MS = 60;
 
-async function acceptResearcherEntry(page) {
-  await page.addInitScript(() => {
-    window.localStorage.setItem(
-      "tbv-researcher-entry-accepted-v1",
-      "accepted",
-    );
-  });
-}
-
 async function measureTypingFrames(page, selector, text) {
   await page.evaluate((inputSelector) => {
     const input = document.querySelector(inputSelector);
@@ -64,7 +55,6 @@ async function measureTypingFrames(page, selector, text) {
 test("mobile FAQ search stays responsive while the question list filters", async ({
   page,
 }) => {
-  await acceptResearcherEntry(page);
   await page.goto("/faq");
 
   const search = page.locator('input[type="search"]');
@@ -112,7 +102,6 @@ test("mobile account fields stay responsive and submit the latest draft", async 
     },
   );
 
-  await acceptResearcherEntry(page);
   await page.goto("/account");
 
   const email = page.locator('form input[type="email"]:visible').first();

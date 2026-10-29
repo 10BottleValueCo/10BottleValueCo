@@ -45,7 +45,6 @@ import PaymentOpeningDialog from "./components/PaymentOpeningDialog.jsx";
 import ProductPackSelector from "./components/ProductPackSelector.jsx";
 import { productSelectionFromProduct, readProductSelection, productSelectionUrl, resolveSelectedProduct, toStorefrontOffer } from "./product-selection.js";
 import UsFlag from "./components/UsFlag.jsx";
-import ResearcherEntryGate, { hasResearcherEntryAcceptance } from "./components/ResearcherEntryGate.jsx";
 import SocialChannels from "./components/SocialChannels.jsx";
 import vialCManifest from "./data/vialCManifest.json";
 import melanotan2VialInline from "./assets/vials/melanotan-2-mt2-10mg.webp?inline";
@@ -3794,21 +3793,10 @@ export default function App() {
     if (readProductSelection(PRODUCTS_BASE, window.location)) return "product";
     return "home";
   });
-  const researcherEntryPreview =
-    import.meta.env.DEV &&
-    typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("researcher-entry-preview") === "1";
-  const [researcherEntryAccepted, setResearcherEntryAccepted] = useState(
-    () => !researcherEntryPreview && hasResearcherEntryAcceptance()
-  );
   const [publicImagesState, setPublicImagesState] = useState("ready");
   const [publicImageRetry, setPublicImageRetry] = useState(0);
-  const researcherEntryGateActive =
-    !researcherEntryAccepted && page !== "terms" && page !== "privacy";
 
   useEffect(() => {
-    if (researcherEntryGateActive) return undefined;
-
     const prefetchFromIntent = (event) => {
       const target = event.target;
       const link = target instanceof Element ? target.closest("a[href], [data-prefetch-page]") : null;
@@ -3843,10 +3831,10 @@ export default function App() {
       document.removeEventListener("pointerdown", prefetchFromIntent);
       document.removeEventListener("focusin", prefetchFromIntent);
     };
-  }, [researcherEntryGateActive]);
+  }, []);
 
   useEffect(() => {
-    if (researcherEntryGateActive || page !== "home") return undefined;
+    if (page !== "home") return undefined;
     const stopWarmup = scheduleInfoPageWarmup({
       view: window,
       onWarm: () => infoPageImageWarmup.warmAll(),
@@ -3855,7 +3843,7 @@ export default function App() {
       stopWarmup();
       infoPageImageWarmup.cancelBackground();
     };
-  }, [page, researcherEntryGateActive]);
+  }, [page]);
 
   // Keep every public section on a stable, crawlable URL.
   useEffect(() => {
@@ -4613,8 +4601,6 @@ export default function App() {
   const [salesRanking, setSalesRanking] = useState([]);
   const [usSalesRanking, setUsSalesRanking] = useState([]);
   useEffect(() => {
-    if (researcherEntryGateActive) return undefined;
-
     let active = true;
     const base = import.meta.env.BASE_URL;
     // Warm the currently rendered background through the native image cache;
@@ -4660,15 +4646,13 @@ export default function App() {
       if (idleHandle !== null) window.cancelIdleCallback(idleHandle);
       if (preloadTimer !== null) window.clearTimeout(preloadTimer);
     };
-  }, [page, language, publicImageRetry, researcherEntryGateActive]);
+  }, [page, language, publicImageRetry]);
   useEffect(() => {
     if (page === "shop") {
       setShopPrimed(true);
     }
   }, [page]);
   useEffect(() => {
-    if (researcherEntryGateActive) return undefined;
-
     const controller = new AbortController();
     const loadRanking = async () => {
       try {
@@ -4697,7 +4681,7 @@ export default function App() {
       controller.abort();
       window.clearInterval(interval);
     };
-  }, [researcherEntryGateActive]);
+  }, []);
   const [chartsExpandedOrder, setChartsExpandedOrder] = useState(null);
   const [chartsFrom, setChartsFrom] = useState("");
   const [chartsTo, setChartsTo] = useState("");
@@ -14074,9 +14058,6 @@ export default function App() {
   return (
     <>
       {scrollbarStyles}
-      {researcherEntryGateActive && (
-        <ResearcherEntryGate onAccept={() => setResearcherEntryAccepted(true)} />
-      )}
       {publicImagesState === "error" && (
         <div
           className="fixed bottom-4 left-1/2 z-[9997] flex max-w-[calc(100vw-24px)] -translate-x-1/2 items-center gap-2 rounded-full border border-white/15 bg-[#222]/95 px-3 py-2 text-xs text-white shadow-xl backdrop-blur-sm"

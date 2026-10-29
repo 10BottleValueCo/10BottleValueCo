@@ -16,12 +16,6 @@ const catalogs = [
 ];
 
 async function prepareCatalog(page, catalog) {
-  await page.addInitScript(() => {
-    window.localStorage.setItem(
-      "tbv-researcher-entry-accepted-v1",
-      "accepted",
-    );
-  });
   await page.goto(catalog.path);
 }
 
