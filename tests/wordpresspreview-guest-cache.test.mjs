@@ -1,0 +1,44 @@
+import assert from 'node:assert/strict';
+import http from 'node:http';
+const origin=process.env.PREVIEW_TEST_ORIGIN||'http://127.0.0.1:9448';
+const url=origin+'/wordpresspreview/';
+let checks=0;
+function ok(v,m){assert.ok(v,m);checks++;}
+async function request(path='',options={}){const started=performance.now(),res=await fetch(url+path,options),body=await res.text();return {res,body,ms:performance.now()-started};}
+const a=await request();
+ok(a.res.status===200&&a.res.headers.get('x-tbv-preview-cache')==='MISS','first anonymous home rendered fresh');
+ok(a.res.headers.get('cache-control')==='no-store'&&a.res.headers.getSetCookie().length===0,'no shared browser cache or guest cookie');
+const b=await request();
+ok(b.res.headers.get('x-tbv-preview-cache')==='HIT'&&b.body===a.body,'anonymous response reused unchanged');
+const form=a.body.match(/<form class="bpc-catalog-card__cart-action"[^>]*action="([^"]+)"[^>]*>([\s\S]*?)<\/form>/);
+assert.ok(form,'catalog form available');
+const payload=new URLSearchParams();
+for(const x of form[2].matchAll(/<input[^>]+name="([^"]+)"[^>]+value="([^"]*)"/g))payload.set(x[1],x[2]);
+payload.set('attribute_dosage','5 mg');payload.set('attribute_pack-size','10');payload.set('attribute_warehouse','worldwide');
+const add=await fetch(form[1].replaceAll('&amp;','&'),{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded',Origin:origin},body:payload.toString(),redirect:'manual'});
+ok([200,302,303].includes(add.status)&&!add.headers.has('x-tbv-preview-cache'),'cart mutation bypasses shared cache');
+const cartCookie=add.headers.getSetCookie().map(value=>value.split(';')[0]).join('; ');
+ok(Boolean(cartCookie),'cart actor has a session');
+const cartHome=await request('',{headers:{cookie:cartCookie}});
+ok(!cartHome.res.headers.has('x-tbv-preview-cache')&&/<span data-cart-count>\s*\(1\)/.test(cartHome.body),'cart actor sees own count via uncached response');
+const otherGuest=await request();
+ok(!/<span data-cart-count>\s*\(1\)/.test(otherGuest.body),'anonymous guest cannot see actor cart count');
+const c=await request('',{headers:{cookie:'unrelated=visitor'}});
+ok(!c.res.headers.has('x-tbv-preview-cache'),'any cookie bypasses shared cache');
+const d=await request('',{headers:{authorization:'Bearer dummy'}});
+ok(!d.res.headers.has('x-tbv-preview-cache'),'authorization bypasses shared cache');
+const e=await request('?warehouse=us');
+ok(!e.res.headers.has('x-tbv-preview-cache'),'query bypasses shared cache');
+const f=await fetch(url,{method:'HEAD'});
+ok(!f.headers.has('x-tbv-preview-cache'),'HEAD bypasses shared cache');
+// fetch normalizes Host; use native HTTP to exercise an actual alternate Host header.
+const alternate=await new Promise((resolve,reject)=>{const req=http.get(url,{headers:{host:'127.0.0.1:9555'}},res=>{let body='';res.setEncoding('utf8');res.on('data',chunk=>body+=chunk);res.on('end',()=>resolve({headers:res.headers,body}));});req.on('error',reject);});
+ok(alternate.headers['x-tbv-preview-cache']==='MISS'&&alternate.body.includes('http://127.0.0.1:9555/wordpresspreview'),'different host receives its own rendered URLs');
+const pair=await Promise.all([request(),request()]);
+const back=pair.find(x=>x.res.headers.get('x-tbv-preview-cache')==='MISS');
+const warm=pair.find(x=>x.res.headers.get('x-tbv-preview-cache')==='HIT');
+ok(back&&back.body.includes(origin+'/wordpresspreview'),'returning host invalidates old runtime cache');
+ok(warm&&warm.body===back.body,'queued concurrent guest requests reuse the new runtime response');
+await new Promise(resolve=>setTimeout(resolve,10500));
+const expired=await request();ok(expired.res.headers.get('x-tbv-preview-cache')==='MISS','expired response is rendered again');
+console.log(JSON.stringify({checks,localOnly:true,firstRenderMs:Math.round(a.ms),cachedMs:Math.round(b.ms),expiredRenderMs:Math.round(expired.ms)}));

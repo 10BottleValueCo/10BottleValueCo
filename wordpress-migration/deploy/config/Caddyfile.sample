@@ -1,0 +1,33 @@
+# Caddy: HTTPS is automatic for a public domain. Replace store.example and /srv/10bottlevalue.
+store.example {
+	root * /srv/10bottlevalue/wordpress
+	encode zstd gzip
+
+	@blocked {
+		path /xmlrpc.php /wp-config.php /wp-config-sample.php /readme.html /license.txt /wp-trackback.php /wp-links-opml.php /wp-signup.php /wp-activate.php
+		path /wp-content/debug.log /wp-content/upgrade/* *.sql *.env *.bak /.git/* /.ht*
+	}
+	respond @blocked 404
+
+	# Extra login in front of WordPress admin; the storefront needs admin-ajax.php and admin assets.
+	@admingate {
+		path /wp-admin /wp-admin/* /wp-login.php
+		not path /wp-admin/admin-ajax.php /wp-admin/js/* /wp-admin/css/* /wp-admin/images/*
+	}
+	basic_auth @admingate {
+		# caddy hash-password --plaintext '<password>'
+		tbv-admin-gate <bcrypt-hash>
+	}
+
+	@static path /wp-content/themes/*/public/* /wp-includes/* /wp-content/plugins/*/assets/*
+	header @static Cache-Control "public, max-age=86400"
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options SAMEORIGIN
+		-Server
+	}
+	php_fastcgi unix//run/php/php8.3-fpm.sock
+	file_server
+}

@@ -1,0 +1,73 @@
+/* Native WooCommerce pages rendered in the live storefront layout (with the
+   React bundle stylesheet). Only what the bundle's utility classes lack. */
+.tbv-auth [data-show]{display:none}
+.tbv-auth[data-mode="signin"] [data-show="signin"],.tbv-auth[data-mode="create"] [data-show="create"]{display:revert}
+.tbv-auth .tbv-padlock{display:block}
+@media (max-width:767.98px){.tbv-auth[data-mode="create"] .tbv-padlock{display:none}}
+.tbv-auth-register-extra:empty{display:none}
+.tbv-auth form[data-show]{display:none}
+.tbv-auth[data-mode="signin"] form[data-show="signin"],.tbv-auth[data-mode="create"] form[data-show="create"]{display:grid}
+.tbv-auth [data-tbv-mode]{border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.04);color:#fff}
+.tbv-auth [data-tbv-mode]:hover{background:rgba(255,255,255,.08)}
+.tbv-auth[data-mode="signin"] [data-tbv-mode="signin"],.tbv-auth[data-mode="create"] [data-tbv-mode="create"]{border-color:transparent;background:#000;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.tbv-auth-notices:empty{display:none}
+.tbv-auth-notices .woocommerce-error,.tbv-auth-notices .woocommerce-info,.tbv-auth-notices .woocommerce-message{list-style:none;margin:0 0 10px;padding:14px 18px;border:1px solid rgba(255,255,255,.15);border-radius:12px;background:rgba(0,0,0,.25);color:rgba(255,255,255,.9);font-size:13px;line-height:1.5}
+.tbv-auth-notices .woocommerce-error{border-color:rgba(248,113,113,.45);background:rgba(127,29,29,.25)}
+.tbv-auth-notices .woocommerce-error li{list-style:none}
+.tbv-auth-notices a{color:#fff;text-decoration:underline}
+.tbv-auth-register-extra:empty{display:none}
+.tbv-auth-register-extra a{color:#fff;text-decoration:underline}
+.tbv-auth .woocommerce-password-strength{margin-top:-6px;padding:8px 14px;border-radius:12px;font-size:12px;color:#111}
+.tbv-auth .woocommerce-password-hint{display:block;font-size:12px;line-height:1.5;color:rgba(255,255,255,.7)}
+.tbv-auth .show-password-input{display:none}
+.tbv-storefront-menu summary::-webkit-details-marker{display:none}
+.tbv-storefront-menu summary{list-style:none;cursor:pointer}
+.tbv-storefront-menu nav{position:absolute;right:0;top:48px;z-index:300;display:grid;min-width:240px;gap:4px;padding:12px;border:1px solid rgba(255,255,255,.2);border-radius:16px;background:rgba(0,0,0,.9);box-shadow:0 24px 80px rgba(0,0,0,.3);-webkit-backdrop-filter:blur(40px);backdrop-filter:blur(40px)}
+.tbv-storefront-menu nav a{display:block;padding:10px 16px;border-radius:999px;color:#fff;text-decoration:none;font-size:13px;font-weight:700;letter-spacing:.18em;text-transform:uppercase}
+.tbv-storefront-menu nav a:hover{background:rgba(255,255,255,.1)}
+/* WooCommerce's general stylesheet targets .woocommerce-page img and forms. */
+.tbv-storefront-native header img{height:46px;max-width:none}
+@media (min-width:768px){.tbv-storefront-native header img{height:66px}}
+.tbv-auth form.woocommerce-form{margin:28px 0 0;padding:0;border:0;border-radius:0}
+.tbv-auth-notices .woocommerce-info::before,.tbv-auth-notices .woocommerce-message::before,.tbv-auth-notices .woocommerce-error::before{display:none}
+/* Signed-in WooCommerce account endpoints inside the live dashboard shell, and
+   the lost-password card. WooCommerce keeps its own forms, fields and nonces. */
+.tbv-native-panel{padding:26px 30px;color:#fff}
+@media (max-width:767px){.tbv-native-panel{padding:20px 18px}}
+.tbv-native-panel .woocommerce-MyAccount-navigation{display:none}
+.tbv-native-panel .woocommerce-MyAccount-content{float:none;width:100%}
+.tbv-native-panel :is(h2,h3,legend),.tbv-native-card :is(h2,h3,legend){margin:0 0 14px;color:#fff;font-size:20px;font-weight:600;letter-spacing:-.02em}
+.tbv-native-panel p,.tbv-native-card p{color:rgba(255,255,255,.82);font-size:14px;line-height:1.6}
+.tbv-native-panel a,.tbv-native-card a{color:#fff;text-decoration:underline;text-underline-offset:3px}
+.tbv-native-panel :is(form,fieldset),.tbv-native-card :is(form,fieldset){margin:0;padding:0;border:0}
+.tbv-native-panel fieldset{margin-top:22px}
+.tbv-native-panel label,.tbv-native-card label{display:block;margin:0 0 6px;color:rgba(255,255,255,.7);font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase}
+.tbv-native-panel .form-row,.tbv-native-card .form-row{margin:0 0 16px;padding:0}
+.tbv-native-panel :is(input.input-text,select,textarea),.tbv-native-card :is(input.input-text,select,textarea),.tbv-native-panel .select2-container .select2-selection{box-sizing:border-box;width:100%;min-height:52px;padding:12px 18px;border:1px solid rgba(255,255,255,.25);border-radius:14px;background:rgba(255,255,255,.04);color:#fff;font-size:15px;outline:none}
+.tbv-native-panel :is(input.input-text,select,textarea):focus,.tbv-native-card input.input-text:focus{border-color:rgba(255,255,255,.5);background:rgba(255,255,255,.07)}
+.tbv-native-panel select option{color:#111}
+.tbv-native-panel .select2-container .select2-selection__rendered{padding:0;color:#fff;line-height:26px}
+.tbv-native-panel .select2-container .select2-selection__arrow{top:13px;right:10px}
+.tbv-native-panel :is(button.button,input.button,a.button),.tbv-native-card :is(button.button,input.button){display:inline-flex;align-items:center;justify-content:center;min-height:52px;padding:14px 30px;border:0;border-radius:999px;background:#000;color:#fff;font-size:11px;font-weight:900;letter-spacing:.22em;text-transform:uppercase;text-decoration:none;box-shadow:0 10px 30px rgba(0,0,0,.18);cursor:pointer}
+.tbv-native-panel :is(button.button,a.button):hover,.tbv-native-card button.button:hover{background:rgba(0,0,0,.85);color:#fff}
+.tbv-native-panel .woocommerce-Addresses{display:grid;gap:16px}
+@media (min-width:768px){.tbv-native-panel .woocommerce-Addresses{grid-template-columns:1fr 1fr}}
+.tbv-native-panel .woocommerce-Address{float:none;width:auto;padding:18px;border:1px solid rgba(255,255,255,.15);border-radius:14px;background:rgba(0,0,0,.2)}
+.tbv-native-panel .woocommerce-Address-title{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.tbv-native-panel address{color:rgba(255,255,255,.85);font-style:normal;line-height:1.6}
+.tbv-native-panel table{width:100%;border-collapse:collapse;border:1px solid rgba(255,255,255,.15);border-radius:14px;overflow:hidden;color:#fff}
+.tbv-native-panel :is(th,td){padding:12px 14px;border-top:1px solid rgba(255,255,255,.1);text-align:left;font-size:14px}
+.tbv-native-panel th{color:rgba(255,255,255,.7);font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.tbv-native-panel :is(.woocommerce-message,.woocommerce-info,.woocommerce-error),.tbv-native-card :is(.woocommerce-message,.woocommerce-info,.woocommerce-error){list-style:none;margin:0 0 16px;padding:14px 18px;border:1px solid rgba(255,255,255,.15);border-top:1px solid rgba(255,255,255,.15);border-radius:12px;background:rgba(0,0,0,.25);color:rgba(255,255,255,.9);font-size:13px}
+.tbv-native-panel :is(.woocommerce-message,.woocommerce-info,.woocommerce-error)::before,.tbv-native-card :is(.woocommerce-message,.woocommerce-info,.woocommerce-error)::before{display:none}
+.tbv-native-panel .woocommerce-error,.tbv-native-card .woocommerce-error{border-color:rgba(248,113,113,.45);background:rgba(127,29,29,.25)}
+.tbv-native-panel em,.tbv-native-panel .description{color:rgba(255,255,255,.6);font-size:12px}
+.tbv-native-panel .required{color:#fca5a5;text-decoration:none}
+.tbv-native-panel .show-password-input,.tbv-native-card .show-password-input{display:none}
+.tbv-native-panel .password-input,.tbv-native-card .password-input{display:block}
+.lab-sidenav a.lab-sidenav__item{text-decoration:none}
+/* WooCommerce's ".woocommerce form .form-row .input-text" outranks the rules above. */
+.tbv-storefront-native .woocommerce form .form-row :is(.input-text,select,textarea),.tbv-storefront-native .woocommerce form .form-row .select2-selection{border:1px solid rgba(255,255,255,.25)!important;border-radius:14px!important;background:rgba(255,255,255,.04)!important;color:#fff!important;padding:12px 18px!important;min-height:52px;line-height:1.5}
+.tbv-storefront-native .woocommerce form .form-row .input-text::placeholder{color:rgba(255,255,255,.45)}
+.tbv-storefront-native .woocommerce form .form-row .select2-selection__placeholder{color:rgba(255,255,255,.45)}
+.tbv-native-card .woocommerce-ResetPassword .form-row{width:100%;max-width:520px;float:none}

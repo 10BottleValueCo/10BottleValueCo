@@ -1,0 +1,1 @@
+throw new Error('Only PHP 8.3 is packaged for this preview');

@@ -1,0 +1,1 @@
+<?php defined('ABSPATH') || exit; get_header(); ?><main id="main-content" class="tbv-content-wrap"><?php while(have_posts()): the_post(); ?><article class="tbv-glass"><h1><?php the_title(); ?></h1><?php the_content(); ?></article><?php endwhile; ?></main><?php get_footer(); ?>

@@ -1,0 +1,15 @@
+Bundled license information:
+
+@php-wasm/universal/index.js:
+  /**
+   * Original, unmodified Comlink library from Google:
+   *
+   * @license
+   * Copyright 2019 Google LLC
+   * SPDX-License-Identifier: Apache-2.0
+   */
+  /**
+   * @license
+   * Copyright 2019 Google LLC
+   * SPDX-License-Identifier: Apache-2.0
+   */
