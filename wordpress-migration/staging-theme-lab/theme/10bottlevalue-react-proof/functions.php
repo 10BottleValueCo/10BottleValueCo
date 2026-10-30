@@ -15,58 +15,82 @@ function tbv_staging_commerce_test_enabled() {
     return tbv_staging_preview_enabled() && defined('TBV_STAGING_COMMERCE_TEST') && TBV_STAGING_COMMERCE_TEST === true
         && defined('TBV_STAGING_TEST_GATEWAY_ID');
 }
+// 'staging': the persistent review site above. 'production': the real store,
+// opted in with WP_ENVIRONMENT_TYPE=production and TBV_STORE_MODE='production';
+// only gateways listed in TBV_PRODUCTION_GATEWAYS (plus store credit) are offered.
+// 'preview': the older view-only review package. 'off': the theme serves nothing.
+function tbv_store_mode() {
+    if (tbv_staging_commerce_test_enabled()) return 'staging';
+    if (defined('TBV_STORE_MODE') && TBV_STORE_MODE === 'production' && function_exists('wp_get_environment_type')
+        && wp_get_environment_type() === 'production' && !defined('TBV_STAGING_PREVIEW') && !defined('TBV_STAGING_COMMERCE_TEST')) return 'production';
+    return tbv_staging_preview_enabled() ? 'preview' : 'off';
+}
+function tbv_commerce_enabled() { return in_array(tbv_store_mode(), ['staging', 'production'], true); }
+/** Gateway IDs checkout may use: the staging test gateway, or the configured real ones. */
+function tbv_checkout_gateway_ids() {
+    $mode = tbv_store_mode();
+    if ($mode === 'staging') return [TBV_STAGING_TEST_GATEWAY_ID, 'tbv_store_credit'];
+    if ($mode !== 'production') return [];
+    $ids = defined('TBV_PRODUCTION_GATEWAYS') && is_array(TBV_PRODUCTION_GATEWAYS) ? array_values(array_filter(TBV_PRODUCTION_GATEWAYS, 'is_string')) : [];
+    return array_merge($ids, ['tbv_store_credit']);
+}
 add_action('admin_notices', function () {
-    if (!tbv_staging_preview_enabled()) echo '<div class="notice notice-error"><p>10BottleValue staging preview is disabled. Use an isolated staging installation and configure TBV_STAGING_PREVIEW.</p></div>';
+    if (tbv_store_mode() === 'off') echo '<div class="notice notice-error"><p>10BottleValue staging preview is disabled. Use an isolated staging installation and configure TBV_STAGING_PREVIEW.</p></div>';
     elseif (!function_exists('wc_get_product') || !function_exists('tbv_public_catalog_response')) echo '<div class="notice notice-error"><p>10BottleValue staging preview requires WooCommerce and the public Woo catalog plugin.</p></div>';
 });
 // Store API dispatch does not run template_redirect. Block every REST call except
 // the review catalog and cookie-session cart routes, including checkout.
 add_filter('rest_pre_dispatch', function ($result, $server, $request) {
-    if (!tbv_staging_preview_enabled()) return new WP_Error('tbv_preview_disabled', 'Staging preview is disabled.', ['status' => 503]);
-    if (tbv_staging_commerce_test_enabled() && current_user_can('manage_woocommerce')) return $result;
+    if (tbv_store_mode() === 'off') return new WP_Error('tbv_preview_disabled', 'Staging preview is disabled.', ['status' => 503]);
+    if (tbv_commerce_enabled() && current_user_can('manage_woocommerce')) return $result;
     $route = rtrim($request->get_route(), '/');
     $method = strtoupper($request->get_method());
-    $read = $method === 'GET' && in_array($route, ['/wc/store/v1/cart', '/tbv-catalog/v1/products'], true);
+    $read = $method === 'GET' && in_array($route, ['/wc/store/v1/cart', '/tbv-catalog/v1/products', '/tbv-storefront/v1/ranking'], true);
     $write = $method === 'POST' && in_array($route, ['/wc/store/v1/cart/add-item', '/wc/store/v1/cart/update-item', '/wc/store/v1/cart/remove-item'], true);
     // The storefront cart page picks the shipping service and destination country
     // and applies WooCommerce coupons from its promo box.
-    if (tbv_staging_commerce_test_enabled() && $method === 'POST' && in_array($route, ['/wc/store/v1/cart/select-shipping-rate', '/wc/store/v1/cart/update-customer', '/wc/store/v1/cart/apply-coupon', '/wc/store/v1/cart/remove-coupon'], true)) $write = true;
+    if (tbv_commerce_enabled() && $method === 'POST' && in_array($route, ['/wc/store/v1/cart/select-shipping-rate', '/wc/store/v1/cart/update-customer', '/wc/store/v1/cart/apply-coupon', '/wc/store/v1/cart/remove-coupon'], true)) $write = true;
     // Affiliate codes typed in the promo box (tbv-affiliates-credit's cart extension only)
     // and the affiliate panel / public code lookup.
-    if (tbv_staging_commerce_test_enabled() && $method === 'POST' && $route === '/wc/store/v1/cart/extensions' && $request->get_param('namespace') === 'tbv-affiliate') $write = true;
-    if (tbv_staging_commerce_test_enabled() && $method === 'GET' && $route === '/tbv-affiliates/v1/account') $read = true;
+    if (tbv_commerce_enabled() && $method === 'POST' && $route === '/wc/store/v1/cart/extensions' && $request->get_param('namespace') === 'tbv-affiliate') $write = true;
+    if (tbv_commerce_enabled() && $method === 'GET' && $route === '/tbv-affiliates/v1/account') $read = true;
     // Anonymous visitor funnel events (tbv-storefront-admin validates and rate-limits).
     if ($method === 'POST' && $route === '/tbv-analytics/v1/events') $write = true;
     // Support inbox: the endpoint itself limits visitors to sending and their own thread.
-    if (tbv_staging_commerce_test_enabled() && $method === 'POST' && $route === '/tbv-messages/v1/query') $write = true;
+    if (tbv_commerce_enabled() && $method === 'POST' && $route === '/tbv-messages/v1/query') $write = true;
     // Chat attachments: signed upload/download links and access checks in tbv-storefront-admin.
-    if (tbv_staging_commerce_test_enabled() && preg_match('#^/tbv-messages/v1/attachments/(upload-url|access|object)$#', $route) && in_array($method, ['GET', 'POST', 'PUT'], true)) $write = true;
+    if (tbv_commerce_enabled() && preg_match('#^/tbv-messages/v1/attachments/(upload-url|access|object)$#', $route) && in_array($method, ['GET', 'POST', 'PUT'], true)) $write = true;
     // The storefront account dashboard reads the customer's own orders and saves the avatar.
-    if (tbv_staging_commerce_test_enabled() && is_user_logged_in()) {
+    if (tbv_commerce_enabled() && is_user_logged_in()) {
         if ($method === 'GET' && $route === '/tbv-account/v1/orders') $read = true;
         if ($method === 'POST' && $route === '/tbv-account/v1/avatar') $write = true;
     }
+    // Production payment integrations add their own routes (webhooks etc.) here.
+    if (!$read && !$write && tbv_store_mode() === 'production') $write = (bool)apply_filters('tbv_store_allow_rest_route', false, $route, $method, $request);
     return ($read || $write) ? $result : new WP_Error('tbv_preview_blocked', 'This action is unavailable in the staging review.', ['status' => 403]);
 }, 0, 3);
 add_action('init', function () {
     $test_ajax = ['update_order_review', 'checkout', 'update_shipping_method'];
-    if (isset($_GET['wc-ajax']) && tbv_staging_commerce_test_enabled() && in_array($_GET['wc-ajax'], $test_ajax, true)) return;
+    if (tbv_store_mode() === 'production') $test_ajax = (array)apply_filters('tbv_store_allowed_wc_ajax', $test_ajax);
+    if (isset($_GET['wc-ajax']) && tbv_commerce_enabled() && in_array($_GET['wc-ajax'], $test_ajax, true)) return;
     if (isset($_GET['wc-ajax'])) wp_die('WooCommerce AJAX is unavailable in this preview.', 'Staging preview', ['response' => 403]);
 }, 0);
-add_filter('pre_wp_mail', '__return_false', PHP_INT_MAX);
+// Mail goes out only from the real store; staging and the preview send nothing.
+add_filter('pre_wp_mail', function ($result) { return tbv_store_mode() === 'production' ? $result : false; }, PHP_INT_MAX);
 // Only the staging offline test gateway may ever be offered; never a real processor.
 add_filter('woocommerce_payment_gateways', function ($gateways) {
+    if (tbv_store_mode() === 'production') return $gateways; // offered gateways are limited by ID below
     if (!tbv_staging_commerce_test_enabled()) return [];
     $allowed = ['TBV_Staging_Test_Gateway', 'TBV_Store_Credit_Gateway'];
     return array_values(array_filter((array)$gateways, function ($g) use ($allowed) { return in_array(is_object($g) ? get_class($g) : $g, $allowed, true); }));
 }, PHP_INT_MAX);
 add_filter('woocommerce_available_payment_gateways', function ($gateways) {
-    return tbv_staging_commerce_test_enabled() ? array_intersect_key((array)$gateways, [TBV_STAGING_TEST_GATEWAY_ID => true, 'tbv_store_credit' => true]) : [];
+    return array_intersect_key((array)$gateways, array_fill_keys(tbv_checkout_gateway_ids(), true));
 }, PHP_INT_MAX);
 // Review package: nothing is payable. Commerce test mode keeps Woo's statuses so
 // checkout routes through the offline test gateway; order-pay stays route-blocked.
 add_filter('woocommerce_valid_order_statuses_for_payment', function ($statuses) {
-    return tbv_staging_commerce_test_enabled() ? $statuses : [];
+    return tbv_commerce_enabled() ? $statuses : [];
 }, PHP_INT_MAX);
 // The review catalog excludes password-protected products. Also enforce that
 // boundary when a visitor supplies a WooCommerce product ID directly to cart.
@@ -85,23 +109,27 @@ add_filter('woocommerce_variation_is_purchasable', function ($purchasable, $prod
     return $purchasable && tbv_react_proof_cart_product_is_public($product);
 }, PHP_INT_MAX, 2);
 add_action('wp', function () {
-    if (tbv_staging_commerce_test_enabled()) return;
+    if (tbv_commerce_enabled()) return;
     remove_action('woocommerce_proceed_to_checkout', 'woocommerce_button_proceed_to_checkout', 20);
     add_action('woocommerce_proceed_to_checkout', function () { echo '<p>Checkout is unavailable in this WordPress preview.</p>'; }, 20);
 });
 add_action('template_redirect', function () {
-    if (!tbv_staging_preview_enabled()) wp_die('Staging preview is disabled.', 'Staging preview', ['response' => 503]);
+    $mode = tbv_store_mode();
+    if ($mode === 'off') wp_die('Staging preview is disabled.', 'Staging preview', ['response' => 503]);
     $req_path = (string)wp_parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
     $site_path = rtrim((string)wp_parse_url(home_url('/'), PHP_URL_PATH), '/');
     if ($site_path !== '' && ($req_path === $site_path || strpos($req_path, $site_path . '/') === 0)) $req_path = substr($req_path, strlen($site_path)) ?: '/';
     $path = strtolower(trim(rawurldecode($req_path), '/'));
-    $commerce_test = tbv_staging_commerce_test_enabled();
+    $commerce_test = tbv_commerce_enabled();
     if ($commerce_test && preg_match('#^account(?:/|$)#D', $path)) { wp_safe_redirect(wc_get_page_permalink('myaccount')); exit; }
     // As on the live storefront, the cart page is the checkout. Order-received
     // and other checkout endpoints stay native.
     $read_request = in_array($_SERVER['REQUEST_METHOD'] ?? '', ['GET', 'HEAD'], true) && !isset($_GET['wc-ajax']);
     if ($commerce_test && $read_request && ($path === 'cart/confirmation' || (function_exists('is_checkout') && is_checkout() && !is_wc_endpoint_url()))) { wp_safe_redirect(wc_get_cart_url()); exit; }
     $account_or_checkout = (bool)preg_match('#^(?:checkout|my-account)(?:/|$)#D', $path);
+    // The real store's payment integration may use WooCommerce's order-pay page and wc-api callbacks.
+    $payment_routes = $mode === 'production' && (isset($_GET['order-pay']) || isset($_GET['wc-api']) || (function_exists('is_wc_endpoint_url') && is_wc_endpoint_url('order-pay')));
+    if ($payment_routes) return;
     if (isset($_GET['order-pay']) || isset($_GET['wc-api']) || (!$commerce_test && ($account_or_checkout || preg_match('#^account(?:/|$)#D', $path)))) wp_die('Checkout and accounts are unavailable in this preview.', 'Staging preview', ['response' => 403]);
     $cart_form = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && in_array($req_path, ['/cart', '/cart/'], true) && str_starts_with((string)($_SERVER['CONTENT_TYPE'] ?? ''), 'application/x-www-form-urlencoded');
     $account_form = $commerce_test && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST'
@@ -109,8 +137,11 @@ add_action('template_redirect', function () {
     if (!in_array($_SERVER['REQUEST_METHOD'] ?? '', ['GET', 'HEAD'], true) && !$cart_form && !$account_form) wp_die('Only review cart changes are available in this preview.', 'Staging preview', ['response' => 403]);
     $cart_api = esc_url_raw(rest_url('wc/store/v1/cart'));
     $native_cart = esc_url_raw(function_exists('wc_get_cart_url') ? wc_get_cart_url() : home_url('/cart/'));
-    header("Content-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src " . ($commerce_test ? "'self' " : '') . $cart_api . ' ' . trailingslashit($cart_api) . ' ' . $native_cart . "; frame-src 'none'; worker-src 'none'; object-src 'none'; form-action 'self'; base-uri 'self'");
-    header('X-Robots-Tag: noindex, nofollow');
+    // A production payment integration may add hosted-field origins: ['script-src' => [...], 'frame-src' => [...], ...].
+    $extra = $mode === 'production' ? (array)apply_filters('tbv_store_csp_sources', []) : [];
+    $src = fn($directive, $base) => trim($base . ' ' . implode(' ', array_map('strval', (array)($extra[$directive] ?? []))));
+    header("Content-Security-Policy: default-src 'none'; script-src " . $src('script-src', "'self' 'unsafe-inline'") . "; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src " . $src('connect-src', ($commerce_test ? "'self' " : '') . $cart_api . ' ' . trailingslashit($cart_api) . ' ' . $native_cart) . "; frame-src " . $src('frame-src', "'none'") . "; worker-src 'none'; object-src 'none'; form-action " . $src('form-action', "'self'") . "; base-uri 'self'");
+    if ($mode !== 'production') header('X-Robots-Tag: noindex, nofollow');
     header('Cache-Control: no-store');
 }, 0);
 add_action('after_setup_theme', function () { add_theme_support('woocommerce'); add_theme_support('title-tag'); });
@@ -128,10 +159,10 @@ function tbv_react_proof_image_exists($path) {
 }
 
 /** Isolate only verified image mismatches in this disposable snapshot. */
+// Offers whose source art showed another compound now have their own labelled
+// vial (vial-art/build_named_vials.py), so no offer is held back as pending.
 function tbv_react_proof_pending_image($id, $name, $dose, $warehouse) {
-    return (strtolower(trim($name)) === 'tesamorelin' && strtolower(preg_replace('/\s+/', '', $dose)) === '20mg' && strtolower(trim($warehouse)) === 'us')
-        || (strtolower(trim($name)) === 'kpv' && strtolower(preg_replace('/\s+/', '', $dose)) === '5mg' && strtolower(trim($warehouse)) === 'us')
-        || (strtolower(trim($name)) === 'mots-c' && strtolower(preg_replace('/\s+/', '', $dose)) === '20mg' && strtolower(trim($warehouse)) === 'us');
+    return false;
 }
 
 /** Use only the selected variation's validated local image in the local cart. */
@@ -195,7 +226,7 @@ add_filter('woocommerce_cart_item_permalink', function ($permalink, $cart_item) 
         if ($offer['warehouse'] === 'us') $params['warehouse'] = 'us';
         if ((int)$offer['pack'] !== 10) $params['pack'] = (int)$offer['pack'];
         if ($offer['noteLabel'] !== '') $params['option'] = $offer['noteLabel'];
-        else $params['tbv_option'] = 'empty';
+        elseif (array_filter($catalog, fn($o) => (int)$o['wooProductId'] === (int)$offer['wooProductId'] && $o['noteLabel'] !== '')) $params['tbv_option'] = 'empty';
         $url = home_url('/' . $slug);
         return $params ? add_query_arg($params, $url) : $url;
     }
@@ -265,10 +296,10 @@ function tbv_react_proof_recognized_route() {
     foreach (['rest_route','wc-ajax','add-to-cart','payment','order-pay','key','wc-api'] as $reserved) if (isset($_GET[$reserved])) return false;
     $path = tbv_react_proof_requested_path();
     if ($path === null) return false;
-    if ($path === 'cart' && tbv_staging_commerce_test_enabled()) return $cached = true;
+    if ($path === 'cart' && tbv_commerce_enabled()) return $cached = true;
     // Signed-in customers get the storefront account dashboard; the sign-in
     // form and every account endpoint stay native WooCommerce pages.
-    if ($path === 'my-account' && tbv_staging_commerce_test_enabled() && is_user_logged_in() && !$_GET) return $cached = true;
+    if ($path === 'my-account' && tbv_commerce_enabled() && is_user_logged_in() && !$_GET) return $cached = true;
     $reserved = ['cart','checkout','account','my-account','wp-admin','wp-json','wc-api','wp-login.php','wp-cron.php'];
     if (in_array($path, $reserved, true)) return false;
     $pages = ['', 'shop', 'us-warehouse', 'shipping-prices', 'affiliate', 'about', 'faq', 'contact', 'track-order', 'terms-and-conditions', 'privacy-policy', 'shipping-policy', 'refund-policy'];
@@ -311,14 +342,18 @@ add_action('template_redirect', function () {
     if ($wp_query->is_404()) { $wp_query->is_404 = false; status_header(200); }
 }, 1);
 add_filter('template_include', function ($template) {
-    return tbv_react_proof_recognized_route() || tbv_react_proof_received_order() ? get_template_directory() . '/front-page.php' : $template;
+    if (tbv_react_proof_recognized_route() || tbv_react_proof_received_order()) return get_template_directory() . '/front-page.php';
+    // Unknown pages: the storefront (which shows home, as on live) with a 404 status.
+    $path = (string)wp_parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
+    if (is_404() && tbv_store_mode() !== 'off' && !preg_match('#\.[a-z0-9]{2,5}$#i', $path)) return get_template_directory() . '/front-page.php';
+    return $template;
 }, PHP_INT_MAX);
 /** The signed-in customer's own order on its order-received page (commerce test), or null. */
 function tbv_react_proof_received_order() {
     static $order = false;
     if ($order !== false) return $order;
     $order = null;
-    if (!tbv_staging_commerce_test_enabled() || !is_user_logged_in() || !function_exists('is_wc_endpoint_url') || !is_wc_endpoint_url('order-received')) return null;
+    if (!tbv_commerce_enabled() || !is_user_logged_in() || !function_exists('is_wc_endpoint_url') || !is_wc_endpoint_url('order-received')) return null;
     $candidate = wc_get_order(absint(get_query_var('order-received')));
     $key = isset($_GET['key']) ? wc_clean(wp_unslash($_GET['key'])) : '';
     if ($candidate && $key !== '' && $candidate->key_is_valid($key) && $candidate->get_customer_id() === get_current_user_id()) $order = $candidate;
@@ -331,7 +366,10 @@ function tbv_react_proof_commerce_config() {
     return [
         'checkoutEndpoint' => add_query_arg('wc-ajax', 'checkout', home_url('/')),
         'checkoutNonce' => wp_create_nonce('woocommerce-process_checkout'),
-        'gatewayId' => TBV_STAGING_TEST_GATEWAY_ID,
+        // First non-credit gateway; empty on the real store until a processor is connected.
+        'gatewayId' => (string)(array_values(array_diff(tbv_checkout_gateway_ids(), ['tbv_store_credit']))[0] ?? ''),
+        // Hosts a production gateway may send the customer to after checkout (hosted payment page).
+        'paymentRedirectHosts' => tbv_store_mode() === 'production' ? array_values(array_map('strval', (array)apply_filters('tbv_store_payment_redirect_hosts', []))) : [],
         'creditGatewayId' => function_exists('tbv_ac_credit_balance') ? 'tbv_store_credit' : '',
         'affiliateLookupEndpoint' => esc_url_raw(rest_url('tbv-affiliates/v1/account')),
         'accountUrl' => wc_get_page_permalink('myaccount'),
@@ -370,7 +408,10 @@ function tbv_react_proof_account_user($user) {
         'city' => $c->get_billing_city(), 'state' => $c->get_billing_state(), 'postalCode' => $c->get_billing_postcode(),
         'country' => $country ? tbv_react_proof_country_name($countries[$country] ?? $country) : '',
         'avatarId' => (string)get_user_meta($user->ID, 'tbv_avatar_id', true),
-        'storeCredit' => function_exists('tbv_ac_credit_balance') ? tbv_ac_credit_balance($user->user_email) / 100 : 0,
+        'storeCredit' => function_exists('tbv_ac_owned_email') && tbv_ac_owned_email($user) !== '' ? tbv_ac_credit_balance(tbv_ac_owned_email($user)) / 100 : 0,
+        // Real store: credit and the affiliate panel wait for a confirmed email (tbv-affiliates-credit).
+        'emailVerified' => !function_exists('tbv_ac_email_verified') || tbv_ac_email_verified($user),
+        'verifyResendUrl' => function_exists('tbv_ac_email_verified') && !tbv_ac_email_verified($user) ? html_entity_decode(wp_nonce_url(add_query_arg('tbv_verify_resend', '1', wc_get_page_permalink('myaccount')), 'tbv_verify_resend')) : '',
     ];
 }
 /** One order in the storefront dashboard's shape (customer's own orders only). */
@@ -433,7 +474,7 @@ function tbv_react_proof_received_order_data($order) {
     return $data;
 }
 add_action('rest_api_init', function () {
-    if (!function_exists('tbv_staging_commerce_test_enabled') || !tbv_staging_commerce_test_enabled()) return;
+    if (!tbv_commerce_enabled()) return;
     $signed_in = fn() => is_user_logged_in();
     register_rest_route('tbv-account/v1', '/orders', ['methods' => 'GET', 'permission_callback' => $signed_in, 'callback' => function ($request) {
         // ?number= looks up one of the customer's own orders (Track Order page): the
@@ -506,7 +547,7 @@ add_action('woocommerce_created_customer', function ($customer_id) {
 });
 // Return to the cart page after signing in or registering from it.
 function tbv_react_proof_cart_return_field() {
-    if (tbv_staging_commerce_test_enabled() && ($_GET['tbv_return'] ?? '') === 'cart') echo '<input type="hidden" name="redirect" value="' . esc_url(wc_get_cart_url()) . '">';
+    if (tbv_commerce_enabled() && ($_GET['tbv_return'] ?? '') === 'cart') echo '<input type="hidden" name="redirect" value="' . esc_url(wc_get_cart_url()) . '">';
 }
 add_action('woocommerce_login_form_end', 'tbv_react_proof_cart_return_field');
 add_action('woocommerce_register_form_end', 'tbv_react_proof_cart_return_field');
@@ -532,3 +573,26 @@ function tbv_react_proof_catalog_background() {
 
 // The storefront shows no WordPress toolbar (live has none); /wp-admin keeps it.
 add_filter('show_admin_bar', fn($show) => is_admin() ? $show : false);
+
+/* ---------- Old offer links (map generated from the source catalog) and the account icon. ---------- */
+add_action('template_redirect', function () {
+    if (!is_404()) return;
+    $path = trim((string)wp_parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH), '/');
+    $map = get_option('tbv_preview_legacy_routes', []);
+    if (!isset($map[$path])) return;
+    $target = $map[$path];
+    $url = get_permalink((int)$target['productId']);
+    if (!$url) return;
+    $query = ['attribute_dosage' => $target['dose'], 'attribute_pack-size' => (string)$target['packCount'], 'warehouse' => $target['warehouse'], 'attribute_warehouse' => $target['warehouse']];
+    if (!empty($target['formulation'])) $query['attribute_formulation'] = $target['formulation'];
+    wp_safe_redirect(add_query_arg($query, $url), 302);
+    exit;
+});
+
+// The storefront's account icon goes to WooCommerce My Account.
+add_action('wp_footer', function () {
+    if (!tbv_commerce_enabled() || !function_exists('wc_get_page_permalink')) return;
+    $account = wc_get_page_permalink('myaccount');
+    $path = (string)wp_parse_url(home_url('/account'), PHP_URL_PATH);
+    echo '<script>(function(){var t=' . wp_json_encode($account) . ',p=' . wp_json_encode($path) . ';document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;var u;try{u=new URL(a.href,location.href)}catch(_){return}if(u.origin===location.origin&&u.pathname.replace(/\/+$/,"")===p){e.preventDefault();e.stopImmediatePropagation();location.assign(t)}},true);var push=history.pushState;history.pushState=function(st,ti,url){try{if(url&&new URL(url,location.href).pathname.replace(/\/+$/,"")===p){location.assign(t);return}}catch(_){}return push.apply(this,arguments)}})();</script>';
+}, 99);

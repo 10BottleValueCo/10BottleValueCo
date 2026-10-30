@@ -11,7 +11,7 @@ const require = createRequire(import.meta.url);
 const {chromium, devices} = require(process.env.TBV_PLAYWRIGHT || 'playwright');
 
 const out = process.argv[2]; fs.mkdirSync(out, {recursive: true});
-const PROD = 'https://10bottlevalue.co', STAGE = process.env.TBV_STAGING_PUBLIC_URL || 'https://staging.example.invalid', LOCAL = 'http://127.0.0.1:8088';
+const PROD = 'https://10bottlevalue.co', STAGE = process.env.TBV_STAGING_PUBLIC_URL || 'https://staging.example.invalid', LOCAL = (process.env.TBV_LOCAL_URL || 'http://127.0.0.1:8088').replace(/\/+$/, '');
 const routes = ['/', '/shop', '/us-warehouse', '/retatrutide-5mg', '/tirzepatide-10mg', '/melanotan-2-10mg', '/melanotan-1-10mg?warehouse=us', '/shipping-prices', '/faq', '/affiliate', '/track-order', '/contact', '/cart'];
 const results = [];
 const check = (name, ok, detail = '') => results.push({name, ok: !!ok, detail: ok ? '' : String(detail).slice(0, 300)});
@@ -348,6 +348,33 @@ await adminPage.evaluate(async (id) => { const a = window.TBV_COMMERCE.admin; aw
 check('admin stock switch sets WooCommerce stock status', stockSet === 200 && stockNow === 'outofstock' && wp('eval', `echo wc_get_product(${stockVariation})->get_stock_status();`) === 'instock', `${stockSet}/${stockNow}`);
 check('admin panel no JS errors', adminErrors.length === 0, adminErrors.join(' | '));
 await adminCtx.close();
+
+// Parity with live found by the side-by-side review (2026-10-29).
+const parCtx = await browser.newContext({viewport: {width: 1440, height: 900}});
+const par = await parCtx.newPage();
+await par.goto(LOCAL + '/retatrutide-5mg', {waitUntil: 'load'}); await par.waitForTimeout(2000);
+const retaText = await par.locator('body').innerText();
+check('retatrutide kit total shown', /50 mg total/i.test(retaText), retaText.match(/kit total[\s\S]{0,40}/i)?.[0]);
+check('retatrutide COA slide available', await par.locator('img[src*="coa-reta-5mg"]').count() > 0, 'no COA image');
+await par.getByRole('button', {name: '10 MG', exact: true}).first().click(); await par.waitForTimeout(800);
+check('plain product links have no empty-option marker', /\/retatrutide-10mg$/.test(new URL(par.url()).pathname) && !/tbv_option/.test(par.url()), par.url());
+await par.goto(LOCAL + '/shop', {waitUntil: 'load'}); await par.waitForTimeout(2500);
+// Cards render as they scroll into view; ordering depends on sales, so scroll until found.
+const hasTop = () => par.evaluate(() => [...document.querySelectorAll('button')].some(b => /\bTOP\b/.test(b.innerText) && /Retatrutide/.test(b.innerText)));
+for (let y = 0; y < 30 && !(await hasTop()); y++) { await par.mouse.wheel(0, 700); await par.waitForTimeout(250); }
+check('TOP badge on Retatrutide', await hasTop(), 'no TOP on the Retatrutide card');
+await par.goto(LOCAL + '/kpv-5mg?warehouse=us', {waitUntil: 'load'}); await par.waitForTimeout(2000);
+check('KPV 5 mg US shows its vial', await par.locator('[aria-label="Product image pending"]').count() === 0 && await par.locator('img[src*="kpv-5mg-label"]').count() > 0, 'pending or wrong image');
+check('page background matches live', await par.evaluate(() => getComputedStyle(document.getElementById('root')).backgroundColor) === 'rgb(17, 17, 17)', 'root background');
+await par.goto(LOCAL + '/no-such-page-' + Date.now(), {waitUntil: 'load'}); await par.waitForTimeout(1500);
+check('unknown page shows the storefront', (await par.locator('#root').innerText()).trim().length > 200, 'empty 404');
+const consentCtx = await browser.newContext({...devices['iPhone 13']});
+const consent = await consentCtx.newPage();
+await consent.goto(LOCAL + '/retatrutide-5mg', {waitUntil: 'load'}); await consent.waitForTimeout(1500);
+await consent.getByRole('button', {name: /add to cart/i}).last().click().catch(() => {}); await consent.waitForTimeout(1500);
+await consent.goto(LOCAL + '/cart', {waitUntil: 'load'}); await consent.waitForTimeout(2500);
+check('cart shows the order agreement line', /By placing an order, you agree to our/i.test(await consent.locator('body').innerText()), 'agreement line missing');
+await consentCtx.close(); await parCtx.close();
 await browser.close();
 
 const failed = results.filter(r => !r.ok);

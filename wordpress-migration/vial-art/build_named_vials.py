@@ -30,6 +30,8 @@ def jobs():
     # keep that 20 mg dose band and use each product's own name band.
     yield "tirzepatide-glp-2-3c2452bfd7b4.webp", "mots-c-20mg-label-3c2452bfd7b4.webp", None, "mots-c-844dea5d38ec.webp"
     yield "tirzepatide-glp-2-3c2452bfd7b4.webp", "tesamorelin-20mg-label-3c2452bfd7b4.webp", None, "tesamorelin-7cd62d9a87c1.webp"
+    # Live shows the BPC-157 5 mg vial for KPV 5 mg; keep its 5 mg band, KPV name band.
+    yield "bpc-157-f4e551bb3098.webp", "kpv-5mg-label-f4e551bb3098.webp", None, "kpv-3bda87926280.webp"
 
 def main(src, out):
     os.makedirs(out, exist_ok=True)

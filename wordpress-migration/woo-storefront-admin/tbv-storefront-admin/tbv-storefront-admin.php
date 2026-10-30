@@ -528,6 +528,48 @@ add_action('rest_api_init', function () {
     }]);
 });
 
+/* ---------- Shop order: best sellers (live /api/catalog-ranking) ---------- */
+
+const TBV_SA_RANKING_FROM = '2026-04-01';
+const TBV_SA_RANKING_ALIASES = ['bac water' => 'Reconstitution Solution', 'hgh' => '10-GH', 'ara290 (cibinetide)' => 'ARA290'];
+
+// Units sold per product on paid/done orders since FROM (paid date, else
+// created), top 40 overall and top 40 from the US warehouse, as on live.
+function tbv_sa_ranking() {
+    $through = (new DateTime('now', new DateTimeZone('Europe/Riga')))->format('Y-m-d');
+    $cached = get_transient('tbv_sa_ranking');
+    if (is_array($cached) && ($cached['through'] ?? '') === $through) return $cached;
+    $units = $us_units = [];
+    for ($page = 1; ; $page++) {
+        $orders = wc_get_orders(['status' => ['processing', 'completed'], 'date_created' => '>=' . gmdate('Y-m-d', strtotime(TBV_SA_RANKING_FROM . ' -60 days')), 'limit' => 500, 'page' => $page, 'orderby' => 'ID', 'order' => 'ASC']);
+        foreach ($orders as $order) {
+            $date = $order->get_date_paid() ?: $order->get_date_created();
+            $day = $date ? $date->date('Y-m-d') : '';
+            if ($day < TBV_SA_RANKING_FROM || $day > $through) continue;
+            foreach (tbv_sa_order($order)['items'] as $item) {
+                $name = trim((string)$item['name']);
+                $name = TBV_SA_RANKING_ALIASES[strtolower($name)] ?? $name;
+                if ($name === '') continue;
+                $units[$name] = ($units[$name] ?? 0) + $item['quantity'];
+                if (($item['fromWarehouse'] ?? '') === 'us') $us_units[$name] = ($us_units[$name] ?? 0) + $item['quantity'];
+            }
+        }
+        if (count($orders) < 500) break;
+    }
+    $top = function ($counts) { arsort($counts); return array_slice(array_map('strval', array_keys($counts)), 0, 40); };
+    $ranking = ['from' => TBV_SA_RANKING_FROM, 'through' => $through, 'names' => $top($units), 'usNames' => $top($us_units)];
+    set_transient('tbv_sa_ranking', $ranking, 5 * MINUTE_IN_SECONDS);
+    return $ranking;
+}
+
+add_action('rest_api_init', function () {
+    register_rest_route('tbv-storefront/v1', '/ranking', ['methods' => 'GET', 'permission_callback' => '__return_true', 'callback' => function () {
+        $response = new WP_REST_Response(tbv_sa_ranking());
+        $response->header('Cache-Control', 'public, max-age=60');
+        return $response;
+    }]);
+});
+
 /* ---------- Charts: per-order supplier cost overrides ---------- */
 
 function tbv_sa_cost_metadata($order) {

@@ -30,7 +30,7 @@ add_filter('pre_wp_mail', function ($return, $atts) {
 
 /* ---------- Visible staging banner on every storefront page. ---------- */
 add_action('wp_head', function () {
-    echo '<style>.tbv-wp-preview-banner{position:relative;z-index:2147483647;padding:6px 10px;background:#ffe486;color:#111;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px 12px;font:600 11px/1.4 Arial,sans-serif;text-align:center}.tbv-wp-preview-banner small{font-size:10px;font-weight:400;color:#222}</style>';
+    echo '<style>.tbv-wp-preview-banner{position:relative;z-index:300;padding:6px 10px;background:#ffe486;color:#111;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px 12px;font:600 11px/1.4 Arial,sans-serif;text-align:center}.tbv-wp-preview-banner small{font-size:10px;font-weight:400;color:#222}</style>';
 }, 99);
 add_action('wp_body_open', function () {
     echo '<div class="tbv-wp-preview-banner" role="note"><span>WordPress preview — staging</span><small>Test data only · No real orders, payments, shipping or emails</small></div>';
@@ -120,26 +120,3 @@ add_filter('woocommerce_customer_email_verification_should_show_prompt', '__retu
 add_action('woocommerce_before_customer_login_form', function () {
     wc_print_notice('Staging site: create a test account below with any made-up email (e.g. name@example.test). Password reset emails are disabled — remember your test password.', 'notice');
 });
-
-/* ---------- Preserve old offer links (generated from the source catalog). ---------- */
-add_action('template_redirect', function () {
-    if (!is_404()) return;
-    $path = trim((string)wp_parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH), '/');
-    $map = get_option('tbv_preview_legacy_routes', []);
-    if (!isset($map[$path])) return;
-    $target = $map[$path];
-    $url = get_permalink((int)$target['productId']);
-    if (!$url) return;
-    $query = ['attribute_dosage' => $target['dose'], 'attribute_pack-size' => (string)$target['packCount'], 'warehouse' => $target['warehouse'], 'attribute_warehouse' => $target['warehouse']];
-    if (!empty($target['formulation'])) $query['attribute_formulation'] = $target['formulation'];
-    wp_safe_redirect(add_query_arg($query, $url), 302);
-    exit;
-});
-
-/* ---------- Send the storefront's account icon to native WooCommerce My Account. ---------- */
-add_action('wp_footer', function () {
-    if (!function_exists('wc_get_page_permalink')) return;
-    $account = wc_get_page_permalink('myaccount');
-    $path = (string)wp_parse_url(home_url('/account'), PHP_URL_PATH);
-    echo '<script>(function(){var t=' . wp_json_encode($account) . ',p=' . wp_json_encode($path) . ';document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;var u;try{u=new URL(a.href,location.href)}catch(_){return}if(u.origin===location.origin&&u.pathname.replace(/\/+$/,"")===p){e.preventDefault();e.stopImmediatePropagation();location.assign(t)}},true);var push=history.pushState;history.pushState=function(st,ti,url){try{if(url&&new URL(url,location.href).pathname.replace(/\/+$/,"")===p){location.assign(t);return}}catch(_){}return push.apply(this,arguments)}})();</script>';
-}, 99);

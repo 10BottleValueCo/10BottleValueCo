@@ -270,7 +270,7 @@ function prefetchRouteChunks(page) {
 
 const topProductNames = new Set(["Retatrutide / GLP-3", "10-GH", "KLOW80"]);
 const isTopProduct = (product) =>
-  product.name !== "MOTS-C" && (topProductNames.has(product.name) || Boolean(product.isHot));
+  product.name !== "MOTS-C" && (topProductNames.has(product.name) || topProductNames.has(catalogProductName(product.name)) || Boolean(product.isHot));
 
 const homeUsPopularityOrder = [
   "Retatrutide",
@@ -3023,7 +3023,8 @@ const ORIGINAL_PRODUCTS = [
 // the sanitized WooCommerce preview database. Original UI fields are joined for
 // display only; unmatched rows fall back to neutral display metadata.
 const PRODUCTS_BASE = wooSnapshot.map((woo) => {
-  const old = ORIGINAL_PRODUCTS.find((p) => p.name === woo.name && p.dose === woo.dose && (p.warehouse || "worldwide") === woo.warehouse && (p.noteLabel || "") === woo.noteLabel) || {};
+  // Display details are keyed by the live catalog's names (e.g. "Retatrutide / GLP-3").
+  const old = ORIGINAL_PRODUCTS.find((p) => (p.name === woo.name || p.name === catalogProductName(woo.name)) && p.dose === woo.dose && (p.warehouse || "worldwide") === woo.warehouse && (p.noteLabel || "") === woo.noteLabel) || {};
   return mergeWooDisplayMetadata(old, woo);
 });
 const US_WAREHOUSE_IN_STOCK_OFFERS = new Set(PRODUCTS_BASE.filter(p => p.warehouse === "us" && !p.outOfStock).map(p => `${p.name}|${p.dose}${p.noteLabel ? `|${p.noteLabel}` : ""}`));
@@ -4723,7 +4724,38 @@ export default function App() {
       setShopPrimed(true);
     }
   }, [page]);
-  // Preview: rankings stay in their initial local state; no legacy catalog API.
+  // Best sellers first, as on live; WordPress computes the same ranking from paid orders.
+  useEffect(() => {
+    if (!tbvCommerce) return undefined;
+    const controller = new AbortController();
+    const loadRanking = async () => {
+      try {
+        const response = await fetch(tbvSitePath("/wp-json/tbv-storefront/v1/ranking"), { signal: controller.signal, credentials: "same-origin" });
+        if (!response.ok) throw new Error(`Catalog ranking request failed (${response.status})`);
+        const data = await response.json();
+        if (!Array.isArray(data.names) || !data.names.every(name => typeof name === "string") ||
+            !Array.isArray(data.usNames) || !data.usNames.every(name => typeof name === "string")) {
+          throw new Error("Catalog ranking response is invalid");
+        }
+        if (!controller.signal.aborted) {
+          setSalesRanking(data.names);
+          setUsSalesRanking(data.usNames);
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.error(error);
+          setSalesRanking([]);
+          setUsSalesRanking([]);
+        }
+      }
+    };
+    loadRanking();
+    const interval = window.setInterval(loadRanking, 5 * 60 * 1000);
+    return () => {
+      controller.abort();
+      window.clearInterval(interval);
+    };
+  }, []);
   const [chartsExpandedOrder, setChartsExpandedOrder] = useState(null);
   const [chartsFrom, setChartsFrom] = useState("");
   const [chartsTo, setChartsTo] = useState("");
@@ -11238,6 +11270,11 @@ export default function App() {
       setCheckoutMessage(tx("Shipping to this country is not available.", "Доставка в эту страну недоступна."));
       return;
     }
+    const paymentMethod = String((storeCreditApplied > 0 && tbvCommerce.creditGatewayId) || tbvCommerce.gatewayId || "");
+    if (!paymentMethod) {
+      setCheckoutMessage(tx("Online payment is not available yet. Please contact support to place this order.", "Онлайн-оплата пока недоступна. Свяжитесь с поддержкой, чтобы оформить заказ."));
+      return;
+    }
     await wooQueueRef.current.catch(() => {});
     const rate = wooCartMeta?.rates.find((entry) => entry.selected);
     const body = new URLSearchParams({
@@ -11252,7 +11289,7 @@ export default function App() {
       billing_phone: form.phone.trim(),
       billing_email: cartUser.email,
       order_comments: getCheckoutOrderNotes(form),
-      payment_method: String((storeCreditApplied > 0 && tbvCommerce.creditGatewayId) || tbvCommerce.gatewayId || ""),
+      payment_method: paymentMethod,
       "shipping_method[0]": rate?.id || "",
       tbv_carrier_preference: form.carrierPreference || "",
       tbv_tax_id: form.taxId || "",
@@ -11265,8 +11302,10 @@ export default function App() {
       const data = await response.json().catch(() => null);
       if (data?.result === "success" && typeof data.redirect === "string") {
         const target = new URL(data.redirect, window.location.href);
-        if (target.origin === window.location.origin) {
-          track("order_placed", { page: "cart", payment_method: storeCreditApplied > 0 ? "store_credit" : "staging_test", total: cartTotal, items_count: cart.length });
+        // Same site (order received), or a hosted payment page the store's gateway names.
+        const paymentHost = target.protocol === "https:" && (tbvCommerce.paymentRedirectHosts || []).includes(target.hostname);
+        if (target.origin === window.location.origin || paymentHost) {
+          track("order_placed", { page: "cart", payment_method: storeCreditApplied > 0 ? "store_credit" : paymentMethod, total: cartTotal, items_count: cart.length });
           window.location.assign(target.href);
           return;
         }
@@ -13184,7 +13223,7 @@ export default function App() {
     setCoaLightbox(false);
     const query = new URLSearchParams(window.location.search);
     if (currentAffiliateProfile?.code) query.set("c", currentAffiliateProfile.code.toLowerCase());
-    const path = tbvSitePath(productSelectionUrl(nextSelection, query.toString()));
+    const path = tbvSitePath(productSelectionUrl(nextSelection, query.toString(), PRODUCTS_BASE));
     if (`${window.location.pathname}${window.location.search}` !== path) {
       window.history[historyMode === "replace" ? "replaceState" : "pushState"]({}, "", path);
     }
@@ -19250,6 +19289,12 @@ export default function App() {
         {page === "account" && tbvCommerce?.account && (
           <main className="mx-auto max-w-[1400px] px-0 pt-0 pb-10 md:pb-16">
             <div className="min-w-0 w-full">
+              {tbvCommerce.user?.emailVerified === false && (
+                <p role="status" className="mx-3 mb-4 rounded-2xl border border-amber-300/40 bg-amber-300/10 px-4 py-3 text-[13px] text-amber-100 md:mx-0">
+                  {tx("Please confirm your email to use store credit and the affiliate dashboard. Check your inbox for the link.", "Подтвердите email, чтобы пользоваться кредитами и партнёрским кабинетом. Ссылка отправлена на вашу почту.")}{" "}
+                  {tbvCommerce.user.verifyResendUrl && <a href={tbvCommerce.user.verifyResendUrl} className="font-semibold underline underline-offset-4">{tx("Send the link again", "Отправить ссылку ещё раз")}</a>}
+                </p>
+              )}
               <Suspense
                 fallback={
                   <div className="min-h-[320px]" aria-busy="true">
@@ -22579,6 +22624,15 @@ export default function App() {
                           : t("proceedCheckout")}
                       </button>
                     )}
+                    <p className="mt-3 text-center text-[10px] uppercase leading-5 tracking-[0.12em] text-white/70">
+                      {tx("By placing an order, you agree to our", "Оформляя заказ, вы соглашаетесь с нашими", "Оформлюючи замовлення, ви погоджуєтеся з нашими", "Mit Ihrer Bestellung stimmen Sie unseren", "Al realizar un pedido, aceptas nuestros")}{" "}
+                      <a href={tbvSitePath("/terms-and-conditions")} className="font-semibold text-white underline underline-offset-4">{i18n(legal.termsAndConditions)}</a>,{" "}
+                      <a href={tbvSitePath("/privacy-policy")} className="font-semibold text-white underline underline-offset-4">{i18n(legal.privacyPolicy)}</a>,{" "}
+                      <a href={tbvSitePath("/refund-policy")} className="font-semibold text-white underline underline-offset-4">{i18n(legal.refundPolicy)}</a>{" "}
+                      {tx("and", "и", "та", "und", "y")}{" "}
+                      <a href={tbvSitePath("/shipping-policy")} className="font-semibold text-white underline underline-offset-4">{i18n(legal.shippingPolicy)}</a>
+                      {tx(".", ".", ".", " zu.", ".")}
+                    </p>
                   </>
                 )}
               </div>

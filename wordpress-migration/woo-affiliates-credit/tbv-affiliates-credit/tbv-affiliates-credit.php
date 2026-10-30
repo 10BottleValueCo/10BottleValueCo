@@ -400,12 +400,76 @@ function tbv_ac_admin_credit_change($email, $kind, $cents, $note) {
     return tbv_ac_credit_change($email, $kind, $cents, $note);
 }
 
+/* ---------- Email ownership ----------
+ * Credit balances and affiliate panels are keyed by email, and WooCommerce
+ * sign-up does not prove the address. On the real store a new account must
+ * confirm its email before either applies. Accounts the legacy migration
+ * created (their owners sign in through a password-reset email) and shop
+ * managers count as confirmed. Staging (synthetic accounts, no email) skips it.
+ */
+function tbv_ac_require_verified_email() {
+    $production = function_exists('tbv_store_mode') ? tbv_store_mode() === 'production' : wp_get_environment_type() === 'production';
+    return (bool)apply_filters('tbv_ac_require_verified_email', $production);
+}
+function tbv_ac_email_verified($user) {
+    if (!$user || !$user->exists()) return false;
+    if (!tbv_ac_require_verified_email() || user_can($user, 'manage_woocommerce')) return true;
+    if (get_user_meta($user->ID, '_tbv_email_verified', true) === '1') return true;
+    global $wpdb;
+    $map = $wpdb->prefix . 'tbv_legacy_map';
+    return $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $map)) === $map
+        && (bool)$wpdb->get_var($wpdb->prepare("SELECT 1 FROM {$map} WHERE entity = 'user' AND wp_id = %d LIMIT 1", $user->ID));
+}
+/** The signed-in user's email for credit and affiliate access, or '' until confirmed. */
+function tbv_ac_owned_email($user = null) {
+    $user = $user ?: wp_get_current_user();
+    return tbv_ac_email_verified($user) ? tbv_ac_email($user->user_email) : '';
+}
+function tbv_ac_verify_link($user_id) {
+    $exp = time() + 7 * DAY_IN_SECONDS;
+    $sig = hash_hmac('sha256', "verify|{$user_id}|{$exp}", wp_salt('auth'));
+    return add_query_arg('tbv_verify', "{$user_id}.{$exp}.{$sig}", wc_get_page_permalink('myaccount'));
+}
+function tbv_ac_send_verification($user_id) {
+    $user = get_userdata($user_id);
+    if (!$user || get_transient('tbv_ac_verify_sent_' . $user_id)) return false;
+    set_transient('tbv_ac_verify_sent_' . $user_id, 1, 5 * MINUTE_IN_SECONDS);
+    return wp_mail($user->user_email, 'Confirm your email for 10BottleValueCo', "Hi,\n\nPlease confirm this email address to use store credit and the affiliate dashboard on your 10BottleValueCo account:\n\n" . tbv_ac_verify_link($user_id) . "\n\nThe link works for 7 days. If you did not create an account, ignore this email.\n\n10BottleValueCo");
+}
+add_action('woocommerce_created_customer', function ($customer_id) {
+    if (!tbv_ac_require_verified_email()) return;
+    update_user_meta($customer_id, '_tbv_email_verified', '0');
+    tbv_ac_send_verification($customer_id);
+});
+add_action('template_redirect', function () {
+    if (isset($_GET['tbv_verify'])) {
+        $parts = explode('.', (string)wp_unslash($_GET['tbv_verify']));
+        $ok = count($parts) === 3 && ctype_digit($parts[0]) && ctype_digit($parts[1]) && (int)$parts[1] >= time()
+            && hash_equals(hash_hmac('sha256', "verify|{$parts[0]}|{$parts[1]}", wp_salt('auth')), $parts[2]) && get_userdata((int)$parts[0]);
+        if ($ok) update_user_meta((int)$parts[0], '_tbv_email_verified', '1');
+        if (function_exists('wc_add_notice')) wc_add_notice($ok ? 'Your email is confirmed.' : 'That confirmation link is invalid or has expired. Sign in to get a new one.', $ok ? 'success' : 'error');
+        wp_safe_redirect(wc_get_page_permalink('myaccount'));
+        exit;
+    }
+    if (isset($_GET['tbv_verify_resend']) && is_user_logged_in() && wp_verify_nonce((string)($_GET['_wpnonce'] ?? ''), 'tbv_verify_resend')) {
+        $sent = tbv_ac_send_verification(get_current_user_id());
+        if (function_exists('wc_add_notice')) wc_add_notice($sent ? 'We sent a new confirmation link.' : 'A confirmation link was sent a few minutes ago; please check your inbox.', 'notice');
+        wp_safe_redirect(wc_get_page_permalink('myaccount'));
+        exit;
+    }
+});
+add_action('woocommerce_account_content', function () {
+    $user = wp_get_current_user();
+    if (!$user->exists() || tbv_ac_email_verified($user)) return;
+    printf('<p class="woocommerce-info">Please confirm your email to use store credit and the affiliate dashboard. <a href="%s">Send the link again</a></p>', esc_url(wp_nonce_url(add_query_arg('tbv_verify_resend', '1', wc_get_page_permalink('myaccount')), 'tbv_verify_resend')));
+}, 1);
+
 /** Live applies credit only when it covers the whole total. */
 function tbv_ac_credit_covers_cart() {
-    $user = wp_get_current_user();
-    if (!$user->exists() || !WC()->cart || WC()->cart->is_empty()) return false;
+    $email = tbv_ac_owned_email();
+    if ($email === '' || !WC()->cart || WC()->cart->is_empty()) return false;
     $total = tbv_ac_cents(WC()->cart->get_total('edit'));
-    return $total > 0 && tbv_ac_credit_balance($user->user_email) >= $total;
+    return $total > 0 && tbv_ac_credit_balance($email) >= $total;
 }
 
 add_action('plugins_loaded', function () {
@@ -426,8 +490,11 @@ add_action('plugins_loaded', function () {
         public function process_payment($order_id) {
             $order = wc_get_order($order_id);
             if (!$order || $order->get_customer_id() !== get_current_user_id()) return ['result' => 'failure'];
+            // The balance belongs to the signed-in account, never to the billing email typed at checkout.
+            $email = tbv_ac_owned_email();
+            if ($email === '') { wc_add_notice('Confirm your email to pay with store credit.', 'error'); return ['result' => 'failure']; }
             $cents = tbv_ac_cents($order->get_total());
-            $result = tbv_ac_credit_change($order->get_billing_email(), 'order_payment', $cents, 'Order ' . $order->get_order_number(), $order->get_id(), 'order-' . $order->get_id());
+            $result = tbv_ac_credit_change($email, 'order_payment', $cents, 'Order ' . $order->get_order_number(), $order->get_id(), 'order-' . $order->get_id());
             if (is_wp_error($result)) {
                 wc_add_notice($result->get_error_message(), 'error');
                 return ['result' => 'failure'];
@@ -460,7 +527,7 @@ add_action('woocommerce_blocks_loaded', function () {
             return [
                 'affiliateCode' => $attribution['code'] ?? '',
                 'affiliateLocked' => (bool)($attribution['locked'] ?? false),
-                'storeCredit' => $user->exists() ? tbv_ac_credit_balance($user->user_email) : 0,
+                'storeCredit' => tbv_ac_owned_email($user) !== '' ? tbv_ac_credit_balance(tbv_ac_owned_email($user)) : 0,
                 'storeCreditCovers' => tbv_ac_credit_covers_cart(),
                 'creditGatewayId' => TBV_AC_GATEWAY_ID,
             ];
@@ -507,7 +574,7 @@ function tbv_ac_rest_account($request) {
         return ['ok' => true, 'affiliate' => $affiliate ? ['code' => $affiliate['code'], 'active' => (int)$affiliate['active'] === 1] : null];
     }
     $user = wp_get_current_user();
-    $affiliate = tbv_ac_affiliate_for_email($user->user_email);
+    $affiliate = tbv_ac_owned_email($user) !== '' ? tbv_ac_affiliate_for_email($user->user_email) : null;
     $empty = ['ledgerRows' => [], 'codeColumnOrders' => [], 'codeMetadataOrders' => [], 'payoutsTotal' => 0, 'hasMore' => false];
     if (!$affiliate) return ['ok' => true, 'affiliate' => null] + $empty;
     $page = $empty;

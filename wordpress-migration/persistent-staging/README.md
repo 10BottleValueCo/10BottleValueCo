@@ -56,6 +56,10 @@ wp eval-file scripts/audit-staging.php                                          
 
 E2E covers catalog, variation add/update/remove, cart persistence, guest isolation, totals, automatic discount, express selection, registration, logout/login, wrong password, guest-checkout refusal, other-gateway refusal, test checkout, order-received, order history, cross-customer order access, restart persistence and the guard endpoints. Browser QA compares 11 routes (including `/cart`) on production and staging at iPhone 13 and 1440×900 (status, overflow, JS errors, failed requests, no researcher gate) and drives the real UI: add to cart, header CART, storefront cart, Sign in → storefront account card → register → back to cart, shipping details, test order, account link.
 
+## Moving to another server
+
+`../deploy/` builds a bundle from this staging site (code, catalog, pages and settings; no orders, accounts or messages) and installs it on any server with one command, as staging or as the real store. Rehearsed 2026-10-29 on fresh databases: staging mode E2E 94/94, browser 282/282, audit pass; production mode 48/48 (49/49 with a stand-in gateway). See `../deploy/README.md`.
+
 ## Not done here
 
-Real catalog prices/stock, confirmed shipping rates and destinations, taxes, coupons, real payment processor, customer/order/credit/affiliate data migration and reconciliation, auth migration from Supabase, production hosting, DNS and cutover. See `PAYMENT_INTEGRATION_POINTS.md`.
+Confirmed shipping rates and destinations, taxes, coupons, real payment processor, customer/order/credit/affiliate data migration and reconciliation, auth migration from Supabase, production hosting, DNS and cutover. See `PAYMENT_INTEGRATION_POINTS.md`.

@@ -69,7 +69,9 @@ export function readProductSelection(catalog, location) {
   };
 }
 
-export function productSelectionUrl(selection, currentSearch = "") {
+// With a catalog, the empty-option marker is added only where the product also
+// has a named option (e.g. with/d and no/d); other links stay as on live.
+export function productSelectionUrl(selection, currentSearch = "", catalog = null) {
   const params = new URLSearchParams(currentSearch);
   for (const key of ["product", "warehouse", "pack", "option", "tbv_option"]) params.delete(key);
   const rawWarehouse = selection.warehouse;
@@ -78,7 +80,7 @@ export function productSelectionUrl(selection, currentSearch = "") {
   const vials = selection.vials === undefined ? 10 : selection.vials;
   if (vials !== 10) params.set("pack", String(vials));
   if (selection.noteLabel) params.set("option", selection.noteLabel);
-  else params.set("tbv_option", "empty");
+  else if (!Array.isArray(catalog) || catalog.some((product) => product.noteLabel && productSlug(product) === productSlug(selection))) params.set("tbv_option", "empty");
   const query = params.toString();
   return `/${productSlug(selection)}${query ? `?${query}` : ""}`;
 }

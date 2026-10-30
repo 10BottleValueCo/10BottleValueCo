@@ -24,6 +24,8 @@ foreach ($rows as $row) {
     $post = get_post($row->post_id);
     $title = $post ? ($post->post_parent ? get_the_title($post->post_parent) : $post->post_title) : '';
     $new = ($path === 'vials-c/tirzepatide-glp-2-3c2452bfd7b4.webp' && isset($by_product[$title])) ? $by_product[$title] : ($named[$path] ?? null);
+    // ...and the BPC-157 5 mg vial for KPV 5 mg.
+    if ($path === 'vials-c/bpc-157-f4e551bb3098.webp' && $title === 'KPV') $new = 'vials-c/kpv-5mg-label-f4e551bb3098.webp';
     if (!$new) continue;
     if (!file_exists(get_template_directory() . '/public/' . $new)) { fwrite(STDERR, "missing $new\n"); exit(1); }
     $wpdb->update($wpdb->postmeta, ['meta_value' => $slash . $new], ['meta_id' => $row->meta_id]);

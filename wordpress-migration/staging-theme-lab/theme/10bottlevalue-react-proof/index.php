@@ -2,7 +2,7 @@
  defined('ABSPATH') || exit;
  $is_cart_page = function_exists('is_cart') && is_cart();
  $is_checkout_page = function_exists('is_checkout') && is_checkout();
- $is_account_page = function_exists('is_account_page') && is_account_page() && function_exists('tbv_staging_commerce_test_enabled') && tbv_staging_commerce_test_enabled();
+ $is_account_page = function_exists('is_account_page') && is_account_page() && function_exists('tbv_commerce_enabled') && tbv_commerce_enabled();
  $is_commerce_page = $is_cart_page || $is_checkout_page || $is_account_page;
  $cart_count = function_exists('WC') && WC()->cart ? (int)WC()->cart->get_cart_contents_count() : 0;
  $cart_label = $cart_count > 0 ? sprintf('Cart (%d)', $cart_count) : 'Cart';

@@ -25,7 +25,7 @@ function tbv_local_homepage_proof_assets() {
 }
 /** Dependency checks are intentionally fail-closed: this staging adapter requires an explicit isolated environment and a matching build. */
 function tbv_local_homepage_proof_ready() {
-    return function_exists('tbv_staging_preview_enabled') && tbv_staging_preview_enabled()
+    return function_exists('tbv_store_mode') && tbv_store_mode() !== 'off'
         && get_stylesheet() === '10bottlevalue-react-proof'
         && function_exists('wc_get_product') && function_exists('tbv_public_catalog_response')
         && function_exists('tbv_react_proof_woo_catalog') && function_exists('tbv_react_proof_requested_path')
