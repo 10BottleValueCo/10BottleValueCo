@@ -63,7 +63,7 @@ add_filter('rest_pre_dispatch', function ($result, $server, $request) {
     // The storefront account dashboard reads the customer's own orders and saves the avatar.
     if (tbv_commerce_enabled() && is_user_logged_in()) {
         if ($method === 'GET' && $route === '/tbv-account/v1/orders') $read = true;
-        if ($method === 'POST' && $route === '/tbv-account/v1/avatar') $write = true;
+        if ($method === 'POST' && in_array($route, ['/tbv-account/v1/avatar', '/tbv-account/v1/details', '/tbv-account/v1/password'], true)) $write = true;
     }
     // Production payment integrations add their own routes (webhooks etc.) here.
     if (!$read && !$write && tbv_store_mode() === 'production') $write = (bool)apply_filters('tbv_store_allow_rest_route', false, $route, $method, $request);
@@ -381,6 +381,8 @@ function tbv_react_proof_commerce_config() {
             'editAccountUrl' => wc_get_endpoint_url('edit-account', '', wc_get_page_permalink('myaccount')),
             'ordersEndpoint' => esc_url_raw(rest_url('tbv-account/v1/orders')),
             'avatarEndpoint' => esc_url_raw(rest_url('tbv-account/v1/avatar')),
+            'detailsEndpoint' => esc_url_raw(rest_url('tbv-account/v1/details')),
+            'passwordEndpoint' => esc_url_raw(rest_url('tbv-account/v1/password')),
             'affiliateEndpoint' => esc_url_raw(rest_url('tbv-affiliates/v1/account')),
             'restNonce' => wp_create_nonce('wp_rest'),
         ] : null,
@@ -408,6 +410,7 @@ function tbv_react_proof_account_user($user) {
         'city' => $c->get_billing_city(), 'state' => $c->get_billing_state(), 'postalCode' => $c->get_billing_postcode(),
         'country' => $country ? tbv_react_proof_country_name($countries[$country] ?? $country) : '',
         'avatarId' => (string)get_user_meta($user->ID, 'tbv_avatar_id', true),
+        'carrierPreference' => (string)get_user_meta($user->ID, 'tbv_carrier_preference', true),
         'storeCredit' => function_exists('tbv_ac_owned_email') && tbv_ac_owned_email($user) !== '' ? tbv_ac_credit_balance(tbv_ac_owned_email($user)) / 100 : 0,
         // Real store: credit and the affiliate panel wait for a confirmed email (tbv-affiliates-credit).
         'emailVerified' => !function_exists('tbv_ac_email_verified') || tbv_ac_email_verified($user),
@@ -476,6 +479,36 @@ function tbv_react_proof_received_order_data($order) {
 add_action('rest_api_init', function () {
     if (!tbv_commerce_enabled()) return;
     $signed_in = fn() => is_user_logged_in();
+    // Account dashboard: Shipping Details and Security tabs (the live account's own forms).
+    register_rest_route('tbv-account/v1', '/details', ['methods' => 'POST', 'permission_callback' => $signed_in, 'callback' => function ($request) {
+        $data = (array)($request->get_json_params() ?: []);
+        $field = fn($key, $max = 120) => mb_substr(sanitize_text_field((string)($data[$key] ?? '')), 0, $max);
+        $country = '';
+        if ($field('country') !== '') {
+            foreach (WC()->countries->get_countries() as $code => $name) {
+                if (strcasecmp(tbv_react_proof_country_name($name), $field('country')) === 0 || strcasecmp($code, $field('country')) === 0) { $country = $code; break; }
+            }
+            if ($country === '') return new WP_Error('tbv_account_country', 'Choose a country from the list.', ['status' => 400]);
+        }
+        $customer = new WC_Customer(get_current_user_id());
+        $values = ['first_name' => $field('firstName', 60), 'last_name' => $field('lastName', 60), 'country' => $country, 'address_1' => $field('address'), 'address_2' => $field('address2'), 'city' => $field('city', 80), 'state' => $field('state', 80), 'postcode' => $field('postalCode', 20)];
+        foreach ($values as $key => $value) { $customer->{"set_billing_{$key}"}($value); $customer->{"set_shipping_{$key}"}($value); }
+        $customer->set_billing_phone($field('phone', 40));
+        $customer->set_first_name($values['first_name']);
+        $customer->set_last_name($values['last_name']);
+        $customer->save();
+        update_user_meta(get_current_user_id(), 'tbv_carrier_preference', $field('carrierPreference', 40));
+        return ['ok' => true, 'user' => tbv_react_proof_account_user(wp_get_current_user())];
+    }]);
+    register_rest_route('tbv-account/v1', '/password', ['methods' => 'POST', 'permission_callback' => $signed_in, 'callback' => function ($request) {
+        $password = (string)(($request->get_json_params() ?: [])['password'] ?? '');
+        if (tbv_react_proof_password_too_short($password)) return new WP_Error('tbv_account_password', 'Min. 6 characters.', ['status' => 400]);
+        $user_id = get_current_user_id();
+        wp_set_password($password, $user_id); // ends every session, as a password change should
+        wp_set_current_user($user_id);
+        wp_set_auth_cookie($user_id, true, is_ssl());
+        return ['ok' => true];
+    }]);
     register_rest_route('tbv-account/v1', '/orders', ['methods' => 'GET', 'permission_callback' => $signed_in, 'callback' => function ($request) {
         // ?number= looks up one of the customer's own orders (Track Order page): the
         // WooCommerce number, or a migrated order's original INV- number.

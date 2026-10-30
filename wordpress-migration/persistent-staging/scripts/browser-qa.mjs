@@ -375,6 +375,41 @@ await consent.getByRole('button', {name: /add to cart/i}).last().click().catch((
 await consent.goto(LOCAL + '/cart', {waitUntil: 'load'}); await consent.waitForTimeout(2500);
 check('cart shows the order agreement line', /By placing an order, you agree to our/i.test(await consent.locator('body').innerText()), 'agreement line missing');
 await consentCtx.close(); await parCtx.close();
+
+// Account tabs work inside the account page, as on live (Ilja 2026-10-29 06:30).
+const accCtx = await browser.newContext({...devices['iPhone 13']});
+const acc = await accCtx.newPage();
+const accErrors = []; acc.on('pageerror', e => accErrors.push(String(e)));
+const accEmail = `ui.account.${Date.now()}@example.test`;
+await registerUI(acc, accEmail);
+const tab = async (name) => { await acc.locator('.lab-sidenav__item', {hasText: name}).first().click(); await acc.waitForTimeout(1200); };
+await tab(/Shipping Details/i);
+check('account shipping tab opens in place', new URL(acc.url()).pathname.replace(/\/$/, '') === '/my-account' && await acc.locator('#account-shipping-details').count() > 0, acc.url());
+const shipField = (re) => acc.locator('#account-shipping-details').getByPlaceholder(re).first();
+await shipField(/First name/).fill('Ada'); await shipField(/Last name/).fill('Lovelace'); await shipField(/City/).fill('Springfield'); await shipField(/Postal code/).fill('62701');
+await acc.locator('#account-shipping-details').getByRole('button', {name: /save details/i}).click(); await acc.waitForTimeout(2000);
+const savedCity = wp('eval', `echo (new WC_Customer(get_user_by('email', '${accEmail}')->ID))->get_billing_city();`);
+check('account shipping details saved to WooCommerce', savedCity === 'Springfield', savedCity);
+await tab(/Messages/i);
+check('account messages tab opens in place', new URL(acc.url()).pathname.replace(/\/$/, '') === '/my-account' && await acc.locator('textarea').count() > 0, acc.url());
+await tab(/Security/i);
+const pwFields = acc.locator('#account-security-details input[type="password"]');
+check('account security tab shows change password', await pwFields.count() === 2 && await acc.getByText(/Change email/i).count() === 0, await pwFields.count());
+const newPassword = env.E2E_RUN_PASSWORD + '-new';
+await pwFields.nth(0).fill(newPassword); await pwFields.nth(1).fill(newPassword);
+await acc.getByRole('button', {name: /update password/i}).click(); await acc.waitForTimeout(1500);
+check('password change confirmed', /Password updated/i.test(await acc.locator('body').innerText()), 'no confirmation');
+await acc.waitForTimeout(2500); await acc.waitForLoadState('load');
+check('still signed in after password change', /customer-logout/.test(await acc.content()), 'signed out');
+const fresh = await (await browser.newContext()).newPage();
+await fresh.goto(LOCAL + '/my-account/', {waitUntil: 'load'});
+await fresh.locator('#username').fill(accEmail); await fresh.locator('#password').fill(newPassword);
+await Promise.all([fresh.waitForNavigation({timeout: 15000}).catch(() => {}), fresh.locator('button[name="login"]').click()]);
+check('new password signs in', /customer-logout/.test(await fresh.content()), 'login with new password failed');
+await fresh.context().close();
+check('account tabs no JS errors', accErrors.length === 0, accErrors.join(' | '));
+await acc.screenshot({path: path.join(out, 'flow-mobile-account-tabs.png')});
+await accCtx.close();
 await browser.close();
 
 const failed = results.filter(r => !r.ok);

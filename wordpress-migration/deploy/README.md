@@ -55,7 +55,7 @@ A production install with no gateway is a complete store without online payment:
 ## Rehearsal (2026-10-29)
 
 The same bundle was installed twice on this Mac, each on a new empty database behind its own web server:
-- **staging mode:** E2E 94/94, browser QA 282/282 (mobile and desktop, live comparison), safety audit pass;
+- **staging mode:** E2E 94/94, browser QA 290/290 (mobile and desktop, live comparison), safety audit pass;
 - **production mode:** `verify-production.mjs` 48/48. That covers no banner, indexable pages, carts, discounts, promo codes, closed API boundaries and the admin gate; sign-up with email confirmation before credit appears; and checkout saying online payment is not available yet. With WooCommerce's Check payments as a stand-in processor it was 49/49: order placed, customer and admin order emails.
 
 ## Building a bundle (developers)

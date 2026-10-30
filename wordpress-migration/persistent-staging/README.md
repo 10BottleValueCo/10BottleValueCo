@@ -58,7 +58,7 @@ E2E covers catalog, variation add/update/remove, cart persistence, guest isolati
 
 ## Moving to another server
 
-`../deploy/` builds a bundle from this staging site (code, catalog, pages and settings; no orders, accounts or messages) and installs it on any server with one command, as staging or as the real store. Rehearsed 2026-10-29 on fresh databases: staging mode E2E 94/94, browser 282/282, audit pass; production mode 48/48 (49/49 with a stand-in gateway). See `../deploy/README.md`.
+`../deploy/` builds a bundle from this staging site (code, catalog, pages and settings; no orders, accounts or messages) and installs it on any server with one command, as staging or as the real store. Rehearsed 2026-10-29 on fresh databases: staging mode E2E 94/94, browser 290/290, audit pass; production mode 48/48 (49/49 with a stand-in gateway). See `../deploy/README.md`.
 
 ## Not done here
 

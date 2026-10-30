@@ -3981,6 +3981,22 @@ export default function App() {
   const [wooAccountOrders, setWooAccountOrders] = useState([]);
   const [wooAccountOrdersLoading, setWooAccountOrdersLoading] = useState(false);
   const [wooAvatarId, setWooAvatarId] = useState(() => tbvCommerce?.user?.avatarId || "");
+  // Saved shipping details overlay the account data WordPress rendered into the page.
+  const [wooUserPatch, setWooUserPatch] = useState({});
+  const wooAccountUser = tbvCommerce?.user ? { ...tbvCommerce.user, ...wooUserPatch, avatarId: wooAvatarId } : null;
+  async function saveWooAccount(kind, body) {
+    try {
+      const response = await fetch(tbvCommerce.account[kind === "password" ? "passwordEndpoint" : "detailsEndpoint"], {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "X-WP-Nonce": String(tbvCommerce.account.restNonce || "") },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json().catch(() => ({}));
+      return response.ok ? { data, error: null } : { data, error: new Error(data?.message || "Could not save. Please try again.") };
+    } catch {
+      return { data: null, error: new Error("Could not save. Please try again.") };
+    }
+  }
   const [wooAvatarSave, setWooAvatarSave] = useState({ saving: false, error: "", status: "" });
   const [productSelection, setProductSelection] = useState(() =>
     typeof window === "undefined" ? null : readProductSelection(PRODUCTS_BASE, tbvCurrentLocation())
@@ -10139,6 +10155,16 @@ export default function App() {
   }, [currentUser]);
 
   useEffect(() => {
+    if (!tbvCommerce?.user) return;
+    const u = { ...tbvCommerce.user, ...wooUserPatch };
+    setProfileForm({
+      firstName: u.firstName || "", lastName: u.lastName || "", country: u.country || "", address: u.address || "",
+      address2: u.address2 || "", city: u.city || "", state: u.state || "", postalCode: u.postalCode || "",
+      phone: u.phone || "", carrierPreference: u.carrierPreference || "",
+    });
+  }, [wooUserPatch]);
+  useEffect(() => {
+    if (tbvCommerce?.user) return;
     if (!currentUser) {
       setProfileForm({
         firstName: "",
@@ -13640,6 +13666,7 @@ export default function App() {
   }
 
   async function handleSignOut() {
+    if (tbvCommerce?.account) { window.location.assign(tbvCommerce.account.logoutUrl); return; }
     legacyAttemptsRef.current.clear();
     if (currentUser?.email && cart.length > 0) {
       await supabase.auth.updateUser({ data: { savedCart: cart } });
@@ -13698,6 +13725,15 @@ export default function App() {
   }
 
   async function handleProfileSave() {
+    if (tbvCommerce?.user) {
+      const details = Object.fromEntries(Object.entries(profileForm).map(([key, value]) => [key, String(value || "").trim()]));
+      const { data, error } = await saveWooAccount("details", details);
+      if (error) { setProfileSaveFeedback({ type: "error", message: error.message }); return; }
+      setWooUserPatch(data?.user || details);
+      setProfileSaveFeedback({ type: "success" });
+      setIsEditingProfile(false);
+      return;
+    }
     if (!currentUser?.email) return;
 
     const updatedMeta = {
@@ -14451,12 +14487,6 @@ export default function App() {
       setWooAvatarSave({ saving: false, error: tx("We could not save your avatar. Please try again.", "Не удалось сохранить аватар. Попробуйте ещё раз.", "Не вдалося зберегти аватар. Спробуйте ще раз.", "Avatar konnte nicht gespeichert werden. Bitte erneut versuchen.", "No se pudo guardar tu avatar. Inténtalo de nuevo."), status: "" });
     }
   }
-  const navigateWooAccountSection = (section) => {
-    if (section === "shipping") window.location.assign(tbvCommerce.account.editAddressUrl);
-    else if (section === "security") window.location.assign(tbvCommerce.account.editAccountUrl);
-    else if (section === "messages") setPage("contact");
-    else setActiveAccountSection(["avatars", "affiliate"].includes(section) ? section : "overview");
-  };
   useEffect(() => {
     if (page === "account" && tbvCommerce?.account) loadWooAccountOrders();
   }, [page]);
@@ -14467,6 +14497,1210 @@ export default function App() {
       ? (current?.code === coupon.code ? current : { code: coupon.code, rate: 0, label: coupon.code, type: "woo_coupon" })
       : null);
   }, [wooCartMeta]);
+
+  // Account tabs inside the dashboard (messages, shipping details, security, orders), shared by
+  // the live account and the WordPress account so both look and behave the same.
+  function renderAccountSections(accountUser) {
+    return (
+activeAccountSection === "messages" ? (
+                    <Suspense fallback={<div className="min-h-[190px]" aria-busy="true" />}>
+                    <AccountMessages
+                      timeline={buildSupportTimeline(userInboxMessages)}
+                      tx={tx}
+                      accountEmail={accountUser.email}
+                      avatarId={accountUser.avatarId}
+                      loading={userInboxLoading}
+                      error={userInboxError}
+                      adminIsTyping={adminIsTyping}
+                      draft={contactForm.message}
+                      sending={contactSending}
+                      attachmentUploading={chatAttachmentUploading}
+                      scrollRef={inboxScrollRef}
+                      onDraftChange={(message) =>
+                        setContactForm((form) => ({ ...form, message: message.slice(0, 1000) }))
+                      }
+                      onTyping={() => broadcastTyping("user")}
+                      onSend={(message) => sendContactMessage(message)}
+                      onSendAttachment={(file) => uploadAndSendAttachment(file, sendAttachmentAsUserMessage)}
+                      onPasteAttachment={(event) =>
+                        handleSupportAttachmentPaste(event, sendAttachmentAsUserMessage)
+                      }
+                      onRetry={() => loadUserInbox(false, true)}
+                      renderMessageContent={renderMsgContent}
+                      messageDomId={chatMsgDomId}
+                      highlightedMsgKey={highlightedMsgKey}
+                    />
+                    </Suspense>
+                  ) : (
+                  <div className="lab-account-workspace">
+                    <div className="lab-account-details__body">
+                <>
+                  <div className="legacy-account-overview" hidden>
+                  <div className="mt-3 flex items-start justify-between gap-4">
+                    <h1 className="text-2xl font-semibold tracking-[-0.04em] md:text-4xl flex items-center gap-3">
+                      {tx(
+                        "WELCOME BACK!",
+                        "С ВОЗВРАЩЕНИЕМ!",
+                        "З ПОВЕРНЕННЯМ!",
+                        "WILLKOMMEN ZURÜCK!",
+                        "¡BIENVENIDO DE NUEVO!"
+                      )}
+                      <span
+                        className={waving ? `wave-animate-${waving}` : "inline-block cursor-pointer select-none"}
+                        onClick={() => { setWaving(0); setTimeout(() => setWaving(Math.random() < 0.5 ? 1 : 4), 10); }}
+                        onAnimationEnd={() => setWaving(0)}
+                        title="Wave back!"
+                        style={{ fontSize: "0.85em" }}
+                      >👋</span>
+                    </h1>
+                    {storeCredit > 0 && (
+                      <div className="shrink-0 rounded-xl border border-emerald-400/50 bg-emerald-400/15 px-3 py-2 text-right -mt-4">
+                        <div className="text-[9px] font-semibold uppercase tracking-[0.2em] text-emerald-300/80">Store credit</div>
+                        <div className="text-base font-bold text-emerald-300">${storeCredit.toFixed(2)}</div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-6 grid gap-4 md:mt-8 md:gap-5 md:grid-cols-2">
+                    <div className="rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-4 md:p-6">
+                      <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
+                        {tx(
+                          "Account email",
+                          "Email аккаунта",
+                          "Email акаунта",
+                          "Konto-E-Mail",
+                          "Email de la cuenta"
+                        )}
+                      </div>
+                      <div className="mt-2 break-all text-base font-semibold text-white md:mt-3 md:text-2xl">
+                        {accountUser.email}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => { if (accountUser?.email) setContactForm((f) => ({ ...f, email: f.email || accountUser.email })); setContactModalOpen(true); }}
+                      className={`relative rounded-[1.6rem] p-4 md:p-6 text-left transition-none hover:scale-[1.02] active:scale-[0.98] overflow-hidden ${hasUnreadReply ? "border border-red-400/60 bg-red-500/10 shadow-[0_0_24px_rgba(239,68,68,0.18)]" : "border border-white/20 bg-black/[0.18] hover:bg-black/[0.18] shadow-[0_4px_20px_rgba(0,0,0,0.15)]"}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-white/60">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="2" y="4" width="20" height="16" rx="2"/>
+                            <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+                          </svg>
+                          {tx("Messages", "Сообщения", "Повідомлення", "Nachrichten", "Mensajes")}
+                        </div>
+                        {hasUnreadReply
+                          ? <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[9px] font-black text-white animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]">!</span>
+                          : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-white/30"><path d="M9 18l6-6-6-6"/></svg>
+                        }
+                      </div>
+                      <div className={`mt-2 text-base font-semibold md:mt-3 md:text-2xl ${hasUnreadReply ? "text-red-300" : "text-white"}`}>
+                        {hasUnreadReply
+                          ? tx("New reply!", "Новый ответ!", "Нова відповідь!", "Neue Antwort!", "¡Nueva respuesta!")
+                          : tx("View inbox", "Открыть", "Відкрити", "Öffnen", "Abrir")}
+                      </div>
+                    </button>
+
+                  </div>
+
+                  <div className="mt-6 grid gap-4 md:mt-8 md:gap-5 md:grid-cols-2">
+                    <div className="rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-4 md:p-6">
+                      <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
+                        {tx("First name", "Имя", "Імʼя", "Vorname", "Nombre")}
+                      </div>
+                      <div className="mt-2 text-sm font-semibold text-white md:mt-3 md:text-xl">
+                        {accountUser.firstName ||
+                          tx(
+                            "Not saved yet",
+                            "Пока не сохранено",
+                            "Ще не збережено",
+                            "Noch nicht gespeichert",
+                            "Aún no guardado"
+                          )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-4 md:p-6">
+                      <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
+                        {tx(
+                          "Last name",
+                          "Фамилия",
+                          "Прізвище",
+                          "Nachname",
+                          "Apellido"
+                        )}
+                      </div>
+                      <div className="mt-2 text-sm font-semibold text-white md:mt-3 md:text-xl">
+                        {accountUser.lastName ||
+                          tx(
+                            "Not saved yet",
+                            "Пока не сохранено",
+                            "Ще не збережено",
+                            "Noch nicht gespeichert",
+                            "Aún no guardado"
+                          )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-4 md:p-6">
+                      <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
+                        {tx("Country", "Страна", "Країна", "Land", "País")}
+                      </div>
+                      <div className="mt-2 text-sm font-semibold text-white md:mt-3 md:text-xl">
+                        {accountUser.country ||
+                          tx(
+                            "Not saved yet",
+                            "Пока не сохранено",
+                            "Ще не збережено",
+                            "Noch nicht gespeichert",
+                            "Aún no guardado"
+                          )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-4 md:p-6">
+                      <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
+                        {tx("City", "Город", "Місто", "Stadt", "Ciudad")}
+                      </div>
+                      <div className="mt-2 text-sm font-semibold text-white md:mt-3 md:text-xl">
+                        {accountUser.city ||
+                          tx(
+                            "Not saved yet",
+                            "Пока не сохранено",
+                            "Ще не збережено",
+                            "Noch nicht gespeichert",
+                            "Aún no guardado"
+                          )}
+                      </div>
+                    </div>
+                  </div>
+
+                  </div>
+
+                  <div
+                    id="account-shipping-details"
+                    className={`mt-6 md:mt-8 ${isEditingProfile ? "profile-editor-open rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-4 md:p-6" : ""}`}
+                    onBlurCapture={(event) => {
+                      const nextTarget = event.relatedTarget;
+                      const focusStaysInEditor =
+                        nextTarget instanceof Node &&
+                        event.currentTarget.contains(nextTarget);
+                      if (isEditingProfile && !focusStaysInEditor) {
+                        void handleProfileSave();
+                      }
+                    }}
+                  >
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
+                      {isEditingProfile && (
+                        <div className="text-[11px] uppercase tracking-[0.22em] text-white">
+                          {tx(
+                            "Shipping details",
+                            "Данные доставки",
+                            "Дані доставки",
+                            "Versanddaten",
+                            "Datos de envío"
+                          )}
+                        </div>
+                      )}
+                      <div className={`flex flex-wrap gap-3 ${isEditingProfile ? "" : "md:ml-auto"}`}>
+                        {isEditingProfile ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={handleProfileSave}
+                              className="rounded-full bg-white px-5 py-2 text-[11px] !font-black uppercase tracking-[0.22em] !text-black shadow-[0_10px_30px_rgba(0,0,0,0.18)] transition hover:bg-white/90"
+                            >
+                              {tx(
+                                "Save details",
+                                "Сохранить данные",
+                                "Зберегти дані",
+                                "Daten speichern",
+                                "Guardar datos"
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setProfileSaveFeedback(null);
+                                setProfileForm({
+                                  firstName: accountUser.firstName || "",
+                                  lastName: accountUser.lastName || "",
+                                  country: accountUser.country || "",
+                                  address: accountUser.address || "",
+                                  address2: accountUser.address2 || "",
+                                  city: accountUser.city || "",
+                                  state: accountUser.state || "",
+                                  postalCode: accountUser.postalCode || "",
+                                  phone: accountUser.phone || "",
+                                });
+                                setIsEditingProfile(false);
+                              }}
+                              className="rounded-full bg-white !text-black px-6 py-2 text-[11px] !font-black uppercase tracking-[0.22em] shadow-[0_8px_25px_rgba(0,0,0,0.25)] transition hover:bg-white/90"
+                            >
+                              {tx(
+                                "Cancel",
+                                "Отмена",
+                                "Скасувати",
+                                "Abbrechen",
+                                "Cancelar"
+                              )}
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setProfileSaveFeedback(null);
+                                setIsEditingProfile(true);
+                              }}
+                              className="rounded-full bg-white !text-black px-6 py-2 text-[11px] font-extrabold uppercase tracking-[0.22em] shadow-[0_8px_25px_rgba(0,0,0,0.25)] transition hover:bg-white/90"
+                            >
+                              {tx(
+                                "Edit shipping details",
+                                "Изменить данные доставки",
+                                "Змінити дані доставки",
+                                "Versanddaten bearbeiten",
+                                "Editar datos de envío"
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setIsChangingPassword(v => !v); setChangePasswordForm({ newPassword: "", confirmPassword: "" }); setChangePasswordMessage(""); }}
+                              className="rounded-full bg-white !text-black px-6 py-2 text-[11px] font-extrabold uppercase tracking-[0.22em] shadow-[0_8px_25px_rgba(0,0,0,0.25)] transition hover:bg-white/90"
+                            >
+                              {tx(
+                                "Change password",
+                                "Изменить пароль",
+                                "Змінити пароль",
+                                "Passwort ändern",
+                                "Cambiar contraseña"
+                              )}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {profileSaveFeedback && (
+                      <div
+                        className={`mt-4 flex items-center gap-2 text-sm ${
+                          profileSaveFeedback.type === "error"
+                            ? "text-red-200"
+                            : "text-white"
+                        }`}
+                        role={profileSaveFeedback.type === "error" ? "alert" : "status"}
+                        aria-live="polite"
+                      >
+                        {profileSaveFeedback.type === "success" ? (
+                          <svg
+                            aria-hidden="true"
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="#4ade80"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="m5 12 4 4L19 6" />
+                          </svg>
+                        ) : (
+                          <svg
+                            aria-hidden="true"
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <circle cx="12" cy="12" r="9" />
+                            <path d="M12 8v4m0 4h.01" />
+                          </svg>
+                        )}
+                        <span>
+                          {profileSaveFeedback.type === "success"
+                            ? tx(
+                                "Details saved",
+                                "Данные сохранены",
+                                "Дані збережено",
+                                "Daten gespeichert",
+                                "Datos guardados"
+                              )
+                            : profileSaveFeedback.message}
+                        </span>
+                      </div>
+                    )}
+
+                    {isEditingProfile ? (
+                      <div className="mt-5 grid gap-3 border-t border-white/10 pt-5">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <BufferedInput
+                            type="text"
+                            value={profileForm.firstName}
+                            onValueChange={(value) =>
+                              handleProfileFieldChange(
+                                "firstName",
+                                value
+                              )
+                            }
+                            placeholder={tx(
+                              "First name",
+                              "Имя",
+                              "Імʼя",
+                              "Vorname",
+                              "Nombre"
+                            )}
+                            className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
+                          />
+                          <BufferedInput
+                            type="text"
+                            value={profileForm.lastName}
+                            onValueChange={(value) =>
+                              handleProfileFieldChange(
+                                "lastName",
+                                value
+                              )
+                            }
+                            placeholder={tx(
+                              "Last name",
+                              "Фамилия",
+                              "Прізвище",
+                              "Nachname",
+                              "Apellido"
+                            )}
+                            className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
+                          />
+                        </div>
+                        <BufferedInput
+                          type="text"
+                          value={profileForm.country}
+                          onValueChange={(value) =>
+                            handleProfileFieldChange("country", value)
+                          }
+                          placeholder={tx(
+                            "Country",
+                            "Страна",
+                            "Країна",
+                            "Land",
+                            "País"
+                          )}
+                          className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
+                        />
+                        <BufferedInput
+                          type="text"
+                          value={profileForm.address}
+                          onValueChange={(value) =>
+                            handleProfileFieldChange("address", value)
+                          }
+                          placeholder={t("streetAddress")}
+                          className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
+                        />
+                        <BufferedInput
+                          type="text"
+                          value={profileForm.address2}
+                          onValueChange={(value) => handleProfileFieldChange("address2", value)}
+                          placeholder={tx("Apt / Suite (optional)", "Кв. / Офис (необязательно)", "Кв. / Офіс (необов'язково)", "Wohnung / Suite (optional)", "Apto / Suite (opcional)")}
+                          className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
+                        />
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <BufferedInput
+                            type="text"
+                            value={profileForm.city}
+                            onValueChange={(value) =>
+                              handleProfileFieldChange("city", value)
+                            }
+                            placeholder={tx(
+                              "City",
+                              "Город",
+                              "Місто",
+                              "Stadt",
+                              "Ciudad"
+                            )}
+                            className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
+                          />
+                          <BufferedInput
+                            type="text"
+                            value={profileForm.postalCode}
+                            onValueChange={(value) =>
+                              handleProfileFieldChange(
+                                "postalCode",
+                                value
+                              )
+                            }
+                            placeholder={t("postalCode")}
+                            className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
+                          />
+                        </div>
+                        <BufferedInput
+                          type="text"
+                          value={profileForm.state}
+                          onValueChange={(value) => handleProfileFieldChange("state", value)}
+                          placeholder={tx("State / Province (if applicable)", "Штат / Провинция (если применимо)", "Штат / Провінція (якщо застосовно)", "Bundesland / Provinz (falls zutreffend)", "Estado / Provincia (si aplica)")}
+                          className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
+                        />
+                        <BufferedInput
+                          type="tel"
+                          value={profileForm.phone}
+                          onValueChange={(value) =>
+                            handleProfileFieldChange("phone", value)
+                          }
+                          placeholder={t("phone")}
+                          className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {activeAccountSection === "security" && !tbvCommerce && <EmailLoginSecurity supabase={supabase} userId={accountUser?.id} />}
+                  {isChangingPassword && (
+                    <div id="account-security-details" className="mt-4 rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-5">
+                      <div className="mb-4 text-[11px] font-bold uppercase tracking-[0.22em] text-white/70">
+                        {tx("Change password", "Изменить пароль", "Змінити пароль", "Passwort ändern", "Cambiar contraseña")}
+                      </div>
+                      <div className="grid gap-3">
+                        <BufferedInput
+                          type="password"
+                          value={changePasswordForm.newPassword}
+                          onValueChange={(value) => setChangePasswordForm(f => ({ ...f, newPassword: value }))}
+                          placeholder={tx("New password (min. 6 characters)", "Новый пароль (мин. 6 символов)", "Новий пароль (мін. 6 символів)", "Neues Passwort (min. 6 Zeichen)", "Nueva contraseña (mín. 6 caracteres)")}
+                          className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50"
+                        />
+                        <BufferedInput
+                          type="password"
+                          value={changePasswordForm.confirmPassword}
+                          onValueChange={(value) => setChangePasswordForm(f => ({ ...f, confirmPassword: value }))}
+                          placeholder={tx("Confirm new password", "Подтвердите новый пароль", "Підтвердіть новий пароль", "Neues Passwort bestätigen", "Confirmar nueva contraseña")}
+                          className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50"
+                        />
+                        {changePasswordMessage ? (
+                          <div className="text-sm text-white">{changePasswordMessage}</div>
+                        ) : null}
+                        <div className="flex flex-wrap gap-2 md:gap-3">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const { newPassword, confirmPassword } = changePasswordForm;
+                              if (!newPassword) { setChangePasswordMessage(tx("Enter a new password.", "Введите новый пароль.", "Введіть новий пароль.", "Neues Passwort eingeben.", "Introduce una nueva contraseña.")); return; }
+                              if (newPassword.length < 6) { setChangePasswordMessage(tx("Min. 6 characters.", "Минимум 6 символов.", "Мінімум 6 символів.", "Min. 6 Zeichen.", "Mín. 6 caracteres.")); return; }
+                              if (newPassword !== confirmPassword) { setChangePasswordMessage(tx("Passwords do not match.", "Пароли не совпадают.", "Паролі не збігаються.", "Passwörter stimmen nicht überein.", "Las contraseñas no coinciden.")); return; }
+                              const { error } = tbvCommerce ? await saveWooAccount("password", { password: newPassword }) : await supabase.auth.updateUser({ password: newPassword });
+                              if (error) { setChangePasswordMessage(error.message); return; }
+                              setChangePasswordMessage(tx("Password updated!", "Пароль обновлён!", "Пароль оновлено!", "Passwort aktualisiert!", "¡Contraseña actualizada!"));
+                              setChangePasswordForm({ newPassword: "", confirmPassword: "" });
+                              // WordPress starts a new session on a password change; reload for fresh request tokens.
+                              window.setTimeout(() => { if (tbvCommerce) { window.location.reload(); return; } setIsChangingPassword(false); setChangePasswordMessage(""); }, 2000);
+                            }}
+                            className="min-h-[44px] whitespace-nowrap rounded-full bg-white !text-black px-3 py-2.5 text-[9px] font-extrabold uppercase tracking-[0.12em] shadow-[0_8px_25px_rgba(0,0,0,0.25)] transition hover:bg-white/90 md:min-h-0 md:px-6 md:py-2 md:text-[11px] md:tracking-[0.22em]"
+                          >
+                            {tx("Update password", "Обновить пароль", "Оновити пароль", "Passwort aktualisieren", "Actualizar contraseña")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setIsChangingPassword(false); setChangePasswordForm({ newPassword: "", confirmPassword: "" }); setChangePasswordMessage(""); }}
+                            className="min-h-[44px] whitespace-nowrap rounded-full border border-white/30 bg-white/10 text-white px-3 py-2.5 text-[9px] font-extrabold uppercase tracking-[0.12em] transition hover:bg-white/20 md:min-h-0 md:px-6 md:py-2 md:text-[11px] md:tracking-[0.22em]"
+                          >
+                            {tx("Cancel", "Отмена", "Скасувати", "Abbrechen", "Cancelar")}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {isChangingEmail && (
+                    <div id="account-email-details" className="mt-4 rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-5">
+                      <div className="mb-4 text-[11px] font-bold uppercase tracking-[0.22em] text-white/70">
+                        {tx("Change email", "Изменить email", "Змінити email", "E-Mail ändern", "Cambiar correo")}
+                      </div>
+                      {emailChangePending && (
+                        <div className="grid gap-4">
+                          <div className="break-all text-sm font-semibold text-white">
+                            {emailChangeTarget}
+                          </div>
+                          <div role="status" className="text-sm leading-6 text-white/80">
+                            {emailChangeMessage}
+                          </div>
+                          {emailConfirmationMode === "current_email_code" && !emailHistoryPending && (
+                            <div className="grid gap-3">
+                              <BufferedInput type="text" autoComplete="one-time-code" maxLength={24}
+                                value={emailConfirmationCode} onValueChange={setEmailConfirmationCode}
+                                placeholder={tx("Confirmation code from your current email", "Код из письма на текущую почту", "Код із поточної пошти", "Code aus Ihrer aktuellen E-Mail", "Código del correo actual")}
+                                className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50" />
+                              <button type="button" onClick={confirmEmailChangeCode} disabled={emailChangeBusy || !emailConfirmationCode.trim()}
+                                className="min-h-[44px] w-fit rounded-full bg-white !text-black px-5 py-2.5 text-[11px] font-extrabold uppercase tracking-[0.16em] disabled:opacity-60">
+                                {tx("Confirm email change", "Подтвердить смену email", "Підтвердити зміну email", "E-Mail-Änderung bestätigen", "Confirmar cambio de correo")}
+                              </button>
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={retryEmailMigration}
+                            disabled={emailChangeBusy}
+                            className="min-h-[44px] w-fit whitespace-nowrap rounded-full bg-white !text-black px-5 py-2.5 text-[10px] font-extrabold uppercase tracking-[0.16em] transition hover:bg-white/90 disabled:cursor-wait disabled:opacity-60 md:min-h-0 md:text-[11px]"
+                          >
+                            {emailChangeBusy
+                              ? tx("Checking…", "Проверяем…", "Перевіряємо…", "Wird geprüft…", "Comprobando…")
+                              : tx("Check status", "Проверить статус", "Перевірити статус", "Status prüfen", "Comprobar estado")}
+                          </button>
+                        </div>
+                      )}
+                        <div className="grid gap-3">
+                          <BufferedInput
+                            type="email"
+                            autoComplete="email"
+                            value={emailChangeForm.currentEmail}
+                            onValueChange={(value) => {
+                              setEmailChangeForm((form) => ({ ...form, currentEmail: value }));
+                              setEmailChangeMessage("");
+                            }}
+                            placeholder={tx("Current email", "Нынешний email", "Поточна адреса", "Aktuelle E-Mail", "Correo actual")}
+                            className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50"
+                          />
+                          <BufferedInput
+                            type="email"
+                            autoComplete="email"
+                            value={emailChangeForm.newEmail}
+                            onValueChange={(value) => {
+                              setEmailChangeForm((form) => ({ ...form, newEmail: value }));
+                              setEmailChangeMessage("");
+                            }}
+                            placeholder={tx("New email", "Новый email", "Нова адреса", "Neue E-Mail", "Correo nuevo")}
+                            className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50"
+                          />
+                          <BufferedInput
+                            type="password"
+                            autoComplete="current-password"
+                            value={emailChangeForm.currentPassword}
+                            onValueChange={(value) => {
+                              setEmailChangeForm((form) => ({ ...form, currentPassword: value }));
+                              setEmailChangeMessage("");
+                            }}
+                            placeholder={tx("Current password", "Текущий пароль", "Поточний пароль", "Aktuelles Passwort", "Contraseña actual")}
+                            className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50"
+                          />
+                          {!emailChangePending && emailChangeMessage ? (
+                            <div role="status" className="text-sm leading-6 text-white/80">
+                              {emailChangeMessage}
+                            </div>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={submitEmailChange}
+                            disabled={emailChangeBusy || emailHistoryPending}
+                            className="min-h-[44px] w-fit whitespace-nowrap rounded-full bg-white !text-black px-5 py-2.5 text-[10px] font-extrabold uppercase tracking-[0.16em] transition hover:bg-white/90 disabled:cursor-wait disabled:opacity-60 md:min-h-0 md:text-[11px]"
+                          >
+                            {emailChangeBusy
+                              ? tx("Updating…", "Обновляем…", "Оновлюємо…", "Wird aktualisiert…", "Actualizando…")
+                              : emailChangePending
+                                ? tx("Send confirmation", "Отправить подтверждение", "Надіслати підтвердження", "Bestätigung senden", "Enviar confirmación")
+                                : tx("Update email", "Изменить email", "Змінити email", "E-Mail aktualisieren", "Actualizar correo")}
+                          </button>
+                          {!emailChangePending && emailChangeMessage && (
+                            <button type="button" onClick={retryEmailMigration} disabled={emailChangeBusy}
+                              className="w-fit rounded-full border border-white/30 bg-white/10 px-5 py-2.5 text-[11px] font-bold uppercase tracking-[0.16em] text-white disabled:opacity-60">
+                              {tx("Check status", "Проверить статус", "Перевірити статус", "Status prüfen", "Comprobar estado")}
+                            </button>
+                          )}
+                        </div>
+                    </div>
+                  )}
+
+
+                  <div className="legacy-account-extras" hidden>
+                  {userPromos.filter(p => p.email !== "__PUBLIC__").length > 0 && (
+                  <div className="mt-6 md:mt-8 rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-5">
+                    <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
+                      {tx("My Promocodes", "Мои промокоды", "Мої промокоди", "Meine Promocodes", "Mis Promocódigos")}
+                    </div>
+                    <div className="mt-4 flex flex-col gap-3">
+                      {userPromos.filter(p => p.email !== "__PUBLIC__").map((promo) => {
+                        const isApplied = appliedPromo?.code === promo.code;
+                        return (
+                          <div
+                            key={promo.id}
+                            className={`flex items-center justify-between gap-3 rounded-[1.2rem] border px-5 py-4 transition-all duration-300 ${
+                              isApplied
+                                ? "border-emerald-400/40 bg-emerald-500/10"
+                                : "border-white/10 bg-black/[0.18]"
+                            }`}
+                          >
+                            <div className="flex flex-col gap-1">
+                              <span className="font-mono text-[15px] font-bold tracking-[0.12em] text-white">
+                                {promo.code}
+                              </span>
+                              <span className="text-[11px] text-white/60">
+                                {+(((promo.rate || 0) * 100).toFixed(2))}% {tx("discount", "скидка", "знижка", "Rabatt", "descuento")}
+                              </span>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (isApplied) {
+                                    setAppliedPromo(null);
+                                    setPromoInput("");
+                                    setPromoMessage("");
+                                  } else {
+                                    setPromoInput(promo.code);
+                                    setAppliedPromo({ code: promo.code, rate: promo.rate, label: promo.label || promo.code, type: "user_promo", id: promo.id, issuedAt: promo.created_at || "" });
+                                    setPromoMessage(tx("Promocode applied!", "Промокод применён!", "Промокод застосовано!", "Promocode angewendet!", "¡Promocódigo aplicado!"));
+                                    setTimeout(() => setPromoMessage(""), 4000);
+                                  }
+                                }}
+                                className={`rounded-full px-4 py-2 text-[11px] font-extrabold uppercase tracking-[0.18em] shadow-[0_4px_16px_rgba(0,0,0,0.2)] transition-all duration-300 active:scale-95 ${
+                                  isApplied
+                                    ? "bg-emerald-400 text-black"
+                                    : "bg-white text-black hover:bg-white/90"
+                                }`}
+                              >
+                                {isApplied
+                                  ? tx("Applied ✓", "Применён ✓", "Застосовано ✓", "Angewendet ✓", "Aplicado ✓")
+                                  : tx("Apply", "Применить", "Застосувати", "Anwenden", "Aplicar")}
+                              </button>
+                              <button
+                                type="button"
+                                title={tx("Delete promo code", "Удалить промокод", "Видалити промокод", "Promocode löschen", "Eliminar promocódigo")}
+                                onClick={async () => {
+                                  if (!window.confirm(tx("Delete this promo code?", "Удалить этот промокод?", "Видалити цей промокод?", "Diesen Promocode löschen?", "¿Eliminar este promocódigo?"))) return;
+                                  if (isApplied) {
+                                    setAppliedPromo(null);
+                                    setPromoInput("");
+                                    setPromoMessage("");
+                                  }
+                                  setUserPromos((current) => current.filter((p) => p.id !== promo.id));
+                                  const { error } = await supabase.from("user_promos").delete().eq("id", promo.id);
+                                  if (error) console.error("Failed to delete user promo:", error.message);
+                                }}
+                                className="flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-black/[0.18] text-white/50 transition-all duration-300 hover:bg-red-500/20 hover:text-red-300 active:scale-95"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  )}
+
+                  {currentAffiliateProfile && (
+                  <div hidden className="mt-4 rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-4">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAffiliatePanelOpen((current) => {
+                          const next = !current;
+                          if (next && currentAffiliateProfile?.code) {
+                            loadAffiliateCommissionOrders(currentAffiliateProfile.code);
+                          }
+                          return next;
+                        });
+                      }}
+                      className="flex w-full items-center justify-between rounded-[1.15rem] border border-white/10 bg-black/[0.18] px-5 py-3 text-left hover:bg-black/[0.18]"
+                    >
+                      <div>
+                        <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
+                          {t("affiliateAccess")}
+                        </div>
+                        <div className="mt-1 text-[15px] font-semibold text-white">
+                          {t("affiliateAccountActive")}
+                        </div>
+                      </div>
+                      <span
+                        className={`text-[22px] leading-none text-white transition-transform duration-200 ${
+                          isAffiliatePanelOpen ? "rotate-45" : "rotate-0"
+                        }`}
+                      >
+                        +
+                      </span>
+                    </button>
+
+                    {isAffiliatePanelOpen && (
+                      <div className="mt-4 rounded-[1.35rem] border border-white/10 bg-black/[0.18] p-5">
+                        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                          <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
+                            {t("affiliateAccess")}
+                          </div>
+                          <div className="flex flex-wrap gap-3">
+                            <div className="flex flex-col items-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  currentAffiliateProfile &&
+                                  copyAffiliateLink(currentAffiliateProfile.code)
+                                }
+                                className={`inline-flex min-w-[220px] items-center justify-center rounded-full px-6 py-2 text-[11px] font-extrabold uppercase tracking-[0.22em] shadow-[0_8px_25px_rgba(0,0,0,0.25)] transition-[background-color,color] duration-500 ease-out ${
+                                  copiedAffiliateLink
+                                    ? "bg-black text-white"
+                                    : "bg-white text-black hover:bg-white/90"
+                                }`}
+                              >
+                                {copiedAffiliateLink
+                                  ? tx("COPIED", "СКОПИРОВАНО", "СКОПІЙОВАНО", "KOPIERT", "COPIADO")
+                                  : t("copyAffiliateLink")}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {(() => {
+                          const currentAffiliate = currentAffiliateProfile;
+
+                          const commissionRows = affiliateCommissionOrders.map((row) => {
+                            const shippingType = String(row.shipping_type || "standard").toLowerCase();
+                            const orderShape = {
+                              shippingType,
+                              createdAt: row.created_at || null,
+                            };
+                            const releaseDate = getAffiliateAvailableAt(orderShape);
+                            const available = isAffiliateCommissionAvailable(orderShape);
+                            return {
+                              orderId: row.order_id,
+                              amount: Number(row.commission_amount || 0),
+                              shippingType,
+                              releaseDate,
+                              available,
+                            };
+                          });
+
+                          const pendingTotal = commissionRows.reduce(
+                            (sum, row) => sum + (row.available ? 0 : row.amount),
+                            0
+                          );
+                          const availableTotal = commissionRows.reduce(
+                            (sum, row) => sum + (row.available ? row.amount : 0),
+                            0
+                          );
+                          const remainingTotal = Math.max(0, availableTotal - affiliatePaidOut);
+
+                          const dateLocale =
+                            language === "RU"
+                              ? "ru-RU"
+                              : language === "UA"
+                              ? "uk-UA"
+                              : language === "DE"
+                              ? "de-DE"
+                              : language === "ES"
+                              ? "es-ES"
+                              : "en-US";
+                          const formatReleaseDate = (date) =>
+                            date
+                              ? date.toLocaleDateString(dateLocale, {
+                                  year: "numeric",
+                                  month: "short",
+                                  day: "numeric",
+                                })
+                              : "—";
+
+                          const expressLabel = tx("Express", "Экспресс", "Експрес", "Express", "Exprés");
+                          const standardLabel = tx("Standard", "Стандарт", "Стандарт", "Standard", "Estándar");
+
+                          return currentAffiliate ? (
+                            <div className="mt-4 space-y-3 text-base leading-8 text-white/70">
+                              <div>
+                                {t("affiliateCode")}:{" "}
+                                <span className="font-semibold text-white">
+                                  {currentAffiliate.code}
+                                </span>
+                              </div>
+                              <div>
+                                {tx("Commission orders:", "Партнёрские заказы:", "Партнерські замовлення:", "Provisionsaufträge:", "Pedidos de comisión:")}{" "}
+                                <span className="font-semibold text-white">
+                                  {affiliateCommissionLoading ? "…" : commissionRows.length}
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                <div className="rounded-xl border border-white/10 bg-black/[0.18] px-4 py-3">
+                                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/60">
+                                    {tx("Pending earnings", "Ожидающий заработок", "Очікуваний заробіток", "Ausstehender Verdienst", "Ganancias pendientes")}
+                                  </div>
+                                  <div className="mt-1 text-lg font-semibold text-white">
+                                    {affiliateCommissionLoading ? "…" : formatPricePrecise(pendingTotal)}
+                                  </div>
+                                  <div className="mt-1 text-[11px] leading-5 text-white/60">
+                                    {"Held during the return window (6 days US warehouse · 10 days express · 15 days standard)."}
+                                  </div>
+                                </div>
+                                <div className="rounded-xl border border-white/10 bg-black/[0.18] px-4 py-3">
+                                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/60">
+                                    {tx("Available earnings", "Доступный заработок", "Доступний заробіток", "Verfügbarer Verdienst", "Ganancias disponibles")}
+                                  </div>
+                                  <div className="mt-1 text-lg font-semibold text-white">
+                                    {affiliateCommissionLoading ? "…" : formatPricePrecise(Math.max(0, availableTotal - affiliatePaidOut))}
+                                  </div>
+                                  <div className="mt-1 text-[11px] leading-5 text-white/60">
+                                    {tx("Return window has closed — counted as real earnings.", "Окно возврата закрыто — засчитано как реальный заработок.", "Вікно повернення закрито — зараховано як реальний заробіток.", "Rückgabefrist ist abgelaufen — als echter Verdienst gezählt.", "La ventana de devolución se cerró — se cuenta como ganancias reales.")}
+                                  </div>
+                                </div>
+                                {affiliatePaidOut > 0 && (
+                                  <div className="rounded-xl border border-sky-400/20 bg-sky-400/8 px-4 py-3">
+                                    <div className="text-[10px] uppercase tracking-[0.2em] text-sky-300/70">Paid out</div>
+                                    <div className="mt-1 text-lg font-semibold text-sky-300">{formatPricePrecise(affiliatePaidOut)}</div>
+                                    <div className="mt-1 text-[11px] leading-5 text-white/60">Paid to you by 10BottleValue.</div>
+                                  </div>
+                                )}
+                              </div>
+                              {!affiliateCommissionLoading && commissionRows.length > 0 && (
+                                <div className="mt-3 space-y-2">
+                                  <div className="text-[11px] uppercase tracking-[0.2em] text-white/50">
+                                    {tx("Commission breakdown", "Детализация комиссий", "Деталізація комісій", "Provisionsaufschlüsselung", "Desglose de comisiones")}
+                                  </div>
+                                  {commissionRows.map((row) => (
+                                    <div
+                                      key={row.orderId}
+                                      className="flex flex-col gap-2 rounded-xl border border-white/10 bg-black/[0.18] px-4 py-3 text-sm md:flex-row md:items-center md:justify-between"
+                                    >
+                                      <div className="flex flex-col gap-1">
+                                        <span className="font-mono text-white/80">{row.orderId}</span>
+                                        <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-white/60">
+                                          <span className={`rounded-full border px-2 py-[2px] ${row.shippingType === "express" ? "border-white/30 bg-white/10 text-white" : "border-white/20 bg-black/[0.18] text-white/70"}`}>
+                                            {row.shippingType === "express" ? expressLabel : standardLabel}
+                                          </span>
+                                          <span className={row.available ? "text-emerald-300" : "text-amber-300"}>
+                                            {row.available
+                                              ? tx("Available", "Доступно", "Доступно", "Verfügbar", "Disponible") + (row.releaseDate ? " · " + formatReleaseDate(row.releaseDate) : "")
+                                              : tx("Pending — releases on", "Ожидание — освобождается", "Очікування — звільняється", "Ausstehend — freigegeben am", "Pendiente — se libera el") + " " + formatReleaseDate(row.releaseDate)}
+                                          </span>
+                                        </div>
+                                      </div>
+                                      <span className="font-semibold text-white md:text-right">
+                                        {formatPricePrecise(row.amount)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => loadAffiliateCommissionOrders(currentAffiliate.code)}
+                                className="mt-1 rounded-full border border-white/20 bg-black/[0.18] px-5 py-2 text-[11px] font-bold uppercase tracking-[0.2em] text-white transition hover:bg-black/[0.18]"
+                              >
+                                {tx("Refresh earnings", "Обновить заработок", "Оновити заробіток", "Verdienst aktualisieren", "Actualizar ganancias")}
+                              </button>
+                            </div>
+                          ) : null;
+                        })()}
+
+                        {affiliateMessage && (
+                          <div
+                            key={affiliateMessagePulse}
+                            className={`mt-4 rounded-xl border border-white/10 bg-black/[0.18] px-4 py-3 text-sm leading-7 text-white/90 break-all transition-all duration-[850ms] ease-out ${
+                              affiliateMessageVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-1"
+                            }`}
+                          >
+                            {affiliateMessage}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  )}
+                  </div>
+
+                  <div id="account-orders-details" className="mt-6 md:mt-8 rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-4 md:p-6">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
+                        {t("orders")}
+                      </div>
+                      <button
+                        onClick={() => refreshUserOrdersFromSupabase()}
+                        disabled={isRefreshingUserOrders}
+                        className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-white/60 transition-all hover:bg-white/10 disabled:opacity-40"
+                      >
+                        <svg className={`h-3 w-3 shrink-0 transition-transform duration-500 ${isRefreshingUserOrders ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                        {tx("Refresh orders", "Обновить заказы", "Оновити замовлення", "Bestellungen aktualisieren", "Actualizar pedidos")}
+                      </button>
+                    </div>
+                    {userOrders.length === 0 ? (
+                      <div style={{opacity: isRefreshingUserOrders ? 0.4 : 1, transition: "opacity 0.3s"}}>
+                        <div className="mt-3 text-base leading-8 text-white/70">
+                          {t("noSavedOrders")}
+                        </div>
+                        <div className="mt-3 rounded-xl border border-white/10 bg-black/[0.18] px-4 py-3 text-sm leading-7 text-white/70">
+                          {language === "RU"
+                            ? "Оплаченные заказы появятся здесь автоматически после успешной оплаты. Оформление заказа теперь доступно только авторизованным пользователям, поэтому заказы всегда привязаны к аккаунту, использованному при оформлении."
+                            : language === "UA"
+                            ? "Оплачені замовлення з’являться тут автоматично після успішної оплати. Оформлення замовлення тепер доступне лише авторизованим користувачам, тож замовлення завжди прив’язані до акаунта, використаного при оформленні."
+                            : language === "DE"
+                            ? "Bezahlte Bestellungen erscheinen hier automatisch nach erfolgreicher Zahlung. Der Checkout ist jetzt nur für angemeldete Kunden verfügbar, daher sind Bestellungen immer mit dem beim Checkout verwendeten Konto verknüpft."
+                            : language === "ES"
+                            ? "Los pedidos pagados aparecerán aquí automáticamente tras un pago exitoso. El checkout ahora solo está disponible para clientes registrados, por lo que los pedidos siempre quedan vinculados a la cuenta utilizada al pagar."
+                            : "Paid orders will appear here automatically after successful payment. Checkout is now available only for signed-in customers, so orders are always linked to the account used at checkout."}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{opacity: isRefreshingUserOrders ? 0.4 : 1, transition: "opacity 0.3s"}} className="mt-4 space-y-4">
+                        {userOrders.map((order) => {
+                          const isExpanded = expandedOrders.has(order.id);
+                          return (
+                          <div
+                            key={order.id}
+                            className="rounded-[1.2rem] bg-black/[0.18] overflow-hidden"
+                          >
+                            {/* Header — always visible, click to toggle */}
+                            <button
+                              type="button"
+                              onClick={() => setExpandedOrders((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(order.id)) next.delete(order.id);
+                                else next.add(order.id);
+                                return next;
+                              })}
+                              className="account-order-toggle w-full px-5 py-4 text-left transition-colors duration-150"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                  <div className="flex flex-col gap-1 min-w-0 w-full">
+                                    <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[13px] font-mono font-bold text-white tracking-wide">{order.id}</span>
+                                      <span
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          navigator.clipboard.writeText(order.id).then(() => {
+                                            setCopiedOrderId(order.id);
+                                            setTimeout(() => setCopiedOrderId(null), 2000);
+                                          });
+                                        }}
+                                        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.click()}
+                                        className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-bold uppercase tracking-[0.1em] cursor-pointer ${copiedOrderId === order.id ? "bg-emerald-500/20 text-emerald-300" : "bg-white/10 text-white/55 hover:text-white"}`}
+                                      >
+                                        {copiedOrderId === order.id ? "✓" : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <div className="text-base font-semibold text-white">{formatPricePrecise(order.total)}</div>
+                                      <svg className={`h-3.5 w-3.5 text-white/60 ${isExpanded ? "rotate-180" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+                                    </div>
+                                    </div>
+                                    <div className="mt-0.5">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-300"><span className="w-1.5 h-1.5 rounded-full bg-emerald-300 inline-block"/>PAID</span>
+                                        <span className="text-white/20">·</span>
+                                        <span className="text-[11px] text-white/60 capitalize">{order.shippingType === "us-warehouse" ? "US Warehouse" : (order.shippingType || "standard") + " shipping"}</span>
+                                      </div>
+                                      <div className="flex items-center justify-between gap-2 mt-0.5">
+                                        {(order.paidAt || order.createdAt) ? <span className="text-[11px] text-white/60">{new Date(order.paidAt || order.createdAt).toLocaleString(language === "RU" ? "ru-RU" : language === "UA" ? "uk-UA" : "en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span> : <span/>}
+                                        {order.trackingNumber && (
+                                          <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-300 bg-emerald-400/15 rounded-full px-2 py-1 shrink-0">
+                                            <span className="w-1 h-1 rounded-full bg-emerald-400 inline-block"/>Tracked
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </button>
+
+                            {/* Collapsible body */}
+                            {isExpanded && (
+                              <div className="border-t border-white/20">
+                                {(order.trackingNumber || order.trackingNumber2) && (
+                                  <div className="px-5 pt-4 pb-0">
+                                    {/* Both tracking numbers */}
+                                    {order.trackingNumber && order.trackingNumber2 ? (
+                                      /* Both tracking numbers — on desktop: banners left, TRACK ORDER right; on mobile: stacked */
+                                      <div className="flex flex-col md:flex-row md:items-stretch gap-2">
+                                        <div className="flex flex-col gap-2 md:flex-1 min-w-0">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              navigator.clipboard.writeText(order.trackingNumber).catch(() => {});
+                                              const el = document.getElementById(`trk-copy-${order.id}`);
+                                              if (el) { el.textContent = tx("Copied!","Скопировано!","Скопійовано!","Kopiert!","¡Copiado!"); window.setTimeout(() => { if (el) el.textContent = order.trackingNumber; }, 1800); }
+                                            }}
+                                            className="flex-1 flex items-center gap-3 rounded-2xl border border-emerald-400/35 bg-emerald-400/[0.10] px-4 py-2.5 text-left hover:bg-emerald-400/[0.16] active:scale-[0.99] min-w-0 transition-none"
+                                          >
+                                            <svg className="h-4 w-4 shrink-0 text-emerald-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                                            <div className="min-w-0 flex-1">
+                                              <div className="hidden md:block text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-300 mb-0.5">{tx("Tracking #1 — Tap to copy","Трекинг #1 — скопировать","Трекінг #1 — скопіювати","Tracking #1 — Kopieren","Tracking #1 — Copiar")}</div>
+                                              <div className="md:hidden leading-tight">
+                                                <div className="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-300">{tx("Tracking #1","Трекинг #1","Трекінг #1","Tracking #1","Tracking #1")}</div>
+                                                <div className="text-[9px] uppercase tracking-[0.14em] text-emerald-300">{tx("Tap to copy","Скопировать","Скопіювати","Kopieren","Copiar")}</div>
+                                              </div>
+                                              <div id={`trk-copy-${order.id}`} className="truncate text-sm font-mono font-semibold text-emerald-200 mt-1">{order.trackingNumber}</div>
+                                            </div>
+                                            <svg className="h-3 w-3 shrink-0 text-emerald-400/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              navigator.clipboard.writeText(order.trackingNumber2).catch(() => {});
+                                              const el = document.getElementById(`trk2-copy-${order.id}`);
+                                              if (el) { el.textContent = tx("Copied!","Скопировано!","Скопійовано!","Kopiert!","¡Copiado!"); window.setTimeout(() => { if (el) el.textContent = order.trackingNumber2; }, 1800); }
+                                            }}
+                                            className="flex-1 flex items-center gap-3 rounded-2xl border border-emerald-400/35 bg-emerald-400/[0.10] px-4 py-2.5 text-left hover:bg-emerald-400/[0.16] active:scale-[0.99] min-w-0 transition-none"
+                                          >
+                                            <svg className="h-4 w-4 shrink-0 text-emerald-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                                            <div className="min-w-0 flex-1">
+                                              <div className="hidden md:block text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-300 mb-0.5">{tx("Tracking #2 — Tap to copy","Трекинг #2 — скопировать","Трекінг #2 — скопіювати","Tracking #2 — Kopieren","Tracking #2 — Copiar")}</div>
+                                              <div className="md:hidden leading-tight">
+                                                <div className="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-300">{tx("Tracking #2","Трекинг #2","Трекінг #2","Tracking #2","Tracking #2")}</div>
+                                                <div className="text-[9px] uppercase tracking-[0.14em] text-emerald-300">{tx("Tap to copy","Скопировать","Скопіювати","Kopieren","Copiar")}</div>
+                                              </div>
+                                              <div id={`trk2-copy-${order.id}`} className="truncate text-sm font-mono font-semibold text-emerald-200 mt-1">{order.trackingNumber2}</div>
+                                            </div>
+                                            <svg className="h-3 w-3 shrink-0 text-emerald-400/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                          </button>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => setPage("track")}
+                                          className="flex items-center justify-center gap-1.5 rounded-2xl border border-blue-500/40 bg-blue-900/60 px-5 py-3 md:py-0 transition hover:bg-blue-800/70 active:scale-[0.99] text-[11px] font-bold uppercase tracking-[0.14em] text-blue-200 hover:text-white md:self-stretch"
+                                        >
+                                          {tx("Track Order","Отследить","Відстежити","Verfolgen","Rastrear")}
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      /* Single tracking number — on desktop: side by side; on mobile: stacked */
+                                      <div className="flex flex-col md:flex-row md:items-stretch gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const trk = order.trackingNumber || order.trackingNumber2;
+                                            navigator.clipboard.writeText(trk).catch(() => {});
+                                            const el = document.getElementById(`trk-copy-${order.id}`);
+                                            if (el) { el.textContent = tx("Copied!","Скопировано!","Скопійовано!","Kopiert!","¡Copiado!"); window.setTimeout(() => { if (el) el.textContent = trk; }, 1800); }
+                                          }}
+                                          className="flex-1 flex items-center gap-3 rounded-2xl border border-emerald-400/35 bg-emerald-400/[0.10] px-4 py-2.5 text-left hover:bg-emerald-400/[0.16] active:scale-[0.99] min-w-0 transition-none"
+                                        >
+                                          <svg className="h-4 w-4 shrink-0 text-emerald-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                                          <div className="min-w-0 flex-1">
+                                            <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-300 mb-0.5">{tx("Tap to copy tracking","Нажмите чтобы скопировать","Натисніть щоб скопіювати","Zum Kopieren tippen","Toca para copiar")}</div>
+                                            <div id={`trk-copy-${order.id}`} className="truncate text-sm font-mono font-semibold text-emerald-200">{order.trackingNumber || order.trackingNumber2}</div>
+                                          </div>
+                                          <svg className="h-3 w-3 shrink-0 text-emerald-400/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setPage("track")}
+                                          className="flex items-center justify-center gap-1.5 rounded-2xl border border-blue-500/40 bg-blue-900/60 px-5 py-3 transition hover:bg-blue-800/70 active:scale-[0.99] text-[11px] font-bold uppercase tracking-[0.14em] text-blue-200 hover:text-white md:self-stretch"
+                                        >
+                                          {tx("Track Order","Отследить","Відстежити","Verfolgen","Rastrear")}
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                <div className="px-5 pt-4 pb-1 flex flex-wrap gap-2">
+                                  {order.items.map((item, index) => (
+                                    <span key={order.id + "-" + item.name + "-" + item.dose + "-" + index} className="inline-flex items-center rounded-full border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[12px] text-white/90">
+                                      <span className="text-white/60 mr-1.5 text-[11px]">{item.quantity}×</span>{publicProductName(item.name)} {String(item.dose || "").replace(/ each$/i, "")}
+                                    </span>
+                                  ))}
+                                </div>
+
+                                {(true) && (
+                                  <div className="mx-5 mt-3 mb-0 flex flex-col gap-2">
+                                    <div className="rounded-2xl border border-white/20 bg-white/[0.08] px-4 py-3">
+                                      <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[11px]">
+                                        {[
+                                          { label: "Email",       val: order.email },
+                                          { label: "Name",        val: [order.firstName, order.lastName].filter(Boolean).join(" "), bold: true },
+                                          { label: "Address",     val: order.address },
+                                          { label: "Apt/Suite",   val: order.address2 },
+                                          { label: "City",        val: order.city },
+                                          { label: "Postal code", val: order.postalCode },
+                                          { label: "State",       val: order.state },
+                                          { label: "Country",     val: order.country },
+                                          { label: "Phone",       val: order.phone },
+                                          { label: "Tax ID",      val: order.taxId },
+                                          { label: "Carrier",     val: (order.orderNotes || "").match(/Carrier preference: (\S+)/i)?.[1], sky: true },
+                                          { label: "Notes",       val: (order.orderNotes || "").replace(/\nCarrier preference: \S+/i, "").replace(/Carrier preference: \S+\n?/i, "").trim() || null },
+                                        ].map(({ label, val, bold, sky }) => (
+                                          <Fragment key={label}>
+                                            <span className="text-white/60 uppercase tracking-[0.12em] font-semibold self-start pt-[1px]">{label}</span>
+                                            <span className={val ? (sky ? "text-sky-300 font-semibold" : bold ? "text-white font-semibold" : "text-white/80") : "text-white/30"}>{val || "—"}</span>
+                                          </Fragment>
+                                        ))}
+                                      </div>
+                                    </div>
+                                                                        <div className="flex flex-wrap justify-center gap-2 pb-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => setContactModalOpen(true)}
+                                        className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.07] px-4 py-2 text-[11px] font-semibold text-white/70 hover:text-white hover:bg-white/12 transition-none"
+                                      >
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                                        {tx("Got questions? Message us","Есть вопросы? Напишите нам","Є питання? Напишіть нам","Fragen? Schreiben Sie uns","¿Preguntas? Escríbenos")}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setPaymentReturn({ status: "success", order: order.id });
+                                          setPaymentReturnOrder({
+                                            id: order.id,
+                                            email: order.email,
+                                            firstName: order.firstName,
+                                            lastName: order.lastName,
+                                            address: order.address,
+                                            city: order.city,
+                                            state: order.state,
+                                            postalCode: order.postalCode,
+                                            country: order.country,
+                                            phone: order.phone,
+                                            items: order.items,
+                                            total: order.total,
+                                            subtotal: order.subtotal,
+                                            shipping: order.shipping,
+                                            paymentProvider: order.paymentProvider,
+                                          });
+                                          setPage("payment-return");
+                                          window.scrollTo({ top: 0, behavior: "smooth" });
+                                        }}
+                                        className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.07] px-4 py-2 text-[11px] font-semibold text-white/70 hover:text-white hover:bg-white/12 transition-none"
+                                      >
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="m9 12 2 2 4-4"/></svg>
+                                        {tx("View order confirmation","Подтверждение заказа","Підтвердження замовлення","Bestellbestätigung","Ver confirmación")}
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {!order.trackingNumber && (
+                                  <div className="px-5 pb-4 mt-2 text-[11px] text-white/45 italic leading-relaxed">
+                                    {tx("Tracking will appear here once your order ships.", "Трек-номер появится здесь после отправки.", "Трек-номер з'явиться тут після відправки.", "Sendungsverfolgung erscheint hier nach dem Versand.", "El seguimiento aparecerá aquí cuando se envíe tu pedido.")}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {accountMessage && (
+                    <p className="mt-5 text-sm text-white">{accountMessage}</p>
+                  )}
+
+                  <div className="legacy-account-signout" hidden>
+                  <div className="mt-6 md:mt-8 flex flex-wrap gap-4">
+                    <button
+                      type="button"
+                      onClick={handleSignOut}
+                      className="rounded-full bg-white px-7 py-3 text-[11px] font-black uppercase tracking-[0.22em] text-black shadow-[0_10px_30px_rgba(0,0,0,0.18)] transition hover:bg-white/90"
+                    >
+                      {t("signOut")}
+                    </button>
+                  </div>
+                  </div>
+                </>
+                    </div>
+                  </div>
+                  )
+    );
+  }
 
   const navigateAccountSection = (section) => {
     setActiveAccountSection(section);
@@ -14482,7 +15716,7 @@ export default function App() {
     if (section === "shipping") setIsEditingProfile(true);
     if (section === "security") {
       setIsChangingPassword(true);
-      setIsChangingEmail(true);
+      if (!tbvCommerce) setIsChangingEmail(true); // WordPress: email changes go through support
     }
   };
 
@@ -19304,15 +20538,16 @@ export default function App() {
                 }
               >
                 <AccountDashboard
-                  user={{ ...tbvCommerce.user, avatarId: wooAvatarId }}
+                  user={wooAccountUser}
                   orders={wooAccountOrders}
                   storeCredit={tbvCommerce.user.storeCredit}
-                  activeSection={["avatars", "affiliate"].includes(activeAccountSection) ? activeAccountSection : "overview"}
+                  hasUnreadReply={hasUnreadReply}
+                  activeSection={activeAccountSection}
                   tx={tx}
                   formatPrice={formatPricePrecise}
-                  onNavigate={navigateWooAccountSection}
-                  onOpenMessages={() => setPage("contact")}
-                  onEditProfile={() => window.location.assign(tbvCommerce.account.editAddressUrl)}
+                  onNavigate={navigateAccountSection}
+                  onOpenMessages={() => navigateAccountSection("messages")}
+                  onEditProfile={() => navigateAccountSection("shipping")}
                   onShopNow={() => setPage("shop")}
                   onRefreshOrders={loadWooAccountOrders}
                   onTrackOrder={() => setPage("track")}
@@ -19324,7 +20559,9 @@ export default function App() {
                   onChooseAvatar={saveWooAvatar}
                   onSignOut={() => window.location.assign(tbvCommerce.account.logoutUrl)}
                   {...affiliateDashboardProps}
-                />
+                >
+                  {renderAccountSections(wooAccountUser)}
+                </AccountDashboard>
               </Suspense>
             </div>
           </main>
@@ -19402,1202 +20639,7 @@ export default function App() {
                   onSignOut={handleSignOut}
                   {...affiliateDashboardProps}
                 >
-                  {activeAccountSection === "messages" ? (
-                    <Suspense fallback={<div className="min-h-[190px]" aria-busy="true" />}>
-                    <AccountMessages
-                      timeline={buildSupportTimeline(userInboxMessages)}
-                      tx={tx}
-                      accountEmail={currentUser.email}
-                      avatarId={currentUser.avatarId}
-                      loading={userInboxLoading}
-                      error={userInboxError}
-                      adminIsTyping={adminIsTyping}
-                      draft={contactForm.message}
-                      sending={contactSending}
-                      attachmentUploading={chatAttachmentUploading}
-                      scrollRef={inboxScrollRef}
-                      onDraftChange={(message) =>
-                        setContactForm((form) => ({ ...form, message: message.slice(0, 1000) }))
-                      }
-                      onTyping={() => broadcastTyping("user")}
-                      onSend={(message) => sendContactMessage(message)}
-                      onSendAttachment={(file) => uploadAndSendAttachment(file, sendAttachmentAsUserMessage)}
-                      onPasteAttachment={(event) =>
-                        handleSupportAttachmentPaste(event, sendAttachmentAsUserMessage)
-                      }
-                      onRetry={() => loadUserInbox(false, true)}
-                      renderMessageContent={renderMsgContent}
-                      messageDomId={chatMsgDomId}
-                      highlightedMsgKey={highlightedMsgKey}
-                    />
-                    </Suspense>
-                  ) : (
-                  <div className="lab-account-workspace">
-                    <div className="lab-account-details__body">
-                <>
-                  <div className="legacy-account-overview" hidden>
-                  <div className="mt-3 flex items-start justify-between gap-4">
-                    <h1 className="text-2xl font-semibold tracking-[-0.04em] md:text-4xl flex items-center gap-3">
-                      {tx(
-                        "WELCOME BACK!",
-                        "С ВОЗВРАЩЕНИЕМ!",
-                        "З ПОВЕРНЕННЯМ!",
-                        "WILLKOMMEN ZURÜCK!",
-                        "¡BIENVENIDO DE NUEVO!"
-                      )}
-                      <span
-                        className={waving ? `wave-animate-${waving}` : "inline-block cursor-pointer select-none"}
-                        onClick={() => { setWaving(0); setTimeout(() => setWaving(Math.random() < 0.5 ? 1 : 4), 10); }}
-                        onAnimationEnd={() => setWaving(0)}
-                        title="Wave back!"
-                        style={{ fontSize: "0.85em" }}
-                      >👋</span>
-                    </h1>
-                    {storeCredit > 0 && (
-                      <div className="shrink-0 rounded-xl border border-emerald-400/50 bg-emerald-400/15 px-3 py-2 text-right -mt-4">
-                        <div className="text-[9px] font-semibold uppercase tracking-[0.2em] text-emerald-300/80">Store credit</div>
-                        <div className="text-base font-bold text-emerald-300">${storeCredit.toFixed(2)}</div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-6 grid gap-4 md:mt-8 md:gap-5 md:grid-cols-2">
-                    <div className="rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-4 md:p-6">
-                      <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
-                        {tx(
-                          "Account email",
-                          "Email аккаунта",
-                          "Email акаунта",
-                          "Konto-E-Mail",
-                          "Email de la cuenta"
-                        )}
-                      </div>
-                      <div className="mt-2 break-all text-base font-semibold text-white md:mt-3 md:text-2xl">
-                        {currentUser.email}
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => { if (currentUser?.email) setContactForm((f) => ({ ...f, email: f.email || currentUser.email })); setContactModalOpen(true); }}
-                      className={`relative rounded-[1.6rem] p-4 md:p-6 text-left transition-none hover:scale-[1.02] active:scale-[0.98] overflow-hidden ${hasUnreadReply ? "border border-red-400/60 bg-red-500/10 shadow-[0_0_24px_rgba(239,68,68,0.18)]" : "border border-white/20 bg-black/[0.18] hover:bg-black/[0.18] shadow-[0_4px_20px_rgba(0,0,0,0.15)]"}`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-white/60">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="2" y="4" width="20" height="16" rx="2"/>
-                            <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
-                          </svg>
-                          {tx("Messages", "Сообщения", "Повідомлення", "Nachrichten", "Mensajes")}
-                        </div>
-                        {hasUnreadReply
-                          ? <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[9px] font-black text-white animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]">!</span>
-                          : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-white/30"><path d="M9 18l6-6-6-6"/></svg>
-                        }
-                      </div>
-                      <div className={`mt-2 text-base font-semibold md:mt-3 md:text-2xl ${hasUnreadReply ? "text-red-300" : "text-white"}`}>
-                        {hasUnreadReply
-                          ? tx("New reply!", "Новый ответ!", "Нова відповідь!", "Neue Antwort!", "¡Nueva respuesta!")
-                          : tx("View inbox", "Открыть", "Відкрити", "Öffnen", "Abrir")}
-                      </div>
-                    </button>
-
-                  </div>
-
-                  <div className="mt-6 grid gap-4 md:mt-8 md:gap-5 md:grid-cols-2">
-                    <div className="rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-4 md:p-6">
-                      <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
-                        {tx("First name", "Имя", "Імʼя", "Vorname", "Nombre")}
-                      </div>
-                      <div className="mt-2 text-sm font-semibold text-white md:mt-3 md:text-xl">
-                        {currentUser.firstName ||
-                          tx(
-                            "Not saved yet",
-                            "Пока не сохранено",
-                            "Ще не збережено",
-                            "Noch nicht gespeichert",
-                            "Aún no guardado"
-                          )}
-                      </div>
-                    </div>
-
-                    <div className="rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-4 md:p-6">
-                      <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
-                        {tx(
-                          "Last name",
-                          "Фамилия",
-                          "Прізвище",
-                          "Nachname",
-                          "Apellido"
-                        )}
-                      </div>
-                      <div className="mt-2 text-sm font-semibold text-white md:mt-3 md:text-xl">
-                        {currentUser.lastName ||
-                          tx(
-                            "Not saved yet",
-                            "Пока не сохранено",
-                            "Ще не збережено",
-                            "Noch nicht gespeichert",
-                            "Aún no guardado"
-                          )}
-                      </div>
-                    </div>
-
-                    <div className="rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-4 md:p-6">
-                      <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
-                        {tx("Country", "Страна", "Країна", "Land", "País")}
-                      </div>
-                      <div className="mt-2 text-sm font-semibold text-white md:mt-3 md:text-xl">
-                        {currentUser.country ||
-                          tx(
-                            "Not saved yet",
-                            "Пока не сохранено",
-                            "Ще не збережено",
-                            "Noch nicht gespeichert",
-                            "Aún no guardado"
-                          )}
-                      </div>
-                    </div>
-
-                    <div className="rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-4 md:p-6">
-                      <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
-                        {tx("City", "Город", "Місто", "Stadt", "Ciudad")}
-                      </div>
-                      <div className="mt-2 text-sm font-semibold text-white md:mt-3 md:text-xl">
-                        {currentUser.city ||
-                          tx(
-                            "Not saved yet",
-                            "Пока не сохранено",
-                            "Ще не збережено",
-                            "Noch nicht gespeichert",
-                            "Aún no guardado"
-                          )}
-                      </div>
-                    </div>
-                  </div>
-
-                  </div>
-
-                  <div
-                    id="account-shipping-details"
-                    className={`mt-6 md:mt-8 ${isEditingProfile ? "profile-editor-open rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-4 md:p-6" : ""}`}
-                    onBlurCapture={(event) => {
-                      const nextTarget = event.relatedTarget;
-                      const focusStaysInEditor =
-                        nextTarget instanceof Node &&
-                        event.currentTarget.contains(nextTarget);
-                      if (isEditingProfile && !focusStaysInEditor) {
-                        void handleProfileSave();
-                      }
-                    }}
-                  >
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
-                      {isEditingProfile && (
-                        <div className="text-[11px] uppercase tracking-[0.22em] text-white">
-                          {tx(
-                            "Shipping details",
-                            "Данные доставки",
-                            "Дані доставки",
-                            "Versanddaten",
-                            "Datos de envío"
-                          )}
-                        </div>
-                      )}
-                      <div className={`flex flex-wrap gap-3 ${isEditingProfile ? "" : "md:ml-auto"}`}>
-                        {isEditingProfile ? (
-                          <>
-                            <button
-                              type="button"
-                              onClick={handleProfileSave}
-                              className="rounded-full bg-white px-5 py-2 text-[11px] !font-black uppercase tracking-[0.22em] !text-black shadow-[0_10px_30px_rgba(0,0,0,0.18)] transition hover:bg-white/90"
-                            >
-                              {tx(
-                                "Save details",
-                                "Сохранить данные",
-                                "Зберегти дані",
-                                "Daten speichern",
-                                "Guardar datos"
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setProfileSaveFeedback(null);
-                                setProfileForm({
-                                  firstName: currentUser.firstName || "",
-                                  lastName: currentUser.lastName || "",
-                                  country: currentUser.country || "",
-                                  address: currentUser.address || "",
-                                  address2: currentUser.address2 || "",
-                                  city: currentUser.city || "",
-                                  state: currentUser.state || "",
-                                  postalCode: currentUser.postalCode || "",
-                                  phone: currentUser.phone || "",
-                                });
-                                setIsEditingProfile(false);
-                              }}
-                              className="rounded-full bg-white !text-black px-6 py-2 text-[11px] !font-black uppercase tracking-[0.22em] shadow-[0_8px_25px_rgba(0,0,0,0.25)] transition hover:bg-white/90"
-                            >
-                              {tx(
-                                "Cancel",
-                                "Отмена",
-                                "Скасувати",
-                                "Abbrechen",
-                                "Cancelar"
-                              )}
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setProfileSaveFeedback(null);
-                                setIsEditingProfile(true);
-                              }}
-                              className="rounded-full bg-white !text-black px-6 py-2 text-[11px] font-extrabold uppercase tracking-[0.22em] shadow-[0_8px_25px_rgba(0,0,0,0.25)] transition hover:bg-white/90"
-                            >
-                              {tx(
-                                "Edit shipping details",
-                                "Изменить данные доставки",
-                                "Змінити дані доставки",
-                                "Versanddaten bearbeiten",
-                                "Editar datos de envío"
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => { setIsChangingPassword(v => !v); setChangePasswordForm({ newPassword: "", confirmPassword: "" }); setChangePasswordMessage(""); }}
-                              className="rounded-full bg-white !text-black px-6 py-2 text-[11px] font-extrabold uppercase tracking-[0.22em] shadow-[0_8px_25px_rgba(0,0,0,0.25)] transition hover:bg-white/90"
-                            >
-                              {tx(
-                                "Change password",
-                                "Изменить пароль",
-                                "Змінити пароль",
-                                "Passwort ändern",
-                                "Cambiar contraseña"
-                              )}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {profileSaveFeedback && (
-                      <div
-                        className={`mt-4 flex items-center gap-2 text-sm ${
-                          profileSaveFeedback.type === "error"
-                            ? "text-red-200"
-                            : "text-white"
-                        }`}
-                        role={profileSaveFeedback.type === "error" ? "alert" : "status"}
-                        aria-live="polite"
-                      >
-                        {profileSaveFeedback.type === "success" ? (
-                          <svg
-                            aria-hidden="true"
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="#4ade80"
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <path d="m5 12 4 4L19 6" />
-                          </svg>
-                        ) : (
-                          <svg
-                            aria-hidden="true"
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <circle cx="12" cy="12" r="9" />
-                            <path d="M12 8v4m0 4h.01" />
-                          </svg>
-                        )}
-                        <span>
-                          {profileSaveFeedback.type === "success"
-                            ? tx(
-                                "Details saved",
-                                "Данные сохранены",
-                                "Дані збережено",
-                                "Daten gespeichert",
-                                "Datos guardados"
-                              )
-                            : profileSaveFeedback.message}
-                        </span>
-                      </div>
-                    )}
-
-                    {isEditingProfile ? (
-                      <div className="mt-5 grid gap-3 border-t border-white/10 pt-5">
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <BufferedInput
-                            type="text"
-                            value={profileForm.firstName}
-                            onValueChange={(value) =>
-                              handleProfileFieldChange(
-                                "firstName",
-                                value
-                              )
-                            }
-                            placeholder={tx(
-                              "First name",
-                              "Имя",
-                              "Імʼя",
-                              "Vorname",
-                              "Nombre"
-                            )}
-                            className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
-                          />
-                          <BufferedInput
-                            type="text"
-                            value={profileForm.lastName}
-                            onValueChange={(value) =>
-                              handleProfileFieldChange(
-                                "lastName",
-                                value
-                              )
-                            }
-                            placeholder={tx(
-                              "Last name",
-                              "Фамилия",
-                              "Прізвище",
-                              "Nachname",
-                              "Apellido"
-                            )}
-                            className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
-                          />
-                        </div>
-                        <BufferedInput
-                          type="text"
-                          value={profileForm.country}
-                          onValueChange={(value) =>
-                            handleProfileFieldChange("country", value)
-                          }
-                          placeholder={tx(
-                            "Country",
-                            "Страна",
-                            "Країна",
-                            "Land",
-                            "País"
-                          )}
-                          className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
-                        />
-                        <BufferedInput
-                          type="text"
-                          value={profileForm.address}
-                          onValueChange={(value) =>
-                            handleProfileFieldChange("address", value)
-                          }
-                          placeholder={t("streetAddress")}
-                          className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
-                        />
-                        <BufferedInput
-                          type="text"
-                          value={profileForm.address2}
-                          onValueChange={(value) => handleProfileFieldChange("address2", value)}
-                          placeholder={tx("Apt / Suite (optional)", "Кв. / Офис (необязательно)", "Кв. / Офіс (необов'язково)", "Wohnung / Suite (optional)", "Apto / Suite (opcional)")}
-                          className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
-                        />
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <BufferedInput
-                            type="text"
-                            value={profileForm.city}
-                            onValueChange={(value) =>
-                              handleProfileFieldChange("city", value)
-                            }
-                            placeholder={tx(
-                              "City",
-                              "Город",
-                              "Місто",
-                              "Stadt",
-                              "Ciudad"
-                            )}
-                            className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
-                          />
-                          <BufferedInput
-                            type="text"
-                            value={profileForm.postalCode}
-                            onValueChange={(value) =>
-                              handleProfileFieldChange(
-                                "postalCode",
-                                value
-                              )
-                            }
-                            placeholder={t("postalCode")}
-                            className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
-                          />
-                        </div>
-                        <BufferedInput
-                          type="text"
-                          value={profileForm.state}
-                          onValueChange={(value) => handleProfileFieldChange("state", value)}
-                          placeholder={tx("State / Province (if applicable)", "Штат / Провинция (если применимо)", "Штат / Провінція (якщо застосовно)", "Bundesland / Provinz (falls zutreffend)", "Estado / Provincia (si aplica)")}
-                          className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
-                        />
-                        <BufferedInput
-                          type="tel"
-                          value={profileForm.phone}
-                          onValueChange={(value) =>
-                            handleProfileFieldChange("phone", value)
-                          }
-                          placeholder={t("phone")}
-                          className="rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white outline-none"
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-
-                  {activeAccountSection === "security" && <EmailLoginSecurity supabase={supabase} userId={currentUser?.id} />}
-                  {isChangingPassword && (
-                    <div id="account-security-details" className="mt-4 rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-5">
-                      <div className="mb-4 text-[11px] font-bold uppercase tracking-[0.22em] text-white/70">
-                        {tx("Change password", "Изменить пароль", "Змінити пароль", "Passwort ändern", "Cambiar contraseña")}
-                      </div>
-                      <div className="grid gap-3">
-                        <BufferedInput
-                          type="password"
-                          value={changePasswordForm.newPassword}
-                          onValueChange={(value) => setChangePasswordForm(f => ({ ...f, newPassword: value }))}
-                          placeholder={tx("New password (min. 6 characters)", "Новый пароль (мин. 6 символов)", "Новий пароль (мін. 6 символів)", "Neues Passwort (min. 6 Zeichen)", "Nueva contraseña (mín. 6 caracteres)")}
-                          className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50"
-                        />
-                        <BufferedInput
-                          type="password"
-                          value={changePasswordForm.confirmPassword}
-                          onValueChange={(value) => setChangePasswordForm(f => ({ ...f, confirmPassword: value }))}
-                          placeholder={tx("Confirm new password", "Подтвердите новый пароль", "Підтвердіть новий пароль", "Neues Passwort bestätigen", "Confirmar nueva contraseña")}
-                          className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50"
-                        />
-                        {changePasswordMessage ? (
-                          <div className="text-sm text-white">{changePasswordMessage}</div>
-                        ) : null}
-                        <div className="flex flex-wrap gap-2 md:gap-3">
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              const { newPassword, confirmPassword } = changePasswordForm;
-                              if (!newPassword) { setChangePasswordMessage(tx("Enter a new password.", "Введите новый пароль.", "Введіть новий пароль.", "Neues Passwort eingeben.", "Introduce una nueva contraseña.")); return; }
-                              if (newPassword.length < 6) { setChangePasswordMessage(tx("Min. 6 characters.", "Минимум 6 символов.", "Мінімум 6 символів.", "Min. 6 Zeichen.", "Mín. 6 caracteres.")); return; }
-                              if (newPassword !== confirmPassword) { setChangePasswordMessage(tx("Passwords do not match.", "Пароли не совпадают.", "Паролі не збігаються.", "Passwörter stimmen nicht überein.", "Las contraseñas no coinciden.")); return; }
-                              const { error } = await supabase.auth.updateUser({ password: newPassword });
-                              if (error) { setChangePasswordMessage(error.message); return; }
-                              setChangePasswordMessage(tx("Password updated!", "Пароль обновлён!", "Пароль оновлено!", "Passwort aktualisiert!", "¡Contraseña actualizada!"));
-                              setChangePasswordForm({ newPassword: "", confirmPassword: "" });
-                              window.setTimeout(() => { setIsChangingPassword(false); setChangePasswordMessage(""); }, 2000);
-                            }}
-                            className="min-h-[44px] whitespace-nowrap rounded-full bg-white !text-black px-3 py-2.5 text-[9px] font-extrabold uppercase tracking-[0.12em] shadow-[0_8px_25px_rgba(0,0,0,0.25)] transition hover:bg-white/90 md:min-h-0 md:px-6 md:py-2 md:text-[11px] md:tracking-[0.22em]"
-                          >
-                            {tx("Update password", "Обновить пароль", "Оновити пароль", "Passwort aktualisieren", "Actualizar contraseña")}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => { setIsChangingPassword(false); setChangePasswordForm({ newPassword: "", confirmPassword: "" }); setChangePasswordMessage(""); }}
-                            className="min-h-[44px] whitespace-nowrap rounded-full border border-white/30 bg-white/10 text-white px-3 py-2.5 text-[9px] font-extrabold uppercase tracking-[0.12em] transition hover:bg-white/20 md:min-h-0 md:px-6 md:py-2 md:text-[11px] md:tracking-[0.22em]"
-                          >
-                            {tx("Cancel", "Отмена", "Скасувати", "Abbrechen", "Cancelar")}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {isChangingEmail && (
-                    <div id="account-email-details" className="mt-4 rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-5">
-                      <div className="mb-4 text-[11px] font-bold uppercase tracking-[0.22em] text-white/70">
-                        {tx("Change email", "Изменить email", "Змінити email", "E-Mail ändern", "Cambiar correo")}
-                      </div>
-                      {emailChangePending && (
-                        <div className="grid gap-4">
-                          <div className="break-all text-sm font-semibold text-white">
-                            {emailChangeTarget}
-                          </div>
-                          <div role="status" className="text-sm leading-6 text-white/80">
-                            {emailChangeMessage}
-                          </div>
-                          {emailConfirmationMode === "current_email_code" && !emailHistoryPending && (
-                            <div className="grid gap-3">
-                              <BufferedInput type="text" autoComplete="one-time-code" maxLength={24}
-                                value={emailConfirmationCode} onValueChange={setEmailConfirmationCode}
-                                placeholder={tx("Confirmation code from your current email", "Код из письма на текущую почту", "Код із поточної пошти", "Code aus Ihrer aktuellen E-Mail", "Código del correo actual")}
-                                className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50" />
-                              <button type="button" onClick={confirmEmailChangeCode} disabled={emailChangeBusy || !emailConfirmationCode.trim()}
-                                className="min-h-[44px] w-fit rounded-full bg-white !text-black px-5 py-2.5 text-[11px] font-extrabold uppercase tracking-[0.16em] disabled:opacity-60">
-                                {tx("Confirm email change", "Подтвердить смену email", "Підтвердити зміну email", "E-Mail-Änderung bestätigen", "Confirmar cambio de correo")}
-                              </button>
-                            </div>
-                          )}
-                          <button
-                            type="button"
-                            onClick={retryEmailMigration}
-                            disabled={emailChangeBusy}
-                            className="min-h-[44px] w-fit whitespace-nowrap rounded-full bg-white !text-black px-5 py-2.5 text-[10px] font-extrabold uppercase tracking-[0.16em] transition hover:bg-white/90 disabled:cursor-wait disabled:opacity-60 md:min-h-0 md:text-[11px]"
-                          >
-                            {emailChangeBusy
-                              ? tx("Checking…", "Проверяем…", "Перевіряємо…", "Wird geprüft…", "Comprobando…")
-                              : tx("Check status", "Проверить статус", "Перевірити статус", "Status prüfen", "Comprobar estado")}
-                          </button>
-                        </div>
-                      )}
-                        <div className="grid gap-3">
-                          <BufferedInput
-                            type="email"
-                            autoComplete="email"
-                            value={emailChangeForm.currentEmail}
-                            onValueChange={(value) => {
-                              setEmailChangeForm((form) => ({ ...form, currentEmail: value }));
-                              setEmailChangeMessage("");
-                            }}
-                            placeholder={tx("Current email", "Нынешний email", "Поточна адреса", "Aktuelle E-Mail", "Correo actual")}
-                            className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50"
-                          />
-                          <BufferedInput
-                            type="email"
-                            autoComplete="email"
-                            value={emailChangeForm.newEmail}
-                            onValueChange={(value) => {
-                              setEmailChangeForm((form) => ({ ...form, newEmail: value }));
-                              setEmailChangeMessage("");
-                            }}
-                            placeholder={tx("New email", "Новый email", "Нова адреса", "Neue E-Mail", "Correo nuevo")}
-                            className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50"
-                          />
-                          <BufferedInput
-                            type="password"
-                            autoComplete="current-password"
-                            value={emailChangeForm.currentPassword}
-                            onValueChange={(value) => {
-                              setEmailChangeForm((form) => ({ ...form, currentPassword: value }));
-                              setEmailChangeMessage("");
-                            }}
-                            placeholder={tx("Current password", "Текущий пароль", "Поточний пароль", "Aktuelles Passwort", "Contraseña actual")}
-                            className="w-full rounded-2xl border border-white/20 bg-black/[0.18] px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/50"
-                          />
-                          {!emailChangePending && emailChangeMessage ? (
-                            <div role="status" className="text-sm leading-6 text-white/80">
-                              {emailChangeMessage}
-                            </div>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={submitEmailChange}
-                            disabled={emailChangeBusy || emailHistoryPending}
-                            className="min-h-[44px] w-fit whitespace-nowrap rounded-full bg-white !text-black px-5 py-2.5 text-[10px] font-extrabold uppercase tracking-[0.16em] transition hover:bg-white/90 disabled:cursor-wait disabled:opacity-60 md:min-h-0 md:text-[11px]"
-                          >
-                            {emailChangeBusy
-                              ? tx("Updating…", "Обновляем…", "Оновлюємо…", "Wird aktualisiert…", "Actualizando…")
-                              : emailChangePending
-                                ? tx("Send confirmation", "Отправить подтверждение", "Надіслати підтвердження", "Bestätigung senden", "Enviar confirmación")
-                                : tx("Update email", "Изменить email", "Змінити email", "E-Mail aktualisieren", "Actualizar correo")}
-                          </button>
-                          {!emailChangePending && emailChangeMessage && (
-                            <button type="button" onClick={retryEmailMigration} disabled={emailChangeBusy}
-                              className="w-fit rounded-full border border-white/30 bg-white/10 px-5 py-2.5 text-[11px] font-bold uppercase tracking-[0.16em] text-white disabled:opacity-60">
-                              {tx("Check status", "Проверить статус", "Перевірити статус", "Status prüfen", "Comprobar estado")}
-                            </button>
-                          )}
-                        </div>
-                    </div>
-                  )}
-
-
-                  <div className="legacy-account-extras" hidden>
-                  {userPromos.filter(p => p.email !== "__PUBLIC__").length > 0 && (
-                  <div className="mt-6 md:mt-8 rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-5">
-                    <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
-                      {tx("My Promocodes", "Мои промокоды", "Мої промокоди", "Meine Promocodes", "Mis Promocódigos")}
-                    </div>
-                    <div className="mt-4 flex flex-col gap-3">
-                      {userPromos.filter(p => p.email !== "__PUBLIC__").map((promo) => {
-                        const isApplied = appliedPromo?.code === promo.code;
-                        return (
-                          <div
-                            key={promo.id}
-                            className={`flex items-center justify-between gap-3 rounded-[1.2rem] border px-5 py-4 transition-all duration-300 ${
-                              isApplied
-                                ? "border-emerald-400/40 bg-emerald-500/10"
-                                : "border-white/10 bg-black/[0.18]"
-                            }`}
-                          >
-                            <div className="flex flex-col gap-1">
-                              <span className="font-mono text-[15px] font-bold tracking-[0.12em] text-white">
-                                {promo.code}
-                              </span>
-                              <span className="text-[11px] text-white/60">
-                                {+(((promo.rate || 0) * 100).toFixed(2))}% {tx("discount", "скидка", "знижка", "Rabatt", "descuento")}
-                              </span>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (isApplied) {
-                                    setAppliedPromo(null);
-                                    setPromoInput("");
-                                    setPromoMessage("");
-                                  } else {
-                                    setPromoInput(promo.code);
-                                    setAppliedPromo({ code: promo.code, rate: promo.rate, label: promo.label || promo.code, type: "user_promo", id: promo.id, issuedAt: promo.created_at || "" });
-                                    setPromoMessage(tx("Promocode applied!", "Промокод применён!", "Промокод застосовано!", "Promocode angewendet!", "¡Promocódigo aplicado!"));
-                                    setTimeout(() => setPromoMessage(""), 4000);
-                                  }
-                                }}
-                                className={`rounded-full px-4 py-2 text-[11px] font-extrabold uppercase tracking-[0.18em] shadow-[0_4px_16px_rgba(0,0,0,0.2)] transition-all duration-300 active:scale-95 ${
-                                  isApplied
-                                    ? "bg-emerald-400 text-black"
-                                    : "bg-white text-black hover:bg-white/90"
-                                }`}
-                              >
-                                {isApplied
-                                  ? tx("Applied ✓", "Применён ✓", "Застосовано ✓", "Angewendet ✓", "Aplicado ✓")
-                                  : tx("Apply", "Применить", "Застосувати", "Anwenden", "Aplicar")}
-                              </button>
-                              <button
-                                type="button"
-                                title={tx("Delete promo code", "Удалить промокод", "Видалити промокод", "Promocode löschen", "Eliminar promocódigo")}
-                                onClick={async () => {
-                                  if (!window.confirm(tx("Delete this promo code?", "Удалить этот промокод?", "Видалити цей промокод?", "Diesen Promocode löschen?", "¿Eliminar este promocódigo?"))) return;
-                                  if (isApplied) {
-                                    setAppliedPromo(null);
-                                    setPromoInput("");
-                                    setPromoMessage("");
-                                  }
-                                  setUserPromos((current) => current.filter((p) => p.id !== promo.id));
-                                  const { error } = await supabase.from("user_promos").delete().eq("id", promo.id);
-                                  if (error) console.error("Failed to delete user promo:", error.message);
-                                }}
-                                className="flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-black/[0.18] text-white/50 transition-all duration-300 hover:bg-red-500/20 hover:text-red-300 active:scale-95"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  )}
-
-                  {currentAffiliateProfile && (
-                  <div hidden className="mt-4 rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-4">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsAffiliatePanelOpen((current) => {
-                          const next = !current;
-                          if (next && currentAffiliateProfile?.code) {
-                            loadAffiliateCommissionOrders(currentAffiliateProfile.code);
-                          }
-                          return next;
-                        });
-                      }}
-                      className="flex w-full items-center justify-between rounded-[1.15rem] border border-white/10 bg-black/[0.18] px-5 py-3 text-left hover:bg-black/[0.18]"
-                    >
-                      <div>
-                        <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
-                          {t("affiliateAccess")}
-                        </div>
-                        <div className="mt-1 text-[15px] font-semibold text-white">
-                          {t("affiliateAccountActive")}
-                        </div>
-                      </div>
-                      <span
-                        className={`text-[22px] leading-none text-white transition-transform duration-200 ${
-                          isAffiliatePanelOpen ? "rotate-45" : "rotate-0"
-                        }`}
-                      >
-                        +
-                      </span>
-                    </button>
-
-                    {isAffiliatePanelOpen && (
-                      <div className="mt-4 rounded-[1.35rem] border border-white/10 bg-black/[0.18] p-5">
-                        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                          <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
-                            {t("affiliateAccess")}
-                          </div>
-                          <div className="flex flex-wrap gap-3">
-                            <div className="flex flex-col items-end gap-2">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  currentAffiliateProfile &&
-                                  copyAffiliateLink(currentAffiliateProfile.code)
-                                }
-                                className={`inline-flex min-w-[220px] items-center justify-center rounded-full px-6 py-2 text-[11px] font-extrabold uppercase tracking-[0.22em] shadow-[0_8px_25px_rgba(0,0,0,0.25)] transition-[background-color,color] duration-500 ease-out ${
-                                  copiedAffiliateLink
-                                    ? "bg-black text-white"
-                                    : "bg-white text-black hover:bg-white/90"
-                                }`}
-                              >
-                                {copiedAffiliateLink
-                                  ? tx("COPIED", "СКОПИРОВАНО", "СКОПІЙОВАНО", "KOPIERT", "COPIADO")
-                                  : t("copyAffiliateLink")}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        {(() => {
-                          const currentAffiliate = currentAffiliateProfile;
-
-                          const commissionRows = affiliateCommissionOrders.map((row) => {
-                            const shippingType = String(row.shipping_type || "standard").toLowerCase();
-                            const orderShape = {
-                              shippingType,
-                              createdAt: row.created_at || null,
-                            };
-                            const releaseDate = getAffiliateAvailableAt(orderShape);
-                            const available = isAffiliateCommissionAvailable(orderShape);
-                            return {
-                              orderId: row.order_id,
-                              amount: Number(row.commission_amount || 0),
-                              shippingType,
-                              releaseDate,
-                              available,
-                            };
-                          });
-
-                          const pendingTotal = commissionRows.reduce(
-                            (sum, row) => sum + (row.available ? 0 : row.amount),
-                            0
-                          );
-                          const availableTotal = commissionRows.reduce(
-                            (sum, row) => sum + (row.available ? row.amount : 0),
-                            0
-                          );
-                          const remainingTotal = Math.max(0, availableTotal - affiliatePaidOut);
-
-                          const dateLocale =
-                            language === "RU"
-                              ? "ru-RU"
-                              : language === "UA"
-                              ? "uk-UA"
-                              : language === "DE"
-                              ? "de-DE"
-                              : language === "ES"
-                              ? "es-ES"
-                              : "en-US";
-                          const formatReleaseDate = (date) =>
-                            date
-                              ? date.toLocaleDateString(dateLocale, {
-                                  year: "numeric",
-                                  month: "short",
-                                  day: "numeric",
-                                })
-                              : "—";
-
-                          const expressLabel = tx("Express", "Экспресс", "Експрес", "Express", "Exprés");
-                          const standardLabel = tx("Standard", "Стандарт", "Стандарт", "Standard", "Estándar");
-
-                          return currentAffiliate ? (
-                            <div className="mt-4 space-y-3 text-base leading-8 text-white/70">
-                              <div>
-                                {t("affiliateCode")}:{" "}
-                                <span className="font-semibold text-white">
-                                  {currentAffiliate.code}
-                                </span>
-                              </div>
-                              <div>
-                                {tx("Commission orders:", "Партнёрские заказы:", "Партнерські замовлення:", "Provisionsaufträge:", "Pedidos de comisión:")}{" "}
-                                <span className="font-semibold text-white">
-                                  {affiliateCommissionLoading ? "…" : commissionRows.length}
-                                </span>
-                              </div>
-                              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                                <div className="rounded-xl border border-white/10 bg-black/[0.18] px-4 py-3">
-                                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/60">
-                                    {tx("Pending earnings", "Ожидающий заработок", "Очікуваний заробіток", "Ausstehender Verdienst", "Ganancias pendientes")}
-                                  </div>
-                                  <div className="mt-1 text-lg font-semibold text-white">
-                                    {affiliateCommissionLoading ? "…" : formatPricePrecise(pendingTotal)}
-                                  </div>
-                                  <div className="mt-1 text-[11px] leading-5 text-white/60">
-                                    {"Held during the return window (6 days US warehouse · 10 days express · 15 days standard)."}
-                                  </div>
-                                </div>
-                                <div className="rounded-xl border border-white/10 bg-black/[0.18] px-4 py-3">
-                                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/60">
-                                    {tx("Available earnings", "Доступный заработок", "Доступний заробіток", "Verfügbarer Verdienst", "Ganancias disponibles")}
-                                  </div>
-                                  <div className="mt-1 text-lg font-semibold text-white">
-                                    {affiliateCommissionLoading ? "…" : formatPricePrecise(Math.max(0, availableTotal - affiliatePaidOut))}
-                                  </div>
-                                  <div className="mt-1 text-[11px] leading-5 text-white/60">
-                                    {tx("Return window has closed — counted as real earnings.", "Окно возврата закрыто — засчитано как реальный заработок.", "Вікно повернення закрито — зараховано як реальний заробіток.", "Rückgabefrist ist abgelaufen — als echter Verdienst gezählt.", "La ventana de devolución se cerró — se cuenta como ganancias reales.")}
-                                  </div>
-                                </div>
-                                {affiliatePaidOut > 0 && (
-                                  <div className="rounded-xl border border-sky-400/20 bg-sky-400/8 px-4 py-3">
-                                    <div className="text-[10px] uppercase tracking-[0.2em] text-sky-300/70">Paid out</div>
-                                    <div className="mt-1 text-lg font-semibold text-sky-300">{formatPricePrecise(affiliatePaidOut)}</div>
-                                    <div className="mt-1 text-[11px] leading-5 text-white/60">Paid to you by 10BottleValue.</div>
-                                  </div>
-                                )}
-                              </div>
-                              {!affiliateCommissionLoading && commissionRows.length > 0 && (
-                                <div className="mt-3 space-y-2">
-                                  <div className="text-[11px] uppercase tracking-[0.2em] text-white/50">
-                                    {tx("Commission breakdown", "Детализация комиссий", "Деталізація комісій", "Provisionsaufschlüsselung", "Desglose de comisiones")}
-                                  </div>
-                                  {commissionRows.map((row) => (
-                                    <div
-                                      key={row.orderId}
-                                      className="flex flex-col gap-2 rounded-xl border border-white/10 bg-black/[0.18] px-4 py-3 text-sm md:flex-row md:items-center md:justify-between"
-                                    >
-                                      <div className="flex flex-col gap-1">
-                                        <span className="font-mono text-white/80">{row.orderId}</span>
-                                        <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-white/60">
-                                          <span className={`rounded-full border px-2 py-[2px] ${row.shippingType === "express" ? "border-white/30 bg-white/10 text-white" : "border-white/20 bg-black/[0.18] text-white/70"}`}>
-                                            {row.shippingType === "express" ? expressLabel : standardLabel}
-                                          </span>
-                                          <span className={row.available ? "text-emerald-300" : "text-amber-300"}>
-                                            {row.available
-                                              ? tx("Available", "Доступно", "Доступно", "Verfügbar", "Disponible") + (row.releaseDate ? " · " + formatReleaseDate(row.releaseDate) : "")
-                                              : tx("Pending — releases on", "Ожидание — освобождается", "Очікування — звільняється", "Ausstehend — freigegeben am", "Pendiente — se libera el") + " " + formatReleaseDate(row.releaseDate)}
-                                          </span>
-                                        </div>
-                                      </div>
-                                      <span className="font-semibold text-white md:text-right">
-                                        {formatPricePrecise(row.amount)}
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => loadAffiliateCommissionOrders(currentAffiliate.code)}
-                                className="mt-1 rounded-full border border-white/20 bg-black/[0.18] px-5 py-2 text-[11px] font-bold uppercase tracking-[0.2em] text-white transition hover:bg-black/[0.18]"
-                              >
-                                {tx("Refresh earnings", "Обновить заработок", "Оновити заробіток", "Verdienst aktualisieren", "Actualizar ganancias")}
-                              </button>
-                            </div>
-                          ) : null;
-                        })()}
-
-                        {affiliateMessage && (
-                          <div
-                            key={affiliateMessagePulse}
-                            className={`mt-4 rounded-xl border border-white/10 bg-black/[0.18] px-4 py-3 text-sm leading-7 text-white/90 break-all transition-all duration-[850ms] ease-out ${
-                              affiliateMessageVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-1"
-                            }`}
-                          >
-                            {affiliateMessage}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  )}
-                  </div>
-
-                  <div id="account-orders-details" className="mt-6 md:mt-8 rounded-[1.6rem] border border-white/20 bg-black/[0.18] p-4 md:p-6">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">
-                        {t("orders")}
-                      </div>
-                      <button
-                        onClick={() => refreshUserOrdersFromSupabase()}
-                        disabled={isRefreshingUserOrders}
-                        className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-white/60 transition-all hover:bg-white/10 disabled:opacity-40"
-                      >
-                        <svg className={`h-3 w-3 shrink-0 transition-transform duration-500 ${isRefreshingUserOrders ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                        {tx("Refresh orders", "Обновить заказы", "Оновити замовлення", "Bestellungen aktualisieren", "Actualizar pedidos")}
-                      </button>
-                    </div>
-                    {userOrders.length === 0 ? (
-                      <div style={{opacity: isRefreshingUserOrders ? 0.4 : 1, transition: "opacity 0.3s"}}>
-                        <div className="mt-3 text-base leading-8 text-white/70">
-                          {t("noSavedOrders")}
-                        </div>
-                        <div className="mt-3 rounded-xl border border-white/10 bg-black/[0.18] px-4 py-3 text-sm leading-7 text-white/70">
-                          {language === "RU"
-                            ? "Оплаченные заказы появятся здесь автоматически после успешной оплаты. Оформление заказа теперь доступно только авторизованным пользователям, поэтому заказы всегда привязаны к аккаунту, использованному при оформлении."
-                            : language === "UA"
-                            ? "Оплачені замовлення з’являться тут автоматично після успішної оплати. Оформлення замовлення тепер доступне лише авторизованим користувачам, тож замовлення завжди прив’язані до акаунта, використаного при оформленні."
-                            : language === "DE"
-                            ? "Bezahlte Bestellungen erscheinen hier automatisch nach erfolgreicher Zahlung. Der Checkout ist jetzt nur für angemeldete Kunden verfügbar, daher sind Bestellungen immer mit dem beim Checkout verwendeten Konto verknüpft."
-                            : language === "ES"
-                            ? "Los pedidos pagados aparecerán aquí automáticamente tras un pago exitoso. El checkout ahora solo está disponible para clientes registrados, por lo que los pedidos siempre quedan vinculados a la cuenta utilizada al pagar."
-                            : "Paid orders will appear here automatically after successful payment. Checkout is now available only for signed-in customers, so orders are always linked to the account used at checkout."}
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{opacity: isRefreshingUserOrders ? 0.4 : 1, transition: "opacity 0.3s"}} className="mt-4 space-y-4">
-                        {userOrders.map((order) => {
-                          const isExpanded = expandedOrders.has(order.id);
-                          return (
-                          <div
-                            key={order.id}
-                            className="rounded-[1.2rem] bg-black/[0.18] overflow-hidden"
-                          >
-                            {/* Header — always visible, click to toggle */}
-                            <button
-                              type="button"
-                              onClick={() => setExpandedOrders((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(order.id)) next.delete(order.id);
-                                else next.add(order.id);
-                                return next;
-                              })}
-                              className="account-order-toggle w-full px-5 py-4 text-left transition-colors duration-150"
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex items-center gap-3 min-w-0 flex-1">
-                                  <div className="flex flex-col gap-1 min-w-0 w-full">
-                                    <div className="flex items-center justify-between gap-2">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-[13px] font-mono font-bold text-white tracking-wide">{order.id}</span>
-                                      <span
-                                        role="button"
-                                        tabIndex={0}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          navigator.clipboard.writeText(order.id).then(() => {
-                                            setCopiedOrderId(order.id);
-                                            setTimeout(() => setCopiedOrderId(null), 2000);
-                                          });
-                                        }}
-                                        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.click()}
-                                        className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-bold uppercase tracking-[0.1em] cursor-pointer ${copiedOrderId === order.id ? "bg-emerald-500/20 text-emerald-300" : "bg-white/10 text-white/55 hover:text-white"}`}
-                                      >
-                                        {copiedOrderId === order.id ? "✓" : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center gap-2 shrink-0">
-                                      <div className="text-base font-semibold text-white">{formatPricePrecise(order.total)}</div>
-                                      <svg className={`h-3.5 w-3.5 text-white/60 ${isExpanded ? "rotate-180" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-                                    </div>
-                                    </div>
-                                    <div className="mt-0.5">
-                                      <div className="flex items-center gap-2 flex-wrap">
-                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-300"><span className="w-1.5 h-1.5 rounded-full bg-emerald-300 inline-block"/>PAID</span>
-                                        <span className="text-white/20">·</span>
-                                        <span className="text-[11px] text-white/60 capitalize">{order.shippingType === "us-warehouse" ? "US Warehouse" : (order.shippingType || "standard") + " shipping"}</span>
-                                      </div>
-                                      <div className="flex items-center justify-between gap-2 mt-0.5">
-                                        {(order.paidAt || order.createdAt) ? <span className="text-[11px] text-white/60">{new Date(order.paidAt || order.createdAt).toLocaleString(language === "RU" ? "ru-RU" : language === "UA" ? "uk-UA" : "en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span> : <span/>}
-                                        {order.trackingNumber && (
-                                          <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-300 bg-emerald-400/15 rounded-full px-2 py-1 shrink-0">
-                                            <span className="w-1 h-1 rounded-full bg-emerald-400 inline-block"/>Tracked
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            </button>
-
-                            {/* Collapsible body */}
-                            {isExpanded && (
-                              <div className="border-t border-white/20">
-                                {(order.trackingNumber || order.trackingNumber2) && (
-                                  <div className="px-5 pt-4 pb-0">
-                                    {/* Both tracking numbers */}
-                                    {order.trackingNumber && order.trackingNumber2 ? (
-                                      /* Both tracking numbers — on desktop: banners left, TRACK ORDER right; on mobile: stacked */
-                                      <div className="flex flex-col md:flex-row md:items-stretch gap-2">
-                                        <div className="flex flex-col gap-2 md:flex-1 min-w-0">
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              navigator.clipboard.writeText(order.trackingNumber).catch(() => {});
-                                              const el = document.getElementById(`trk-copy-${order.id}`);
-                                              if (el) { el.textContent = tx("Copied!","Скопировано!","Скопійовано!","Kopiert!","¡Copiado!"); window.setTimeout(() => { if (el) el.textContent = order.trackingNumber; }, 1800); }
-                                            }}
-                                            className="flex-1 flex items-center gap-3 rounded-2xl border border-emerald-400/35 bg-emerald-400/[0.10] px-4 py-2.5 text-left hover:bg-emerald-400/[0.16] active:scale-[0.99] min-w-0 transition-none"
-                                          >
-                                            <svg className="h-4 w-4 shrink-0 text-emerald-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                                            <div className="min-w-0 flex-1">
-                                              <div className="hidden md:block text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-300 mb-0.5">{tx("Tracking #1 — Tap to copy","Трекинг #1 — скопировать","Трекінг #1 — скопіювати","Tracking #1 — Kopieren","Tracking #1 — Copiar")}</div>
-                                              <div className="md:hidden leading-tight">
-                                                <div className="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-300">{tx("Tracking #1","Трекинг #1","Трекінг #1","Tracking #1","Tracking #1")}</div>
-                                                <div className="text-[9px] uppercase tracking-[0.14em] text-emerald-300">{tx("Tap to copy","Скопировать","Скопіювати","Kopieren","Copiar")}</div>
-                                              </div>
-                                              <div id={`trk-copy-${order.id}`} className="truncate text-sm font-mono font-semibold text-emerald-200 mt-1">{order.trackingNumber}</div>
-                                            </div>
-                                            <svg className="h-3 w-3 shrink-0 text-emerald-400/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              navigator.clipboard.writeText(order.trackingNumber2).catch(() => {});
-                                              const el = document.getElementById(`trk2-copy-${order.id}`);
-                                              if (el) { el.textContent = tx("Copied!","Скопировано!","Скопійовано!","Kopiert!","¡Copiado!"); window.setTimeout(() => { if (el) el.textContent = order.trackingNumber2; }, 1800); }
-                                            }}
-                                            className="flex-1 flex items-center gap-3 rounded-2xl border border-emerald-400/35 bg-emerald-400/[0.10] px-4 py-2.5 text-left hover:bg-emerald-400/[0.16] active:scale-[0.99] min-w-0 transition-none"
-                                          >
-                                            <svg className="h-4 w-4 shrink-0 text-emerald-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                                            <div className="min-w-0 flex-1">
-                                              <div className="hidden md:block text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-300 mb-0.5">{tx("Tracking #2 — Tap to copy","Трекинг #2 — скопировать","Трекінг #2 — скопіювати","Tracking #2 — Kopieren","Tracking #2 — Copiar")}</div>
-                                              <div className="md:hidden leading-tight">
-                                                <div className="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-300">{tx("Tracking #2","Трекинг #2","Трекінг #2","Tracking #2","Tracking #2")}</div>
-                                                <div className="text-[9px] uppercase tracking-[0.14em] text-emerald-300">{tx("Tap to copy","Скопировать","Скопіювати","Kopieren","Copiar")}</div>
-                                              </div>
-                                              <div id={`trk2-copy-${order.id}`} className="truncate text-sm font-mono font-semibold text-emerald-200 mt-1">{order.trackingNumber2}</div>
-                                            </div>
-                                            <svg className="h-3 w-3 shrink-0 text-emerald-400/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                                          </button>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => setPage("track")}
-                                          className="flex items-center justify-center gap-1.5 rounded-2xl border border-blue-500/40 bg-blue-900/60 px-5 py-3 md:py-0 transition hover:bg-blue-800/70 active:scale-[0.99] text-[11px] font-bold uppercase tracking-[0.14em] text-blue-200 hover:text-white md:self-stretch"
-                                        >
-                                          {tx("Track Order","Отследить","Відстежити","Verfolgen","Rastrear")}
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      /* Single tracking number — on desktop: side by side; on mobile: stacked */
-                                      <div className="flex flex-col md:flex-row md:items-stretch gap-2">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            const trk = order.trackingNumber || order.trackingNumber2;
-                                            navigator.clipboard.writeText(trk).catch(() => {});
-                                            const el = document.getElementById(`trk-copy-${order.id}`);
-                                            if (el) { el.textContent = tx("Copied!","Скопировано!","Скопійовано!","Kopiert!","¡Copiado!"); window.setTimeout(() => { if (el) el.textContent = trk; }, 1800); }
-                                          }}
-                                          className="flex-1 flex items-center gap-3 rounded-2xl border border-emerald-400/35 bg-emerald-400/[0.10] px-4 py-2.5 text-left hover:bg-emerald-400/[0.16] active:scale-[0.99] min-w-0 transition-none"
-                                        >
-                                          <svg className="h-4 w-4 shrink-0 text-emerald-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                                          <div className="min-w-0 flex-1">
-                                            <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-300 mb-0.5">{tx("Tap to copy tracking","Нажмите чтобы скопировать","Натисніть щоб скопіювати","Zum Kopieren tippen","Toca para copiar")}</div>
-                                            <div id={`trk-copy-${order.id}`} className="truncate text-sm font-mono font-semibold text-emerald-200">{order.trackingNumber || order.trackingNumber2}</div>
-                                          </div>
-                                          <svg className="h-3 w-3 shrink-0 text-emerald-400/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => setPage("track")}
-                                          className="flex items-center justify-center gap-1.5 rounded-2xl border border-blue-500/40 bg-blue-900/60 px-5 py-3 transition hover:bg-blue-800/70 active:scale-[0.99] text-[11px] font-bold uppercase tracking-[0.14em] text-blue-200 hover:text-white md:self-stretch"
-                                        >
-                                          {tx("Track Order","Отследить","Відстежити","Verfolgen","Rastrear")}
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-
-                                <div className="px-5 pt-4 pb-1 flex flex-wrap gap-2">
-                                  {order.items.map((item, index) => (
-                                    <span key={order.id + "-" + item.name + "-" + item.dose + "-" + index} className="inline-flex items-center rounded-full border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[12px] text-white/90">
-                                      <span className="text-white/60 mr-1.5 text-[11px]">{item.quantity}×</span>{publicProductName(item.name)} {String(item.dose || "").replace(/ each$/i, "")}
-                                    </span>
-                                  ))}
-                                </div>
-
-                                {(true) && (
-                                  <div className="mx-5 mt-3 mb-0 flex flex-col gap-2">
-                                    <div className="rounded-2xl border border-white/20 bg-white/[0.08] px-4 py-3">
-                                      <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[11px]">
-                                        {[
-                                          { label: "Email",       val: order.email },
-                                          { label: "Name",        val: [order.firstName, order.lastName].filter(Boolean).join(" "), bold: true },
-                                          { label: "Address",     val: order.address },
-                                          { label: "Apt/Suite",   val: order.address2 },
-                                          { label: "City",        val: order.city },
-                                          { label: "Postal code", val: order.postalCode },
-                                          { label: "State",       val: order.state },
-                                          { label: "Country",     val: order.country },
-                                          { label: "Phone",       val: order.phone },
-                                          { label: "Tax ID",      val: order.taxId },
-                                          { label: "Carrier",     val: (order.orderNotes || "").match(/Carrier preference: (\S+)/i)?.[1], sky: true },
-                                          { label: "Notes",       val: (order.orderNotes || "").replace(/\nCarrier preference: \S+/i, "").replace(/Carrier preference: \S+\n?/i, "").trim() || null },
-                                        ].map(({ label, val, bold, sky }) => (
-                                          <Fragment key={label}>
-                                            <span className="text-white/60 uppercase tracking-[0.12em] font-semibold self-start pt-[1px]">{label}</span>
-                                            <span className={val ? (sky ? "text-sky-300 font-semibold" : bold ? "text-white font-semibold" : "text-white/80") : "text-white/30"}>{val || "—"}</span>
-                                          </Fragment>
-                                        ))}
-                                      </div>
-                                    </div>
-                                                                        <div className="flex flex-wrap justify-center gap-2 pb-1">
-                                      <button
-                                        type="button"
-                                        onClick={() => setContactModalOpen(true)}
-                                        className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.07] px-4 py-2 text-[11px] font-semibold text-white/70 hover:text-white hover:bg-white/12 transition-none"
-                                      >
-                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
-                                        {tx("Got questions? Message us","Есть вопросы? Напишите нам","Є питання? Напишіть нам","Fragen? Schreiben Sie uns","¿Preguntas? Escríbenos")}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setPaymentReturn({ status: "success", order: order.id });
-                                          setPaymentReturnOrder({
-                                            id: order.id,
-                                            email: order.email,
-                                            firstName: order.firstName,
-                                            lastName: order.lastName,
-                                            address: order.address,
-                                            city: order.city,
-                                            state: order.state,
-                                            postalCode: order.postalCode,
-                                            country: order.country,
-                                            phone: order.phone,
-                                            items: order.items,
-                                            total: order.total,
-                                            subtotal: order.subtotal,
-                                            shipping: order.shipping,
-                                            paymentProvider: order.paymentProvider,
-                                          });
-                                          setPage("payment-return");
-                                          window.scrollTo({ top: 0, behavior: "smooth" });
-                                        }}
-                                        className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.07] px-4 py-2 text-[11px] font-semibold text-white/70 hover:text-white hover:bg-white/12 transition-none"
-                                      >
-                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="m9 12 2 2 4-4"/></svg>
-                                        {tx("View order confirmation","Подтверждение заказа","Підтвердження замовлення","Bestellbestätigung","Ver confirmación")}
-                                      </button>
-                                    </div>
-                                  </div>
-                                )}
-
-                                {!order.trackingNumber && (
-                                  <div className="px-5 pb-4 mt-2 text-[11px] text-white/45 italic leading-relaxed">
-                                    {tx("Tracking will appear here once your order ships.", "Трек-номер появится здесь после отправки.", "Трек-номер з'явиться тут після відправки.", "Sendungsverfolgung erscheint hier nach dem Versand.", "El seguimiento aparecerá aquí cuando se envíe tu pedido.")}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                  {accountMessage && (
-                    <p className="mt-5 text-sm text-white">{accountMessage}</p>
-                  )}
-
-                  <div className="legacy-account-signout" hidden>
-                  <div className="mt-6 md:mt-8 flex flex-wrap gap-4">
-                    <button
-                      type="button"
-                      onClick={handleSignOut}
-                      className="rounded-full bg-white px-7 py-3 text-[11px] font-black uppercase tracking-[0.22em] text-black shadow-[0_10px_30px_rgba(0,0,0,0.18)] transition hover:bg-white/90"
-                    >
-                      {t("signOut")}
-                    </button>
-                  </div>
-                  </div>
-                </>
-                    </div>
-                  </div>
-                  )}
+                  {renderAccountSections(currentUser)}
                 </AccountDashboard>
                 </Suspense>
               ) : emailLoginPrompt ? (
