@@ -182,7 +182,7 @@ export default async function handler(req, res) {
   } catch (err) {
     if (err?.code === "PAYMENT_RECONCILIATION_REQUIRED") return res.status(409).json({ code: err.code, error: err.message });
     if (err?.code === "PROMO_LOOKUP_UNAVAILABLE" || err?.code?.startsWith("MERIT_AFFILIATE_")
-      || ["PROMO_UNAVAILABLE", "CHECKOUT_QUOTE_CHANGED", "CHECKOUT_REFRESH_REQUIRED"].includes(err?.code))
+      || ["PROMO_UNAVAILABLE", "CHECKOUT_QUOTE_CHANGED", "CHECKOUT_REFRESH_REQUIRED", "SHIPPING_METHOD_UNAVAILABLE"].includes(err?.code))
       return res.status(err.status || 503).json({ code: err.code, error: err.message, ...(Number.isFinite(err.total) ? { total: err.total } : {}) });
     console.error("create-payment error:", err.message);
     return res.status(500).json({ error: err.message || "Payment creation failed" });

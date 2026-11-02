@@ -3,7 +3,6 @@ const affiliateBackground = "images/affiliate-lab-background.webp";
 const shippingCards = [
   "shipping/shipping-warehouse.jpg",
   "shipping/shipping-worldwide.jpg",
-  "shipping/shipping-express.jpg",
 ];
 const affiliateVials = [
   "vials-c/mots-c-ead676f909ff.webp",

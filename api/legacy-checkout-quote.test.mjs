@@ -44,7 +44,7 @@ test("signed-in checkout without affiliate rules preserves the reported crypto t
     return Response.json([]);
   };
   const body = {
-    shippingType: "express",
+    shippingType: "standard",
     items: [
       { name: "Tirzepatide / GLP-2", dose: "60 mg", quantity: 2 },
       { name: "Tirzepatide / GLP-2", dose: "20 mg", quantity: 1 },
@@ -66,5 +66,11 @@ test("signed-in checkout without affiliate rules preserves the reported crypto t
     assert.equal(quote.finalAffiliateDiscount, 0);
     assertExpectedTotal(crypto ? 986.31 : 1011.6, quote.total);
   }
+  await assert.rejects(
+    legacyCheckoutQuote({ ...body, shippingType: "express" }, "buyer@example.invalid", {
+      customerId: "00000000-0000-4000-8000-000000000001",
+    }),
+    error => error?.code === "SHIPPING_METHOD_UNAVAILABLE" && error.status === 400,
+  );
   assert.equal(requests.length, 4);
 });

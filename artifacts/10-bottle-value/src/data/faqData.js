@@ -103,23 +103,23 @@ Si se aplican varios descuentos, como descuentos por valor del pedido o códigos
       ),
       id: "shipping-time",
       a: tx(
-        `Standard worldwide shipping takes approximately 8–12 business days. Express shipping takes approximately 5–7 business days (worldwide).
+        `Standard worldwide shipping takes approximately 4–8 calendar days.
 
 US Warehouse shipping (within the USA) takes approximately 2–5 business days.
 
 Delivery times may vary depending on customs and local postal services.`,
-        `Стандартная доставка по всему миру занимает примерно 8–12 рабочих дней. Экспресс-доставка занимает примерно 5–7 рабочих дней (по всему миру).
+        `Стандартная доставка по всему миру занимает примерно 4–8 календарных дней.
 
 Доставка со склада в США (по территории США) занимает примерно 2–5 рабочих дней.
 
 Сроки доставки могут отличаться в зависимости от таможни и местных почтовых служб.`,
-        `Стандартна доставка по всьому світу займає приблизно 8–12 робочих днів. Експрес-доставка займає приблизно 5–7 робочих днів (по всьому світу).
+        `Стандартна доставка по всьому світу займає приблизно 4–8 календарних днів.
 
 Доставка зі складу в США (по території США) займає приблизно 2–5 робочих днів.
 
 Терміни доставки можуть відрізнятися залежно від митниці та місцевих поштових служб.`,
         undefined,
-        `El envío estándar a todo el mundo tarda aproximadamente 8–12 días hábiles. El envío exprés tarda aproximadamente 5–7 días hábiles (en todo el mundo).
+        `El envío estándar a todo el mundo tarda aproximadamente 4–8 días naturales.
 
 El envío desde el almacén de EE. UU. (dentro de EE. UU.) tarda aproximadamente 2–5 días hábiles.
 

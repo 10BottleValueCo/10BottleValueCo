@@ -1,10 +1,11 @@
 import { discountAmount, addAmounts } from "../shared/checkout-money.js";
-import { validateAndPriceItems, getShippingPrice, getAutomaticDiscountRate } from './_catalog.js';
+import { validateAndPriceItems, getShippingPrice, getAutomaticDiscountRate, assertAvailableShippingType } from './_catalog.js';
 import { verifyPromoCode } from './_promo.js';
 import { verifyAffiliateQuote } from './_affiliate-quote.js';
 
 const money = n => Math.round(n * 100) / 100;
 export async function legacyCheckoutQuote(body, email, { crypto = false, customerId } = {}) {
+  assertAvailableShippingType(body.shippingType);
   const { pricedItems, subtotal, regularSubtotal } = validateAndPriceItems(body.items);
   const sbUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
   const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
