@@ -85,16 +85,27 @@ test("missing historical surcharge rate remains unlabeled and zero surcharge sta
   assert.doesNotMatch(renderPaymentConfirmationEmail(buildMeritReceipt(attempt)), /Card surcharge|Card processing fee/);
 });
 
-test("a legacy receipt retains its existing fee label and original field contract", () => {
+test("a legacy receipt keeps its fee details and avoids discontinued delivery labels", () => {
   const html = renderPaymentConfirmationEmail({
     email: "buyer@example.com", orderId: ORDER_ID, paymentProvider: "Legacy", cardProcessingFee: 5,
     total: 105, subtotal: 100, shippingType: "express", items: [{ name: "Tirzepatide", dose: "10mg", price: 100, quantity: 1 }],
   });
   assert.match(html, /Card processing fee \(5%\)/);
   assert.match(html, /\+\$5\.00/);
-  assert.match(html, /Tirzepatide/);
-  assert.match(html, /Express delivery: 5–7 business days/);
+  assert.match(html, /GLP-2-T/);
+  assert.match(html, /Shipping method<\/td>\s*<td[^>]*>Worldwide<\/td>/);
+  assert.match(html, /Worldwide delivery: follow tracking updates for the latest estimate/);
+  assert.doesNotMatch(html, /express/i);
   assert.doesNotMatch(html, /Card surcharge/);
+});
+
+test("standard order confirmation shows the current worldwide delivery estimate", () => {
+  const html = renderPaymentConfirmationEmail({
+    email: "buyer@example.com", orderId: ORDER_ID, paymentProvider: "Legacy",
+    total: 100, subtotal: 100, items: [{ name: "BPC-157", dose: "10mg", price: 100, quantity: 1 }],
+  });
+  assert.match(html, /Standard delivery: 4–8 calendar days \(worldwide\)/);
+  assert.doesNotMatch(html, /7–12 business days|express/i);
 });
 
 test("all dynamic template text is escaped for server receipts", () => {
