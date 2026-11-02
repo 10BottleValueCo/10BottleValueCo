@@ -177,7 +177,7 @@ export default async function handler(req, res, checkoutBody) {
     });
   } catch (err) {
     if (err?.code === "PROMO_LOOKUP_UNAVAILABLE" || err?.code?.startsWith("MERIT_AFFILIATE_")
-      || ["PROMO_UNAVAILABLE", "CHECKOUT_QUOTE_CHANGED", "CHECKOUT_REFRESH_REQUIRED"].includes(err?.code))
+      || ["PROMO_UNAVAILABLE", "CHECKOUT_QUOTE_CHANGED", "CHECKOUT_REFRESH_REQUIRED", "SHIPPING_METHOD_UNAVAILABLE"].includes(err?.code))
       return res.status(err.status || 503).json({ code: err.code, error: err.message, ...(Number.isFinite(err.total) ? { total: err.total } : {}) });
     const known = typeof err?.code === 'string' && /^PAYMENT_[A-Z_]+$/.test(err.code);
     console.error("create-catalystpay-session error:", known ? err.code : "PAYMENT_CREATION_UNAVAILABLE");

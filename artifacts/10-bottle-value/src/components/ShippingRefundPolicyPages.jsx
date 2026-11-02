@@ -39,23 +39,14 @@ export default function ShippingRefundPolicyPages({
               <section className="border-t border-white/10 pt-8 mt-8">
                 <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">3. INTERNATIONAL STANDARD SHIPPING</h2>
                 <div className="space-y-3 text-white/75">
-                  <p>Standard international shipping typically takes approximately 8–12 business days.</p>
+                  <p>Standard international shipping typically takes approximately 4–8 calendar days.</p>
                   <p>Delivery times are estimates only and are not guaranteed.</p>
                   <p>Actual delivery times may vary depending on destination country, customs clearance, local carrier operations, weather conditions, public holidays, transportation disruptions, governmental inspections, and other circumstances beyond our reasonable control.</p>
                 </div>
               </section>
 
               <section className="border-t border-white/10 pt-8 mt-8">
-                <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">4. INTERNATIONAL EXPRESS SHIPPING</h2>
-                <div className="space-y-3 text-white/75">
-                  <p>Express shipping is available for eligible destinations.</p>
-                  <p>Estimated delivery time is approximately 5–7 business days.</p>
-                  <p>Delivery estimates are provided for convenience only and are not guaranteed.</p>
-                </div>
-              </section>
-
-              <section className="border-t border-white/10 pt-8 mt-8">
-                <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">5. UNITED STATES WAREHOUSE SHIPPING</h2>
+                <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">4. UNITED STATES WAREHOUSE SHIPPING</h2>
                 <div className="space-y-3 text-white/75">
                   <p>Products available through our US Warehouse are shipped within the United States.</p>
                   <p>Estimated delivery time is approximately 2–5 business days.</p>
@@ -65,7 +56,7 @@ export default function ShippingRefundPolicyPages({
               </section>
 
               <section className="border-t border-white/10 pt-8 mt-8">
-                <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">6. TRACKING INFORMATION</h2>
+                <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">5. TRACKING INFORMATION</h2>
                 <div className="space-y-3 text-white/75">
                   <p>Tracking information is generally provided by email after an Order has been processed and shipped.</p>
                   <p>Tracking updates are provided by shipping carriers and may not appear immediately after dispatch.</p>
@@ -74,7 +65,7 @@ export default function ShippingRefundPolicyPages({
               </section>
 
               <section className="border-t border-white/10 pt-8 mt-8">
-                <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">7. CUSTOMS</h2>
+                <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">6. CUSTOMS</h2>
                 <div className="space-y-3 text-white/75">
                   <p>International shipments may be subject to customs inspections, import duties, taxes, import restrictions, or other governmental requirements.</p>
                   <p>Customers are solely responsible for ensuring that Products may legally be imported into their jurisdiction.</p>
@@ -83,7 +74,7 @@ export default function ShippingRefundPolicyPages({
               </section>
 
               <section className="border-t border-white/10 pt-8 mt-8">
-                <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">8. CUSTOMS RESHIPMENT POLICY</h2>
+                <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">7. CUSTOMS RESHIPMENT POLICY</h2>
                 <div className="space-y-3 text-white/75">
                   <p>Approximately 2% of international shipments may be delayed due to customs inspections.</p>
                   <p>If a shipment is undergoing an extended customs inspection, we may, at our sole discretion, arrange a replacement shipment before a final customs decision is issued.</p>
@@ -93,7 +84,7 @@ export default function ShippingRefundPolicyPages({
               </section>
 
               <section className="border-t border-white/10 pt-8 mt-8">
-                <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">9. SHIPPING DELAYS</h2>
+                <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">8. SHIPPING DELAYS</h2>
                 <div className="space-y-3 text-white/75">
                   <p>Estimated delivery times are not guaranteed.</p>
                   <p>Unexpected delays caused by customs authorities, shipping carriers, weather conditions, transportation disruptions, governmental actions, force majeure events, or other circumstances beyond our reasonable control do not automatically entitle Customers to refunds.</p>
@@ -102,7 +93,7 @@ export default function ShippingRefundPolicyPages({
               </section>
 
               <section className="border-t border-white/10 pt-8 mt-8">
-                <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">10. INCORRECT SHIPPING INFORMATION</h2>
+                <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">9. INCORRECT SHIPPING INFORMATION</h2>
                 <div className="space-y-3 text-white/75">
                   <p>Customers are responsible for ensuring that all shipping information is accurate before submitting an Order.</p>
                   <p>The Company shall not be responsible for delays, returned shipments, failed deliveries, or additional shipping costs resulting from incorrect or incomplete shipping information provided by the Customer.</p>
@@ -110,7 +101,7 @@ export default function ShippingRefundPolicyPages({
               </section>
 
               <section className="border-t border-white/10 pt-8 mt-8">
-                <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">11. CARRIER SELECTION</h2>
+                <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">10. CARRIER SELECTION</h2>
                 <div className="space-y-3 text-white/75">
                   <p>Shipping carriers may vary depending on destination, warehouse availability, logistics requirements, or operational considerations.</p>
                   <p>Where available, Customers may request a preferred carrier during checkout; however, the Company cannot guarantee that a specific carrier will be used.</p>
@@ -118,7 +109,7 @@ export default function ShippingRefundPolicyPages({
               </section>
 
               <section className="border-t border-white/10 pt-8 mt-8">
-                <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">12. FORCE MAJEURE</h2>
+                <h2 className="mb-4 text-white font-semibold tracking-[0.15em]">11. FORCE MAJEURE</h2>
                 <div className="space-y-3 text-white/75">
                   <p>The Company shall not be liable for shipping delays resulting from circumstances beyond its reasonable control, including but not limited to:</p>
                   <ul className="list-disc pl-6 space-y-1">

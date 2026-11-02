@@ -5207,7 +5207,7 @@ export default function App() {
         if (!response.ok) {
           setAttachmentErrors(
             batch,
-            result?.error || "Could not load photo (HTTP " + response.status + ").",
+            result?.error || `Could not load photo (HTTP ${response.status}).`,
           );
           continue;
         }
@@ -6733,8 +6733,12 @@ export default function App() {
         if (writeErr) throw new Error(writeErr.message);
       }
     } catch (err) {
-      console.error("Failed to persist admin order edit to Supabase:", err?.message || err);
-      setAdminMessage(`Sync failed: ${err?.message || "unknown error"}`);
+      const errorMessage = String(err?.message || "unknown error");
+      console.error("Failed to persist admin order edit to Supabase:", errorMessage);
+      await loadOrdersFromSupabase();
+      setAdminMessage(errorMessage.includes("PAYLIO_ORDER_PROTECTED")
+        ? "The saved order is still classified as Paylio; this change was rejected."
+        : `Sync failed; saved order reloaded. ${errorMessage}`);
       window.clearTimeout(window.__tbvAdminMessageTimeout);
       window.__tbvAdminMessageTimeout = window.setTimeout(() => setAdminMessage(""), 5000);
     }
@@ -7739,7 +7743,7 @@ export default function App() {
       heroBulletPayment: "CARDS & CASH APP & PAYPAL & CRYPTO.",
       heroBulletDesign: "МИНИМАЛИСТИЧНЫЙ ДИЗАЙН. ПРОСТО И ПОНЯТНО.",
       heroBullet3: "ТО ЖЕ КАЧЕСТВО. ЛУЧШАЯ ЦЕНА.",
-      heroBullet4: "ДОСТАВКА ПО МИРУ. СТАНДАРТ & ЭКСПРЕСС.",
+      heroBullet4: "ДОСТАВКА ПО МИРУ. ТОЛЬКО СТАНДАРТ.",
       heroBulletWarehouse: "US WAREHOUSE ДОСТАВКА.",
       enterShop: "Открыть каталог",
       learnMore: "Подробнее",
@@ -8111,7 +8115,7 @@ export default function App() {
       heroBulletPayment: "CARDS & CASH APP & PAYPAL & CRYPTO.",
       heroBulletDesign: "МІНІМАЛІСТИЧНИЙ ДИЗАЙН. ПРОСТО І ЗРОЗУМІЛО.",
       heroBullet3: "ТА САМА ЯКІСТЬ. КРАЩА ЦІНА.",
-      heroBullet4: "ДОСТАВКА ПО СВІТУ. СТАНДАРТ & ЕКСПРЕС.",
+      heroBullet4: "ДОСТАВКА ПО СВІТУ. ЛИШЕ СТАНДАРТ.",
       heroBulletWarehouse: "US WAREHOUSE ДОСТАВКА.",
       enterShop: "Відкрити каталог",
       learnMore: "Детальніше",
@@ -18733,24 +18737,65 @@ export default function App() {
                 // Aggregate by peptide name only (all doses combined)
                 const peptideMap = {};
                 let totalUnits = 0;
-                let totalRevenue = 0;
+                let totalRevenueCents = 0;
                 for (const order of paidOrders) {
                   const items = Array.isArray(order.items) ? order.items : [];
+                  const orderProducts = new Map();
                   for (const item of items) {
                     if (!item.name) continue;
                     const key = normalizePeptideName(item.name);
-                    const qty = Number(item.quantity || item.qty || 1);
-                    const rev = Number(item.price || 0) * qty;
-                    if (!peptideMap[key]) peptideMap[key] = { name: key, units: 0, revenue: 0 };
-                    peptideMap[key].units += qty;
-                    peptideMap[key].revenue += rev;
-                    totalUnits += qty;
-                    totalRevenue += rev;
+                    const rawQty = Number(item.quantity || item.qty || 1);
+                    const qty = Number.isFinite(rawQty) && rawQty > 0 ? rawQty : 1;
+                    const rawPrice = Number(item.price || 0);
+                    const gross = Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice * qty : 0;
+                    if (!orderProducts.has(key)) orderProducts.set(key, { name: key, units: 0, gross: 0, revenueCents: 0 });
+                    const product = orderProducts.get(key);
+                    product.units += qty;
+                    product.gross += gross;
+                  }
+
+                  const paidTotal = Number(order.total || 0);
+                  const paidCents = Number.isFinite(paidTotal) ? Math.round(paidTotal * 100) : 0;
+                  totalRevenueCents += paidCents;
+                  const products = [...orderProducts.values()];
+                  if (products.length === 0) {
+                    if (paidCents !== 0) {
+                      const key = "Unallocated revenue";
+                      if (!peptideMap[key]) peptideMap[key] = { name: key, units: 0, revenueCents: 0 };
+                      peptideMap[key].revenueCents += paidCents;
+                    }
+                    continue;
+                  }
+
+                  const grossTotal = products.reduce((sum, product) => sum + product.gross, 0);
+                  const allocationWeights = products.map(product => grossTotal > 0 ? product.gross : product.units);
+                  const weightTotal = allocationWeights.reduce((sum, weight) => sum + weight, 0);
+                  const absolutePaidCents = Math.abs(paidCents);
+                  const allocations = products.map((product, index) => {
+                    const exactCents = weightTotal > 0
+                      ? absolutePaidCents * allocationWeights[index] / weightTotal
+                      : absolutePaidCents / products.length;
+                    const baseCents = Math.floor(exactCents);
+                    return { product, cents: baseCents, remainder: exactCents - baseCents };
+                  });
+                  let remainingCents = absolutePaidCents - allocations.reduce((sum, allocation) => sum + allocation.cents, 0);
+                  const remainderOrder = [...allocations].sort((a, b) => b.remainder - a.remainder);
+                  for (let index = 0; index < remainingCents; index++) remainderOrder[index].cents += 1;
+
+                  for (const allocation of allocations) {
+                    const product = allocation.product;
+                    const allocatedCents = paidCents < 0 ? -allocation.cents : allocation.cents;
+                    if (!peptideMap[product.name]) peptideMap[product.name] = { name: product.name, units: 0, revenueCents: 0 };
+                    peptideMap[product.name].units += product.units;
+                    peptideMap[product.name].revenueCents += allocatedCents;
+                    totalUnits += product.units;
                   }
                 }
 
+                const totalRevenue = totalRevenueCents / 100;
                 const allRows = Object.values(peptideMap).map(r => ({
                   ...r,
+                  revenue: r.revenueCents / 100,
                   revPct: totalRevenue > 0 ? r.revenue / totalRevenue * 100 : 0,
                   unitPct: totalUnits > 0 ? r.units / totalUnits * 100 : 0,
                 }));
@@ -18774,7 +18819,7 @@ export default function App() {
                 const copyAnalytics = () => {
                   const lines = [
                     `Top Peptides — ${analyticsFrom || "all"} to ${analyticsTo || "all"}`,
-                    `Orders: ${paidOrders.length} | Total revenue: $${totalRevenue.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`,
+                    `Orders: ${paidOrders.length} | Paid revenue: $${totalRevenue.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`,
                     "",
                     ...top.map((r, i) =>
                       `${i+1}. ${publicProductName(r.name)} — ${r.units} units · $${r.revenue.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} (${totalRevenue > 0 ? (r.revenue/totalRevenue*100).toFixed(1) : 0}%)`
@@ -18789,7 +18834,10 @@ export default function App() {
                   <div className="rounded-[1.6rem] border border-white/15 bg-black/20 p-6">
                     <div className="text-[11px] uppercase tracking-[0.24em] text-white/60 mb-1">Analytics</div>
                     <div className="flex flex-wrap items-end justify-between gap-4 mb-5">
-                      <h2 className="text-2xl font-semibold text-white">Peptide Sales Summary</h2>
+                      <div>
+                        <h2 className="text-2xl font-semibold text-white">Peptide Sales Summary</h2>
+                        <p className="mt-1 text-xs text-white/40">Paid order totals allocated across products by item value.</p>
+                      </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <input type="date" value={analyticsFrom} onChange={e => setAnalyticsFrom(e.target.value)}
                           className="rounded-xl border border-white/15 bg-black/10 px-3 py-2 text-xs text-white/60 outline-none [color-scheme:dark]" />
@@ -18807,7 +18855,7 @@ export default function App() {
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
                       {[
                         { label: "Orders", value: paidOrders.length.toString() },
-                        { label: "Total Revenue", value: `$${totalRevenue.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}` },
+                        { label: "Paid Revenue", value: `$${totalRevenue.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}` },
                         { label: "Total Units", value: totalUnits.toString() },
                         { label: "Avg Order", value: paidOrders.length > 0 ? `$${(paidOrders.reduce((s,o)=>s+Number(o.total||0),0)/paidOrders.length).toFixed(2)}` : "—" },
                       ].map(({ label, value }) => (
@@ -18830,7 +18878,7 @@ export default function App() {
                               {([
                                 { key: "name", label: "Peptide", align: "left" },
                                 { key: "units", label: "Units sold", align: "right" },
-                                { key: "revenue", label: "Revenue", align: "right" },
+                                { key: "revenue", label: "Paid revenue", align: "right" },
                                 { key: "revPct", label: "% of revenue", align: "right" },
                                 { key: "unitPct", label: "% of units", align: "right" },
                               ]).map(({ key, label, align }) => (

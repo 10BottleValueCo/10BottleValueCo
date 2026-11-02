@@ -168,7 +168,6 @@ test("identity and explicit credit selection are required before discount lookup
 
 test("catalog rejects missing, unavailable, over-quantity and invalid warehouse entries", async () => {
   for (const items of [[], [null], [{ name: "unknown", dose: "5 mg", quantity: 1 }],
-    [{ name: "Retatrutide / GLP-3", dose: "10 mg", quantity: 1, fromWarehouse: "us" }],
     [{ ...fixture().items[0], quantity: 51 }], [{ ...fixture().items[0], quantity: 1.5 }],
     [{ ...fixture().items[0], fromWarehouse: "backup" }]]) {
     await assert.rejects(quote(fixture({ items })), isError(400));

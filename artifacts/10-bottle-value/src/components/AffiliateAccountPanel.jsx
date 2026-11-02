@@ -292,11 +292,11 @@ export default function AffiliateAccountPanel({
 
       <p className="lab-affiliate-note">
         {tx(
-          "Commissions are released after the return window: 6 days for US warehouse orders, 10 days for Express, and 15 days for Standard.",
-          "Комиссии становятся доступными после периода возврата: 6 дней для заказов со склада США, 10 дней для Express и 15 дней для Standard.",
-          "Комісії стають доступними після періоду повернення: 6 днів для замовлень зі складу США, 10 днів для Express і 15 днів для Standard.",
-          "Provisionen werden nach Ablauf der Rückgabefrist freigegeben: 6 Tage für US-Lager, 10 Tage für Express und 15 Tage für Standard.",
-          "Las comisiones se liberan tras el plazo de devolución: 6 días para almacén de EE. UU., 10 días para Express y 15 días para Standard.",
+          "Commission release timing follows the return window shown for each order.",
+          "Срок выплаты комиссии зависит от периода возврата, указанного для заказа.",
+          "Термін виплати комісії залежить від періоду повернення, зазначеного для замовлення.",
+          "Die Provisionsfreigabe richtet sich nach der für jede Bestellung angezeigten Rückgabefrist.",
+          "La liberación de la comisión sigue el plazo de devolución indicado para cada pedido.",
         )}
       </p>
     </section>
