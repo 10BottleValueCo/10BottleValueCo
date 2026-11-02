@@ -9,6 +9,7 @@ import {
   validateAndPriceItems,
   getShippingPrice,
   getAutomaticDiscountRate,
+  assertAvailableShippingType,
 } from "./_catalog.js";
 import { verifyPromoCode } from "./_promo.js";
 import { AffiliateQuoteError, verifyAffiliateQuote } from "./_affiliate-quote.js";
@@ -66,6 +67,7 @@ export default async function handler(req, res, checkoutBody) {
       return res.status(400).json({ error: "Invalid payment provider." });
     const finalOrderId = order_id || orderId;
     const finalEmail = customer_email || email || "";
+    assertAvailableShippingType(shippingType);
 
     if (!finalOrderId) {
       return res.status(400).json({ error: "Missing order_id" });
@@ -228,6 +230,7 @@ export default async function handler(req, res, checkoutBody) {
       failureKind: ["TimeoutError", "AbortError", "TypeError"].includes(error?.name) ? error.name : "validation_or_storage",
       reason: ["payment_id", "callback_token", "status", "amount", "currency", "fee_mode", "original_amount"].includes(error?.reason) ? error.reason : undefined,
       code: error instanceof PaylioError ? error.code : error?.code === "PROMO_LOOKUP_UNAVAILABLE" ? error.code : "PAYLIO_CREATION_UNAVAILABLE" });
+    if (error?.code === "SHIPPING_METHOD_UNAVAILABLE") return res.status(400).json({ code: error.code, error: error.message });
     if (["CHECKOUT_QUOTE_CHANGED", "CHECKOUT_REFRESH_REQUIRED"].includes(error?.code)) return res.status(409).json({ code: error.code, error: error.message, total: error.total });
     if (error?.code === "PROMO_LOOKUP_UNAVAILABLE") return res.status(503).json({ code: error.code, error: error.message });
     return res.status(error instanceof PaylioError ? error.status : 503).json({

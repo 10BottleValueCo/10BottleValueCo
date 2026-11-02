@@ -9,12 +9,6 @@ import { verifyPromoCode, PromoLookupError } from "./_promo.js";
 import { requireVerifiedCustomer } from "./_require-customer.js";
 import { AffiliateQuoteError, verifyAffiliateQuote } from "./_affiliate-quote.js";
 
-const EXPRESS_COUNTRIES = new Set([
-  "United States",
-  "Puerto Rico",
-  "Australia",
-  "Colombia",
-]);
 const ADMIN_EMAIL = "support@10bottlevalue.co";
 
 class CheckoutError extends Error {
@@ -130,16 +124,9 @@ function readCheckoutInput(body, customerEmail) {
   const shippingType = body.shippingType;
   if (
     shippingType !== "standard" &&
-    shippingType !== "express" &&
     shippingType !== "us-warehouse"
   ) {
     throw new CheckoutError(400, "Select a valid shipping method.");
-  }
-  if (shippingType === "express" && !EXPRESS_COUNTRIES.has(form.country)) {
-    throw new CheckoutError(
-      400,
-      "Express shipping is unavailable for this destination.",
-    );
   }
 
   const rawItems = body.items;

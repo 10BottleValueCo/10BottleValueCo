@@ -267,12 +267,17 @@ export function getUnitPrice(product, fromWarehouse) {
     : product.price;
 }
 
-export function getShippingPrice(subtotal, type) {
-  if (type === "express") {
-    if (subtotal >= 550) return 0;
-    if (subtotal >= 300) return 19.99;
-    return 99.99;
+export function assertAvailableShippingType(type) {
+  if (String(type || "").trim().toLowerCase() === "express") {
+    throw Object.assign(
+      new Error("This shipping option is unavailable. Refresh checkout and select Standard shipping."),
+      { status: 400, code: "SHIPPING_METHOD_UNAVAILABLE" },
+    );
   }
+}
+
+export function getShippingPrice(subtotal, type) {
+  assertAvailableShippingType(type);
   if (subtotal >= 300) return 0;
   if (subtotal >= 100) return 39.99;
   return 59.99;

@@ -79,12 +79,12 @@ async function sendConfirmationEmail({ email, orderId, meta, items, paymentId, s
   const shippingType = meta.shippingType || session.metadata?.shippingType || "standard";
   const isExpress = String(shippingType).toLowerCase() === "express";
   const isUsWarehouse = String(shippingType).toLowerCase() === "us-warehouse";
-  const shippingLabel = isUsWarehouse ? "US Warehouse" : isExpress ? "Express" : "Standard";
+  const shippingLabel = isUsWarehouse ? "US Warehouse" : isExpress ? "Worldwide" : "Standard";
   const deliveryLine = isUsWarehouse
     ? "✓ US Warehouse delivery: 2–5 business days (ships from USA)"
     : isExpress
-    ? "✓ Express delivery: 5–7 business days (worldwide)"
-    : "✓ Standard delivery: 7–12 business days";
+    ? "✓ Worldwide delivery: follow tracking updates for the latest estimate."
+    : "✓ Standard delivery: 4–8 calendar days (worldwide)";
 
   const hasAddress = !!(fullName || address || city || country || zipCode || state || phone);
   const addressHtml = hasAddress

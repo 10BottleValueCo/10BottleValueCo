@@ -37,6 +37,7 @@ test("Paylio accepts a legacy request amount but blocks changed prices before re
   for (const scenario of [
     { name: "legacy numeric amount", amount: 1011.6, status: 200 },
     { name: "legacy decimal amount", amount: "1011.60", status: 200 },
+    { name: "unavailable shipping method is rejected", shippingType: "express", status: 400, code: "SHIPPING_METHOD_UNAVAILABLE" },
     { name: "changed amount", amount: 1000, status: 409, code: "CHECKOUT_QUOTE_CHANGED" },
     { name: "saved total cannot replace missing request amounts", status: 409, code: "CHECKOUT_REFRESH_REQUIRED" },
     { name: "explicit mismatch is not overridden", amount: 1011.6, expectedTotal: 1000,
@@ -79,7 +80,7 @@ test("Paylio accepts a legacy request amount but blocks changed prices before re
       json(body) { this.body = body; return this; },
     };
     await handler({ method: "POST", headers: { authorization: "Bearer test-only" },
-      body: { orderId, email, items, shippingType: "express",
+      body: { orderId, email, items, shippingType: scenario.shippingType || "standard",
         ...(Object.hasOwn(scenario, "amount") ? { amount: scenario.amount } : {}),
         ...(Object.hasOwn(scenario, "expectedTotal") ? { expectedTotal: scenario.expectedTotal } : {}) } }, res);
     assert.equal(res.statusCode, scenario.status, JSON.stringify(res.body));

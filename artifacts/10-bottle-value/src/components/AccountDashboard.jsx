@@ -208,6 +208,8 @@ export default function AccountDashboard({
                   const shippingType = String(order.shippingType || "standard").toLowerCase();
                   const shippingLabel = shippingType === "us-warehouse"
                     ? tx("US Warehouse", "Склад в США", "Склад у США", "US-Lager", "Almacén de EE. UU.")
+                    : shippingType === "express"
+                      ? tx("Worldwide", "Международная", "Міжнародна", "Weltweit", "Mundial")
                     : `${shippingType} ${tx("shipping", "доставка", "доставка", "Versand", "envío")}`;
                   const orderNotes = String(order.orderNotes || "");
                   const carrier = (orderNotes.match(/Carrier preference: (\S+)/i) || [])[1] || "";

@@ -1,11 +1,10 @@
 import { verifyAffiliateQuote, AffiliateQuoteError } from "./_affiliate-quote.js";
 import { createHash } from "node:crypto";
-import { findCatalogProduct, getAutomaticDiscountRate, getShippingPrice, validateAndPriceItems } from "./_catalog.js";
+import { findCatalogProduct, getAutomaticDiscountRate, getShippingPrice, validateAndPriceItems, assertAvailableShippingType } from "./_catalog.js";
 
 import { verifyPromoCode, PromoLookupError } from "./_promo.js";
 
 const ADMIN_EMAIL = "support@10bottlevalue.co";
-const EXPRESS_COUNTRIES = new Set(["United States", "Puerto Rico", "Australia", "Colombia"]);
 const record = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const emailKey = value => typeof value === "string" ? value.trim().toLowerCase() : "";
 
@@ -81,11 +80,9 @@ function normalizeInput(body, verifiedEmail) {
     throw new MeritQuoteError(400, "Enter a valid tax ID for this address.");
   }
   const shippingType = body.shippingType;
-  if (!["standard", "express", "us-warehouse"].includes(shippingType)) {
+  assertAvailableShippingType(shippingType);
+  if (!["standard", "us-warehouse"].includes(shippingType)) {
     throw new MeritQuoteError(400, "Select a valid shipping method.");
-  }
-  if (shippingType === "express" && !EXPRESS_COUNTRIES.has(form.country)) {
-    throw new MeritQuoteError(400, "Express shipping is unavailable for this destination.");
   }
   if (!Array.isArray(body.items) || body.items.length === 0 || body.items.length > 100) {
     throw new MeritQuoteError(400, "Your cart is empty or invalid.");

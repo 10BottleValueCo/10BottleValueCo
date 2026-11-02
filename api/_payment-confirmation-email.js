@@ -65,12 +65,12 @@ export function renderPaymentConfirmationEmail(order, { escapeValues = true } = 
 
   const isExpress = String(shippingType || "standard").toLowerCase() === "express";
   const isUsWarehouse = String(shippingType || "standard").toLowerCase() === "us-warehouse";
-  const shippingLabel = isUsWarehouse ? "US Warehouse" : isExpress ? "Express" : "Standard";
+  const shippingLabel = isUsWarehouse ? "US Warehouse" : isExpress ? "Worldwide" : "Standard";
   const deliveryLine = isUsWarehouse
     ? "✓ US Warehouse delivery: 2–5 business days (ships from USA)"
     : isExpress
-    ? "✓ Express delivery: 5–7 business days (worldwide)"
-    : "✓ Standard delivery: 7–12 business days";
+    ? "✓ Worldwide delivery: follow tracking updates for the latest estimate."
+    : "✓ Standard delivery: 4–8 calendar days (worldwide)";
 
   const trustpilotUrl = "https://www.trustpilot.com/review/10bottlevalue.co";
   const accountUrl = "https://10bottlevalue.co";

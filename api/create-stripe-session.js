@@ -5,6 +5,7 @@ import {
   validateAndPriceItems,
   getShippingPrice,
   getAutomaticDiscountRate,
+  assertAvailableShippingType,
 } from "./_catalog.js";
 import { verifyPromoCode } from "./_promo.js";
 import { AffiliateQuoteError, verifyAffiliateQuote } from "./_affiliate-quote.js";
@@ -51,6 +52,7 @@ export default async function handler(req, res) {
     if (!orderId) {
       return res.status(400).json({ error: "Missing orderId" });
     }
+    assertAvailableShippingType(shippingType);
 
     if (!process.env.STRIPE_SECRET_KEY) {
       return res.status(500).json({ error: "STRIPE_SECRET_KEY not set" });
@@ -185,6 +187,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ clientSecret: session.client_secret, sessionId: session.id, verifiedAmount: amount });
   } catch (err) {
+    if (err?.code === "SHIPPING_METHOD_UNAVAILABLE") return res.status(400).json({ code: err.code, error: err.message });
     if (err instanceof AffiliateQuoteError) return res.status(err.status).json({ code: err.code, error: err.message });
     if (err?.code === "PROMO_LOOKUP_UNAVAILABLE") return res.status(503).json({ code: err.code, error: err.message });
     console.error("create-stripe-session error:", err.message);

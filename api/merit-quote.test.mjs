@@ -23,7 +23,10 @@ const noNetwork = { fetcher: async () => { throw new Error("Unexpected network r
 const quote = (body = fixture(), email = EMAIL, options = noNetwork) => buildMeritQuote(body, email, options);
 const withForm = overrides => { const body = fixture(); Object.assign(body.checkoutForm, overrides); return body; };
 const withQuantity = quantity => fixture({ items: [{ name: "BPC-157", dose: "10 mg", quantity }] });
-const isError = (status, code) => error => error instanceof MeritQuoteError && error.status === status && (!code || error.code === code);
+const isError = (status, code) => error =>
+  (error instanceof MeritQuoteError || error?.code === "SHIPPING_METHOD_UNAVAILABLE")
+  && error.status === status
+  && (!code || error.code === code);
 
 function service(respond) {
   const calls = [];
@@ -79,13 +82,18 @@ test("only explicit private surcharge configuration can change the card total", 
   }
 });
 
-test("standard and express shipping use the existing worldwide subtotal tiers", async () => {
+test("standard shipping uses worldwide subtotal tiers and unavailable methods are rejected", async () => {
   assert.equal((await quote(fixture({ items: [{ name: "BPC-157", dose: "5 mg", quantity: 1 }] }))).amountCents, 13899);
   assert.equal((await quote(withQuantity(2))).shippingCents, 3999);
   assert.equal((await quote(withQuantity(3))).shippingCents, 0);
-  assert.equal((await quote({ ...withQuantity(1), shippingType: "express" })).shippingCents, 9999);
-  assert.equal((await quote({ ...withQuantity(3), shippingType: "express" })).shippingCents, 1999);
-  assert.equal((await quote({ ...withQuantity(4), shippingType: "express" })).shippingCents, 0);
+  await assert.rejects(
+    quote({ ...withQuantity(1), shippingType: "express" }),
+    isError(400, "SHIPPING_METHOD_UNAVAILABLE"),
+  );
+  await assert.rejects(
+    quote({ ...withQuantity(1), shippingType: "EXPRESS" }),
+    isError(400, "SHIPPING_METHOD_UNAVAILABLE"),
+  );
 });
 
 test("US inventory prices, free all-US shipping and mixed warehouse shipping remain separate", async () => {

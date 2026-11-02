@@ -4260,7 +4260,7 @@ export default function App() {
       setAppliedPromo(null);
     }
   }, [allOrders, appliedPromo]);
-  const [shippingType, setShippingType] = useState("standard");
+  const shippingType = "standard";
   const effectiveShippingType = cart.length > 0 && cart.every(i => i.fromWarehouse === "us") ? "us-warehouse" : shippingType;
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
@@ -4466,8 +4466,7 @@ export default function App() {
   const [language] = useState("EN");
   const catalogShippingCopy = {
     title: "WORLDWIDE SHIPPING",
-    express: "Express 5–7 business days",
-    standard: "Standard 8–12 business days",
+    standard: "Standard 4–8 calendar days",
   };
   const shippingPricesDiscountsCta =
     "CHECK SHIPPING RATES & AVAILABLE DISCOUNTS";
@@ -6419,7 +6418,13 @@ export default function App() {
     y += 4.5;
     doc.text("All products are for laboratory research use only. Not for human or animal use.", margin, y);
     y += 4.5;
-    doc.text(`Shipping method: ${order.shippingType || "standard"}`, margin, y);
+    const shippingType = String(order.shippingType || "standard").toLowerCase();
+    const shippingMethod = shippingType === "us-warehouse"
+      ? "US Warehouse"
+      : shippingType === "express"
+        ? "Worldwide"
+        : "Standard";
+    doc.text(`Shipping method: ${shippingMethod}`, margin, y);
     if (order.trackingNumber) { doc.text(`Tracking: ${order.trackingNumber}`, margin + 75, y); }
 
     doc.save(`Invoice_${getAdminInvoiceLabel(order).replace(/[^A-Z0-9-]/gi, "") || "order"}.pdf`);
@@ -7611,7 +7616,7 @@ export default function App() {
       heroBulletPayment: "CARDS & CASH APP & PAYPAL & CRYPTO.",
       heroBulletDesign: "MINIMAL DESIGN. SIMPLE AND CLEAR.",
       heroBullet3: "SAME QUALITY. BETTER VALUE.",
-      heroBullet4: "WORLDWIDE STANDARD & EXPRESS SHIPPING.",
+      heroBullet4: "WORLDWIDE STANDARD SHIPPING.",
       heroBulletWarehouse: "US WAREHOUSE SHIPPING.",
       enterShop: "Enter Shop",
       learnMore: "Learn More",
@@ -7858,7 +7863,7 @@ export default function App() {
       heroBulletPayment: "CARDS & CASH APP & PAYPAL & CRYPTO.",
       heroBulletDesign: "DISEÑO MINIMALISTA. SIMPLE Y CLARO.",
       heroBullet3: "MISMA CALIDAD. MEJOR PRECIO.",
-      heroBullet4: "ENVÍO MUNDIAL ESTÁNDAR & EXPRESS.",
+      heroBullet4: "ENVÍO MUNDIAL ESTÁNDAR.",
       heroBulletWarehouse: "US WAREHOUSE SHIPPING.",
       enterShop: "Entrar a la tienda",
       learnMore: "Más información",
@@ -7982,7 +7987,7 @@ export default function App() {
       heroBulletPayment: "CARDS & CASH APP & PAYPAL & CRYPTO.",
       heroBulletDesign: "MINIMALES DESIGN. EINFACH UND KLAR.",
       heroBullet3: "GLEICHE QUALITÄT. BESSERER WERT.",
-      heroBullet4: "WELTWEITER STANDARD & EXPRESS-VERSAND.",
+      heroBullet4: "WELTWEITER STANDARDVERSAND.",
       heroBulletWarehouse: "US WAREHOUSE SHIPPING.",
       enterShop: "Shop öffnen",
       learnMore: "Mehr erfahren",
@@ -8216,11 +8221,8 @@ export default function App() {
     "SHIPPING & DISCOUNTS": "ENVÍO Y DESCUENTOS",
     "ORDER VALUE": "VALOR DEL PEDIDO",
     "STANDARD SHIPPING": "ENVÍO ESTÁNDAR",
-    "EXPRESS SHIPPING": "ENVÍO EXPRESS",
-    "STANDARD WORLDWIDE SHIPPING TAKES APPROXIMATELY 8–12 BUSINESS DAYS DEPENDING ON LOCATION.":
-      "EL ENVÍO ESTÁNDAR MUNDIAL TARDA APROXIMADAMENTE 8–12 DÍAS HÁBILES SEGÚN LA UBICACIÓN.",
-    "EXPRESS SHIPPING IS AVAILABLE WORLDWIDE. DELIVERY TAKES APPROXIMATELY 5–7 BUSINESS DAYS.":
-      "EL ENVÍO EXPRESS ESTÁ DISPONIBLE EN TODO EL MUNDO. LA ENTREGA TARDA APROXIMADAMENTE 5–7 DÍAS HÁBILES.",
+    "STANDARD WORLDWIDE SHIPPING TAKES APPROXIMATELY 4–8 CALENDAR DAYS DEPENDING ON LOCATION.":
+      "EL ENVÍO ESTÁNDAR MUNDIAL TARDA APROXIMADAMENTE 4–8 DÍAS NATURALES SEGÚN LA UBICACIÓN.",
 
     "COMMUNITY BONUS": "BONO DE LA COMUNIDAD",
     "AFTER RECEIVING YOUR ORDER": "DESPUÉS DE RECIBIR TU PEDIDO",
@@ -8434,11 +8436,8 @@ export default function App() {
     "SHIPPING & DISCOUNTS": "VERSAND & RABATTE",
     "ORDER VALUE": "BESTELLWERT",
     "STANDARD SHIPPING": "STANDARDVERSAND",
-    "EXPRESS SHIPPING": "EXPRESSVERSAND",
-    "STANDARD WORLDWIDE SHIPPING TAKES APPROXIMATELY 8–12 BUSINESS DAYS DEPENDING ON LOCATION.":
-      "STANDARD-WELTVERSAND DAUERT JE NACH STANDORT CA. 8–12 WERKTAGE.",
-    "EXPRESS SHIPPING IS AVAILABLE WORLDWIDE. DELIVERY TAKES APPROXIMATELY 5–7 BUSINESS DAYS.":
-      "EXPRESSVERSAND IST WELTWEIT VERFÜGBAR. DIE LIEFERUNG DAUERT CA. 5–7 WERKTAGE.",
+    "STANDARD WORLDWIDE SHIPPING TAKES APPROXIMATELY 4–8 CALENDAR DAYS DEPENDING ON LOCATION.":
+      "STANDARD-WELTVERSAND DAUERT JE NACH STANDORT CA. 4–8 KALENDERTAGE.",
     "COMMUNITY BONUS": "COMMUNITY-BONUS",
     "AFTER RECEIVING YOUR ORDER": "NACH ERHALT IHRER BESTELLUNG",
     "LEAVE AN HONEST REVIEW ON": "HINTERLASSEN SIE EINE EHRLICHE BEWERTUNG AUF",
@@ -8546,7 +8545,6 @@ export default function App() {
     Subtotal: "Zwischensumme",
     Total: "Gesamt",
     Standard: "Standard",
-    Express: "Express",
     "Street address *": "Straßenadresse *",
     "Postal code *": "Postleitzahl *",
     "Country *": "Land *",
@@ -8984,23 +8982,6 @@ export default function App() {
     const expanded = aliases[q] || q;
     return country.toLowerCase().includes(expanded) || country.toLowerCase().includes(q);
   });
-  const EXPRESS_ALLOWED_COUNTRIES = new Set([
-    "United States",
-    "Puerto Rico",
-    "Australia",
-    "Colombia",
-  ]);
-
-  const sortedCountryOptions = shippingType === "express"
-    ? [
-        ...filteredCountryOptions.filter(c => EXPRESS_ALLOWED_COUNTRIES.has(c)),
-        ...filteredCountryOptions.filter(c => !EXPRESS_ALLOWED_COUNTRIES.has(c)),
-      ]
-    : filteredCountryOptions;
-  const expressFirstCount = shippingType === "express"
-    ? filteredCountryOptions.filter(c => EXPRESS_ALLOWED_COUNTRIES.has(c)).length
-    : 0;
-
   const SITE_URL = "https://10bottlevalue.co";
   const SUPABASE_URL =
     import.meta.env.VITE_SUPABASE_URL ||
@@ -10578,18 +10559,6 @@ export default function App() {
     [cart]
   );
 
-  // Auto-switch to express when subtotal hits free express threshold ($550)
-  // Switch if: country is empty (not entered yet) OR country supports express
-  // Don't switch if: country is entered AND is NOT in the express-allowed list
-  useEffect(() => {
-    const country = (checkoutForm.country || "").trim();
-    const expressAllowed = new Set(["United States", "Puerto Rico", "Australia", "Colombia"]);
-    const countryBlocksExpress = country !== "" && !expressAllowed.has(country);
-    if (subtotal >= 550 && !countryBlocksExpress && shippingType === "standard") {
-      setShippingType("express");
-    }
-  }, [subtotal, checkoutForm.country]);
-
   const resolvedAffiliateCode = getResolvedAffiliateCode();
   const affiliateEligibilityKey = `${normalizeEmail(currentUser?.email)}:${resolvedAffiliateCode}`;
   useEffect(() => {
@@ -10715,11 +10684,6 @@ export default function App() {
   const automaticDiscount = autoWins ? discountAmount(subtotal, automaticDiscountRate) : 0;
   const affiliateDiscount = affiliateWins ? discountAmount(subtotal, affiliateDiscountRate) : 0;
   const getShippingPrice = (subtotal, type) => {
-    if (type === "express") {
-      if (subtotal >= 550) return 0;
-      if (subtotal >= 300) return 19.99;
-      return 99.99;
-    }
     // standard
     if (subtotal >= 300) return 0;
     if (subtotal >= 100) return 39.99;
@@ -12816,7 +12780,7 @@ export default function App() {
       setCountryDropdownRect(null);
       return;
     }
-    // country selected — no auto-switch; Express availability is enforced in the dropdown
+    // Worldwide checkout always uses Standard shipping.
     setCountrySearch(country);
     updateCheckoutField("country", country);
     setIsCountryDropdownOpen(false);
@@ -14402,13 +14366,11 @@ export default function App() {
                   <span className="text-[7px] text-white/65">{i18n(legal.ruoStrict)}</span>
                   <span>US WAREHOUSE FREE SHIPPING</span>
                   <span>FREE STANDARD SHIPPING $300+</span>
-                  <span>FREE EXPRESS SHIPPING $550+</span>
                 </div>
                 <div className="shipping-announcement-group" aria-hidden="true">
                   <span className="text-[7px] text-white/65">{i18n(legal.ruoStrict)}</span>
                   <span>US WAREHOUSE FREE SHIPPING</span>
                   <span>FREE STANDARD SHIPPING $300+</span>
-                  <span>FREE EXPRESS SHIPPING $550+</span>
                 </div>
               </div>
             </div>
@@ -14421,8 +14383,6 @@ export default function App() {
           <span className="whitespace-nowrap shrink-0">US WAREHOUSE FREE SHIPPING</span>
           <span className="text-white/30 font-light shrink-0">|</span>
           <span className="whitespace-nowrap shrink-0">FREE STANDARD SHIPPING $300+</span>
-          <span className="text-white/30 font-light shrink-0">|</span>
-          <span className="whitespace-nowrap shrink-0">FREE EXPRESS SHIPPING $550+</span>
         </div>
       </div>
       {coaLightbox && selectedProduct?.coaImages?.length > 0 && (
@@ -15043,7 +15003,6 @@ export default function App() {
                       <span className="text-base leading-none shrink-0">🌍</span>
                       <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5 leading-[1.15] text-white uppercase">
                         <span className="text-[10px] font-black uppercase tracking-[0.1em]">{catalogShippingCopy.title}</span>
-                        <span className="whitespace-nowrap text-[9px] font-semibold">{catalogShippingCopy.express}</span>
                         <span className="whitespace-nowrap text-[9px] font-semibold">{catalogShippingCopy.standard}</span>
                       </div>
                     </div>
@@ -15098,7 +15057,6 @@ export default function App() {
                       <span aria-hidden="true" className="bpc-catalog-announcement__icon">🌎</span>
                       <div className="bpc-catalog-announcement__copy bpc-catalog-announcement__shipping-copy">
                         <span className="bpc-catalog-announcement__title">{catalogShippingCopy.title}</span>
-                        <span className="bpc-catalog-announcement__shipping-line">{catalogShippingCopy.express}</span>
                         <span className="bpc-catalog-announcement__shipping-line">{catalogShippingCopy.standard}</span>
                       </div>
                     </div>
@@ -16444,7 +16402,7 @@ export default function App() {
                               {/* Email + shipping + payment */}
                               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-white/60">
                                 <span className="text-white/70">{order.email || "—"}</span>
-                                <span>{order.shippingType === "us-warehouse" ? "US Warehouse" : (order.shippingType || "standard") + " shipping"}</span>
+                                <span>{order.shippingType === "us-warehouse" ? "US Warehouse" : String(order.shippingType || "standard").toLowerCase() === "express" ? "Worldwide shipping" : "Standard shipping"}</span>
                                 <span className="flex items-center gap-1.5 flex-wrap">
                                   <select
                                     key={`pp-${order.id}-${order.paymentProvider || ""}`}
@@ -16924,7 +16882,7 @@ export default function App() {
                                 <div className="mt-3 flex flex-col gap-1 text-[11px] text-white/60">
                                   Shipping type
                                   <div className="flex gap-2 mt-0.5">
-                                    {[["standard","Standard"],["express","Express"],["us-warehouse","US Warehouse"]].map(([type,label]) => (
+                          {[["standard","Standard"],["us-warehouse","US Warehouse"]].map(([type,label]) => (
                                       <button
                                         key={type}
                                         type="button"
@@ -18290,7 +18248,7 @@ export default function App() {
                                           {/* Shipping + totals */}
                                           <div className="mt-3 pt-3 flex flex-wrap gap-x-6 gap-y-1 text-[11px]" style={{borderTop:"1px solid rgba(255,255,255,0.06)"}}>
                                             <span style={{color:"rgba(255,255,255,0.4)",display:"inline-flex",alignItems:"center",gap:4}}>
-                                              {calc.isExpress?"🚀 Express":"📦 Standard"} shipping: <span style={{color:"#f87171"}}>−$</span>
+                                              {calc.isExpress?"🌎 Worldwide":"📦 Standard"} shipping: <span style={{color:"#f87171"}}>−$</span>
                                               <OrderCostInput
                                                 value={calc.supplierShipping}
                                                 label="Supplier shipping cost"
@@ -19839,7 +19797,7 @@ export default function App() {
                                 })
                               : "—";
 
-                          const expressLabel = tx("Express", "Экспресс", "Експрес", "Express", "Exprés");
+                          const worldwideLabel = tx("Worldwide", "Международная", "Міжнародна", "Weltweit", "Mundial");
                           const standardLabel = tx("Standard", "Стандарт", "Стандарт", "Standard", "Estándar");
 
                           return currentAffiliate ? (
@@ -19865,7 +19823,7 @@ export default function App() {
                                     {affiliateCommissionLoading ? "…" : formatPricePrecise(pendingTotal)}
                                   </div>
                                   <div className="mt-1 text-[11px] leading-5 text-white/60">
-                                    {"Held during the return window (6 days US warehouse · 10 days express · 15 days standard)."}
+                                    {"Commissions are released after the applicable return window."}
                                   </div>
                                 </div>
                                 <div className="rounded-xl border border-white/10 bg-black/[0.18] px-4 py-3">
@@ -19901,7 +19859,7 @@ export default function App() {
                                         <span className="font-mono text-white/80">{row.orderId}</span>
                                         <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-white/60">
                                           <span className={`rounded-full border px-2 py-[2px] ${row.shippingType === "express" ? "border-white/30 bg-white/10 text-white" : "border-white/20 bg-black/[0.18] text-white/70"}`}>
-                                            {row.shippingType === "express" ? expressLabel : standardLabel}
+                                            {row.shippingType === "express" ? worldwideLabel : standardLabel}
                                           </span>
                                           <span className={row.available ? "text-emerald-300" : "text-amber-300"}>
                                             {row.available
@@ -20026,7 +19984,7 @@ export default function App() {
                                       <div className="flex items-center gap-2 flex-wrap">
                                         <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-300"><span className="w-1.5 h-1.5 rounded-full bg-emerald-300 inline-block"/>PAID</span>
                                         <span className="text-white/20">·</span>
-                                        <span className="text-[11px] text-white/60 capitalize">{order.shippingType === "us-warehouse" ? "US Warehouse" : (order.shippingType || "standard") + " shipping"}</span>
+                                        <span className="text-[11px] text-white/60">{order.shippingType === "us-warehouse" ? "US Warehouse" : String(order.shippingType || "standard").toLowerCase() === "express" ? "Worldwide shipping" : "Standard shipping"}</span>
                                       </div>
                                       <div className="flex items-center justify-between gap-2 mt-0.5">
                                         {(order.paidAt || order.createdAt) ? <span className="text-[11px] text-white/60">{new Date(order.paidAt || order.createdAt).toLocaleString(language === "RU" ? "ru-RU" : language === "UA" ? "uk-UA" : "en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span> : <span/>}
@@ -21067,32 +21025,32 @@ export default function App() {
                           <div className="mt-0.5 text-[11px] text-white">2–5 {tx("business days", "раб. дней", "роб. днів", "Werktage", "días háb.")}</div>
                         </div>
                       );
-                      const expressBlock = (
-                        <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-center">
-                          <div className="text-base">⚡</div>
-                          <div className="mt-1 text-sm font-black text-amber-300">{tx("Express Shipping", "Экспресс доставка", "Експрес доставка", "Express-Versand", "Envío exprés")}</div>
-                          <div className="mt-0.5 text-[11px] text-amber-300/70">5–7 {tx("business days", "раб. дней", "роб. днів", "Werktage", "días háb.")}</div>
+                      const worldwideBlock = (
+                        <div className="rounded-xl border border-white/15 bg-black/15 px-4 py-3 text-center">
+                          <div className="text-base">🌎</div>
+                          <div className="mt-1 text-sm font-black text-white">{tx("Worldwide Shipping", "Международная доставка", "Міжнародна доставка", "Weltweiter Versand", "Envío internacional")}</div>
+                          <div className="mt-0.5 text-[11px] text-white/70">{tx("Follow tracking updates for delivery timing.", "Срок доставки уточняйте по отслеживанию.", "Термін доставки дивіться за відстеженням.", "Aktuelle Lieferzeiten finden Sie in der Sendungsverfolgung.", "Consulta el seguimiento para conocer el plazo de entrega.")}</div>
                         </div>
                       );
                       const standardBlock = (
                         <div className="rounded-xl border border-white/15 bg-black/15 px-4 py-3 text-center">
                           <div className="text-base">📦</div>
                           <div className="mt-1 text-sm font-black text-white">{tx("Standard Shipping", "Стандартная доставка", "Стандартна доставка", "Standardversand", "Envío estándar")}</div>
-                          <div className="mt-0.5 text-[11px] text-white">8–12 {tx("business days", "раб. дней", "роб. днів", "Werktage", "días háb.")}</div>
+                          <div className="mt-0.5 text-[11px] text-white">4–8 {tx("calendar days", "календарных дней", "календарних днів", "Kalendertage", "días naturales")}</div>
                         </div>
                       );
 
-                      // Mixed order: US Warehouse items + regular items (standard or express shipping)
+                      // Mixed order: US Warehouse items + worldwide items.
                       if (hasUSWarehouse && hasRegular) return (
                         <div className="grid grid-cols-2 gap-3">
                           {usBlock}
-                          {isExpress ? expressBlock : standardBlock}
+                          {isExpress ? worldwideBlock : standardBlock}
                         </div>
                       );
                       // Only US Warehouse items
                       if (hasUSWarehouse) return usBlock;
-                      // Only regular items — express or standard
-                      if (isExpress) return expressBlock;
+                      // Only worldwide items.
+                      if (isExpress) return worldwideBlock;
                       return standardBlock;
                     })()}
                   </div>
@@ -21104,15 +21062,9 @@ export default function App() {
                   <div className="text-[10px] font-black uppercase tracking-[0.28em] text-white text-center mb-3">
                     {tx("Estimated delivery", "Примерные сроки доставки", "Орієнтовні терміни доставки", "Geschätzte Lieferzeit", "Entrega estimada")}
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-xl border border-white/8 bg-black/15 px-4 py-3 text-center">
-                      <div className="text-[10px] uppercase tracking-[0.15em] text-white/50">{tx("Standard", "Стандарт", "Стандарт", "Standard", "Estándar")}</div>
-                      <div className="mt-1 text-sm font-bold text-white">8–12 {tx("days", "дней", "днів", "Tage", "días")}</div>
-                    </div>
-                    <div className="rounded-xl border border-white/8 bg-black/15 px-4 py-3 text-center">
-                      <div className="text-[10px] uppercase tracking-[0.15em] text-white/50">{tx("Express", "Экспресс", "Експрес", "Express", "Exprés")}</div>
-                      <div className="mt-1 text-sm font-bold text-white">5–7 {tx("days", "дней", "днів", "Tage", "días")}</div>
-                    </div>
+                  <div className="rounded-xl border border-white/8 bg-black/15 px-4 py-3 text-center">
+                    <div className="text-[10px] uppercase tracking-[0.15em] text-white/50">{tx("Standard", "Стандарт", "Стандарт", "Standard", "Estándar")}</div>
+                    <div className="mt-1 text-sm font-bold text-white">{tx("4–8 calendar days", "4–8 календарных дней", "4–8 календарних днів", "4–8 Kalendertage", "4–8 días naturales")}</div>
                   </div>
                 </div>
                 )}
@@ -21365,26 +21317,19 @@ export default function App() {
                     </div>
                   ) : (
                   <>
-                  <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div className="mt-3 grid grid-cols-1 gap-3">
                     <button
                       type="button"
-                      onClick={() => setShippingType("standard")}
-                      className={`relative rounded-2xl border-2 px-4 py-3 text-left ${
-                        shippingType === "standard"
-                          ? "border-emerald-400 bg-black/60 text-white shadow-[0_0_0_3px_rgba(52,211,153,0.25),0_10px_30px_rgba(0,0,0,0.14)]"
-                          : "border-white/20 bg-black/60 text-white/70 hover:bg-black/60"
-                      }`}
+                      className="relative rounded-2xl border-2 border-emerald-400 bg-black/60 px-4 py-3 text-left text-white shadow-[0_0_0_3px_rgba(52,211,153,0.25),0_10px_30px_rgba(0,0,0,0.14)]"
                     >
-                      {shippingType === "standard" && (
-                        <div className={`absolute right-3 top-3 hidden sm:flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold text-white ${shippingHighlight ? "animate-check-pulse" : ""}`}>
-                          ✓ Selected
-                        </div>
-                      )}
+                      <div className={`absolute right-3 top-3 hidden sm:flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold text-white ${shippingHighlight ? "animate-check-pulse" : ""}`}>
+                        ✓ Selected
+                      </div>
                       <div className="text-[11px] font-semibold uppercase tracking-[0.22em]">
                         {tx("Standard", "Стандартная", "Стандартна")}
                       </div>
                       <div className="mt-1 text-sm text-white">
-                        8–12 business days
+                        {tx("4–8 calendar days", "4–8 календарных дней", "4–8 календарних дней", "4–8 Kalendertage", "4–8 días naturales")}
                       </div>
                       <div className="mt-2 flex items-center justify-between gap-2">
                         <div className="text-sm font-semibold text-white">
@@ -21396,71 +21341,12 @@ export default function App() {
                             ? tx("FREE", "БЕСПЛАТНО", "БЕЗКОШТОВНО", "KOSTENLOS", "GRATIS")
                             : formatPricePrecise(getShippingPrice(regularSubtotal, "standard"))}
                         </div>
-                        {shippingType === "standard" && (
-                          <div className={`flex sm:hidden items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-bold text-white ${shippingHighlight ? "animate-check-pulse" : ""}`}>
-                            ✓ Selected
-                          </div>
-                        )}
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setShippingType("express")}
-                      className={`relative rounded-2xl border-2 px-4 py-3 text-left ${
-                        shippingType === "express"
-                          ? "border-emerald-400 bg-black/60 text-white shadow-[0_0_0_3px_rgba(52,211,153,0.25),0_10px_30px_rgba(0,0,0,0.14)]"
-                          : "border-white/20 bg-black/60 text-white/70 hover:bg-black/60"
-                      }`}
-                    >
-                      {shippingType === "express" && (
-                        <div className="absolute right-3 top-3 hidden sm:flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold text-white">
+                        <div className={`flex sm:hidden items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-bold text-white ${shippingHighlight ? "animate-check-pulse" : ""}`}>
                           ✓ Selected
                         </div>
-                      )}
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.22em]">
-                        {tx("Express", "Экспресс", "Експрес")}
-                      </div>
-                      <div className="mt-1 text-sm text-white">
-                        5–7 business days
-                      </div>
-                      <div className="mt-2 flex items-center justify-between gap-2">
-                        <div className="text-sm font-semibold text-white">
-                          {cart.length === 0
-                            ? "—"
-                            : regularSubtotal === 0
-                            ? tx("FREE", "БЕСПЛАТНО", "БЕЗКОШТОВНО", "KOSTENLOS", "GRATIS")
-                            : getShippingPrice(regularSubtotal, "express") === 0
-                            ? tx("FREE", "БЕСПЛАТНО", "БЕЗКОШТОВНО", "KOSTENLOS", "GRATIS")
-                            : formatPricePrecise(getShippingPrice(regularSubtotal, "express"))}
-                        </div>
-                        {shippingType === "express" && (
-                          <div className="flex sm:hidden items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-bold text-white">
-                            ✓ Selected
-                          </div>
-                        )}
                       </div>
                     </button>
                   </div>
-
-                  {/* Warning: express selected but country doesn't support it */}
-                  {shippingType === "express" && checkoutForm.country && !EXPRESS_ALLOWED_COUNTRIES.has(checkoutForm.country) && (
-                    <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-red-300"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                        <span className="text-[11px] font-semibold text-red-200">
-                          Express unavailable for {checkoutForm.country}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setShippingType("standard")}
-                        className="shrink-0 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-white hover:bg-white/20 transition-colors"
-                      >
-                        Switch to Standard
-                      </button>
-                    </div>
-                  )}
                   </>
                   )}
 
@@ -21503,8 +21389,6 @@ export default function App() {
                       <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/50">
                         ({cart.length > 0 && regularSubtotal === 0
                           ? tx("US Warehouse", "Склад в США", "Склад у США", "US-Lager", "Almacén de EE. UU.")
-                          : shippingType === "express"
-                          ? tx("Express", "Экспресс", "Експрес", "Express", "Exprés")
                           : tx("Standard", "Стандарт", "Стандарт", "Standard", "Estándar")})
                       </span>
                     </span>
@@ -21623,24 +21507,6 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Free Express Shipping — $550 */}
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em]">
-                          <span className="text-sm leading-none">⚡</span>
-                          <span className={regularSubtotal >= 550 ? "text-emerald-300 font-bold" : "text-white"}>
-                            {tx("Free Express Shipping", "Бесплатный экспресс", "Безкоштовний експрес", "Kostenloser Expressversand", "Envío exprés gratis")}
-                          </span>
-                        </div>
-                        {regularSubtotal >= 550
-                          ? <span className="text-[11px] font-bold text-emerald-300">✓ FREE</span>
-                          : <span className="text-[11px] text-white">{formatPricePrecise(550 - regularSubtotal)} {tx("away", "до цели", "до цілі", "entfernt", "más")}</span>
-                        }
-                      </div>
-                      <div className="h-1 w-full overflow-hidden rounded-full bg-white/10">
-                        <div className="h-full rounded-full bg-sky-400 transition-all duration-700 ease-out" style={{ width: `${Math.min((regularSubtotal / 550) * 100, 100)}%` }} />
-                      </div>
-                    </div>
                     </>
                     )}
 
@@ -21950,41 +21816,17 @@ export default function App() {
                               style={{ position: "fixed", top: countryDropdownRect.top, left: countryDropdownRect.left, width: countryDropdownRect.width }}
                             >
                               <div ref={countryDropdownScrollRef} className="max-h-[260px] py-2 always-scrollbar" style={{ direction: "ltr" }}>
-                                {sortedCountryOptions.length > 0 ? sortedCountryOptions.map((country, idx) => {
-                                    const expressRestricted = !EXPRESS_ALLOWED_COUNTRIES.has(country);
-                                    const blockedByExpress = shippingType === "express" && expressRestricted;
-                                    const isDivider = expressFirstCount > 0 && expressFirstCount < sortedCountryOptions.length && idx === expressFirstCount;
-                                    return (
-                                      <div key={country}>
-                                        {isDivider && <div className="mx-4 my-1 border-t border-white/10" />}
-                                        <button
-                                          type="button"
-                                          onClick={() => !blockedByExpress && selectCountry(country)}
-                                          disabled={blockedByExpress}
-                                          className={`flex w-full items-center justify-between px-4 py-3 text-left text-sm ${blockedByExpress ? "cursor-not-allowed opacity-40 text-white/40" : "text-white hover:bg-black/20"}`}
-                                          style={{ textAlign: "left" }}
-                                        >
-                                          <span>{country}</span>
-                                          {shippingType === "express" && !expressRestricted && (
-                                            <span className="ml-2 shrink-0 rounded-md bg-emerald-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-emerald-300">
-                                              ✓ Express available
-                                            </span>
-                                          )}
-                                          {shippingType === "express" && expressRestricted && (<>
-                                            <span className="ml-2 shrink-0 hidden sm:inline rounded-md bg-red-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-red-300">
-                                              Express unavailable · Please select Standard
-                                            </span>
-                                            <span className="ml-2 shrink-0 sm:hidden w-[160px] overflow-hidden rounded-md bg-red-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-red-300">
-                                              <span className="badge-marquee-inner">
-                                                Express unavailable · Please select Standard &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-                                                Express unavailable · Please select Standard &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-                                              </span>
-                                            </span>
-                                          </>)}
-                                        </button>
-                                      </div>
-                                    );
-                                  })
+                                {filteredCountryOptions.length > 0 ? filteredCountryOptions.map((country) => (
+                                    <button
+                                      key={country}
+                                      type="button"
+                                      onClick={() => selectCountry(country)}
+                                      className="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-white hover:bg-black/20"
+                                      style={{ textAlign: "left" }}
+                                    >
+                                      <span>{country}</span>
+                                    </button>
+                                  ))
                                 : (
                                   <div className="px-4 py-3 text-sm text-white/60">
                                     {t("noCountryFound")}
@@ -22999,7 +22841,7 @@ export default function App() {
                                 {" "}
                                 <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/50">
                                   ({checkoutInvoice.shippingType === "us-warehouse" ? tx("US warehouse", "Склад США") : checkoutInvoice.shippingType === "express"
-                                    ? tx("Express", "Экспресс", "Експрес", "Express", "Exprés")
+                                    ? tx("Worldwide", "Международная", "Міжнародна", "Weltweit", "Mundial")
                                     : tx("Standard", "Стандарт", "Стандарт", "Standard", "Estándar")})
                                 </span>
                               </span>
