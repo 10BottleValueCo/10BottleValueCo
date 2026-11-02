@@ -10,7 +10,6 @@ import {
   ShieldCheck,
   Star,
   Truck,
-  Zap,
 } from "lucide-react";
 import "./ShippingPricesPage.css";
 
@@ -38,16 +37,16 @@ function IconBadge({ children, tone }) {
 
 function PriceTable({ rows, tx }) {
   return (
-    <div className="mt-4 max-w-[58%]">
+    <div className="mt-4 w-full max-w-[78%] sm:max-w-[62%] lg:max-w-[38%]">
       <div className="grid grid-cols-[1fr_auto] gap-3 border-b border-white/20 pb-2 text-[9px] font-semibold uppercase tracking-[0.2em] text-white/65">
         <span>{tx("Order value", "Сумма заказа", "Сума замовлення", "Bestellwert", "Valor del pedido")}</span>
-        <span className="pr-2">{tx("Price", "Цена", "Ціна", "Preis", "Precio")}</span>
+        <span className="shipping-price-column whitespace-nowrap pr-2">{tx("Shipping Price", "Цена доставки", "Ціна доставки", "Versandpreis", "Precio de envío")}</span>
       </div>
       <div className="divide-y divide-white/10">
         {rows.map(([range, price]) => (
           <div key={range} className="grid grid-cols-[1fr_auto] items-center gap-3 py-2 text-[13px] font-medium text-white sm:text-sm">
             <span>{range}</span>
-            <span className="min-w-[72px] rounded-md bg-white/10 px-3 py-1 text-center font-bold shadow-inner shadow-white/5">
+            <span className="shipping-price-column min-w-[72px] rounded-md bg-white/10 px-3 py-1 text-center font-bold shadow-inner shadow-white/5">
               {price}
             </span>
           </div>
@@ -88,11 +87,6 @@ export default function ShippingPricesPage({
     ["$0 – $99", "$59.99"],
     ["$100 – $299", "$39.99"],
     ["$300+", "FREE"],
-  ];
-  const expressRows = [
-    ["$0 – $299", "$99.99"],
-    ["$300 – $549", "$19.99"],
-    ["$550+", "FREE"],
   ];
   const shippingBenefits = [
     {
@@ -174,9 +168,12 @@ export default function ShippingPricesPage({
         </h1>
       </header>
 
-      <section aria-label={tx("Shipping options", "Варианты доставки", "Варіанти доставки")} className="grid gap-3 sm:gap-4 lg:grid-cols-3 2xl:gap-6">
+      <section
+        aria-label={tx("Shipping options", "Варианты доставки", "Варіанти доставки")}
+        className="grid w-full gap-4 sm:gap-5 lg:grid-cols-2 2xl:gap-6"
+      >
         <article
-          className="relative flex min-h-[238px] flex-col justify-between overflow-hidden rounded-2xl border border-white/15 bg-slate-950 bg-cover bg-center p-4 shadow-[0_12px_30px_rgba(0,0,0,.28)] sm:min-h-[224px] sm:p-4 xl:min-h-[248px] xl:p-5 2xl:min-h-[280px] 2xl:p-6"
+          className="relative flex min-h-[240px] flex-col justify-between overflow-hidden rounded-2xl border border-white/15 bg-slate-950 bg-cover bg-center p-4 shadow-[0_12px_30px_rgba(0,0,0,.28)] sm:min-h-[250px] sm:p-4 xl:min-h-[270px] xl:p-5 2xl:min-h-[290px] 2xl:p-6"
           style={shippingBackground("shipping-warehouse", "warehouse")}
         >
           <div className="relative z-10 flex items-center gap-3">
@@ -207,9 +204,9 @@ export default function ShippingPricesPage({
             </div>
           </div>
 
-          <div className="relative z-10 flex items-center gap-2 rounded-lg border border-white/15 bg-black/55 px-3 py-2 text-xs leading-snug text-white/90 backdrop-blur-sm sm:text-[13px] 2xl:text-sm">
-            <Info size={16} className="shrink-0 text-white" />
-            <p className="translate-y-3">
+          <div className="relative z-10 flex items-start gap-2 rounded-lg border border-white/15 bg-black/55 px-3 py-2 text-xs leading-snug text-white/90 backdrop-blur-sm sm:text-[13px] 2xl:text-sm">
+            <Info size={16} className="mt-0.5 shrink-0 text-white" />
+            <p>
               {tx(
                 <>Select the <strong>"SHOP (US WAREHOUSE)"</strong> tab to get free delivery from our U.S. warehouse in 2–5 business days.</>,
                 <>Выберите вкладку <strong>«SHOP (US WAREHOUSE)»</strong>, чтобы получить бесплатную доставку со склада в США за 2–5 рабочих дней.</>,
@@ -222,57 +219,36 @@ export default function ShippingPricesPage({
         </article>
 
         <article
-          className="relative flex min-h-[238px] flex-col overflow-hidden rounded-2xl border border-white/15 bg-slate-950 bg-cover bg-center p-4 shadow-[0_12px_30px_rgba(0,0,0,.28)] sm:min-h-[224px] sm:p-4 xl:min-h-[248px] xl:p-5 2xl:min-h-[280px] 2xl:p-6"
+          className="relative flex min-h-[240px] flex-col overflow-hidden rounded-2xl border border-white/15 bg-slate-950 bg-cover bg-center p-4 shadow-[0_12px_30px_rgba(0,0,0,.28)] sm:min-h-[250px] sm:p-4 xl:min-h-[270px] xl:p-5 2xl:min-h-[290px] 2xl:p-6"
           style={shippingBackground("shipping-worldwide")}
         >
-          <div className="relative z-10 flex items-center gap-3">
-            <IconBadge tone="blue"><Globe size={21} strokeWidth={2} /></IconBadge>
-            <div>
-              <h2 className="text-[14px] font-extrabold uppercase leading-tight tracking-wide text-white sm:text-[15px]">
-                {tx("Standard Shipping", "Стандартная доставка", "Стандартна доставка", "Standardversand", "Envío estándar")}
-              </h2>
-              <p className="text-[10px] text-white/70">({tx("worldwide", "по всему миру", "по всьому світу", "weltweit", "mundial")})</p>
+          <div className="relative z-10 flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <IconBadge tone="blue"><Globe size={21} strokeWidth={2} /></IconBadge>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                  <h2 className="text-[14px] font-extrabold uppercase leading-tight tracking-wide text-white sm:text-[15px]">
+                    {tx("Standard Shipping", "Стандартная доставка", "Стандартна доставка", "Standardversand", "Envío estándar")}
+                  </h2>
+                  <span className="shrink-0 text-[14px] font-extrabold uppercase leading-tight tracking-wide text-white sm:text-[15px]">
+                    4–8 DAYS
+                  </span>
+                </div>
+                <p className="text-[10px] text-white/70">({tx("worldwide", "по всему миру", "по всьому світу", "weltweit", "mundial")})</p>
+              </div>
             </div>
           </div>
           <div className="relative z-10 flex-1">
             <PriceTable rows={standardRows} tx={tx} />
           </div>
           <div className="relative z-10 mt-2 flex items-center gap-2 rounded-lg border border-white/15 bg-black/55 px-3 py-2 text-xs leading-snug text-white/90 backdrop-blur-sm sm:text-[13px] 2xl:text-sm">
-            <Truck size={18} className="shrink-0 text-white" />
-            <p className="translate-y-3">{tx(
-              "Standard worldwide shipping takes approximately 8–12 business days depending on location.",
-              "Стандартная доставка по всему миру занимает примерно 8–12 рабочих дней в зависимости от местоположения.",
-              "Стандартна доставка по всьому світу займає приблизно 8–12 робочих днів залежно від місця.",
-              "Der weltweite Standardversand dauert je nach Standort etwa 8–12 Werktage.",
-              "El envío estándar internacional tarda aproximadamente 8–12 días hábiles, según el destino."
-            )}</p>
-          </div>
-        </article>
-
-        <article
-          className="relative flex min-h-[238px] flex-col overflow-hidden rounded-2xl border-0 bg-slate-950 bg-cover bg-center p-4 shadow-[0_12px_30px_rgba(0,0,0,.28)] sm:min-h-[224px] sm:p-4 xl:min-h-[248px] xl:p-5 2xl:min-h-[280px] 2xl:p-6"
-          style={shippingBackground("shipping-express")}
-        >
-          <div className="relative z-10 flex items-center gap-3">
-            <IconBadge tone="amber"><Zap size={21} strokeWidth={2.2} /></IconBadge>
-            <div>
-              <h2 className="text-[14px] font-extrabold uppercase leading-tight tracking-wide text-white sm:text-[15px]">
-                {tx("Express Shipping", "Экспресс-доставка", "Експрес-доставка", "Expressversand", "Envío exprés")}
-              </h2>
-              <p className="text-[10px] text-white/70">({tx("worldwide", "по всему миру", "по всьому світу", "weltweit", "mundial")})</p>
-            </div>
-          </div>
-          <div className="relative z-10 flex-1">
-            <PriceTable rows={expressRows} tx={tx} />
-          </div>
-          <div className="relative z-10 mt-2 flex items-center gap-2 rounded-lg border border-white/15 bg-black/55 px-3 py-2 text-xs leading-snug text-white/90 backdrop-blur-sm sm:text-[13px] 2xl:text-sm">
-            <Zap size={17} className="shrink-0 text-amber-300" />
-            <p className="translate-y-3">{tx(
-              "Express worldwide shipping takes approximately 5–7 business days depending on location.",
-              "Экспресс-доставка по всему миру занимает примерно 5–7 рабочих дней в зависимости от местоположения.",
-              "Експрес-доставка по всьому світу займає приблизно 5–7 робочих днів залежно від місця.",
-              "Der weltweite Expressversand dauert je nach Standort etwa 5–7 Werktage.",
-              "El envío exprés internacional tarda aproximadamente 5–7 días hábiles, según el destino."
+            <Info size={18} className="shrink-0 text-white" />
+            <p>{tx(
+              "Standard worldwide shipping takes approximately 4–8 calendar days depending on location.",
+              "Стандартная доставка по всему миру занимает примерно 4–8 календарных дней в зависимости от местоположения.",
+              "Стандартна доставка по всьому світу займає приблизно 4–8 календарних днів залежно від місця.",
+              "Der weltweite Standardversand dauert je nach Standort etwa 4–8 Kalendertage.",
+              "El envío estándar internacional tarda aproximadamente 4–8 días naturales, según el destino."
             )}</p>
           </div>
         </article>
