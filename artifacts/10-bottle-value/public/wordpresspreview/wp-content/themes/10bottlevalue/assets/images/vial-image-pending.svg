@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1000" role="img" aria-labelledby="title description">
+  <title id="title">Product image pending</title>
+  <desc id="description">A neutral placeholder. The source artwork does not identify this product correctly.</desc>
+  <g fill="none" stroke="#b9c3cc" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="304" y="205" width="192" height="70" rx="14" stroke-width="9"/>
+    <path d="M328 275v62c0 22-38 35-38 67v288c0 32 22 51 50 51h120c28 0 50-19 50-51V404c0-32-38-45-38-67v-62" stroke-width="9" stroke-dasharray="18 16"/>
+    <rect x="313" y="445" width="174" height="158" rx="12" fill="#a7b7c4" fill-opacity=".08" stroke-width="3"/>
+    <path d="M400 480v51m0 36v2" stroke-width="12"/>
+  </g>
+  <g fill="#e5ebf0" font-family="Arial, sans-serif" text-anchor="middle">
+    <text x="400" y="830" font-size="31" font-weight="700" letter-spacing="2">IMAGE PENDING</text>
+    <text x="400" y="873" font-size="22" fill="#acbac6">Source artwork requires correction</text>
+  </g>
+</svg>

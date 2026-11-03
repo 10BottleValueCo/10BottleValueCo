@@ -1,0 +1,50 @@
+# 10BottleValueCo persistent staging. Local listener only; public access is via the ngrok tunnel.
+{
+	auto_https off
+	admin localhost:2019
+	servers {
+		trusted_proxies static 127.0.0.1/32 ::1
+	}
+}
+
+http://127.0.0.1:8088, http://localhost:8088, http://staging.example.invalid:8088 {
+	bind 127.0.0.1
+	root * /srv/tbv-staging/wordpress
+	encode zstd gzip
+
+	@blocked {
+		path /xmlrpc.php /wp-config.php /wp-config-sample.php /readme.html /license.txt /wp-trackback.php /wp-links-opml.php /wp-signup.php /wp-activate.php
+		path /wp-content/debug.log /wp-content/upgrade/* *.sqlite *.sql *.env *.bak
+		path /.git/* /.ht*
+	}
+	respond @blocked 404
+
+	@admingate {
+		path /wp-admin /wp-admin/* /wp-login.php
+		not path /wp-admin/admin-ajax.php /wp-admin/js/* /wp-admin/css/* /wp-admin/images/*
+	}
+	basic_auth @admingate {
+		tbv-admin-gate <bcrypt hash from: caddy hash-password>
+	}
+
+	@static path /wp-content/themes/*/public/* /wp-includes/* /wp-content/plugins/*/assets/*
+	header @static Cache-Control "public, max-age=86400"
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options SAMEORIGIN
+		-Server
+	}
+
+	php_fastcgi 127.0.0.1:9000 {
+		trusted_proxies private_ranges
+	}
+	file_server
+	log {
+		output file /srv/tbv-staging/logs/caddy-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format json
+	}
+}

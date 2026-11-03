@@ -1,0 +1,20 @@
+<?php
+defined('ABSPATH') || exit;
+$product = get_query_var('tbv_card_product');
+$warehouse = get_query_var('tbv_card_warehouse', 'worldwide');
+$variants = tbv_variants($product, $warehouse);
+if (!$variants) return;
+$doses = array_values(array_unique(array_column($variants, 'dose')));
+$formulations = array_values(array_unique(array_filter(array_column($variants, 'formulation'))));
+$default = $variants[0];
+foreach ($variants as $variant) if ($variant['pack'] === 10 && $variant['available']) { $default = $variant; break; }
+$name = $product->get_name();
+$data = ['productId' => $product->get_id(), 'variants' => $variants, 'defaultId' => $default['id']];
+?>
+<article class="bpc-catalog-card bpc-catalog-card--quantity-list bpc-catalog-card--catalog bpc-catalog-card--<?php echo $warehouse === 'us' ? 'us-warehouse' : 'worldwide'; ?> <?php echo strlen($name)>18 ? 'bpc-catalog-card--long-name' : ''; ?>" data-tbv-product="<?php echo esc_attr(wp_json_encode($data)); ?>" data-search="<?php echo esc_attr(strtolower($name . ' ' . $product->get_meta('_tbv_aliases'))); ?>">
+<a class="bpc-catalog-card__product-link" href="<?php echo esc_url(get_permalink($product->get_id())); ?>"><div class="bpc-catalog-card__vial"><?php if($default['image']): ?><img data-product-image src="<?php echo esc_url($default['image']); ?>" alt="<?php echo esc_attr($name); ?> vial" loading="lazy"><?php endif; ?><span class="bpc-catalog-card__per-vial" aria-hidden="true"><strong><span class="bpc-catalog-card__per-vial-dollar">$</span><span data-per-vial><?php echo esc_html(rtrim(rtrim(number_format($default['price'] / max(1,$default['pack']),1,'.',''),'0'),'.')); ?></span></strong><span class="bpc-catalog-card__per-vial-unit">per vial</span></span><?php if($warehouse==='us'): ?><span class="bpc-catalog-card__badges"><span class="bpc-catalog-card__badge bpc-catalog-card__badge--us">🇺🇸 US</span></span><?php endif; ?></div><h2 class="bpc-catalog-card__title"><span><?php echo esc_html($name); ?></span></h2></a>
+<div class="bpc-catalog-card__dosages"><label class="tbv-dose-label"><span class="screen-reader-text">Dosage per vial</span><select class="bpc-catalog-card__select" data-dose><?php foreach($doses as $dose): ?><option value="<?php echo esc_attr($dose); ?>" <?php selected($dose,$default['dose']); ?>><?php echo esc_html(strtoupper($dose)); ?> · Dosage per vial</option><?php endforeach; ?></select></label></div>
+<?php if($formulations): ?><label class="tbv-dose-label tbv-formulation"><span class="screen-reader-text">Formulation</span><select class="bpc-catalog-card__select" data-formulation><?php foreach($formulations as $formulation): ?><option value="<?php echo esc_attr($formulation); ?>" <?php selected($formulation,$default['formulation']); ?>><?php echo esc_html($formulation); ?></option><?php endforeach; ?></select></label><?php endif; ?>
+<div class="bpc-catalog-card__packs" role="group" aria-label="Select quantity"><?php foreach([1,5,10] as $pack): ?><button class="bpc-catalog-card__pack <?php echo $default['pack']===$pack ? 'is-selected' : ''; ?>" type="button" data-vials="<?php echo esc_attr($pack); ?>" aria-pressed="<?php echo $default['pack']===$pack ? 'true':'false'; ?>"><span class="bpc-catalog-card__radio" aria-hidden="true"></span><span><?php echo esc_html($pack . ($pack===1?' Vial':' Vials')); ?></span><strong data-pack-price></strong></button><?php endforeach; ?></div>
+<form class="bpc-catalog-card__cart-action" method="post" action="<?php echo esc_url(tbv_shop_url($warehouse)); ?>"><input type="hidden" name="add-to-cart" value="<?php echo esc_attr($product->get_id()); ?>"><input type="hidden" name="product_id" value="<?php echo esc_attr($product->get_id()); ?>"><input type="hidden" name="variation_id" value="<?php echo esc_attr($default['id']); ?>"><input type="hidden" name="quantity" value="1"><span data-variation-inputs></span><button class="bpc-catalog-card__cart-button tbv-add-button" type="submit" <?php disabled(!$default['available']); ?>><?php echo $default['available'] ? 'Add to Cart' : 'Out of stock'; ?></button></form>
+</article>

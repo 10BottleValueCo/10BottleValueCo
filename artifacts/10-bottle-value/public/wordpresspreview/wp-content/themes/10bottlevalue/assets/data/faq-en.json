@@ -1,0 +1,112 @@
+[
+  {
+    "q": "What will show on my card or PayPal statement?",
+    "id": "billing-descriptor",
+    "a": "Charges from this website appear on your card or PayPal statement as \"10BottleValueCo\". This matches our business name so you can always recognize the charge and avoid unnecessary disputes."
+  },
+  {
+    "q": "Can I combine discounts or promo codes?",
+    "id": "combine-discounts",
+    "a": "No, discounts and promo codes cannot be combined.\n\nIf multiple discounts apply (such as order-based discounts or promo codes), only one can be used per order. We recommend using the highest available discount."
+  },
+  {
+    "q": "Are you the cheapest?",
+    "id": "cheapest",
+    "a": "Our 10-vial kit model is designed for cost-efficient research purchasing. By selling only in bundled kits, we reduce unnecessary packaging and single-vial handling costs while maintaining consistent quality standards."
+  },
+  {
+    "q": "Why only 10-vial kits?",
+    "id": "ten-vial-kits",
+    "a": "Single vials are the most expensive way to buy. Our 10-vial kit model lowers the cost per vial and keeps the process simple."
+  },
+  {
+    "q": "Do you ship worldwide?",
+    "id": "ship-worldwide",
+    "a": "Yes. All orders are fulfilled by trusted international supply partners. Products are shipped directly from our partners to the customer. We periodically restock our US warehouse, making select items available for faster domestic shipping."
+  },
+  {
+    "q": "How long does shipping take?",
+    "id": "shipping-time",
+    "a": "Standard worldwide shipping takes approximately 8–12 business days. Express shipping takes approximately 5–7 business days (worldwide).\n\nUS Warehouse shipping (within the USA) takes approximately 2–5 business days.\n\nDelivery times may vary depending on customs and local postal services."
+  },
+  {
+    "q": "Can I modify or cancel my order?",
+    "id": "modify-cancel-order",
+    "a": "If your order has already been shipped, it can no longer be cancelled or returned."
+  },
+  {
+    "q": "What if I entered the wrong shipping address?",
+    "id": "wrong-shipping-address",
+    "a": "If you entered an incorrect shipping address, please contact support@10bottlevalue.co as soon as possible - ideally within 8 hours of placing your order.\n\nWe can update the address before the order is shipped. Once the order has been dispatched, changes are no longer possible, but we’ll assist you with tracking or redirecting the package if supported by the carrier."
+  },
+  {
+    "q": "What payment methods do you accept?",
+    "id": "payment-methods",
+    "a": "We currently accept cryptocurrency payments through secure checkout. Card payments are under review and will be available after approval."
+  },
+  {
+    "q": "Why is the price lower?",
+    "id": "lower-price",
+    "a": "The price is lower because of our bulk model. We do not sell single vials, which allows us to reduce cost without lowering quality."
+  },
+  {
+    "q": "How can I be sure the products are high quality?",
+    "id": "high-quality",
+    "a": "We partner with vetted manufacturers and maintain strict quality control across all batches.\n\nCOA reports for our most popular peptides are available directly on the product pages. For other products, COAs are available upon request at support@10bottlevalue.co. Not every peptide undergoes third-party COA testing — this is what allows us to keep our prices so low.\n\nWe guarantee 97%+ purity. If an independent lab test shows otherwise, you get a full refund. Refunds are issued in cryptocurrency only.\n\nPlease note: when submitting vials for COA testing, a photo of our vials is required. Without it, we cannot confirm the vials were ours and will be unable to process a refund.\n\nWe will also request proof of payment to the lab — or proof of a free submission — to confirm that you were the one who sent the vials."
+  },
+  {
+    "q": "Is this legit?",
+    "id": "legit",
+    "a": "Yes. The brand is built around long-term trust, consistent quality controls, transparent policies, and a straightforward research purchasing experience."
+  },
+  {
+    "q": "What if there is an issue with my order?",
+    "id": "order-issue",
+    "a": "Due to the nature of our products, all sales are final and items cannot be returned once shipped. However, if you receive a damaged, defective, or incorrect item, please contact our support team within 7 days of delivery. We will review your case and arrange a replacement where appropriate."
+  },
+  {
+    "q": "Are these products for human use?",
+    "id": "human-use",
+    "a": "No. All products are sold strictly for laboratory research purposes only and are not intended for human or animal use."
+  },
+  {
+    "q": "How can I track my order?",
+    "id": "track-order",
+    "a": "Within 2 business days after payment, your tracking number will appear in your account in the 'Orders' section. You can use it to track your shipment directly."
+  },
+  {
+    "q": "What if my package tracking stops updating?",
+    "id": "tracking-stops",
+    "a": "If your package tracking hasn’t updated for an extended period, please contact our support team. You are welcome to reach out at any time to inquire about the status and progress of your shipment — we are always happy to help and will provide an update as quickly as possible. Each case is reviewed individually to ensure a fast resolution."
+  },
+  {
+    "q": "I didn’t receive an order confirmation email. What should I do?",
+    "id": "confirmation-email",
+    "a": "If you don’t see a confirmation email within a few minutes, please check your spam or junk folder first.\n\nIf it’s not there, the email address may have been entered incorrectly. Contact our support team at support@10bottlevalue.co and we’ll resend your confirmation and verify your order details."
+  },
+  {
+    "q": "Are all your peptides lyophilized?",
+    "id": "lyophilized",
+    "a": "Yes — peptide materials are supplied in lyophilized (freeze-dried) form unless otherwise stated. Reconstitution Solution is provided as a liquid and is not lyophilized. Product format details are listed for identification and research documentation purposes only."
+  },
+  {
+    "q": "Do you provide COA reports?",
+    "id": "coa-reports",
+    "a": "Yes — COAs are available upon request. We don’t publish full reports publicly as they may contain supplier-sensitive information. However, all reports include purity and content verification."
+  },
+  {
+    "q": "Do you provide usage instructions for products?",
+    "id": "usage-instructions",
+    "a": "No. All products are sold strictly for research purposes only. We do not provide any guidance or instructions for human or animal use."
+  },
+  {
+    "q": "Do all products have a Certificate of Analysis (COA)?",
+    "id": "coa",
+    "a": "No. We currently carry 117 peptide positions, and obtaining a Certificate of Analysis for each one is extremely costly. However, rest assured — our peptide manufacturing facility guarantees quality and high purity for every product."
+  },
+  {
+    "q": "Are all the products you sell listed in the catalog?",
+    "id": "not-all-products-in-catalog",
+    "a": "No, not all the products we sell are listed in the catalog. If you have a specific product in mind that you don't see, reach out to us — we may be able to find a solution for you."
+  }
+]
