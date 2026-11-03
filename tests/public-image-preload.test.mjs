@@ -21,13 +21,13 @@ const functionSource = name => {
   return source.slice(node.start, node.end).replaceAll('import.meta.env.BASE_URL', '"/"');
 };
 
-function fixture({ page = 'home', mobile = false, gate = false, language = 'EN' } = {}) {
+function fixture({ page = 'home', mobile = false, language = 'EN' } = {}) {
   const calls = [];
   const scheduled = [];
   const states = [];
   const cancelled = [];
   const context = vm.createContext({
-    page, language, researcherEntryGateActive: gate,
+    page, language,
     worldwideCatalogBackground: '/catalog.webp', faqBackgroundImage: '/faq.webp',
     laboratoryBackgroundImage: '/lab.webp', legalPolicyBackgroundImage: '/legal.webp',
     cashAppLogo: '/cash-app.svg', bitcoinLogo: '/bitcoin.svg', paypalMark: '/paypal.svg',
@@ -136,13 +136,6 @@ test('other routes warm only their own rendered background and no speculative vi
   }
   const dependencies = warmingEffect.arguments[1].elements.map(node => node.name);
   assert.ok(dependencies.includes('page'), 'navigation replaces the current-route warmup');
-});
-
-test('entry gate prevents background warmup until acceptance', () => {
-  const f = fixture({ gate: true });
-  assert.equal(f.effect(), undefined);
-  assert.deepEqual(f.scheduled, []);
-  assert.deepEqual(f.calls, []);
 });
 
 test('navigation cleanup cancels queued work and cannot start requests for the previous route', async () => {
